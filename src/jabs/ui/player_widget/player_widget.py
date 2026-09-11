@@ -81,7 +81,6 @@ class PlayerWidget(QtWidgets.QWidget):
         # properties to control video overlays managed by PlayerThread
         self._label_closest = False
         self._show_track = False
-        self._overlay_segmentation = False
         self._overlay_landmarks = False
         self._identities = []
 
@@ -287,7 +286,6 @@ class PlayerWidget(QtWidgets.QWidget):
             self._show_track,
             self._identities,
             self._overlay_landmarks,
-            self._overlay_segmentation,
             playback_speed=self._frame_widget.playback_speed,
         )
         self._player_thread.newImage.connect(self._display_image)
@@ -505,11 +503,14 @@ class PlayerWidget(QtWidgets.QWidget):
         )
 
     def overlay_segmentation(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay segmentation' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_segmentation",
-            self._player_thread.setOverlaySegmentation if self._player_thread else None,
-            enabled,
+        """Toggle or set the 'overlay segmentation' overlay state.
+
+        Unlike the overlays the player thread bakes into the frame, this one is painted
+        over the frame already on screen, so there is nothing to re-decode: the frame
+        widget repaints itself.
+        """
+        self._frame_widget.segmentation_overlay_enabled = (
+            not self._frame_widget.segmentation_overlay_enabled if enabled is None else enabled
         )
 
     def overlay_landmarks(self, enabled: bool | None = None) -> None:
@@ -682,14 +683,20 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_label.setText(f"{frame_number}:{self._video_stream.num_frames - 1}")
         self._time_label.setText(self._video_stream.get_frame_time(frame_number))
 
-    @QtCore.Slot(QtGui.QImage)
-    def _display_image(self, image: QtGui.QImage) -> None:
+    @QtCore.Slot(QtGui.QImage, int)
+    def _display_image(self, image: QtGui.QImage, frame_number: int) -> None:
         """display a new frame sent from the player thread
 
         Args:
             image (QImage): frame ready for display as emitted by player thread
+            frame_number (int): index of the frame the image was decoded from
+
+        The frame number comes from the player thread with the image, not from
+        ``current_frame``: the position slider it reads is updated by a separate signal
+        that arrives after this one during playback, so the overlays would be drawn
+        against the previous frame.
         """
-        self._frame_widget.update_frame(image, self.current_frame)
+        self._frame_widget.update_frame(image, frame_number)
 
     @QtCore.Slot(int)
     def _on_frame_number_changed(self, frame_number: int) -> None:

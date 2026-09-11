@@ -19,6 +19,7 @@ class StubPose:
         identities: list[int] | None = None,
         has_segmentation: bool = False,
         hulls_present: bool = True,
+        contours: bool = False,
     ) -> None:
         self.num_frames = num_frames
         self.identities = [0] if identities is None else identities
@@ -31,12 +32,18 @@ class StubPose:
         # overlay_segmentation() checks the pose version before asking for contours
         self.format_major_version = 6 if has_segmentation else 5
         self.segmentation_calls: list[tuple[int, int]] = []
+        # Contour data, shaped the way a pose file stores it: a fixed number of
+        # slots and points per identity, padded with -1 where unused.
+        self._contours = None
+        if contours:
+            self._contours = np.full((2, 6, 2), -1, dtype=np.int32)
+            self._contours[0, :4] = [(20, 20), (40, 20), (40, 40), (20, 40)]
         self._frame_offsets = np.arange(num_frames)
 
     def get_segmentation_data_per_frame(self, frame_index: int, identity: int):
-        """Record the request; no contours, matching a file without segmentation."""
+        """Record the request and return contours only when asked to carry them."""
         self.segmentation_calls.append((frame_index, identity))
-        return None
+        return self._contours
 
     @staticmethod
     def get_connected_segments():

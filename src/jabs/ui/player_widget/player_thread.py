@@ -5,13 +5,12 @@ from PySide6 import QtCore, QtGui
 
 from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
+from jabs.pose_estimation import PoseEstimation
 from jabs.video_reader import (
     VideoReader,
     draw_track,
     mark_identity,
     overlay_landmarks,
-    overlay_segmentation,
 )
 
 
@@ -27,11 +26,14 @@ class PlayerThread(QtCore.QThread):
         show_track (bool, optional): Whether to show the track overlay. Defaults to False.
         identities (list[str], optional): List of all identities. Defaults to None.
         overlay_landmarks_flag (bool, optional): Whether to overlay landmarks. Defaults to False.
-        overlay_segmentation_flag (bool, optional): Whether to overlay segmentation. Defaults to False.
         label_closest (bool, optional): Whether to label the closest animal. Defaults to False.
 
     Signals:
-        newImage (QImage): Emitted with a new QImage for the PlayerWidget to display.
+        newImage (QImage, int): Emitted with a new QImage for the PlayerWidget to
+            display, and the index of the frame it was decoded from. The index travels
+            with the image rather than being read from ``updatePosition``: the overlays
+            are drawn from the frame number the widget was given, so an image paired
+            with a stale number draws every overlay a frame behind the video.
         updatePosition (int): Emitted with the current frame index
         endOfFile: Emitted when the end of the video is reached.
     """
@@ -40,14 +42,13 @@ class PlayerThread(QtCore.QThread):
     _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
 
     # signals used to update the UI components from the thread
-    newImage = QtCore.Signal(QtGui.QImage)
+    newImage = QtCore.Signal(QtGui.QImage, int)
     updatePosition = QtCore.Signal(int)
     endOfFile = QtCore.Signal()
 
     # signals used to update the properties of PlayerThread in a thread-safe manner
     setLabelClosest = QtCore.Signal(bool)
     setShowTrack = QtCore.Signal(bool)
-    setOverlaySegmentation = QtCore.Signal(bool)
     setOverlayLandmarks = QtCore.Signal(bool)
     setActiveIdentity = QtCore.Signal(int)
     setPlaybackSpeed = QtCore.Signal(float)
@@ -60,7 +61,6 @@ class PlayerThread(QtCore.QThread):
         show_track: bool = False,
         identities: list[str] | None = None,
         overlay_landmarks_flag: bool = False,
-        overlay_segmentation_flag: bool = False,
         label_closest: bool = False,
         playback_speed: float = 1.0,
     ):
@@ -71,14 +71,12 @@ class PlayerThread(QtCore.QThread):
         self._identity = identity
         self._show_track = show_track
         self._overlay_landmarks = overlay_landmarks_flag
-        self._overlay_segmentation = overlay_segmentation_flag
         self._label_closest = label_closest
         self._identities = identities if identities is not None else []
         self._playback_speed = playback_speed
 
         self.setLabelClosest.connect(self._set_label_closest)
         self.setShowTrack.connect(self._set_show_track)
-        self.setOverlaySegmentation.connect(self._set_overlay_segmentation)
         self.setOverlayLandmarks.connect(self._set_overlay_landmarks)
         self.setActiveIdentity.connect(self._set_identity)
         self.setPlaybackSpeed.connect(self._set_playback_speed)
@@ -101,11 +99,6 @@ class PlayerThread(QtCore.QThread):
         self._show_track = value
 
     @QtCore.Slot(bool)
-    def _set_overlay_segmentation(self, new_val: bool):
-        """set the overlay segmentation property"""
-        self._overlay_segmentation = new_val
-
-    @QtCore.Slot(bool)
     def _set_overlay_landmarks(self, new_val: bool):
         """set the overlay landmarks property"""
         self._overlay_landmarks = new_val
@@ -118,7 +111,7 @@ class PlayerThread(QtCore.QThread):
         frame = self._video_reader.load_next_frame()
         image = self._prepare_image(frame)
         self.updatePosition.emit(frame["index"])
-        self.newImage.emit(image)
+        self.newImage.emit(image, frame["index"])
 
     def _prepare_image(self, frame: dict) -> QtGui.QImage | None:
         if frame["data"] is None:
@@ -127,16 +120,6 @@ class PlayerThread(QtCore.QThread):
         if self._identity is not None:
             if self._show_track:
                 draw_track(frame["data"], self._pose_est, self._identity, frame["index"])
-
-            if self._overlay_segmentation and isinstance(self._pose_est, PoseEstimationV6):
-                for ident in range(self._pose_est.num_identities):
-                    overlay_segmentation(
-                        frame["data"],
-                        self._pose_est,
-                        identity=ident,
-                        frame_index=frame["index"],
-                        active=(ident == self._identity),
-                    )
 
             if self._label_closest:
                 closest_fov_id = self._get_closest_animal_id(
@@ -181,7 +164,12 @@ class PlayerThread(QtCore.QThread):
                 bytes_per_line,
                 QtGui.QImage.Format.Format_RGB888,
             )
-            return image
+            # copy() so the QImage owns its pixels. The constructor above only wraps
+            # `img_rgb`, which this method drops on return, and during playback the
+            # image reaches the GUI thread through a queued signal - the array is long
+            # gone by the time anything reads from it. Do not remove this to save a
+            # copy: what it buys is that the buffer cannot be freed underneath Qt.
+            return image.copy()
         else:
             raise ValueError("Unsupported image format: expected 3 channels (BGR/RGB)")
 
@@ -229,7 +217,7 @@ class PlayerThread(QtCore.QThread):
                 # send the new frame and the frame index to the UI components
                 # unless playback was stopped while we were sleeping
                 if not self.isInterruptionRequested():
-                    self.newImage.emit(image)
+                    self.newImage.emit(image, frame["index"])
                     self.updatePosition.emit(frame["index"])
 
                 # update timestamp for when should the next frame be shown

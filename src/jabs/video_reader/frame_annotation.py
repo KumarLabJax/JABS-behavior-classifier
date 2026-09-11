@@ -1,12 +1,9 @@
 import cv2
 import numpy as np
 
-from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
+from jabs.pose_estimation import PoseEstimation
 
 _ID_COLOR = (215, 222, 0)
-_ACTIVE_COLOR = (0, 0, 255)
-_INACTIVE_COLOR = (255, 0, 0)
-
 _FUTURE_TRACK_COLOR = (61, 61, 255)
 _PAST_TRACK_COLOR = (135, 135, 255)
 
@@ -125,86 +122,6 @@ def draw_track(
     # convert to numpy array for opencv
     past_track_points = np.asarray(past_track_points, dtype=np.int32)
     cv2.polylines(img, [past_track_points], False, _PAST_TRACK_COLOR, 1)
-
-
-def trim_seg(arr: np.ndarray) -> np.ndarray | None:
-    """Trims a single contour.  Returns an opencv-complaint contour (dtype = int).
-
-    Args:
-        arr: A numpy array with contour data.
-
-    Returns:
-        np.ndarray
-    """
-    assert arr.ndim == 2
-    return_arr = arr[np.all(arr != -1, axis=1), :]
-    if len(return_arr) > 0:
-        return return_arr.astype(int)
-    return None
-
-
-def trim_seg_list(arr: np.ndarray) -> list:
-    """Trims all contours for an individual.
-
-    Args:
-        arr: A numpy array with contour data.
-
-    Returns:
-        list
-    """
-    assert arr.ndim == 3
-    return [trim_seg(x) for x in arr if np.any(x != -1)]
-
-
-def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: tuple[int, int, int]):
-    """Draw all contours given data for a particular mouse in a particular video frame.
-
-    Args:
-        img: The current video frame.
-        seg_data: This will be the segmentation for a particular frame
-            and identity.
-        color: color of segmentation contours rendered on the GUI.
-
-    Returns:
-        None
-    """
-    trimmed_contours = trim_seg_list(seg_data)
-    cv2.drawContours(img, trimmed_contours, -1, color, 1)
-
-
-def overlay_segmentation(
-    img: np.ndarray,
-    pose_est: PoseEstimationV6,
-    identity: int,
-    frame_index: int,
-    active: bool,
-) -> None:
-    """overlay the segmentation on a frame for a given identity
-
-    Args:
-        img: The current video frame.
-        pose_est: This will be a pose estimation object >= v6.
-        identity: This integer identifies which mouse the segmentation
-            will be applied to.
-        frame_index: This integer identifies the current video frame
-            index.
-        active: Whether this identity is the active identity in the GUI.
-             If True, segmentation contours will be drawn in red, otherwise blue.
-
-    Returns:
-        None
-    """
-    # No segmentation data to display
-    if pose_est.format_major_version < 6:
-        return
-
-    contours = pose_est.get_segmentation_data_per_frame(frame_index, identity)
-
-    if contours is None:
-        # No segmentation data available to render.
-        return
-
-    draw_all_contours(img, contours, _ACTIVE_COLOR if active else _INACTIVE_COLOR)
 
 
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):

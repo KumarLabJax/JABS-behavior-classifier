@@ -2,15 +2,14 @@
 
 Shared by the GUI's "Export Frame", the GUI's "Export Video with Overlays", and
 ``jabs-cli export-video``, so an overlay looks the same whichever asked for it. They
-do not ask for the same ones: only the video export passes a prediction overlay. Segmentation
-contours are baked into the BGR frame by the headless drawing in
-:mod:`jabs.video_reader.frame_annotation`; the pose keypoints and skeleton, and the
-per-identity prediction markers, are then painted on top with the shared drawing in
-:mod:`jabs.overlay_drawing`.
+do not ask for the same ones: only the video export passes a prediction overlay. Every
+overlay is painted with the shared drawing in :mod:`jabs.overlay_drawing`, in the order
+the player paints them: segmentation contours, then the pose keypoints and skeleton,
+then the per-identity prediction markers.
 
-Sharing the GUI's drawing is deliberate. A second cv2 reimplementation would
-inevitably drift, and an exported video that does not match what the player shows is
-worse than no export at all.
+Sharing the GUI's drawing is deliberate. A second reimplementation would inevitably
+drift, and an exported video that does not match what the player shows is worse than no
+export at all.
 
 That means this module depends on Qt, which is fine: PySide6 is a hard dependency
 of this package. Painting targets a ``QImage`` rather than a ``QPixmap``, and
@@ -29,12 +28,13 @@ from PySide6 import QtGui
 
 from jabs.overlay_drawing import (
     draw_identity_pose,
+    draw_identity_segmentation,
     draw_label_marker,
     label_marker_color,
     native_label_marker_sizes,
     native_pose_sizes,
+    native_segmentation_line_width,
 )
-from jabs.video_reader import overlay_segmentation
 
 from .caption import draw_overlay_caption
 
@@ -63,7 +63,7 @@ def render_overlay_frame(
         pose_est: Pose estimation for the video the frame came from.
         frame_index: Index of this frame within the video.
         draw_pose: Whether to draw the pose keypoints and skeleton.
-        draw_segmentation: Whether to bake segmentation contours in as well.
+        draw_segmentation: Whether to draw the segmentation contours as well.
             Ignored when the pose file carries no segmentation data - it predates
             v6, or is v6+ but was generated without it.
         prediction_overlay: Predictions to mark next to each identity, with the
@@ -78,14 +78,10 @@ def render_overlay_frame(
         img = img.astype(np.uint8)
 
     # `has_segmentation` rather than a version check: segmentation is optional even
-    # in v6+ files, and skipping the loop avoids a no-op call per identity per frame.
-    if draw_segmentation and getattr(pose_est, "has_segmentation", False):
-        for identity in pose_est.identities:
-            overlay_segmentation(
-                img, pose_est, identity=identity, frame_index=frame_index, active=True
-            )
+    # in v6+ files, and this skips a no-op call per identity per frame.
+    segmentation = draw_segmentation and getattr(pose_est, "has_segmentation", False)
 
-    if not draw_pose and prediction_overlay is None:
+    if not segmentation and not draw_pose and prediction_overlay is None:
         return img
 
     # QImage wraps this buffer, so painting below writes straight into `rgb`.
@@ -101,6 +97,18 @@ def render_overlay_frame(
     painter = QtGui.QPainter(qimage)
     painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
     try:
+        if segmentation:
+            for identity in pose_est.identities:
+                draw_identity_segmentation(
+                    painter,
+                    pose_est,
+                    frame_index,
+                    identity,
+                    to_output=to_native,
+                    line_width=native_segmentation_line_width(width, height),
+                    active=True,
+                )
+
         if draw_pose:
             keypoint_size, line_width = native_pose_sizes(width, height)
             for identity in pose_est.identities:
