@@ -240,3 +240,25 @@ def _marker_colors(rendered: np.ndarray, source: np.ndarray) -> set[tuple[int, i
     """Return the distinct colors the overlay painted onto the frame."""
     changed = (rendered != source).any(axis=2)
     return {tuple(int(c) for c in pixel) for pixel in rendered[changed]}
+
+
+def test_segmentation_contours_are_drawn(blank_frame: np.ndarray) -> None:
+    """Contours reach the rendered frame, in the active color an export draws them in."""
+    pose = StubPose(has_segmentation=True, contours=True)
+
+    result = render_overlay_frame(blank_frame, pose, 0, draw_pose=False)
+
+    changed = _marker_colors(result, blank_frame)
+    assert changed, "no contour was drawn"
+    # Frames are BGR, so the red the exporter draws contours in is the last channel.
+    assert any(red > green and red > blue for blue, green, red in changed)
+
+
+def test_segmentation_contours_can_be_switched_off(blank_frame: np.ndarray) -> None:
+    """An unticked segmentation box leaves the frame alone, data or no data."""
+    pose = StubPose(has_segmentation=True, contours=True)
+
+    result = render_overlay_frame(blank_frame, pose, 0, draw_pose=False, draw_segmentation=False)
+
+    assert (result == blank_frame).all()
+    assert pose.segmentation_calls == []

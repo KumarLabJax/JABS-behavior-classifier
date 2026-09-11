@@ -14,6 +14,7 @@ from .overlays.floating_id_overlay import FloatingIdOverlay
 from .overlays.label_overlay import LabelOverlay
 from .overlays.overlay import Overlay
 from .overlays.pose_overlay import PoseOverlay
+from .overlays.segmentation_overlay import SegmentationOverlay
 
 
 class FrameWithOverlaysWidget(QtWidgets.QLabel):
@@ -23,6 +24,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
     This widget displays a number of interactive overlays on top of the video frame, including
       * a controls overlay, which is displayed when the mouse is over the frame pixmap area.
       * an overlay for displaying timeline annotations for the current frame.
+      * an overlay for displaying segmentation contours.
       * an overlay for displaying pose estimation keypoints and skeletons.
       * an overlay for displaying identity labels, which can be in different modes.
       * an overlay for displaying labels next to each mouse, which can be manual labels or predictions.
@@ -89,6 +91,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._control_overlay.contrast_changed.connect(self._on_contrast_changed)
 
         self._annotation_overlay = AnnotationOverlay(self)
+        self._segmentation_overlay = SegmentationOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
         floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
         bbox_overlay = BoundingBoxOverlay(self)
@@ -97,6 +100,9 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         # overlays are listed in the order they should be painted
         # an overlay on top of another overlay will have priority when handling click events
         self.overlays: list[Overlay] = [
+            # segmentation goes first: the contours used to be drawn into the frame
+            # itself, so everything else was painted over them
+            self._segmentation_overlay,
             PoseOverlay(self),
             LabelOverlay(self),
             bbox_overlay,
@@ -115,6 +121,18 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         """Set whether the annotation overlay is enabled."""
         if self._annotation_overlay.enabled != enabled:
             self._annotation_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def segmentation_overlay_enabled(self) -> bool:
+        """Get whether the segmentation overlay is enabled."""
+        return self._segmentation_overlay.enabled
+
+    @segmentation_overlay_enabled.setter
+    def segmentation_overlay_enabled(self, enabled: bool) -> None:
+        """Set whether the segmentation overlay is enabled."""
+        if self._segmentation_overlay.enabled != enabled:
+            self._segmentation_overlay.enabled = enabled
             self.update()
 
     @property

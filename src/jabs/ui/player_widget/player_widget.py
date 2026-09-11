@@ -81,7 +81,6 @@ class PlayerWidget(QtWidgets.QWidget):
         # properties to control video overlays managed by PlayerThread
         self._label_closest = False
         self._show_track = False
-        self._overlay_segmentation = False
         self._overlay_landmarks = False
         self._identities = []
 
@@ -287,7 +286,6 @@ class PlayerWidget(QtWidgets.QWidget):
             self._show_track,
             self._identities,
             self._overlay_landmarks,
-            self._overlay_segmentation,
             playback_speed=self._frame_widget.playback_speed,
         )
         self._player_thread.newImage.connect(self._display_image)
@@ -505,11 +503,14 @@ class PlayerWidget(QtWidgets.QWidget):
         )
 
     def overlay_segmentation(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay segmentation' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_segmentation",
-            self._player_thread.setOverlaySegmentation if self._player_thread else None,
-            enabled,
+        """Toggle or set the 'overlay segmentation' overlay state.
+
+        Unlike the overlays the player thread bakes into the frame, this one is painted
+        over the frame already on screen, so there is nothing to re-decode: the frame
+        widget repaints itself.
+        """
+        self._frame_widget.segmentation_overlay_enabled = (
+            not self._frame_widget.segmentation_overlay_enabled if enabled is None else enabled
         )
 
     def overlay_landmarks(self, enabled: bool | None = None) -> None:

@@ -1,6 +1,6 @@
 """Shared Qt drawing for the overlays JABS paints on a video frame.
 
-Two kinds of overlay live here, both drawn the same way by every caller:
+Three kinds of overlay live here, all drawn the same way by every caller:
 
 * the pose skeleton (:func:`draw_identity_pose`), drawn by the on-screen
   :class:`~jabs.ui.player_widget.overlays.pose_overlay.PoseOverlay` at the scaled and
@@ -9,6 +9,10 @@ Two kinds of overlay live here, both drawn the same way by every caller:
 * the per-identity behavior label/prediction marker (:func:`draw_label_marker`), drawn
   by the on-screen :class:`~jabs.ui.player_widget.overlays.label_overlay.LabelOverlay`
   and by the same video export.
+* the per-identity segmentation contours (:func:`draw_identity_segmentation`), drawn by
+  the on-screen
+  :class:`~jabs.ui.player_widget.overlays.segmentation_overlay.SegmentationOverlay` and
+  by both exports.
 
 The only thing that differs between callers is how image coordinates map to the
 painter's coordinate space, so that mapping is passed in as ``to_output``, and how
@@ -47,6 +51,13 @@ from .labels import (
     native_label_marker_sizes,
 )
 from .scaling import native_overlay_scale
+from .segmentation import (
+    SEGMENTATION_ACTIVE_COLOR,
+    SEGMENTATION_INACTIVE_COLOR,
+    draw_identity_segmentation,
+    identity_contours,
+    native_segmentation_line_width,
+)
 from .skeleton import (
     KEYPOINT_SIZE,
     LINE_SEGMENT_COLOR,
@@ -62,10 +73,15 @@ __all__ = [
     "LABEL_MARKER_SIZE",
     "LINE_SEGMENT_COLOR",
     "NOT_BEHAVIOR_COLOR",
+    "SEGMENTATION_ACTIVE_COLOR",
+    "SEGMENTATION_INACTIVE_COLOR",
     "draw_identity_pose",
+    "draw_identity_segmentation",
     "draw_label_marker",
+    "identity_contours",
     "label_marker_color",
     "native_label_marker_sizes",
     "native_overlay_scale",
     "native_pose_sizes",
+    "native_segmentation_line_width",
 ]

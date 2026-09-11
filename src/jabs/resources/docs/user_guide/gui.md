@@ -141,6 +141,7 @@ Clicking the video or moving the mouse off the video frame will dismiss the slid
   - **View→Show Track:** show/hide track overlay for the subject. The track overlay shows the nose position for the previous 5 frames and the next 10 frames. The nose position for the next 10 frames is colored red, and the previous 5 frames it is a shade of pink.
   - **View→Overlay Pose:** toggle the overlay of the pose on top of the subject mouse
   - **View→Overlay Landmarks:** toggle the overlay of arena landmarks over the video.
+  - **View→Overlay Segmentation:** toggle the overlay of segmentation contours over each animal. The selected animal's contours are red and the others blue. Requires a pose file with segmentation data (version 6 or newer, generated with segmentation); the overlay draws nothing otherwise.
 - **Features:** Menu item for controlling per-behavior classifier settings. Menu items are disabled when at least 1 pose file in the project does not contain the data to calculate features.
   - **Features→CM Units:** toggle using CM or pixel units (Warning! Changing this will require features to be re-calculated)
   - **Features→Enable Window Features:** toggle using statistical window features
