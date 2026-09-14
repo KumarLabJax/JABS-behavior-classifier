@@ -43,6 +43,7 @@ class RecordingStore(AnnotationStore):
         self.loaded: list[str] = []
         self.saved: list[str] = []
         self.hydrated: list[str] = []
+        self.deleted: list[str] = []
 
     def document_path(self, video_name: str) -> Path:
         """Report where this video's document would be cached."""
@@ -52,6 +53,11 @@ class RecordingStore(AnnotationStore):
         """Record the hydration request and report the document path."""
         self.hydrated.append(video_name)
         return self.document_path(video_name)
+
+    def delete_document(self, video_name: str) -> bool:
+        """Record the deletion and drop the in-memory document."""
+        self.deleted.append(video_name)
+        return self.documents.pop(annotation_filename(video_name), None) is not None
 
     def has_document(self, video_name: str) -> bool:
         """Report whether this store holds a document for the video."""
@@ -119,16 +125,34 @@ def test_video_manager_shares_the_project_store(project: Project) -> None:
     assert project.video_manager.annotation_store is project.annotation_store
 
 
-def test_video_manager_builds_its_own_store_when_not_given_one(tmp_path: Path) -> None:
-    """A standalone VideoManager still has a store over the project directory."""
+def test_video_manager_requires_an_explicit_store(tmp_path: Path) -> None:
+    """A VideoManager cannot be built without saying which store it reads from.
+
+    The store is deliberately not defaulted: silently constructing a second one
+    would let a caller that forgot to pass the project's store read local JSON
+    files while appearing to work.
+    """
     paths = ProjectPaths(base_path=tmp_path)
     paths.create_directories(validate=False)
+
+    with pytest.raises(TypeError, match="annotation_store"):
+        VideoManager(paths, SettingsManager(paths), enable_video_check=False, scan_results={})
+
+
+def test_video_manager_uses_the_store_it_is_given(tmp_path: Path) -> None:
+    """The store passed in is the one the manager reports and reads from."""
+    paths = ProjectPaths(base_path=tmp_path)
+    paths.create_directories(validate=False)
+    given = LocalAnnotationStore(tmp_path / "elsewhere")
     manager = VideoManager(
-        paths, SettingsManager(paths), enable_video_check=False, scan_results={}
+        paths,
+        SettingsManager(paths),
+        enable_video_check=False,
+        scan_results={},
+        annotation_store=given,
     )
 
-    assert isinstance(manager.annotation_store, LocalAnnotationStore)
-    assert manager.annotation_store.annotations_dir == paths.annotations_dir
+    assert manager.annotation_store is given
 
 
 def test_save_annotations_writes_through_the_store(

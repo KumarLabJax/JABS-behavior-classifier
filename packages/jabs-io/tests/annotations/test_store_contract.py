@@ -145,3 +145,28 @@ def test_document_path_does_not_create_anything(store: AnnotationStore) -> None:
 
     assert not path.exists()
     assert store.has_document(_VIDEO) is False
+
+
+def test_delete_document_removes_it(store: AnnotationStore) -> None:
+    """A deleted document is gone from the store, not just from a cached copy."""
+    store.save_document(_VIDEO, _document())
+
+    assert store.delete_document(_VIDEO) is True
+    assert store.has_document(_VIDEO) is False
+    assert store.load_document(_VIDEO) is None
+
+
+def test_delete_document_reports_when_there_was_nothing(store: AnnotationStore) -> None:
+    """Deleting an unlabeled video is not an error, and says nothing was removed."""
+    assert store.delete_document(_VIDEO) is False
+
+
+def test_delete_document_leaves_other_videos_alone(store: AnnotationStore) -> None:
+    """Deletion is per video."""
+    store.save_document("video1.avi", _document())
+    store.save_document("video2.mp4", _document())
+
+    store.delete_document("video1.avi")
+
+    assert store.has_document("video1.avi") is False
+    assert store.has_document("video2.mp4") is True

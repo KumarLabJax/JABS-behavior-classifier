@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import uuid
 from pathlib import Path
 
 from .base import (
@@ -42,11 +44,26 @@ def read_document(path: Path) -> AnnotationDocumentContent | None:
 
 
 def write_document(path: Path, document: AnnotationDocumentContent) -> None:
-    """Write a serialized annotation document to a JSON file atomically.
+    """Write a serialized annotation document to a JSON file.
 
-    The document is written to a sibling temporary file and then renamed over
-    the destination, so a crash mid-write cannot leave a truncated annotation
-    file behind. Missing parent directories are created.
+    The document goes to a sibling temporary file which is then renamed over the
+    destination, so a reader never sees a half-written document and a failed
+    write leaves the previous one intact. Missing parent directories are
+    created.
+
+    The temporary name is **unique per write**, not a fixed ``<video>.json.tmp``.
+    Two writers against the same project directory - a GUI session alongside
+    ``jabs-cli merge`` or ``update_labels``, or simply two GUI instances - would
+    otherwise share one temporary file and could interleave into a published
+    document that is a mixture of both. With distinct temporaries the rename
+    decides, so one write wins whole.
+
+    The rename is deliberately **not** fsynced. A process crash cannot corrupt
+    the document, but a power loss or kernel panic can still lose the most
+    recent save, because the rename may reach disk before the data blocks do.
+    The GUI writes this file on every label edit, so an fsync would put disk
+    latency directly in the labeling path; durability against power loss is not
+    worth that here.
 
     Args:
         path: Path to write the annotation JSON file to.
@@ -56,10 +73,20 @@ def write_document(path: Path, document: AnnotationDocumentContent) -> None:
         OSError: If the file cannot be written.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    with tmp.open("w") as f:
-        json.dump(document, f, indent=2)
-    tmp.replace(path)
+    # os.open/Path.open rather than tempfile.mkstemp: mkstemp forces 0600, which
+    # would make annotation files unreadable to other members of a lab sharing a
+    # project directory. A normal create respects the user's umask, as this has
+    # always done.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with tmp.open("w") as f:
+            json.dump(document, f, indent=2)
+        tmp.replace(path)
+    except BaseException:
+        # a unique temporary would otherwise accumulate in the project directory
+        # on every failed write
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 class LocalAnnotationStore(AnnotationStore):
@@ -100,6 +127,26 @@ class LocalAnnotationStore(AnnotationStore):
             video_name: Video filename the document belongs to.
         """
         return self.document_path(video_name)
+
+    def delete_document(self, video_name: str) -> bool:
+        """Delete a video's annotation file.
+
+        Args:
+            video_name: Video filename the document belongs to.
+
+        Returns:
+            ``True`` if a file was deleted, ``False`` if none existed.
+
+        Raises:
+            OSError: If the file exists but cannot be deleted.
+        """
+        path = self.document_path(video_name)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return False
+        logger.debug("Deleted annotation document %s", path)
+        return True
 
     def has_document(self, video_name: str) -> bool:
         """Return whether an annotation file exists for a video.

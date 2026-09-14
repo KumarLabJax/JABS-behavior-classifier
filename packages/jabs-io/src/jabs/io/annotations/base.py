@@ -106,6 +106,24 @@ class AnnotationStore(ABC):
         """
 
     @abstractmethod
+    def delete_document(self, video_name: str) -> bool:
+        """Remove a video's annotation document from the store.
+
+        Deleting through the store rather than unlinking
+        :meth:`document_path` is what makes the removal reach the authority.
+        For a remote store, unlinking the cached file would leave the
+        authoritative document in place, and the next sync would bring the
+        labels back.
+
+        Args:
+            video_name: Video filename the document belongs to.
+
+        Returns:
+            ``True`` if a document was removed, ``False`` if the store held
+            none for this video.
+        """
+
+    @abstractmethod
     def has_document(self, video_name: str) -> bool:
         """Return whether the store holds an annotation document for a video.
 

@@ -379,22 +379,28 @@ if document is not None:
 store.save_document("video1.avi", labels.as_dict(pose))
 ```
 
-`LocalAnnotationStore` is the only implementation today: it writes each document
-atomically (temp file + rename) into the project's annotations directory. Because a
-project directory keeps no version history, it reports every document at the
-`UNVERSIONED` sentinel and ignores the `base_version` argument; that argument exists so
-a store that *does* detect concurrent writes can be added without re-touching callers.
+`LocalAnnotationStore` is the only implementation today: it writes each document into the
+project's annotations directory through a uniquely named temporary file that is then
+renamed into place, so a reader never sees a half-written document and two writers cannot
+interleave into one. (The rename is not fsynced — the GUI saves on every label edit, and
+disk latency does not belong in that path.) Because a project directory keeps no version
+history, it reports every document at the `UNVERSIONED` sentinel and ignores the
+`base_version` argument; that argument exists so a store that *does* detect concurrent
+writes can be added without changing these signatures.
 
 The unit of storage is the **serialized document dict**, not a `VideoLabels` object.
 Building a `VideoLabels` requires pose data, so serialization stays in
 `src/jabs/project/video_labels.py` and the store only moves dicts. Keeping that boundary
 is what allows the store to live in `jabs-io` at all.
 
-Two rules when adding code that touches labels:
+Three rules when adding code that touches labels:
 
 - **Go through the store**, not through `project_paths.annotations_dir`. Use
   `has_document()` / `document_path()` when you only need to know whether a document
   exists or where it would be, and `load_document()` when you need its content.
+- **Delete through `delete_document()`**, never by unlinking `document_path()`. On a
+  store that is a cache over a remote authority, unlinking the local file removes the
+  copy and leaves the original to come back on the next sync.
 - **Worker processes get a path, not a store.** Call `store.ensure_local(video)` in the
   parent to materialize the document, pass the returned path into the job spec, and parse
   it in the child with `jabs.io.annotations.read_document()`. A store may be backed by

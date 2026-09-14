@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -96,6 +97,79 @@ def test_save_leaves_no_temporary_file_behind(annotations_dir: Path) -> None:
     store.save_document(_VIDEO, _DOCUMENT)
 
     assert sorted(p.name for p in annotations_dir.iterdir()) == ["video1.json"]
+
+
+def test_delete_document_unlinks_the_file(annotations_dir: Path) -> None:
+    """Deleting through the store removes the annotation file from disk."""
+    store = LocalAnnotationStore(annotations_dir)
+    store.save_document(_VIDEO, _DOCUMENT)
+
+    assert store.delete_document(_VIDEO) is True
+    assert not (annotations_dir / "video1.json").exists()
+
+
+def test_concurrent_writers_do_not_share_a_temporary_file(annotations_dir: Path) -> None:
+    """Two interleaved writes cannot mix into one published document.
+
+    A fixed ``<video>.json.tmp`` would let a second writer scribble into the
+    first writer's staging file, publishing a mixture of the two. Each write
+    gets its own temporary, so the rename decides and one write lands whole.
+    """
+    store = LocalAnnotationStore(annotations_dir)
+    first = {**_DOCUMENT, "num_frames": 111}
+    second = {**_DOCUMENT, "num_frames": 222}
+
+    real_open = Path.open
+    seen: list[Path] = []
+
+    def recording_open(self: Path, *args: object, **kwargs: object):
+        """Record every temporary a write stages through."""
+        if self.name.endswith(".tmp"):
+            seen.append(self)
+            # stage the competing write while this one holds its temporary open
+            if len(seen) == 1:
+                store.save_document(_VIDEO, second)
+        return real_open(self, *args, **kwargs)
+
+    with mock.patch.object(Path, "open", recording_open):
+        store.save_document(_VIDEO, first)
+
+    assert len(seen) == 2
+    assert seen[0] != seen[1]
+
+    loaded = store.load_document(_VIDEO)
+    assert loaded is not None
+    # the outer write renamed last, so it is the one that survives - whole
+    assert loaded.content == first
+
+
+def test_a_failed_write_leaves_no_temporary_behind(annotations_dir: Path) -> None:
+    """Unique temporaries would otherwise pile up on every failed save."""
+    store = LocalAnnotationStore(annotations_dir)
+
+    with (
+        mock.patch("json.dump", side_effect=OSError("disk full")),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        store.save_document(_VIDEO, _DOCUMENT)
+
+    assert list(annotations_dir.iterdir()) == []
+
+
+def test_a_failed_write_leaves_the_previous_document_intact(annotations_dir: Path) -> None:
+    """A save that fails partway does not destroy what was already there."""
+    store = LocalAnnotationStore(annotations_dir)
+    store.save_document(_VIDEO, _DOCUMENT)
+
+    with (
+        mock.patch("json.dump", side_effect=OSError("disk full")),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        store.save_document(_VIDEO, {**_DOCUMENT, "num_frames": 999})
+
+    loaded = store.load_document(_VIDEO)
+    assert loaded is not None
+    assert loaded.content == _DOCUMENT
 
 
 def test_load_raises_on_a_corrupt_document(annotations_dir: Path) -> None:

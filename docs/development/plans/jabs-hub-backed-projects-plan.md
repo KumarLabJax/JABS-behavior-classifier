@@ -400,8 +400,16 @@ class AnnotationStore(ABC):
   `jabs/annotations/`, rewritten atomically in full on every save. A project directory has no
   version history, so it reports every document at the `UNVERSIONED` (`0`) sentinel and ignores
   `base_version`. `HubAnnotationStore` will cache + sync (§4.8).
-- `base_version` is carried from the start, unused by the local store, so that adding
-  optimistic concurrency in Phase 3 does not re-touch the call sites.
+- `base_version` is carried from the start, unused by the local store. **This future-proofs
+  the signature, not the data flow** — no caller retains a version to pass yet. All three
+  `load_document()` callers take `.content` and drop `.version`, so Phase 3 still has to thread
+  versions through the call sites. `Project.archive_behavior` is the concrete case: a
+  read-modify-write over `load_video_labels` → `save_annotations`, exactly where a version has to
+  flow, and today it cannot. Budget for that in Phase 3 rather than assuming the plumbing is done.
+- `delete_document` is on the interface because deletion must reach the authority: unlinking
+  `document_path` on a remote store would remove the cache entry and leave the document to come
+  back on the next sync. The two call sites that delete today have **not** been migrated to it —
+  see §4.4.1.
 - `has_document` / `document_path` replace the places that only needed "is there one" or "where
   would it be" and did not want to pay for a fetch. `ensure_local` is the hydrating variant, for
   the worker path only.
@@ -430,6 +438,7 @@ each one's own needs change.
 | `scripts/cli/update_labels.py` staging + promotion | Same staged-rewrite shape as `update_pose` | Same reasoning as `update_pose`. |
 | `classifier/mlflow_logging.py:archive_annotations` | Zips the whole annotations directory into an MLflow run artifact | Archives the directory as an opaque blob for provenance; never reads a document. For a Hub-backed project the useful artifact is a set of document versions, not a zip of the cache — which is a redesign of the artifact, not a re-plumbing of this function. |
 | `Project.archive_behavior` | Writes `archive/<behavior>_<ts>.json.gz` | Not an annotation document — a separate archive artifact with its own schema. Its *reads and writes of annotations* already go through the store. |
+| **Video pruning deletes the annotation by path** — `project_pruning.get_videos_to_prune` puts `store.document_path(video)` into `VideoPaths.annotation_path`, and `ui/main_window/menu_handlers.py` folds it into `files_to_delete` → recycle bin / unlink. `Project.get_derived_file_paths` returns the same path for the `jabs-cli prune` path. | Deletes the *file*, not the document | **This one must be migrated before a non-local store ships**, and it is the only deferral that would be discovered as a bug rather than as missing code: on a remote store, pruning a video would recycle the cache entry and leave the authoritative document, so the labels reappear on the next sync. `AnnotationStore.delete_document` exists for it. It is not wired up here because the GUI path routes deletions through the OS recycle bin with an unlink fallback, and moving annotations off that would drop a user-facing safety net — a behavior change, not a refactor. Do it with the Hub store, deciding then what "recycle" means for a remote document. |
 
 ### 4.5 New package: `jabs-hub-client` (import `jabs.hub`)
 

@@ -6,7 +6,12 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from jabs.io.annotations import UNVERSIONED, AnnotationDocument, AnnotationStore
+from jabs.io.annotations import (
+    UNVERSIONED,
+    AnnotationDocument,
+    AnnotationStore,
+    LocalAnnotationStore,
+)
 from jabs.project.project_paths import ProjectPaths
 from jabs.project.settings_manager import SettingsManager
 from jabs.project.video_manager import VideoManager
@@ -67,7 +72,11 @@ def video_manager(project_paths, settings_manager):
         },
     }
     return VideoManager(
-        project_paths, settings_manager, enable_video_check=False, scan_results=scan_results
+        project_paths,
+        settings_manager,
+        enable_video_check=False,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(project_paths.annotations_dir),
     )
 
 
@@ -243,7 +252,11 @@ def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
         },
     }
     manager = VideoManager(
-        paths, SettingsManager(paths), enable_video_check=False, scan_results=scan_results
+        paths,
+        SettingsManager(paths),
+        enable_video_check=False,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(paths.annotations_dir),
     )
 
     assert manager.videos == ["video1.avi"]

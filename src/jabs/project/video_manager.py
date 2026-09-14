@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jabs.io.annotations import AnnotationStore, LocalAnnotationStore
+from jabs.io.annotations import AnnotationStore
 from jabs.pose_estimation import (
     PoseEstimation,
     get_pose_path,
@@ -43,9 +43,11 @@ class VideoManager:
             ``video_frame_count`` must also be populated (i.e. the scan job
             must have been run with ``scan_frame_counts=True``).
         annotation_store: Store this manager reads label documents from.
-            Defaults to a :class:`~jabs.io.annotations.LocalAnnotationStore` over
-            the project's annotations directory. :class:`~jabs.project.Project`
-            passes its own store so the whole project shares one.
+            Required, and deliberately not defaulted: a project has exactly one
+            annotation store, and silently constructing a second one here would
+            let a future Hub-backed path that forgot to pass it read local JSON
+            files while appearing to work. :class:`~jabs.project.Project` passes
+            its own.
     """
 
     def __init__(
@@ -55,15 +57,11 @@ class VideoManager:
         enable_video_check: bool = False,
         *,
         scan_results: "dict[str, VideoScanResult]",
-        annotation_store: AnnotationStore | None = None,
+        annotation_store: AnnotationStore,
     ):
         self._paths = paths
         self._settings_manager = settings_manager
-        self._annotation_store = (
-            annotation_store
-            if annotation_store is not None
-            else LocalAnnotationStore(paths.annotations_dir)
-        )
+        self._annotation_store = annotation_store
         self._videos = []
         self._video_identity_count = {}
         # whether each video's pose file carries a cm_per_pixel scale, which decides
