@@ -26,3 +26,7 @@ docs/work_history.md
 docs/drafts/
 site/
 scratch/
+
+# Agent worktrees. Each is its own git repository, so `git add -A` otherwise
+# commits one as a gitlink. `.claude/settings.json` stays tracked.
+.claude/worktrees/
