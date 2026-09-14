@@ -7,7 +7,7 @@ from typing import ClassVar
 
 import cv2
 
-from .utilities import get_frame_count
+from .utilities import get_fps_and_nframes
 
 
 class VideoReader:
@@ -163,4 +163,5 @@ class VideoReader:
         Raises:
             OSError: if unable to open the specified video.
         """
-        return get_frame_count(path)
+        _fps, num_frames = get_fps_and_nframes(path)
+        return num_frames
