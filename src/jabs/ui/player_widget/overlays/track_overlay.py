@@ -2,12 +2,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
-from jabs.overlay_drawing import (
-    TRACK_FUTURE_RADIUS,
-    TRACK_LINE_WIDTH,
-    TRACK_PAST_RADIUS,
-    draw_identity_track,
-)
+from jabs.overlay_drawing import TRACK_LINE_WIDTH, TRACK_POINT_RADIUS, draw_identity_track
 
 from .overlay import Overlay
 
@@ -54,7 +49,6 @@ class TrackOverlay(Overlay):
             self.parent.current_frame,
             self.parent.active_identity,
             to_output=lambda x, y: self.parent.image_to_widget_coords_cropped(x, y, crop_rect),
-            future_radius=max(1, round(TRACK_FUTURE_RADIUS * zoom)),
-            past_radius=max(1, round(TRACK_PAST_RADIUS * zoom)),
+            point_radius=max(1, round(TRACK_POINT_RADIUS * zoom)),
             line_width=max(1, round(TRACK_LINE_WIDTH * zoom)),
         )

@@ -61,8 +61,7 @@ def _draw(pose: StubPose, frame_index: int = 15, to_output=None) -> QtGui.QImage
             frame_index,
             0,
             to_output=to_output,
-            future_radius=1,
-            past_radius=2,
+            point_radius=1,
             line_width=1,
         )
     finally:

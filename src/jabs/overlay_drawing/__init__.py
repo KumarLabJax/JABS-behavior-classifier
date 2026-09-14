@@ -85,10 +85,9 @@ from .skeleton import (
 )
 from .track import (
     TRACK_FUTURE_COLOR,
-    TRACK_FUTURE_RADIUS,
     TRACK_LINE_WIDTH,
     TRACK_PAST_COLOR,
-    TRACK_PAST_RADIUS,
+    TRACK_POINT_RADIUS,
     draw_identity_track,
 )
 
@@ -111,10 +110,9 @@ __all__ = [
     "SEGMENTATION_ACTIVE_COLOR",
     "SEGMENTATION_INACTIVE_COLOR",
     "TRACK_FUTURE_COLOR",
-    "TRACK_FUTURE_RADIUS",
     "TRACK_LINE_WIDTH",
     "TRACK_PAST_COLOR",
-    "TRACK_PAST_RADIUS",
+    "TRACK_POINT_RADIUS",
     "draw_identity_marker",
     "draw_identity_pose",
     "draw_identity_segmentation",
