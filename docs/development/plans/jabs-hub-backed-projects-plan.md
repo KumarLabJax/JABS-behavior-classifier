@@ -48,7 +48,7 @@ media. Local-only (non-Hub) projects are unchanged.
 
 | Phase | Title | Delivers |
 |------|-------|----------|
-| **0** | Foundations | OIDC auth in the client + `HubClient`; the client cache/abstraction seams (annotation store + media resolver) landed as a pure refactor with local-only behavior unchanged. (Hub: auth on new routes, base scaffolding.) |
+| **0** | Foundations | OIDC auth in the client + `HubClient`; the client cache/abstraction seams (annotation store + media resolver) landed as a pure refactor with local-only behavior unchanged. (Hub: auth on new routes, base scaffolding.) **Annotation store: done** (`jabs.io.annotations`, §4.4b/§4.4.1). Media resolver, `HubClient`, and OIDC: not started. |
 | **1** | Video library + media | Client: a Hub-aware media resolver + local media cache + lazy hydration + playback prefetch — download/cache to **open and play** a Hub project's videos. (Uploading into the library is a web-UI / `jabs-cli` concern.) (Hub: `videos` table, decoupled upload, list/search, content-addressed storage, signed download.) Deliverable: the GUI opens a Hub project and plays its videos. **Hub prerequisite: a signed download URL for a library video's *video* bytes — only `pose-url` exists today (§5.1).** |
 | **2** | Hub-backed projects | Client: **open** a cloud project (created in the web UI) referencing library videos; the local project dir is a cache; project-settings sync. (Hub: `projects` + `project_members` + `project_videos` join + metadata.) |
 | **3** | Annotations (label sharing) | Client: annotation cache + sync engine + offline outbox + conflict handling; pose consistency guaranteed. (Hub: `annotations` + history + optimistic-concurrency contract + behavior index.) Delivers the label-sharing payoff. |
@@ -272,18 +272,26 @@ uniformly trustworthy with write access to everything.
 
 ### 3.2 Annotation seams
 
-- **Writes funnel through one method:** `Project.save_annotations(annotations, pose)`
-  (`src/jabs/project/project.py:618`) — atomic temp-file `replace()` into
-  `jabs/annotations/<video>.json`, stamps `labeler` (`getpass.getuser()`). Single write seam.
-- **Reads are scattered across four sites**, all direct `open()` + `json`:
-  `VideoManager.load_video_labels` (`video_manager.py:109`), `VideoManager.load_annotations`
-  (`:262`), `Project.load_counts` (`project.py:1461`), and — in a **child process** —
-  `parallel_workers._load_video_labels` (`parallel_workers.py:207`, path from `project.py:978`).
-- **Serialization is clean:** `VideoLabels.as_dict` / `.load` (`video_labels.py:178` / `:279`),
-  plain JSON, `SERIALIZED_VERSION = 1` (`video_labels.py:16`). Schema in Appendix A.1.
-- **No storage abstraction** today; all concrete `pathlib` + `json`. GUI saves eagerly and
-  synchronously on every edit (`central_widget.py:880`, …). `VideoLabels.merge` with a
-  `MergeStrategy` exists (`video_labels.py:301`) for conflict resolution.
+**Status: the `AnnotationStore` seam has landed** (§4.4b). This section describes the state it
+replaced, which is still what the Hub-backed store has to be compatible with.
+
+- **Writes funnelled through one method:** `Project.save_annotations(annotations, pose)` — atomic
+  temp-file `replace()` into `jabs/annotations/<video>.json`, stamping `labeler`
+  (`getpass.getuser()`). A single write seam, which is why the write side was cheap to route.
+- **Reads were scattered**, all direct `open()` + `json`: `VideoManager.load_video_labels`,
+  `VideoManager.load_annotations`, `Project.load_counts`, and — in a **child process** —
+  `parallel_workers._load_video_labels` (path supplied by the feature-load job builder). Several
+  more sites only needed existence or a path (`get_derived_file_paths`,
+  `project_pruning.get_videos_to_prune`).
+- **Serialization is clean:** `VideoLabels.as_dict` / `.load` (`video_labels.py:157` / `:270`),
+  plain JSON, `SERIALIZED_VERSION = 1` (`video_labels.py:16`). Schema in Appendix A.1. This stays
+  in `src/jabs/project/`: building a `VideoLabels` needs pose data, so the store's unit is the
+  serialized dict, not the object — which is what lets the store live in `jabs.io`.
+- **Storage is now abstracted** behind `jabs.io.annotations.AnnotationStore`; sites that remain on
+  concrete `pathlib` + `json` are enumerated in §4.4.1. The GUI still saves eagerly and
+  synchronously on every edit (`central_widget.py`), which §4.8 keeps as the cache-write path.
+  `VideoLabels.merge` with a `MergeStrategy` exists (`video_labels.py:306`) for conflict
+  resolution.
 
 ### 3.3 Project + settings seams
 
@@ -372,21 +380,56 @@ for a cloud project, downloads-on-demand into the cache and returns the cached p
 blake2b hash against the manifest **when the manifest carries one** — see §5 on `contentHash` being
 absent for device recordings). For a local project it returns the existing path (no-op).
 
-**(b) `AnnotationStore`** — a protocol over the serialized document dict + version:
+**(b) `AnnotationStore`** — **landed** (`jabs.io.annotations`), as an ABC over the serialized
+document dict + version:
 
 ```python
-class AnnotationStore(Protocol):
-    def load_document(self, video_name: str) -> tuple[dict, int] | None: ...
-    def save_document(self, video_name: str, document: dict, base_version: int | None) -> int: ...
-    def list_labeled_videos(self) -> list[str]: ...
-    def ensure_local(self, video_name: str) -> Path:
-        """Guarantee a cached file exists (for worker processes); return its path."""
+class AnnotationStore(ABC):
+    def load_document(self, video_name: str) -> AnnotationDocument | None: ...
+    def save_document(
+        self, video_name: str, document: dict, base_version: int | None = None
+    ) -> int: ...
+    def has_document(self, video_name: str) -> bool: ...
+    def document_path(self, video_name: str) -> Path: ...
+    def ensure_local(self, video_name: str) -> Path: ...
 ```
 
-- `LocalAnnotationStore` wraps today's behavior; `HubAnnotationStore` caches + syncs (§4.8).
-- Route all five annotation sites (§3.2) through `Project.annotation_store`. The child-process
-  training path keeps reading by `Path`; the job builder (`project.py:978`) calls
-  `store.ensure_local(name)` first so workers stay network-free.
+- `AnnotationDocument` is a `NamedTuple` of `(content, version)`, so the plan's
+  `tuple[dict, int]` unpacking still works while the fields are named at the call sites.
+- `LocalAnnotationStore` wraps today's behavior: one JSON file per labeled video under
+  `jabs/annotations/`, rewritten atomically in full on every save. A project directory has no
+  version history, so it reports every document at the `UNVERSIONED` (`0`) sentinel and ignores
+  `base_version`. `HubAnnotationStore` will cache + sync (§4.8).
+- `base_version` is carried from the start, unused by the local store, so that adding
+  optimistic concurrency in Phase 3 does not re-touch the call sites.
+- `has_document` / `document_path` replace the places that only needed "is there one" or "where
+  would it be" and did not want to pay for a fetch. `ensure_local` is the hydrating variant, for
+  the worker path only.
+- `list_labeled_videos` was **dropped** from the first cut — no in-scope caller needs it, and
+  enumerating a store is a different operation for a directory than for a manifest. Add it with
+  the Hub store, when a real caller exists.
+- Routed through `Project.annotation_store` (shared with `VideoManager`): `save_annotations`,
+  `VideoManager.load_video_labels` / `load_annotations` / `annotations_path`, `load_counts`,
+  `labeled_identities`, `get_derived_file_paths`, `project_pruning.get_videos_to_prune`, and the
+  feature-load job builder. The child-process training path keeps reading by `Path` — the job
+  builder calls `store.ensure_local(name)` first so workers stay network-free, and parses with
+  `jabs.io.annotations.read_document` rather than its own `json.load`.
+
+#### 4.4.1 Annotation access deliberately left outside the store
+
+These sites still touch `jabs/annotations/` directly. They were left alone on purpose: each
+manipulates annotation **files and directories** rather than annotation **documents**, so routing
+them through the store would mean giving the interface local-filesystem operations ("copy the
+directory", "back it up", "swap it into place") that have no coherent Hub meaning. Revisit as
+each one's own needs change.
+
+| Site | What it does | Why it is out, and what would change it |
+|---|---|---|
+| `scripts/cli/update_pose.py` — `_seed_stage_project`, `_backup_project_files`, staged→live promotion, `_run_staged_label_remap` | `copytree` the annotations dir into a staging root, zip every file as a backup, then promote staged files over live ones | **Pose upgrade is expected to move server-side for Hub-backed projects** (§4.6, D20): Hub re-pins the pose and migrates labels, and the client just receives the new annotation version. A local-only staged rewrite is then the *local* project's code path, not a store operation. Revisit when the server-side migration lands and the client needs a "request upgrade, accept new version" path instead. |
+| `scripts/cli/update_pose.py:_orphan_identities`, `scripts/cli/update_labels.py:_source_annotated_videos` | Parse one annotation JSON / glob the directory for labeled stems | Genuine document reads, but they run against arbitrary directories (a source project, a staging root) rather than an open project's store. Cheap to move once the store can be constructed over an arbitrary directory for read-only use — `LocalAnnotationStore(dir)` already can, so this is the first one to pick up. |
+| `scripts/cli/update_labels.py` staging + promotion | Same staged-rewrite shape as `update_pose` | Same reasoning as `update_pose`. |
+| `classifier/mlflow_logging.py:archive_annotations` | Zips the whole annotations directory into an MLflow run artifact | Archives the directory as an opaque blob for provenance; never reads a document. For a Hub-backed project the useful artifact is a set of document versions, not a zip of the cache — which is a redesign of the artifact, not a re-plumbing of this function. |
+| `Project.archive_behavior` | Writes `archive/<behavior>_<ts>.json.gz` | Not an annotation document — a separate archive artifact with its own schema. Its *reads and writes of annotations* already go through the store. |
 
 ### 4.5 New package: `jabs-hub-client` (import `jabs.hub`)
 
@@ -714,7 +757,7 @@ is the discriminator §4.8 relies on.
 | Lazy hydration is useless once the user is offline or on a slow link | Explicit "Download Project for Offline Use" + pin (D22), resumable and budget-aware, plus a `jabs-cli` equivalent for headless pre-warming. |
 | `VideoReader` is path-only + needs seeking (no streaming) | Download-to-cache before opening; prefetch adjacent videos; pin-for-offline. |
 | Multiprocess workers can't use a network client | `ensure_local` (media + annotations) hydrates the cache before job dispatch; workers read `Path`s. |
-| Scattered annotation reads (4 sites) drift from the store | Land the Phase-0 seam refactor first, local-only, with contract tests; flag direct `open()` of `annotations/`. |
+| Scattered annotation reads drift from the store | **Done for the in-scope sites:** the Phase-0 seam landed local-only with implementation-agnostic contract tests (`packages/jabs-io/tests/annotations/test_store_contract.py`) plus seam tests that substitute an in-memory store into a `Project` and assert every call site consults it (`tests/project/test_annotation_store_seam.py`). The sites deliberately left on direct file access are enumerated in §4.4.1 rather than left to be rediscovered. |
 | Chatty per-edit network writes / GUI stalls | Cache is the synchronous path; Hub PUTs debounced on a background thread. |
 | Pose re-encode on upload invalidates derived caches | Require Hub to store exact pose bytes; verify blake2b on download (pose hashes are always present — §5). |
 | Client built against endpoints Hub has not shipped (playback needs a library `video-url`; §5.1) | Track the delta in §5.1 and re-check it when starting a phase; keep Hub calls behind `HubClient` (§4.5) so an absent or reshaped endpoint is one adapter change; sequence the Hub prerequisite into the phase that needs it rather than discovering it mid-phase. |
@@ -869,9 +912,12 @@ The exact payload `VideoLabels.as_dict` produces / `VideoLabels.load` consumes
 - Video/pose resolution seams: `video_manager.py:251` (`video_path`), `:181`
   (`get_cached_pose_path`), `src/jabs/pose_estimation/__init__.py:40` (`get_pose_path`); open point
   `src/jabs/video_reader/video_reader.py:19`; `ProjectPaths` decoupling `project_paths.py:18`.
-- Annotation seams: write `project.py:618`; reads `video_manager.py:109`/`:262`, `project.py:1461`,
-  `parallel_workers.py:207` (job base `project.py:978`); serialization `video_labels.py:178`/`:279`,
-  merge `:301`; `SERIALIZED_VERSION` `video_labels.py:16`.
+- Annotation storage: the store is `packages/jabs-io/src/jabs/io/annotations/` (`base.py` defines
+  `AnnotationStore` / `AnnotationDocument` / `UNVERSIONED`; `local.py` the project-directory
+  implementation and the path-level `read_document` / `write_document` the workers use). Held by
+  `Project.annotation_store` and shared with `VideoManager.annotation_store`. Sites still on direct
+  file access: §4.4.1. Serialization (unchanged, stays in the root package)
+  `video_labels.py:157`/`:270`, merge `:306`; `SERIALIZED_VERSION` `video_labels.py:16`.
 - Cache keying (why derived caches survive a Hub pull): `features.py:178`,
   `packages/jabs-io/.../feature_cache/base.py:71`, `prediction_manager.py:167`.
 - Settings/manifest: `settings_manager.py`; video enumeration `video_manager.py:154`.

@@ -362,6 +362,48 @@ project_directory/
     └── cache/               # Performance cache
 ```
 
+#### Behavior Annotation Storage
+
+A project's behavior labels live one JSON document per labeled video under
+`jabs/annotations/`. Nothing outside `jabs.io` opens those files directly — every read
+and write goes through the project's `AnnotationStore`
+(`packages/jabs-io/src/jabs/io/annotations/`):
+
+```python
+store = project.annotation_store           # shared with project.video_manager
+
+document = store.load_document("video1.avi")   # -> AnnotationDocument | None
+if document is not None:
+    labels = VideoLabels.load(document.content, pose)
+
+store.save_document("video1.avi", labels.as_dict(pose))
+```
+
+`LocalAnnotationStore` is the only implementation today: it writes each document
+atomically (temp file + rename) into the project's annotations directory. Because a
+project directory keeps no version history, it reports every document at the
+`UNVERSIONED` sentinel and ignores the `base_version` argument; that argument exists so
+a store that *does* detect concurrent writes can be added without re-touching callers.
+
+The unit of storage is the **serialized document dict**, not a `VideoLabels` object.
+Building a `VideoLabels` requires pose data, so serialization stays in
+`src/jabs/project/video_labels.py` and the store only moves dicts. Keeping that boundary
+is what allows the store to live in `jabs-io` at all.
+
+Two rules when adding code that touches labels:
+
+- **Go through the store**, not through `project_paths.annotations_dir`. Use
+  `has_document()` / `document_path()` when you only need to know whether a document
+  exists or where it would be, and `load_document()` when you need its content.
+- **Worker processes get a path, not a store.** Call `store.ensure_local(video)` in the
+  parent to materialize the document, pass the returned path into the job spec, and parse
+  it in the child with `jabs.io.annotations.read_document()`. A store may be backed by
+  something a child process cannot reach.
+
+New implementations should be covered by adding them to the `store` fixture in
+`packages/jabs-io/tests/annotations/test_store_contract.py`, which runs the
+interface-level expectations against every backend.
+
 #### Feature Extraction
 
 Features are modular and inherit from base classes:
