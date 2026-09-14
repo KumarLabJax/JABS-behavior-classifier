@@ -61,11 +61,13 @@ class ClosestIdentityOverlay(Overlay):
         zoom = self.parent.scaled_pix_width / max(crop_rect.width(), 1)
         radius = max(1, round(CLOSEST_MARKER_RADIUS * zoom))
 
-        # The in-view animal is drawn second so it stays visible when one animal is
-        # both the nearest overall and the nearest in view.
+        # In-view marker first, then the nearest overall, which is the order the cv2
+        # drawing used. The two are always different animals - _closest_identities()
+        # drops the second when they agree - so the order only decides which marker
+        # wins if two centroids land on overlapping pixels.
         for identity, color in (
-            (closest_id, CLOSEST_MARKER_COLOR),
             (closest_fov_id, CLOSEST_FOV_MARKER_COLOR),
+            (closest_id, CLOSEST_MARKER_COLOR),
         ):
             if identity is None:
                 continue

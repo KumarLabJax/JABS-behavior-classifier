@@ -118,7 +118,7 @@ def draw_identity_segmentation(
 
     for contour in identity_contours(pose, frame_index, identity):
         mapped = [to_output(float(x), float(y)) for x, y in contour]
-        for run, complete in visible_runs(mapped):
+        for run, complete in visible_runs(mapped, closed=True):
             if len(run) == 1:
                 # A contour can be a single point, and cv2 drew that as a pixel.
                 painter.drawPoint(QtCore.QPoint(*run[0]))

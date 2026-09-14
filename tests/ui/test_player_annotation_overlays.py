@@ -148,6 +148,8 @@ def test_both_markers_are_drawn_when_they_differ(monkeypatch):
     assert draw.call_count == 2
     colors = [call.args[4] for call in draw.call_args_list]
     assert colors[0] != colors[1], "the two markers must be distinguishable"
+    # In-view marker first, then nearest overall: the order the cv2 drawing used.
+    assert colors == [closest_module.CLOSEST_FOV_MARKER_COLOR, closest_module.CLOSEST_MARKER_COLOR]
 
 
 def test_one_marker_when_the_nearest_animal_is_also_the_nearest_in_view(monkeypatch):

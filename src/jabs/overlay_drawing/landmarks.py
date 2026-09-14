@@ -15,6 +15,8 @@ from PySide6 import QtCore, QtGui
 
 from jabs.pose_estimation import PoseEstimation
 
+from .mapping import visible_runs
+
 LANDMARK_CORNER_COLOR = QtGui.QColor(252, 135, 0)
 LANDMARK_LIXIT_COLOR = QtGui.QColor(0, 222, 215)
 LANDMARK_HOPPER_COLOR = QtGui.QColor(0, 255, 0)
@@ -75,13 +77,25 @@ def draw_landmarks(
 
     hopper = static_objects.get("food_hopper")
     if hopper is not None:
+        pen = QtGui.QPen(LANDMARK_HOPPER_COLOR)
+        pen.setWidth(line_width)
+        painter.setPen(pen)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+
         mapped = [to_output(float(x), float(y)) for x, y in hopper]
-        if all(point is not None for point in mapped):
-            pen = QtGui.QPen(LANDMARK_HOPPER_COLOR)
-            pen.setWidth(line_width)
-            painter.setPen(pen)
-            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawPolygon(QtGui.QPolygon([QtCore.QPoint(x, y) for x, y in mapped]))
+        for run, complete in visible_runs(mapped, closed=True):
+            if len(run) < 2:
+                # A lone visible corner has no edge to draw: the edges reaching it
+                # both cross the crop boundary.
+                continue
+            polygon = QtGui.QPolygon([QtCore.QPoint(x, y) for x, y in run])
+            if complete:
+                # The hopper is a closed shape, so the last corner joins the first.
+                # Only safe to close a run that is the whole outline: closing a run a
+                # crop cut short would draw a chord across the cropped region.
+                painter.drawPolygon(polygon)
+            else:
+                painter.drawPolyline(polygon)
 
 
 def _draw_points(

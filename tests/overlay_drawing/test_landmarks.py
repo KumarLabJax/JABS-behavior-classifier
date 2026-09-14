@@ -97,6 +97,41 @@ def test_the_food_hopper_outline_is_closed() -> None:
     assert QtGui.QColor(image.pixel(30, 45)).getRgb()[:3] == hopper_color
 
 
+def test_a_partly_cropped_hopper_still_draws_its_visible_edges() -> None:
+    """Zooming in until one hopper corner leaves the view must not hide the rest.
+
+    The hopper spans much of the arena, so this is reachable on any real zoom. The cv2
+    drawing this replaces clipped to the frame; dropping the whole outline instead
+    would be a regression.
+    """
+    hopper = np.array([[30, 30], [90, 30], [90, 60], [30, 60]], dtype=np.float32)
+
+    def to_output(x, y):
+        # Stand in for a crop that excludes the hopper's right-hand corners.
+        return (round(x), round(y)) if x < 80 else None
+
+    image = _draw(StubPose({"food_hopper": hopper}), to_output=to_output)
+
+    hopper_color = LANDMARK_HOPPER_COLOR.getRgb()[:3]
+    # The left edge joins the two visible corners and must still be drawn.
+    assert QtGui.QColor(image.pixel(30, 45)).getRgb()[:3] == hopper_color
+
+
+def test_a_cropped_hopper_is_not_closed_across_the_crop() -> None:
+    """Joining the visible corners directly would draw a chord over cropped-away video."""
+    hopper = np.array([[30, 30], [90, 30], [90, 60], [30, 60]], dtype=np.float32)
+
+    def to_output(x, y):
+        return (round(x), round(y)) if x < 80 else None
+
+    image = _draw(StubPose({"food_hopper": hopper}), to_output=to_output)
+
+    hopper_color = LANDMARK_HOPPER_COLOR.getRgb()[:3]
+    # Nothing between the two visible corners along the top and bottom edges beyond
+    # where the crop cut them off.
+    assert QtGui.QColor(image.pixel(79, 30)).getRgb()[:3] != hopper_color
+
+
 def test_landmarks_outside_a_crop_are_skipped() -> None:
     """A landmark outside the cropped region is not drawn at the edge instead."""
     corners = np.array([[20, 20], [100, 20]], dtype=np.float32)

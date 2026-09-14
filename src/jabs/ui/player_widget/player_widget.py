@@ -78,8 +78,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._pose_est = None
         self._playback_range: PlaybackRange | None = None
 
-        self._identities = []
-
         # currently selected identity
         self._active_identity = 0
 
@@ -238,7 +236,6 @@ class PlayerWidget(QtWidgets.QWidget):
         """reset video player before loading a new video"""
         self._video_stream = None
         self._video_path = None
-        self._identities = None
         self._pose_est = None
         self._active_identity = None
         self._position_slider.setValue(0)
@@ -271,7 +268,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = VideoReader(path)
         self._video_path = path
         self._pose_est = pose_est
-        self._identities = pose_est.identities
         self._frame_widget.set_pose(pose_est)
         self._frame_widget.annotations = video_labels.timeline_annotations
 
