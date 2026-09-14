@@ -7,6 +7,8 @@ from typing import ClassVar
 
 import cv2
 
+from .utilities import get_fps_and_nframes
+
 
 class VideoReader:
     """VideoReader.
@@ -150,11 +152,16 @@ class VideoReader:
 
     @classmethod
     def get_nframes_from_file(cls, path: Path) -> int:
-        """get the number of frames by inspecting the video file"""
-        stream = cv2.VideoCapture(str(path))
-        if not stream.isOpened():
-            raise OSError(f"unable to open {path}")
+        """Get the number of frames by inspecting the video file.
 
-        num_frames = int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
-        stream.release()  # Always release the stream
+        Args:
+            path: path to video file.
+
+        Returns:
+            Total frame count.
+
+        Raises:
+            OSError: if unable to open the specified video.
+        """
+        _fps, num_frames = get_fps_and_nframes(path)
         return num_frames
