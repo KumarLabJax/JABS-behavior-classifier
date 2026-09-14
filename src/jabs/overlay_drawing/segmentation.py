@@ -11,13 +11,14 @@ frame already on screen rather than needing it decoded again, and the player and
 exports now share one implementation, the way they already share the pose skeleton.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 from PySide6 import QtCore, QtGui
 
+from .mapping import visible_runs
 from .scaling import native_overlay_scale
 
 if TYPE_CHECKING:
@@ -117,7 +118,7 @@ def draw_identity_segmentation(
 
     for contour in identity_contours(pose, frame_index, identity):
         mapped = [to_output(float(x), float(y)) for x, y in contour]
-        for run, complete in _visible_runs(mapped):
+        for run, complete in visible_runs(mapped, closed=True):
             if len(run) == 1:
                 # A contour can be a single point, and cv2 drew that as a pixel.
                 painter.drawPoint(QtCore.QPoint(*run[0]))
@@ -131,27 +132,3 @@ def draw_identity_segmentation(
                 painter.drawPolygon(polygon)
             else:
                 painter.drawPolyline(polygon)
-
-
-def _visible_runs(
-    mapped: list[tuple[int, int] | None],
-) -> Iterator[tuple[list[tuple[int, int]], bool]]:
-    """Split mapped contour points into runs of consecutive visible points.
-
-    Yields ``(run, complete)`` for each non-empty run, where ``complete`` says the run
-    is the entire contour, with nothing dropped by a crop. Single-point runs are
-    included: a one-point contour is degenerate but a pose file can hold one, and cv2
-    used to draw it as a pixel.
-    """
-    run: list[tuple[int, int]] = []
-    dropped = False
-    for point in mapped:
-        if point is None:
-            dropped = True
-            if run:
-                yield run, False
-            run = []
-            continue
-        run.append(point)
-    if run:
-        yield run, not dropped

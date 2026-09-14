@@ -165,3 +165,21 @@ def test_a_single_point_contour_is_drawn_as_a_pixel() -> None:
     image = _draw(StubPose(_padded([(30, 30)])))
 
     assert _painted(image, 30, 30)
+
+
+def test_a_contour_clipped_across_its_wrap_around_stays_in_one_piece() -> None:
+    """A closed shape's last point joins its first, so that edge can be visible too.
+
+    Walking the points as a flat list would split the visible part into the head and
+    tail of the list and lose the edge between them.
+    """
+
+    def to_output(x, y):
+        # A crop that excludes the square's two right-hand corners, leaving the
+        # remaining corners adjacent only through the closing edge.
+        return None if x > 40 else (round(x), round(y))
+
+    image = _draw(StubPose(_padded(_SQUARE)), to_output=to_output)
+
+    # The left edge runs between the two visible corners.
+    assert _painted(image, 10, 30)

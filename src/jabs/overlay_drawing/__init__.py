@@ -1,6 +1,7 @@
 """Shared Qt drawing for the overlays JABS paints on a video frame.
 
-Three kinds of overlay live here, all drawn the same way by every caller:
+Every overlay JABS paints on a frame is drawn by this package, so the player and the
+exports cannot drift apart:
 
 * the pose skeleton (:func:`draw_identity_pose`), drawn by the on-screen
   :class:`~jabs.ui.player_widget.overlays.pose_overlay.PoseOverlay` at the scaled and
@@ -13,6 +14,10 @@ Three kinds of overlay live here, all drawn the same way by every caller:
   the on-screen
   :class:`~jabs.ui.player_widget.overlays.segmentation_overlay.SegmentationOverlay` and
   by both exports.
+* the movement track (:func:`draw_identity_track`), the arena landmarks
+  (:func:`draw_landmarks`) and the marker that calls out one animal
+  (:func:`draw_identity_marker`), drawn by the player only so far, though the exports
+  could offer them now that the drawing is shared.
 
 The only thing that differs between callers is how image coordinates map to the
 painter's coordinate space, so that mapping is passed in as ``to_output``, and how
@@ -50,6 +55,20 @@ from .labels import (
     label_marker_color,
     native_label_marker_sizes,
 )
+from .landmarks import (
+    LANDMARK_CORNER_COLOR,
+    LANDMARK_HOPPER_COLOR,
+    LANDMARK_LINE_WIDTH,
+    LANDMARK_LIXIT_COLOR,
+    LANDMARK_POINT_RADIUS,
+    draw_landmarks,
+)
+from .markers import (
+    CLOSEST_FOV_MARKER_COLOR,
+    CLOSEST_MARKER_COLOR,
+    CLOSEST_MARKER_RADIUS,
+    draw_identity_marker,
+)
 from .scaling import native_overlay_scale
 from .segmentation import (
     SEGMENTATION_ACTIVE_COLOR,
@@ -64,20 +83,44 @@ from .skeleton import (
     draw_identity_pose,
     native_pose_sizes,
 )
+from .track import (
+    TRACK_FUTURE_COLOR,
+    TRACK_FUTURE_RADIUS,
+    TRACK_LINE_WIDTH,
+    TRACK_PAST_COLOR,
+    TRACK_PAST_RADIUS,
+    draw_identity_track,
+)
 
 __all__ = [
     "BACKGROUND_COLOR",
     "BEHAVIOR_COLOR",
+    "CLOSEST_FOV_MARKER_COLOR",
+    "CLOSEST_MARKER_COLOR",
+    "CLOSEST_MARKER_RADIUS",
     "KEYPOINT_COLOR_MAP",
     "KEYPOINT_SIZE",
     "LABEL_MARKER_SIZE",
+    "LANDMARK_CORNER_COLOR",
+    "LANDMARK_HOPPER_COLOR",
+    "LANDMARK_LINE_WIDTH",
+    "LANDMARK_LIXIT_COLOR",
+    "LANDMARK_POINT_RADIUS",
     "LINE_SEGMENT_COLOR",
     "NOT_BEHAVIOR_COLOR",
     "SEGMENTATION_ACTIVE_COLOR",
     "SEGMENTATION_INACTIVE_COLOR",
+    "TRACK_FUTURE_COLOR",
+    "TRACK_FUTURE_RADIUS",
+    "TRACK_LINE_WIDTH",
+    "TRACK_PAST_COLOR",
+    "TRACK_PAST_RADIUS",
+    "draw_identity_marker",
     "draw_identity_pose",
     "draw_identity_segmentation",
+    "draw_identity_track",
     "draw_label_marker",
+    "draw_landmarks",
     "identity_contours",
     "label_marker_color",
     "native_label_marker_sizes",

@@ -71,11 +71,22 @@ def test_toggling_the_overlay_repaints_the_frame(monkeypatch):
     update.assert_called_once_with()
 
 
-def test_segmentation_is_painted_under_the_other_overlays():
-    """Contours used to be drawn into the frame, so everything else sat on top."""
+def test_segmentation_keeps_its_place_in_the_paint_order():
+    """The overlays that used to be baked into the frame keep the order they had.
+
+    Painted in this order, the track stays under the contours and the closest-animal
+    markers and landmarks stay on top of them, which is how the decoder composited
+    them before any of the four became an overlay.
+    """
     widget = FrameWithOverlaysWidget()
 
-    assert isinstance(widget.overlays[0], SegmentationOverlay)
+    assert [type(overlay).__name__ for overlay in widget.overlays[:4]] == [
+        "TrackOverlay",
+        "SegmentationOverlay",
+        "ClosestIdentityOverlay",
+        "LandmarkOverlay",
+    ]
+    assert isinstance(widget.overlays[1], SegmentationOverlay)
 
 
 def test_disabled_overlay_draws_nothing(monkeypatch):

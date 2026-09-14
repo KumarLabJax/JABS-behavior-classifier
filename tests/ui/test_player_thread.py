@@ -55,7 +55,7 @@ def test_the_frame_index_travels_with_the_image() -> None:
     Reading the number from a separate signal instead would draw them against
     whichever frame arrived last, which during playback is the previous one.
     """
-    thread = PlayerThread(FakeReader(start=7), pose_est=None, identity=0)
+    thread = PlayerThread(FakeReader(start=7))
     received: list[tuple[object, int]] = []
     thread.newImage.connect(lambda image, index: received.append((image, index)))
 
@@ -69,7 +69,7 @@ def test_the_frame_index_travels_with_the_image() -> None:
 
 def test_seek_emits_the_frame_it_sought_to() -> None:
     """Stepping a frame reports the frame it landed on, image and position alike."""
-    thread = PlayerThread(FakeReader(), pose_est=None, identity=0)
+    thread = PlayerThread(FakeReader())
     images: list[int] = []
     positions: list[int] = []
     thread.newImage.connect(lambda _image, index: images.append(index))
@@ -97,7 +97,7 @@ def test_the_image_does_not_alias_the_buffer_it_was_built_from(monkeypatch) -> N
         return result
 
     monkeypatch.setattr(player_thread_module.np, "ascontiguousarray", spy)
-    thread = PlayerThread(FakeReader(), pose_est=None, identity=0)
+    thread = PlayerThread(FakeReader())
 
     image = thread._prepare_image(
         {"data": np.full((8, 8, 3), 60, dtype=np.uint8), "index": 0, "duration": 1 / 30}

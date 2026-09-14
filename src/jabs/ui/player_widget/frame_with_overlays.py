@@ -9,12 +9,15 @@ from jabs.pose_estimation import PoseEstimation
 
 from .overlays.annotation_overlay import AnnotationOverlay
 from .overlays.bounding_box import BoundingBoxOverlay
+from .overlays.closest_identity_overlay import ClosestIdentityOverlay
 from .overlays.control_overlay import ControlOverlay
 from .overlays.floating_id_overlay import FloatingIdOverlay
 from .overlays.label_overlay import LabelOverlay
+from .overlays.landmark_overlay import LandmarkOverlay
 from .overlays.overlay import Overlay
 from .overlays.pose_overlay import PoseOverlay
 from .overlays.segmentation_overlay import SegmentationOverlay
+from .overlays.track_overlay import TrackOverlay
 
 
 class FrameWithOverlaysWidget(QtWidgets.QLabel):
@@ -24,7 +27,10 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
     This widget displays a number of interactive overlays on top of the video frame, including
       * a controls overlay, which is displayed when the mouse is over the frame pixmap area.
       * an overlay for displaying timeline annotations for the current frame.
+      * an overlay for displaying the active identity's movement track.
       * an overlay for displaying segmentation contours.
+      * an overlay marking the animal closest to the active identity.
+      * an overlay for displaying the arena landmarks from the pose file.
       * an overlay for displaying pose estimation keypoints and skeletons.
       * an overlay for displaying identity labels, which can be in different modes.
       * an overlay for displaying labels next to each mouse, which can be manual labels or predictions.
@@ -91,7 +97,10 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._control_overlay.contrast_changed.connect(self._on_contrast_changed)
 
         self._annotation_overlay = AnnotationOverlay(self)
+        self._track_overlay = TrackOverlay(self)
         self._segmentation_overlay = SegmentationOverlay(self)
+        self._closest_identity_overlay = ClosestIdentityOverlay(self)
+        self._landmark_overlay = LandmarkOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
         floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
         bbox_overlay = BoundingBoxOverlay(self)
@@ -100,9 +109,13 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         # overlays are listed in the order they should be painted
         # an overlay on top of another overlay will have priority when handling click events
         self.overlays: list[Overlay] = [
-            # segmentation goes first: the contours used to be drawn into the frame
-            # itself, so everything else was painted over them
+            # The first four were drawn into the frame itself by the decoder until they
+            # became overlays. This is the order they were composited in then, so the
+            # track stays under the contours and the landmarks stay on top of them.
+            self._track_overlay,
             self._segmentation_overlay,
+            self._closest_identity_overlay,
+            self._landmark_overlay,
             PoseOverlay(self),
             LabelOverlay(self),
             bbox_overlay,
@@ -121,6 +134,42 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         """Set whether the annotation overlay is enabled."""
         if self._annotation_overlay.enabled != enabled:
             self._annotation_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def track_overlay_enabled(self) -> bool:
+        """Get whether the movement track overlay is enabled."""
+        return self._track_overlay.enabled
+
+    @track_overlay_enabled.setter
+    def track_overlay_enabled(self, enabled: bool) -> None:
+        """Set whether the movement track overlay is enabled."""
+        if self._track_overlay.enabled != enabled:
+            self._track_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def closest_identity_overlay_enabled(self) -> bool:
+        """Get whether the closest-animal marker overlay is enabled."""
+        return self._closest_identity_overlay.enabled
+
+    @closest_identity_overlay_enabled.setter
+    def closest_identity_overlay_enabled(self, enabled: bool) -> None:
+        """Set whether the closest-animal marker overlay is enabled."""
+        if self._closest_identity_overlay.enabled != enabled:
+            self._closest_identity_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def landmark_overlay_enabled(self) -> bool:
+        """Get whether the arena landmark overlay is enabled."""
+        return self._landmark_overlay.enabled
+
+    @landmark_overlay_enabled.setter
+    def landmark_overlay_enabled(self, enabled: bool) -> None:
+        """Set whether the arena landmark overlay is enabled."""
+        if self._landmark_overlay.enabled != enabled:
+            self._landmark_overlay.enabled = enabled
             self.update()
 
     @property
@@ -259,9 +308,15 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
     def set_active_identity(self, identity: int) -> None:
         """Set the active identity for the frame widget.
 
-        This identity will be highlighted in the frame.
+        This identity will be highlighted in the frame. Repaints, because the pose,
+        label, segmentation, track and closest-animal overlays all draw the active
+        identity differently - before those moved out of the decoder, the repaint came
+        from the frame being decoded again.
         """
+        if self._active_identity == identity:
+            return
         self._active_identity = identity
+        self.update()
 
     @property
     def label_color_lut(self) -> npt.NDArray[np.uint8] | None:
