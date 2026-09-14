@@ -1,5 +1,7 @@
 """Tests for the video metadata helpers in :mod:`jabs.video_reader.utilities`."""
 
+from collections.abc import Callable
+from pathlib import Path
 from unittest import mock
 
 import cv2
@@ -21,7 +23,7 @@ def _fake_capture(*, opened: bool = True, fps: float = 30.4, nframes: float = 10
 
 
 @pytest.fixture
-def capture(monkeypatch) -> mock.Mock:
+def capture(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
     """Patch cv2.VideoCapture in the utilities module and return the fake stream."""
     stream = _fake_capture()
     monkeypatch.setattr(
@@ -50,8 +52,12 @@ def test_get_fps_and_nframes(capture: mock.Mock) -> None:
 
 def test_video_reader_nframes_matches_helper(capture: mock.Mock) -> None:
     """VideoReader.get_nframes_from_file shares the helper's implementation."""
-    assert VideoReader.get_nframes_from_file("video.avi") == 100
+    assert VideoReader.get_nframes_from_file(Path("video.avi")) == 100
     capture.release.assert_called_once()
+
+
+# every entry point takes a path and returns either a single int or the (fps, nframes) pair
+MetadataReader = Callable[[Path], int | tuple[int, int]]
 
 
 @pytest.mark.parametrize(
@@ -59,7 +65,9 @@ def test_video_reader_nframes_matches_helper(capture: mock.Mock) -> None:
     [get_frame_count, get_fps, get_fps_and_nframes, VideoReader.get_nframes_from_file],
     ids=["frame_count", "fps", "fps_and_nframes", "video_reader"],
 )
-def test_unopenable_video_raises_and_releases(monkeypatch, func) -> None:
+def test_unopenable_video_raises_and_releases(
+    monkeypatch: pytest.MonkeyPatch, func: MetadataReader
+) -> None:
     """A video that will not open raises OSError, and the capture is still released."""
     stream = _fake_capture(opened=False)
     monkeypatch.setattr(
@@ -67,6 +75,6 @@ def test_unopenable_video_raises_and_releases(monkeypatch, func) -> None:
     )
 
     with pytest.raises(OSError, match="unable to open"):
-        func("missing.avi")
+        func(Path("missing.avi"))
 
     stream.release.assert_called_once()
