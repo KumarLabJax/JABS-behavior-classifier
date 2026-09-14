@@ -78,10 +78,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._pose_est = None
         self._playback_range: PlaybackRange | None = None
 
-        # properties to control video overlays managed by PlayerThread
-        self._label_closest = False
-        self._show_track = False
-        self._overlay_landmarks = False
         self._identities = []
 
         # currently selected identity
@@ -280,13 +276,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_widget.annotations = video_labels.timeline_annotations
 
         self._player_thread = PlayerThread(
-            self._video_stream,
-            self._pose_est,
-            self._active_identity,
-            self._show_track,
-            self._identities,
-            self._overlay_landmarks,
-            playback_speed=self._frame_widget.playback_speed,
+            self._video_stream, playback_speed=self._frame_widget.playback_speed
         )
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._on_frame_number_changed)
@@ -465,61 +455,34 @@ class PlayerWidget(QtWidgets.QWidget):
             )
         )
 
-    def _set_overlay_attr(
-        self, attr: str, signal: QtCore.Signal | None, enabled: bool | None
-    ) -> None:
-        """Toggle or set an overlay attribute and emit the corresponding signal.
+    def _toggle_overlay(self, attr: str, enabled: bool | None) -> None:
+        """Toggle or set one of the frame widget's overlay flags.
+
+        Every overlay is painted over the frame already on screen, so changing one
+        repaints rather than needing the frame decoded again.
 
         Args:
-            attr: Name of the attribute to toggle or set.
-            signal: Signal to emit with the new value.
-            enabled: If provided, sets the attribute to this value; if None, toggles the current value.
-
-        This method also forces a redraw of the current frame with updated overlay settings if playback is paused in
-        order to force the current frame to be redrawn with the new overlay settings.
+            attr: Name of the frame widget property to toggle or set.
+            enabled: If provided, sets the property to this value; if None, toggles it.
         """
-        current = getattr(self, attr)
-        new_value = not current if enabled is None else enabled
-        setattr(self, attr, new_value)
-        if signal:
-            # noinspection PyUnresolvedReferences
-            signal.emit(new_value)
-            self.reload_frame()
+        current = getattr(self._frame_widget, attr)
+        setattr(self._frame_widget, attr, not current if enabled is None else enabled)
 
     def show_closest(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show closest' overlay state."""
-        self._set_overlay_attr(
-            "_label_closest",
-            self._player_thread.setLabelClosest if self._player_thread else None,
-            enabled,
-        )
+        self._toggle_overlay("closest_identity_overlay_enabled", enabled)
 
     def show_track(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show track' overlay state."""
-        self._set_overlay_attr(
-            "_show_track",
-            self._player_thread.setShowTrack if self._player_thread else None,
-            enabled,
-        )
+        self._toggle_overlay("track_overlay_enabled", enabled)
 
     def overlay_segmentation(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay segmentation' overlay state.
-
-        Unlike the overlays the player thread bakes into the frame, this one is painted
-        over the frame already on screen, so there is nothing to re-decode: the frame
-        widget repaints itself.
-        """
-        self._frame_widget.segmentation_overlay_enabled = (
-            not self._frame_widget.segmentation_overlay_enabled if enabled is None else enabled
-        )
+        """Toggle or set the 'overlay segmentation' overlay state."""
+        self._toggle_overlay("segmentation_overlay_enabled", enabled)
 
     def overlay_landmarks(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay segmentation' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_landmarks",
-            self._player_thread.setOverlayLandmarks if self._player_thread else None,
-            enabled,
-        )
+        """Toggle or set the 'overlay landmarks' overlay state."""
+        self._toggle_overlay("landmark_overlay_enabled", enabled)
 
     def reload_frame(self) -> None:
         """reload the current frame in the player thread.
@@ -634,9 +597,9 @@ class PlayerWidget(QtWidgets.QWidget):
             return
 
         self._active_identity = identity
+        # The frame widget repaints its overlays; nothing the decoder produces depends
+        # on which identity is selected, so the frame itself does not need re-reading.
         self._frame_widget.set_active_identity(identity)
-        self._player_thread.setActiveIdentity.emit(identity)
-        self.reload_frame()
 
     def set_label_color_lut(self, lut: np.ndarray | None) -> None:
         """Set the color LUT for the label overlay.

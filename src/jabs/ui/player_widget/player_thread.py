@@ -3,15 +3,7 @@ import time
 import numpy as np
 from PySide6 import QtCore, QtGui
 
-from jabs.core.utils import signed_angle_degrees
-from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation
-from jabs.video_reader import (
-    VideoReader,
-    draw_track,
-    mark_identity,
-    overlay_landmarks,
-)
+from jabs.video_reader import VideoReader
 
 
 class PlayerThread(QtCore.QThread):
@@ -19,14 +11,13 @@ class PlayerThread(QtCore.QThread):
 
     Handles timing to achieve correct playback speed and emits signals to update UI components.
 
+    Decoding is all this thread does. Everything drawn on a frame is painted by the
+    overlays in the frame widget, so nothing here depends on the pose file or on which
+    identity is selected.
+
     Args:
         video_reader (VideoReader): The video reader instance.
-        pose_est (PoseEstimation): The pose estimation object.
-        identity (int): The active identity to track.
-        show_track (bool, optional): Whether to show the track overlay. Defaults to False.
-        identities (list[str], optional): List of all identities. Defaults to None.
-        overlay_landmarks_flag (bool, optional): Whether to overlay landmarks. Defaults to False.
-        label_closest (bool, optional): Whether to label the closest animal. Defaults to False.
+        playback_speed (float, optional): Playback rate multiplier. Defaults to 1.0.
 
     Signals:
         newImage (QImage, int): Emitted with a new QImage for the PlayerWidget to
@@ -38,70 +29,25 @@ class PlayerThread(QtCore.QThread):
         endOfFile: Emitted when the end of the video is reached.
     """
 
-    _CLOSEST_LABEL_COLOR = (255, 0, 0)
-    _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
-
     # signals used to update the UI components from the thread
     newImage = QtCore.Signal(QtGui.QImage, int)
     updatePosition = QtCore.Signal(int)
     endOfFile = QtCore.Signal()
 
     # signals used to update the properties of PlayerThread in a thread-safe manner
-    setLabelClosest = QtCore.Signal(bool)
-    setShowTrack = QtCore.Signal(bool)
-    setOverlayLandmarks = QtCore.Signal(bool)
-    setActiveIdentity = QtCore.Signal(int)
     setPlaybackSpeed = QtCore.Signal(float)
 
-    def __init__(
-        self,
-        video_reader: VideoReader,
-        pose_est: PoseEstimation,
-        identity: int,
-        show_track: bool = False,
-        identities: list[str] | None = None,
-        overlay_landmarks_flag: bool = False,
-        label_closest: bool = False,
-        playback_speed: float = 1.0,
-    ):
+    def __init__(self, video_reader: VideoReader, playback_speed: float = 1.0):
         super().__init__()
 
         self._video_reader = video_reader
-        self._pose_est = pose_est
-        self._identity = identity
-        self._show_track = show_track
-        self._overlay_landmarks = overlay_landmarks_flag
-        self._label_closest = label_closest
-        self._identities = identities if identities is not None else []
         self._playback_speed = playback_speed
 
-        self.setLabelClosest.connect(self._set_label_closest)
-        self.setShowTrack.connect(self._set_show_track)
-        self.setOverlayLandmarks.connect(self._set_overlay_landmarks)
-        self.setActiveIdentity.connect(self._set_identity)
         self.setPlaybackSpeed.connect(self._set_playback_speed)
 
     def stop_playback(self):
         """tell run thread to stop playback"""
         self.requestInterruption()
-
-    @QtCore.Slot(int)
-    def _set_identity(self, identity: int):
-        """set the active identity"""
-        self._identity = identity
-
-    @QtCore.Slot(bool)
-    def _set_label_closest(self, value: bool):
-        self._label_closest = value
-
-    @QtCore.Slot(bool)
-    def _set_show_track(self, value: bool):
-        self._show_track = value
-
-    @QtCore.Slot(bool)
-    def _set_overlay_landmarks(self, new_val: bool):
-        """set the overlay landmarks property"""
-        self._overlay_landmarks = new_val
 
     @QtCore.Slot(float)
     def _set_playback_speed(self, playback_speed: float):
@@ -114,38 +60,9 @@ class PlayerThread(QtCore.QThread):
         self.newImage.emit(image, frame["index"])
 
     def _prepare_image(self, frame: dict) -> QtGui.QImage | None:
+        """Convert one decoded frame to a QImage, or None at end of file."""
         if frame["data"] is None:
             return None
-
-        if self._identity is not None:
-            if self._show_track:
-                draw_track(frame["data"], self._pose_est, self._identity, frame["index"])
-
-            if self._label_closest:
-                closest_fov_id = self._get_closest_animal_id(
-                    frame["index"], ClosestIdentityInfo.HALF_FOV_DEGREE
-                )
-                if closest_fov_id is not None:
-                    mark_identity(
-                        frame["data"],
-                        self._pose_est,
-                        closest_fov_id,
-                        frame["index"],
-                        color=self._CLOSEST_FOV_LABEL_COLOR,
-                    )
-
-                closest_id = self._get_closest_animal_id(frame["index"])
-                if closest_id is not None and closest_id != closest_fov_id:
-                    mark_identity(
-                        frame["data"],
-                        self._pose_est,
-                        closest_id,
-                        frame["index"],
-                        color=self._CLOSEST_LABEL_COLOR,
-                    )
-
-        if self._overlay_landmarks:
-            overlay_landmarks(frame["data"], self._pose_est)
 
         # using numpy slicing to convert from OpenCV BGR to Qt RGB format is more efficient
         # than using QImage.rgbSwapped() because QImage.rgbSwapped() creates a a QImage in BGR
@@ -228,47 +145,3 @@ class PlayerThread(QtCore.QThread):
                 self.endOfFile.emit()
                 # and terminate the loop
                 end_of_file = True
-
-    def _get_closest_animal_id(self, frame_index, half_fov_deg=None):
-        idx = PoseEstimation.KeypointIndex
-        closest_id = None
-        closest_dist = None
-        ref_shape = self._pose_est.get_identity_convex_hulls(self._identity)[frame_index]
-        if ref_shape is not None:
-            for curr_id in self._pose_est.identities:
-                if curr_id != self._identity:
-                    other_shape = self._pose_est.get_identity_convex_hulls(curr_id)[frame_index]
-
-                    if other_shape is not None:
-                        curr_dist = ref_shape.distance(other_shape)
-                        if half_fov_deg is None or half_fov_deg >= 180:
-                            # we can ignore FoV angle and just worry about distance
-                            if closest_dist is None or curr_dist < closest_dist:
-                                closest_id = curr_id
-                                closest_dist = curr_dist
-                        else:
-                            # we need to account for FoV angle
-                            points, mask = self._pose_est.get_points(frame_index, self._identity)
-
-                            # we need nose and base neck to figure out view angle
-                            if mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
-                                ref_base_neck_point = points[idx.BASE_NECK, :]
-                                ref_nose_point = points[idx.NOSE, :]
-                                other_centroid = np.array(
-                                    (other_shape.centroid.x, other_shape.centroid.y)
-                                )
-
-                                # already wrapped to [-180, 180), which is the range
-                                # the FoV comparison below needs
-                                view_angle = signed_angle_degrees(
-                                    ref_nose_point, ref_base_neck_point, other_centroid
-                                )
-
-                                if abs(view_angle) <= half_fov_deg and (
-                                    closest_dist is None or curr_dist < closest_dist
-                                ):
-                                    # other animal is in FoV
-                                    closest_id = curr_id
-                                    closest_dist = curr_dist
-
-        return closest_id
