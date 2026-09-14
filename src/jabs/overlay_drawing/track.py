@@ -27,10 +27,11 @@ TRACK_PAST_COLOR = QtGui.QColor(255, 135, 135)
 DEFAULT_FUTURE_FRAMES = 10
 DEFAULT_PAST_FRAMES = 5
 
-# Base sizes at the player's display scale. Past positions are drawn larger than
-# future ones, as the cv2 drawing did. Callers scale these with the zoom.
-TRACK_FUTURE_RADIUS = 1
-TRACK_PAST_RADIUS = 2
+# Base sizes at the player's display scale; callers scale these with the zoom. One
+# radius for both halves: the cv2 drawing this replaced made past positions twice the
+# size of future ones, which only made the track lumpy - the two halves are already
+# told apart by color.
+TRACK_POINT_RADIUS = 1
 TRACK_LINE_WIDTH = 1
 
 
@@ -41,8 +42,7 @@ def draw_identity_track(
     identity: int,
     *,
     to_output: Callable[[float, float], tuple[int, int] | None],
-    future_radius: int,
-    past_radius: int,
+    point_radius: int,
     line_width: int,
     future_frames: int = DEFAULT_FUTURE_FRAMES,
     past_frames: int = DEFAULT_PAST_FRAMES,
@@ -57,8 +57,8 @@ def draw_identity_track(
         identity: Identity whose track is drawn.
         to_output: Maps an image-space ``(x, y)`` to the painter's coordinate space, or
             returns ``None`` to skip a point (e.g. a point outside a display crop).
-        future_radius: Radius of each future position marker, in pixels.
-        past_radius: Radius of each past position marker, in pixels.
+        point_radius: Radius of each position marker, in pixels. Past and future
+            markers are the same size; color is what separates them.
         line_width: Width of the line joining the positions, in pixels.
         future_frames: How many frames ahead of ``frame_index`` to draw.
         past_frames: How many frames behind ``frame_index`` to draw.
@@ -79,8 +79,8 @@ def draw_identity_track(
         to_output,
     )
 
-    _draw_half(painter, future, TRACK_FUTURE_COLOR, future_radius, line_width)
-    _draw_half(painter, past, TRACK_PAST_COLOR, past_radius, line_width)
+    _draw_half(painter, future, TRACK_FUTURE_COLOR, point_radius, line_width)
+    _draw_half(painter, past, TRACK_PAST_COLOR, point_radius, line_width)
 
 
 def _visible_points(
