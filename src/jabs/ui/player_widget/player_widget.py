@@ -38,7 +38,6 @@ class PlayerWidget(QtWidgets.QWidget):
 
     Signals:
         update_frame_number (int): Emitted when the current frame number changes.
-        update_identities (list): Emitted when the list of identities is updated.
         playback_finished (): Emitted when playback of a range finishes.
         eof_reached (): Emitted when the end of the video file is reached.
 
@@ -55,7 +54,6 @@ class PlayerWidget(QtWidgets.QWidget):
         PREDICTION = 2
 
     update_frame_number = QtCore.Signal(int)
-    update_identities = QtCore.Signal(list)
     playback_finished = QtCore.Signal()
     eof_reached = QtCore.Signal()
     id_label_clicked = QtCore.Signal(int)
