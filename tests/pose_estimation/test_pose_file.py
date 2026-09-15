@@ -204,3 +204,45 @@ def test_v4_read_from_cache(tmpdir_with_pose_files):
         poses_cached[np.isnan(poses_cached)] = 0
         assert np.all(poses == poses_cached)
         assert np.all(mask == mask_cached)
+
+
+@pytest.mark.parametrize(
+    "pose_file",
+    ["sample_pose_est_v3.h5", "sample_pose_est_v4.h5"],
+    ids=["v3", "v4"],
+)
+def test_stale_cache_file_version_is_regenerated(
+    tmpdir_with_pose_files: Path, tmp_path: Path, pose_file: str
+) -> None:
+    """a cache written by an older _CACHE_FILE_VERSION is discarded, not read
+
+    The version check lives in PoseEstimation.__init__, which deletes a cache
+    file whose "cache_file_version" attribute does not match the class's
+    _CACHE_FILE_VERSION. The version-specific readers never see the stale file,
+    so they carry no version check of their own.
+    """
+    source_pose = tmpdir_with_pose_files / pose_file
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    pose = jabs.pose_estimation.open_pose_file(source_pose, cache_dir=cache_dir)
+    cache_file = cache_dir / source_pose.name.replace(".h5", "_cache.h5")
+    assert cache_file.exists()
+
+    # make the cache look like it was written by an older version of JABS, and
+    # add a marker that only survives if the stale file is reused
+    with h5py.File(cache_file, "r+") as f:
+        current_version = f.attrs["cache_file_version"]
+        f.attrs["cache_file_version"] = current_version - 1
+        f["poseest"].create_dataset("stale_marker", data=[1])
+
+    pose_from_regenerated_cache = jabs.pose_estimation.open_pose_file(
+        source_pose, cache_dir=cache_dir
+    )
+
+    with h5py.File(cache_file, "r") as f:
+        assert f.attrs["cache_file_version"] == current_version
+        assert "stale_marker" not in f["poseest"]
+
+    assert pose_from_regenerated_cache.identities == pose.identities
+    assert pose_from_regenerated_cache.num_frames == pose.num_frames
