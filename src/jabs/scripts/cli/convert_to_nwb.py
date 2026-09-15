@@ -181,6 +181,7 @@ _SESSION_METADATA_FIELDS = frozenset(
         "institution",
         "experiment_description",
         "session_id",
+        "keywords",
     }
 )
 
@@ -256,8 +257,8 @@ def run_conversion(
         session_metadata: Optional dict of NWB session-level metadata.
             Supported keys: ``session_start_time`` (ISO 8601 string),
             ``experimenter`` (str or list[str]), ``lab``, ``institution``,
-            ``experiment_description``, ``session_id``.  Unknown keys are
-            ignored with a warning.
+            ``experiment_description``, ``session_id``, ``keywords``
+            (list[str]).  Unknown keys are ignored with a warning.
 
     Raises:
         ValueError: If the input file is not a recognized JABS pose file, or

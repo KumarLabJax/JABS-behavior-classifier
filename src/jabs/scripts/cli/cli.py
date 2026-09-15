@@ -543,7 +543,8 @@ def cross_validation(
         "Path to a JSON file containing NWB session-level metadata. "
         "Supported keys: session_start_time (ISO 8601 string), "
         "experimenter (string or list of strings), "
-        "lab, institution, experiment_description, session_id (strings)."
+        "lab, institution, experiment_description, session_id (strings), "
+        "keywords (list of strings)."
     ),
 )
 @click.pass_context

@@ -119,7 +119,8 @@ files and otherwise defaults to the time the export was run.
   "lab": "Kumar Lab",
   "institution": "The Jackson Laboratory",
   "experiment_description": "Open field test",
-  "session_id": "session_001"
+  "session_id": "session_001",
+  "keywords": ["open field", "mouse", "behavior"]
 }
 ```
 
@@ -131,6 +132,7 @@ files and otherwise defaults to the time the export was run.
 | `institution`            | string                    | Institution name.                                                                                                                                                                         |
 | `experiment_description` | string                    | Free-text description of the experiment.                                                                                                                                                  |
 | `session_id`             | string                    | Lab-specific session identifier.                                                                                                                                                          |
+| `keywords`               | list of strings           | Keywords/tags describing the session.                                                                                                                                                     |
 
 All fields are optional. Unknown keys are ignored with a warning.
 
