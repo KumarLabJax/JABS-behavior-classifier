@@ -1109,13 +1109,15 @@ def test_static_object_timestamps_span_first_and_last_frame(
         assert timestamps[-1] <= (num_frames - 1) / fps or num_frames == 1
 
 
-def test_bounding_box_description_reports_nan_for_missing(tmp_path, adapter):
-    """The bounding box description names NaN, the sentinel the writer actually emits.
+def test_bounding_box_description_documents_fill_value_ambiguity(tmp_path, adapter):
+    """The bounding box description must not promise a single missing-value sentinel.
 
-    Missing boxes arrive as NaN: PoseEstimationV8 initializes its regrouped array with
-    NaN and fills only slots where id_mask marks the instance valid. The -1 placeholder
-    is written to disk by convert_parquet, but only into slots that id_mask excludes, so
-    it never reaches this writer.
+    Missing boxes are usually NaN: PoseEstimationV8 initializes its regrouped array with
+    NaN and fills only slots where id_mask marks the instance valid. That is not
+    guaranteed, though - convert_parquet rewrites every NaN coordinate to -1, including
+    rows it marks valid in id_mask, so -1 does reach this writer, and an integer-typed
+    poseest/bbox dataset cannot hold NaN at all (the NaN fill casts to 0). The
+    description names the alternatives instead of committing to NaN.
     """
     path = tmp_path / "pose_bbox_description.nwb"
     data = _make_pose_data(num_identities=1, with_bounding_boxes=True)
@@ -1130,4 +1132,4 @@ def test_bounding_box_description_reports_nan_for_missing(tmp_path, adapter):
 
         description = behavior.data_interfaces[bbox_keys[0]].description
         assert "NaN" in description
-        assert "-1" not in description
+        assert "-1" in description

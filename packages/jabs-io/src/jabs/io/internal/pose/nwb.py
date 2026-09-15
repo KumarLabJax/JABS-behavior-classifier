@@ -86,6 +86,27 @@ def _bounding_box_key(identity_name: str) -> str:
     return f"{_BOUNDING_BOXES_PREFIX}_{identity_name}"
 
 
+def _bounding_box_description(identity_name: str) -> str:
+    """Return the TimeSeries description for bounding boxes of a given identity.
+
+    The description does not promise a single missing-value sentinel, because the
+    writer cannot guarantee one. Missing boxes are usually NaN - PoseEstimationV8
+    initializes its regrouped array with NaN and fills only the slots id_mask marks
+    valid - but ``jabs-cli convert-parquet`` rewrites every NaN coordinate to -1,
+    including rows it marks valid in id_mask, and an integer-typed ``poseest/bbox``
+    dataset cannot hold NaN at all (the NaN fill casts to 0). Normalizing the value
+    here would change the exported coordinates and break the lossless roundtrip, so
+    the ambiguity is documented instead.
+    """
+    return (
+        f"Per-frame bounding box for identity '{identity_name}': "
+        "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; frames without a "
+        "box carry a source-dependent fill value (NaN for float pose data, or a sentinel "
+        "such as -1 or 0 from some converters) rather than one guaranteed sentinel, so "
+        "treat non-finite or negative coordinates as absent"
+    )
+
+
 @register_adapter(StorageFormat.NWB, PoseData, priority=10)
 class PoseNWBAdapter(Adapter):
     """NWB adapter for PoseData."""
@@ -352,11 +373,7 @@ class PoseNWBAdapter(Adapter):
                         name=_bounding_box_key(name),
                         data=data.bounding_boxes[i],  # (num_frames, 2, 2)
                         unit="pixels",
-                        description=(
-                            f"Per-frame bounding box for identity '{name}': "
-                            "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; "
-                            "missing values are NaN"
-                        ),
+                        description=_bounding_box_description(name),
                         rate=float(data.fps),
                     )
                 )
@@ -448,11 +465,7 @@ class PoseNWBAdapter(Adapter):
                         name=_bounding_box_key(identity_name),
                         data=data.bounding_boxes[i],  # (num_frames, 2, 2)
                         unit="pixels",
-                        description=(
-                            f"Per-frame bounding box for identity '{identity_name}': "
-                            "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; "
-                            "missing values are NaN"
-                        ),
+                        description=_bounding_box_description(identity_name),
                         rate=float(data.fps),
                     )
                 )
@@ -1003,6 +1016,12 @@ class PoseNWBAdapter(Adapter):
                 last frame's timestamp.
             num_frames: Total number of frames in the session, used to compute
                 the last frame's timestamp.
+
+        Returns:
+            PoseEstimation holding one two-timestamp series per point in ``points``.
+
+        Raises:
+            ValueError: If ``fps`` or ``num_frames`` is not positive.
         """
         if fps <= 0:
             raise ValueError(f"fps must be positive, got {fps}")
