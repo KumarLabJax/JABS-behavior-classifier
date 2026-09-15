@@ -8,10 +8,6 @@ from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.core.exceptions import PoseHashException, PoseIdEmbeddingException
 
 
-class _CacheFileVersion(Exception):
-    pass
-
-
 class PoseEstimationV4(PoseEstimation):
     """
     Handler for version 4 pose estimation HDF5 files.
@@ -37,6 +33,8 @@ class PoseEstimationV4(PoseEstimation):
         get_identity_point_mask(identity): Get the point mask array for a given identity.
     """
 
+    # super class handles validating cache file version and will delete
+    # if it doesn't match expected version so it will get regenerated
     # bump to force regeneration of pose cache files for v4 or any subclass
     _CACHE_FILE_VERSION = 4
 
@@ -274,6 +272,14 @@ class PoseEstimationV4(PoseEstimation):
 
         We do some transformation of the pose files so that, for example, we can index them by identity. The
         cache file allows us to avoid doing this every time the pose file is loaded.
+
+        This does not check the cache file version: ``PoseEstimation.__init__``
+        has already deleted a cache written by a different ``_CACHE_FILE_VERSION``,
+        so a stale cache surfaces here as a missing file (``OSError``), which the
+        caller handles by reading the source pose file.
+
+        Raises:
+            PoseHashException: If the cache was written for a different pose file.
 
         Returns:
             None

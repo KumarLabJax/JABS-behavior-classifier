@@ -8,10 +8,6 @@ from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.exceptions import PoseHashException
 
 
-class _CacheFileVersion(Exception):
-    pass
-
-
 class PoseEstimationV3(PoseEstimation):
     """Handler for version 3 pose estimation HDF5 files.
 
@@ -71,9 +67,11 @@ class PoseEstimationV3(PoseEstimation):
                     # get pixel size
                     self._cm_per_pixel = pose_grp.attrs.get("cm_per_pixel", None)
 
-            except (OSError, KeyError, _CacheFileVersion, PoseHashException):
+            except (OSError, KeyError, PoseHashException):
                 # unable to open or read pose cache file, revert to source pose
-                # file
+                # file. A cache written by an older _CACHE_FILE_VERSION never
+                # reaches this point: PoseEstimation.__init__ has already
+                # deleted it, so opening it raises OSError here.
                 use_cache = False
         else:
             use_cache = False
