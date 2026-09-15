@@ -6,6 +6,12 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from jabs.io.annotations import (
+    UNVERSIONED,
+    AnnotationDocument,
+    AnnotationStore,
+    LocalAnnotationStore,
+)
 from jabs.project.project_paths import ProjectPaths
 from jabs.project.settings_manager import SettingsManager
 from jabs.project.video_manager import VideoManager
@@ -66,7 +72,11 @@ def video_manager(project_paths, settings_manager):
         },
     }
     return VideoManager(
-        project_paths, settings_manager, enable_video_check=False, scan_results=scan_results
+        project_paths,
+        settings_manager,
+        enable_video_check=False,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(project_paths.annotations_dir),
     )
 
 
@@ -115,6 +125,57 @@ def test_load_video_labels(video_manager, project_paths):
     labels = video_manager.load_video_labels("video1.avi")
     assert labels is not None
     assert labels.filename == "video1.avi"
+
+
+def test_load_video_labels_reads_through_the_annotation_store(video_manager):
+    """Labels come from the store, not from a direct read of the annotations dir."""
+    document = {"labels": {}, "num_frames": 1000, "file": "video1.avi"}
+    store = MagicMock(spec=AnnotationStore)
+    store.load_document.return_value = AnnotationDocument(document, UNVERSIONED)
+    video_manager._annotation_store = store
+
+    labels = video_manager.load_video_labels("video1.avi", pose=MagicMock())
+
+    store.load_document.assert_called_once_with("video1.avi")
+    assert labels is not None
+    assert labels.filename == "video1.avi"
+
+
+def test_load_video_labels_returns_none_when_the_store_has_no_document(video_manager):
+    """An unlabeled video yields no VideoLabels, and no pose file is opened."""
+    store = MagicMock(spec=AnnotationStore)
+    store.load_document.return_value = None
+    video_manager._annotation_store = store
+
+    assert video_manager.load_video_labels("video1.avi") is None
+
+
+def test_load_annotations_reads_through_the_annotation_store(video_manager):
+    """The raw-document read path is served by the store as well."""
+    document = {"labels": {}, "num_frames": 1000, "file": "video1.avi"}
+    store = MagicMock(spec=AnnotationStore)
+    store.load_document.return_value = AnnotationDocument(document, UNVERSIONED)
+    video_manager._annotation_store = store
+
+    assert video_manager.load_annotations("video1.avi") == document
+    store.load_document.assert_called_once_with("video1.avi")
+
+
+def test_load_annotations_rejects_a_video_outside_the_project(video_manager):
+    """An unknown video is still rejected before the store is consulted."""
+    store = MagicMock(spec=AnnotationStore)
+    video_manager._annotation_store = store
+
+    with pytest.raises(ValueError, match="not in project"):
+        video_manager.load_annotations("not_in_project.avi")
+    store.load_document.assert_not_called()
+
+
+def test_annotations_path_comes_from_the_annotation_store(video_manager, project_paths):
+    """The advertised annotation path is whatever the store reports."""
+    assert video_manager.annotations_path("video1.avi") == (
+        project_paths.annotations_dir / "video1.json"
+    )
 
 
 def test_remove_video_updates_derived_state(video_manager):
@@ -191,7 +252,11 @@ def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
         },
     }
     manager = VideoManager(
-        paths, SettingsManager(paths), enable_video_check=False, scan_results=scan_results
+        paths,
+        SettingsManager(paths),
+        enable_video_check=False,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(paths.annotations_dir),
     )
 
     assert manager.videos == ["video1.avi"]

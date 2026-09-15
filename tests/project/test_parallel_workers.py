@@ -10,10 +10,12 @@ import pytest
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
+from jabs.io.annotations import LocalAnnotationStore, write_document
 from jabs.project.parallel_workers import (
     VideoScanJobSpec,
     VideoScanResult,
     _get_identity_count,
+    _load_video_labels,
     _warn_on_frame_count_mismatch,
     collect_multiclass_labeled_features,
     scan_video_metadata,
@@ -316,7 +318,13 @@ def test_video_manager_with_scan_results_no_pose_open(tmp_path):
     }
 
     with patch("jabs.project.video_manager.open_pose_file") as mock_open:
-        vm = VideoManager(paths, sm, enable_video_check=False, scan_results=scan_results)
+        vm = VideoManager(
+            paths,
+            sm,
+            enable_video_check=False,
+            scan_results=scan_results,
+            annotation_store=LocalAnnotationStore(paths.annotations_dir),
+        )
 
     mock_open.assert_not_called()
     assert vm.get_video_identity_count("video1.avi") == 2
@@ -349,7 +357,13 @@ def test_video_manager_with_scan_results_frame_count_validation(tmp_path):
         )
     }
 
-    vm = VideoManager(paths, sm, enable_video_check=True, scan_results=scan_results)
+    vm = VideoManager(
+        paths,
+        sm,
+        enable_video_check=True,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(paths.annotations_dir),
+    )
     assert vm.videos == ["video1.avi"]
 
 
@@ -380,7 +394,13 @@ def test_video_manager_scan_results_frame_mismatch_raises(tmp_path):
     }
 
     with pytest.raises(ValueError, match="frame counts differ"):
-        VideoManager(paths, sm, enable_video_check=True, scan_results=scan_results)
+        VideoManager(
+            paths,
+            sm,
+            enable_video_check=True,
+            scan_results=scan_results,
+            annotation_store=LocalAnnotationStore(paths.annotations_dir),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -456,3 +476,26 @@ def test_feature_manager_scan_results_no_cm_per_pixel(tmp_path):
 
     fm = FeatureManager(paths, ["video1.avi"], scan_results=scan_results)
     assert not fm.is_cm_unit
+
+
+def test_load_video_labels_reads_the_document_from_a_path(tmp_path: Path) -> None:
+    """Workers parse the annotation document by path, with no store involved."""
+    path = tmp_path / "video1.json"
+    write_document(
+        path,
+        {
+            "file": "video1.avi",
+            "num_frames": 10,
+            "labels": {"0": {"Walk": [{"start": 0, "end": 4, "present": True}]}},
+        },
+    )
+
+    labels = _load_video_labels(path, _MockPose(np.ones(10, dtype=bool)))
+
+    assert labels is not None
+    assert labels.filename == "video1.avi"
+
+
+def test_load_video_labels_returns_none_for_an_unlabeled_video(tmp_path: Path) -> None:
+    """A video with no annotation file contributes no labels to training."""
+    assert _load_video_labels(tmp_path / "absent.json", _MockPose(np.ones(10, dtype=bool))) is None

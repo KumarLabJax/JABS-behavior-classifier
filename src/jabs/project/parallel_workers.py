@@ -5,7 +5,6 @@ and per-video metadata scanning. These functions are designed to
 be executed by ProcessPoolExecutor workers, managed by Project.
 """
 
-import json
 import logging
 import multiprocessing
 import sys
@@ -19,6 +18,7 @@ import pandas as pd
 import jabs.feature_extraction as fe
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
+from jabs.io.annotations import read_document
 from jabs.pose_estimation import open_pose_file
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps_and_nframes
@@ -205,13 +205,16 @@ def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
 
 
 def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> VideoLabels | None:
-    """Load VideoLabels from a JSON file if present; else None."""
-    ap = annotations_path
-    if not ap.exists():
+    """Load VideoLabels from a JSON file if present; else None.
+
+    Workers are handed a path rather than the project's annotation store, so
+    that this runs in a child process with no access to whatever backs that
+    store. The job builder hydrates the document before dispatch.
+    """
+    document = read_document(annotations_path)
+    if document is None:
         return None
-    with ap.open("r") as f:
-        data = json.load(f)
-    return VideoLabels.load(data, pose_est)
+    return VideoLabels.load(document, pose_est)
 
 
 def _apply_macos_fork_lapack_workaround() -> None:
