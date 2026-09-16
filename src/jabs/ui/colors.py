@@ -2,7 +2,7 @@ import distinctipy
 import numpy as np
 from PySide6.QtGui import QColor
 
-from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.utils import validate_behavior_names
 
 # The three label colors are defined in jabs.overlay_drawing, not here: the frame and
 # video exports color their label markers with them and must not import anything under
@@ -75,12 +75,7 @@ def make_behavior_color_map(behavior_names: list[str]) -> dict[str, QColor]:
         ValueError: If ``behavior_names`` contains the reserved
             ``MULTICLASS_NONE_BEHAVIOR`` name or any duplicate entries.
     """
-    if MULTICLASS_NONE_BEHAVIOR in behavior_names:
-        raise ValueError(
-            f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
-        )
-    if len(behavior_names) != len(set(behavior_names)):
-        raise ValueError("behavior_names must not contain duplicates")
+    validate_behavior_names(behavior_names)
     if not behavior_names:
         return {}
     rgb_floats = distinctipy.get_colors(
@@ -123,12 +118,7 @@ def build_multiclass_color_lut(
             ``MULTICLASS_NONE_BEHAVIOR`` name, any duplicates, or names missing
             from ``color_map``.
     """
-    if MULTICLASS_NONE_BEHAVIOR in behavior_names:
-        raise ValueError(
-            f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
-        )
-    if len(behavior_names) != len(set(behavior_names)):
-        raise ValueError("behavior_names must not contain duplicates")
+    validate_behavior_names(behavior_names)
     missing = [n for n in behavior_names if n not in color_map]
     if missing:
         raise ValueError(f"behavior_names contains names missing from color_map: {missing}")
