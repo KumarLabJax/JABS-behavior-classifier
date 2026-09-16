@@ -47,7 +47,7 @@ def _require_pose_file_name(pose_path: Path) -> None:
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
-def _load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifier:
+def load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifier:
     """Load a binary or multi-class classifier from a pickle file.
 
     Peeks at the deserialized type, then delegates to the class-specific
@@ -449,7 +449,7 @@ def classify_main() -> None:
         )
     elif args.classifier is not None:
         try:
-            classifier = _load_classifier_from_pickle(Path(args.classifier))
+            classifier = load_classifier_from_pickle(Path(args.classifier))
         except Exception as e:
             print(f"Unable to load classifier from {args.classifier}:")
             sys.exit(str(e))

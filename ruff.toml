@@ -54,6 +54,10 @@ convention = "google"
 "src/jabs/scripts/cli/sample_pose_intervals.py" = [
     "D301",  # Click uses \b in docstrings to control help formatting
 ]
+"src/jabs/scripts/cli/evaluate.py" = [
+    "D301",  # Click uses \b in docstrings to control help formatting
+    "D412",  # Click Examples sections look better with a blank line before \b blocks
+]
 "src/jabs/scripts/cli/postprocessing.py" = [
     "D301",  # Click uses \b in docstrings to control help formatting
     "D412",  # Click preformatted blocks look better with a blank line before \b

@@ -214,7 +214,7 @@ def generate_config(
         raise click.ClickException(f"Cannot write config file: {exc}") from exc
 
 
-def _load_config_file(config_path: Path) -> list[dict[str, Any]] | _BehaviorConfigMap:
+def load_config_file(config_path: Path) -> list[dict[str, Any]] | _BehaviorConfigMap:
     """Load a pipeline config from a JSON or YAML file.
 
     Args:
@@ -546,7 +546,7 @@ def apply_postprocessing_command(
             "--config is required unless --list-behaviors or --generate-config is used."
         )
 
-    config = _load_config_file(config_file)
+    config = load_config_file(config_file)
     output_path = output_file if output_file is not None else prediction_file
     in_place = output_path == prediction_file
 
