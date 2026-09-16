@@ -75,6 +75,7 @@ class MenuReferences:
     label_overlay_none: QtGui.QAction
     label_overlay_labels: QtGui.QAction
     label_overlay_preds: QtGui.QAction
+    label_overlay_both: QtGui.QAction
 
     # Identity overlay actions
     identity_overlay_centroid: QtGui.QAction
@@ -239,8 +240,8 @@ class MenuBuilder:
         # Export overlay video action
         export_overlay_video = QtGui.QAction("Export Video with Overlays…", self.main_window)
         export_overlay_video.setStatusTip(
-            "Export a copy of the current video with the pose, segmentation and "
-            "prediction overlays drawn on every frame"
+            "Export a copy of the current video with the pose, segmentation, label "
+            "and prediction overlays drawn on every frame"
         )
         export_overlay_video.setEnabled(False)
         export_overlay_video.triggered.connect(self.handlers.export_overlay_video)
@@ -544,23 +545,30 @@ class MenuBuilder:
         )
         label_overlay_labels = QtGui.QAction("Labels", self.main_window, checkable=True)
         label_overlay_preds = QtGui.QAction("Predictions", self.main_window, checkable=True)
+        label_overlay_both = QtGui.QAction(
+            "Labels and Predictions", self.main_window, checkable=True
+        )
 
         label_overlay_group.addAction(label_overlay_none)
         label_overlay_group.addAction(label_overlay_labels)
         label_overlay_group.addAction(label_overlay_preds)
+        label_overlay_group.addAction(label_overlay_both)
 
         label_overlay_menu.addAction(label_overlay_none)
         label_overlay_menu.addAction(label_overlay_labels)
         label_overlay_menu.addAction(label_overlay_preds)
+        label_overlay_menu.addAction(label_overlay_both)
 
         label_overlay_none.triggered.connect(self.handlers.on_label_overlay_mode_changed)
         label_overlay_labels.triggered.connect(self.handlers.on_label_overlay_mode_changed)
         label_overlay_preds.triggered.connect(self.handlers.on_label_overlay_mode_changed)
+        label_overlay_both.triggered.connect(self.handlers.on_label_overlay_mode_changed)
 
         return {
             "label_overlay_none": label_overlay_none,
             "label_overlay_labels": label_overlay_labels,
             "label_overlay_preds": label_overlay_preds,
+            "label_overlay_both": label_overlay_both,
         }
 
     def _build_identity_overlay_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:

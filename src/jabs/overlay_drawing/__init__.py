@@ -50,6 +50,8 @@ from .colors import (
     NOT_BEHAVIOR_COLOR,
 )
 from .labels import (
+    LABEL_MARKER_GAP,
+    LABEL_MARKER_PAIR_GAP,
     LABEL_MARKER_SIZE,
     draw_label_marker,
     label_marker_color,
@@ -99,6 +101,8 @@ __all__ = [
     "CLOSEST_MARKER_RADIUS",
     "KEYPOINT_COLOR_MAP",
     "KEYPOINT_SIZE",
+    "LABEL_MARKER_GAP",
+    "LABEL_MARKER_PAIR_GAP",
     "LABEL_MARKER_SIZE",
     "LANDMARK_CORNER_COLOR",
     "LANDMARK_HOPPER_COLOR",

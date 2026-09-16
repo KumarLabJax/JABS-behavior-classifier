@@ -17,7 +17,7 @@ from .frame_renderer import render_overlay_frame
 if TYPE_CHECKING:
     from jabs.pose_estimation import PoseEstimation
 
-    from .prediction_overlay import PredictionOverlay
+    from .label_marker_overlay import LabelMarkerOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def export_overlay_video(
     *,
     draw_pose: bool = True,
     draw_segmentation: bool = True,
-    prediction_overlay: PredictionOverlay | None = None,
+    label_overlay: LabelMarkerOverlay | None = None,
     codec: str = DEFAULT_CODEC,
     progress_callback: Callable[[int, int], None] | None = None,
     should_continue: Callable[[], bool] | None = None,
@@ -78,8 +78,8 @@ def export_overlay_video(
         pose_est: Pose estimation for ``video_path``.
         draw_pose: Whether to include the pose keypoints and skeleton.
         draw_segmentation: Whether to include segmentation contours.
-        prediction_overlay: Predictions to mark next to each identity, or ``None``
-            to draw no predictions.
+        label_overlay: Labels and/or predictions to mark next to each identity,
+            or ``None`` to draw no label markers.
         codec: FourCC codec string passed to ``cv2.VideoWriter``.
         progress_callback: Called after each frame with
             ``(frames_written, total_frames)``.
@@ -192,7 +192,7 @@ def export_overlay_video(
                         frames_written,
                         draw_pose=draw_pose,
                         draw_segmentation=draw_segmentation,
-                        prediction_overlay=prediction_overlay,
+                        label_overlay=label_overlay,
                     )
                 else:
                     output_frame = frame_data

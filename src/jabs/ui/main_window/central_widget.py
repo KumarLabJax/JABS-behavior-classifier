@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import numpy.typing as npt
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog
@@ -20,7 +21,7 @@ from jabs.core.enums import (
 )
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
-from jabs.video_export import PredictionOverlay
+from jabs.video_export import LabelMarkerOverlay
 
 from ..behavior_timeline import (
     BehaviorTimelineWidget,
@@ -40,10 +41,11 @@ from . import central_widget_mode
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
 
-# Why the prediction overlay cannot be exported, shown as the tooltip on the disabled
-# checkbox in the export options dialog. The two cases need different things from the
-# user: one video has never been classified, the other was classified against a
-# behavior list the project no longer has.
+# Why a label marker cannot be exported, shown as the tooltip on the disabled checkbox
+# in the export options dialog. The two prediction cases need different things from the
+# user: one video has never been classified, the other was classified against a behavior
+# list the project no longer has.
+_NO_LABELS_REASON = "No labels available to draw for this video"
 _NO_PREDICTIONS_REASON = "No predictions for this video: classify it first"
 _STALE_PREDICTIONS_REASON = (
     "These predictions were generated for a different behavior list: classify this video again"
@@ -107,6 +109,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._probability_list = None
         self._pose_est: PoseEstimation | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
+        # whether the player widget currently has label overlay values, so the overlay
+        # is not cleared (forcing a repaint) every time labels or predictions change
+        # while it is switched off
+        self._label_overlay_populated = False
         self._suppress_label_track_update = False
         self._prediction_type = PredictionType.RAW
 
@@ -296,56 +302,15 @@ class CentralWidget(QtWidgets.QWidget):
     def label_overlay_mode(self, mode: PlayerWidget.LabelOverlayMode) -> None:
         """set the label overlay mode of the player widget
 
-        If the mode is changed, update the player widget labels with
-        either the current labels or predictions based on the mode.
+        If the mode is changed, update the player widget with the current labels, the
+        current predictions, or both, based on the mode.
 
         Args:
             mode (PlayerWidget.LabelOverlayMode): The new label overlay mode to set.
         """
         if mode != self._label_overlay_mode:
             self._label_overlay_mode = mode
-            if mode == PlayerWidget.LabelOverlayMode.LABEL:
-                if (
-                    self._project is not None
-                    and self._labels is not None
-                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
-                ):
-                    behavior_names = self._controls.behaviors
-                    multiclass_arrays = [
-                        self._labels.build_multiclass_label_array(str(i), behavior_names)
-                        for i in range(self._pose_est.num_identities)
-                    ]
-                    lut = self._jabs_timeline.multiclass_color_lut
-                    if lut is not None:
-                        self._player_widget.set_label_color_lut(lut)
-                        self._player_widget.set_labels(multiclass_arrays)
-                    else:
-                        self._player_widget.set_label_color_lut(None)
-                        self._player_widget.set_labels(None)
-                else:
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels(
-                        [labels.get_labels() for labels in self._get_label_list()]
-                    )
-            elif mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                if (
-                    self._project is not None
-                    and self._loaded_video is not None
-                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
-                ):
-                    lut = self._jabs_timeline.multiclass_color_lut
-                    if lut is not None:
-                        self._player_widget.set_label_color_lut(lut)
-                        self._player_widget.set_labels(self._build_multiclass_overlay_labels())
-                    else:
-                        self._player_widget.set_label_color_lut(None)
-                        self._player_widget.set_labels(None)
-                else:
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels(self._prediction_list)
-            else:
-                self._player_widget.set_label_color_lut(None)
-                self._player_widget.set_labels(None)
+            self._refresh_label_overlay()
 
     @property
     def id_overlay_mode(self) -> PlayerWidget.IdentityOverlayMode:
@@ -933,7 +898,12 @@ class CentralWidget(QtWidgets.QWidget):
             )
 
     def _set_label_track(self) -> None:
-        """loads new set of labels in self.manual_labels when the selected behavior or identity is changed"""
+        """loads new set of labels in self.manual_labels when the selected behavior or identity is changed
+
+        The label overlay is refreshed by the trailing :meth:`_set_prediction_vis` call,
+        which pushes whichever of the labels and predictions the current overlay mode
+        displays.
+        """
         if self._suppress_label_track_update:
             return
 
@@ -953,19 +923,6 @@ class CentralWidget(QtWidgets.QWidget):
                 behaviors=self._controls.behaviors,
             )
             self._jabs_timeline.set_labels(timeline_labels, mask_list)
-            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                if mode == ClassifierMode.MULTICLASS:
-                    lut = self._jabs_timeline.multiclass_color_lut
-                    if lut is not None:
-                        self._player_widget.set_label_color_lut(lut)
-                        self._player_widget.set_labels(timeline_labels)
-                    else:
-                        self._player_widget.set_label_color_lut(None)
-                        self._player_widget.set_labels(None)
-                else:
-                    label_list = self._get_label_list()
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
         self._set_prediction_vis()
 
@@ -1514,32 +1471,121 @@ class CentralWidget(QtWidgets.QWidget):
             overlay_labels.append(np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1))
         return overlay_labels
 
+    def _manual_overlay_labels(self, multiclass: bool) -> list[np.ndarray] | None:
+        """Build the per-identity manual label arrays for the label overlay.
+
+        Args:
+            multiclass: True if the project is in multi-class mode, in which case the
+                values are LUT indices covering every behavior rather than the selected
+                behavior's binary label values.
+
+        Returns:
+            One array per identity, or None if there are no labels to display.
+        """
+        if self._labels is None or self._pose_est is None:
+            return None
+
+        if multiclass:
+            behaviors = self._controls.behaviors
+            return [
+                self._labels.build_multiclass_label_array(str(i), behaviors)
+                for i in range(self._pose_est.num_identities)
+            ]
+
+        # empty when no behavior or identity is selected yet, which the overlay treats
+        # the same as having no labels at all
+        return [labels.get_labels() for labels in self._get_label_list()] or None
+
+    def _prediction_overlay_labels(self, multiclass: bool) -> list[np.ndarray] | None:
+        """Build the per-identity prediction arrays for the label overlay.
+
+        Args:
+            multiclass: True if the project is in multi-class mode, in which case the
+                values are LUT indices rather than binary prediction values.
+
+        Returns:
+            One array per identity, or None if there are no predictions to display.
+        """
+        if self._pose_est is None:
+            return None
+
+        if multiclass:
+            return self._build_multiclass_overlay_labels() or None
+
+        return self._prediction_list or None
+
+    def _refresh_label_overlay(self) -> None:
+        """Push whatever the current label overlay mode displays to the player widget.
+
+        The overlay draws a marker for the manual label, one for the prediction, or one of
+        each side by side, depending on the mode. In multi-class mode both are LUT indices
+        into the timeline's color table, so the overlay is left empty when that table is
+        not available.
+        """
+        modes = PlayerWidget.LabelOverlayMode
+
+        if self._label_overlay_mode == modes.NONE:
+            self._clear_label_overlay()
+            return
+
+        multiclass = (
+            self._project is not None
+            and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        )
+        color_lut = self._jabs_timeline.multiclass_color_lut if multiclass else None
+        if multiclass and color_lut is None:
+            # a multi-class label value is an index into the color table: without the
+            # table there is nothing to color the markers with
+            self._clear_label_overlay()
+            return
+
+        show_labels = self._label_overlay_mode in (modes.LABEL, modes.BOTH)
+        show_predictions = self._label_overlay_mode in (modes.PREDICTION, modes.BOTH)
+        manual_labels = self._manual_overlay_labels(multiclass) if show_labels else None
+        predicted_labels = (
+            self._prediction_overlay_labels(multiclass) if show_predictions else None
+        )
+
+        if manual_labels is None and predicted_labels is None:
+            self._clear_label_overlay()
+            return
+
+        self._player_widget.set_label_color_lut(color_lut)
+        self._player_widget.set_labels(manual_labels, predicted_labels)
+        self._label_overlay_populated = True
+
+    def _clear_label_overlay(self) -> None:
+        """Remove any values the label overlay is drawing.
+
+        Does nothing if the overlay has nothing to draw already, so that labeling with
+        the overlay switched off does not reload the displayed frame on every edit.
+        """
+        if not self._label_overlay_populated:
+            return
+
+        self._player_widget.set_label_color_lut(None)
+        self._player_widget.set_labels(None, None)
+        self._label_overlay_populated = False
+
     def _set_prediction_vis(self) -> None:
-        """update data being displayed by the prediction visualization widget"""
+        """update data being displayed by the prediction visualization widget
+
+        Also refreshes the label overlay, which shares the predictions with the timeline.
+        """
         if self._project is None or self._loaded_video is None:
             return
 
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             predictions_rows, probabilities_rows = self._get_multiclass_prediction_rows()
             self._jabs_timeline.set_predictions(predictions_rows, probabilities_rows)
-            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                lut = self._jabs_timeline.multiclass_color_lut
-                if lut is not None:
-                    self._player_widget.set_label_color_lut(lut)
-                    self._player_widget.set_labels(self._build_multiclass_overlay_labels())
-                else:
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels(None)
-            return
+        else:
+            self._prediction_list, self._probability_list = self._get_prediction_list()
+            self._jabs_timeline.set_predictions(
+                [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
+                [[prob] for prob in self._probability_list],
+            )
 
-        self._prediction_list, self._probability_list = self._get_prediction_list()
-        self._jabs_timeline.set_predictions(
-            [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
-            [[prob] for prob in self._probability_list],
-        )
-        if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-            self._player_widget.set_label_color_lut(None)
-            self._player_widget.set_labels(self._prediction_list)
+        self._refresh_label_overlay()
 
     @property
     def _showing_postprocessed_predictions(self) -> bool:
@@ -1554,19 +1600,99 @@ class CentralWidget(QtWidgets.QWidget):
             and self._predictions_postprocessed.keys() == self._predictions.keys()
         )
 
-    def prediction_overlay(self) -> tuple[PredictionOverlay | None, str | None]:
-        """Build the prediction overlay for the loaded video, for the video export.
-
-        Mirrors what "View > Label Overlay > Predictions" paints in the player - the
-        same per-identity values, colors, and raw/post-processed choice - so an
-        exported video matches the live view, whether or not the overlay is currently
-        switched on.
+    def label_markers_unavailable(self) -> tuple[str | None, str | None]:
+        """Say whether the export can draw manual labels and predictions, and why not.
 
         Returns:
-            ``(overlay, unavailable_reason)``, exactly one of which is set. The reason
-            is UI copy for the disabled checkbox's tooltip, and comes from here rather
-            than being inferred by the caller so that it cannot disagree with the
-            decision it explains.
+            ``(labels_reason, predictions_reason)``, each ``None`` when that source can
+            be drawn and otherwise UI copy for the disabled checkbox's tooltip. The copy
+            comes from here rather than being inferred by the caller so that it cannot
+            disagree with the decision it explains.
+        """
+        return self._export_manual_labels()[1], self._export_predicted_labels()[1]
+
+    def label_marker_overlay(
+        self, *, draw_labels: bool, draw_predictions: bool
+    ) -> LabelMarkerOverlay | None:
+        """Build the label marker overlay for the loaded video, for the video export.
+
+        Mirrors what "View > Label Overlay" paints in the player - the same
+        per-identity values, colors, and raw/post-processed choice - so an exported
+        video matches the live view, whether or not the overlay is currently switched
+        on. Asking for both draws a marker for each, side by side, as the player does.
+
+        Args:
+            draw_labels: Whether to include the manual labels.
+            draw_predictions: Whether to include the predictions.
+
+        Returns:
+            The overlay, or ``None`` when neither source was asked for or neither is
+            available. :meth:`label_markers_unavailable` says why a source is not.
+        """
+        manual_labels = self._export_manual_labels()[0] if draw_labels else None
+        predicted_labels = self._export_predicted_labels()[0] if draw_predictions else None
+        if manual_labels is None and predicted_labels is None:
+            return None
+
+        if self._multiclass_export_lut is not None:
+            return LabelMarkerOverlay.for_multiclass(
+                color_lut=self._multiclass_export_lut,
+                class_names=[MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors],
+                manual_labels=manual_labels,
+                predicted_labels=predicted_labels,
+                # The player draws raw predictions in multi-class mode: the
+                # post-processed view is binary-only. The export says the same.
+                postprocessed=False,
+            )
+
+        return LabelMarkerOverlay.for_binary(
+            behavior=self.behavior,
+            manual_labels=manual_labels,
+            predicted_labels=predicted_labels,
+            postprocessed=self._showing_postprocessed_predictions,
+        )
+
+    @property
+    def _multiclass_export_lut(self) -> npt.NDArray[np.uint8] | None:
+        """The multi-class color table the export would draw with, or None in binary mode.
+
+        Doubles as the multi-class discriminator for the export: every multi-class
+        source is an index into this table, so without it there is nothing to draw and
+        both sources report themselves unavailable.
+        """
+        if self._project is None:
+            return None
+        if self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS:
+            return None
+        return self._jabs_timeline.multiclass_color_lut
+
+    def _export_manual_labels(self) -> tuple[list[np.ndarray] | None, str | None]:
+        """The manual label arrays the export would draw, or why there are none.
+
+        Returns:
+            ``(labels, unavailable_reason)``, exactly one of which is set.
+        """
+        if self._project is None or self._loaded_video is None or self._pose_est is None:
+            return None, _NO_LABELS_REASON
+
+        multiclass = self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        if multiclass and self._multiclass_export_lut is None:
+            return None, _NO_LABELS_REASON
+
+        # Offered whatever the video's labels say, including none at all: unlike a
+        # prediction record, labels are always there to be drawn, and an export of a
+        # partly labeled video is a legitimate thing to want.
+        labels = self._manual_overlay_labels(multiclass)
+        if labels is None:
+            return None, _NO_LABELS_REASON
+
+        return labels, None
+
+    def _export_predicted_labels(self) -> tuple[list[np.ndarray] | None, str | None]:
+        """The prediction arrays the export would draw, or why there are none.
+
+        Returns:
+            ``(predictions, unavailable_reason)``, exactly one of which is set.
         """
         if self._project is None or self._loaded_video is None or self._pose_est is None:
             return None, _NO_PREDICTIONS_REASON
@@ -1574,8 +1700,7 @@ class CentralWidget(QtWidgets.QWidget):
             return None, _NO_PREDICTIONS_REASON
 
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            lut = self._jabs_timeline.multiclass_color_lut
-            if lut is None:
+            if self._multiclass_export_lut is None:
                 return None, _NO_PREDICTIONS_REASON
 
             class_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
@@ -1591,27 +1716,10 @@ class CentralWidget(QtWidgets.QWidget):
                 # writes a record that matches and makes the export available again.
                 return None, _STALE_PREDICTIONS_REASON
 
-            return (
-                PredictionOverlay.for_multiclass(
-                    self._build_multiclass_overlay_labels(),
-                    color_lut=lut,
-                    class_names=class_names,
-                    # The player draws raw predictions in multi-class mode: the
-                    # post-processed view is binary-only. The export says the same.
-                    postprocessed=False,
-                ),
-                None,
-            )
+            return self._build_multiclass_overlay_labels(), None
 
         predictions, _ = self._get_prediction_list()
-        return (
-            PredictionOverlay.for_binary(
-                predictions,
-                behavior=self.behavior,
-                postprocessed=self._showing_postprocessed_predictions,
-            ),
-            None,
-        )
+        return predictions, None
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """get the prediction and probability list for each identity in the current video"""

@@ -33,7 +33,8 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
       * an overlay for displaying the arena landmarks from the pose file.
       * an overlay for displaying pose estimation keypoints and skeletons.
       * an overlay for displaying identity labels, which can be in different modes.
-      * an overlay for displaying labels next to each mouse, which can be manual labels or predictions.
+      * an overlay for displaying labels next to each mouse, which can be manual labels,
+        predictions, or both side by side.
 
     Signals:
         playback_speed_changed (float): Emitted when the playback speed is changed by the user.
@@ -80,7 +81,8 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._active_identity = 0
         self._pose: PoseEstimation | None = None
         self._annotations: IntervalTree | None = None
-        self._labels: list[np.ndarray] | None = None
+        self._manual_labels: list[np.ndarray] | None = None
+        self._predicted_labels: list[np.ndarray] | None = None
         self._crop_p1: QtCore.QPoint | None = None
         self._crop_p2: QtCore.QPoint | None = None
         self._brightness = 1.0
@@ -267,9 +269,14 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         return self._active_identity
 
     @property
-    def labels(self) -> list[np.ndarray] | None:
-        """Returns the label values for overlaying on the frame."""
-        return self._labels
+    def manual_labels(self) -> list[np.ndarray] | None:
+        """Returns the per-identity manual label values for overlaying on the frame."""
+        return self._manual_labels
+
+    @property
+    def predicted_labels(self) -> list[np.ndarray] | None:
+        """Returns the per-identity predicted label values for overlaying on the frame."""
+        return self._predicted_labels
 
     @property
     def is_cropped(self) -> bool:
@@ -337,16 +344,29 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._label_color_lut = lut
         self.update()
 
-    def set_label_overlay(self, labels: list[np.ndarray]) -> None:
+    def set_label_overlay(
+        self,
+        manual_labels: list[np.ndarray] | None = None,
+        predicted_labels: list[np.ndarray] | None = None,
+    ) -> None:
         """set label values to use for overlaying on the frame.
 
-        Labels are used to indicated behavior or not behavior label or prediction for each identity
+        Labels are used to indicate the behavior or not behavior label or prediction for
+        each identity. The overlay draws a marker for each source it is given, so passing
+        both shows the manual label and the prediction side by side.
 
         Args:
-            labels (list[np.ndarray]): list of label arrays, one for each identity.
-            Each array should contain the label for each frame in the video for the given identity.
+            manual_labels: list of manual label arrays, one for each identity, or None to
+                omit the manual label marker.
+            predicted_labels: list of prediction arrays, one for each identity, or None to
+                omit the prediction marker.
+
+        Notes:
+            Each array should contain one value for each frame in the video for the given
+            identity, and each list must match the sorted order of identities.
         """
-        self._labels = labels
+        self._manual_labels = manual_labels
+        self._predicted_labels = predicted_labels
 
     def update_frame(self, frame: QtGui.QImage, frame_number: int) -> None:
         """Update the frame displayed in the widget."""

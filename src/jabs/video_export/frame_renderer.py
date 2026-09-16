@@ -2,10 +2,10 @@
 
 Shared by the GUI's "Export Frame", the GUI's "Export Video with Overlays", and
 ``jabs-cli export-video``, so an overlay looks the same whichever asked for it. They
-do not ask for the same ones: only the video export passes a prediction overlay. Every
-overlay is painted with the shared drawing in :mod:`jabs.overlay_drawing`, in the order
-the player paints them: segmentation contours, then the pose keypoints and skeleton,
-then the per-identity prediction markers.
+do not ask for the same ones: only the video export passes a label marker overlay.
+Every overlay is painted with the shared drawing in :mod:`jabs.overlay_drawing`, in the
+order the player paints them: segmentation contours, then the pose keypoints and
+skeleton, then the per-identity label and prediction markers.
 
 Sharing the GUI's drawing is deliberate. A second reimplementation would inevitably
 drift, and an exported video that does not match what the player shows is worse than no
@@ -41,7 +41,7 @@ from .caption import draw_overlay_caption
 if TYPE_CHECKING:
     from jabs.pose_estimation import PoseEstimation
 
-    from .prediction_overlay import PredictionOverlay
+    from .label_marker_overlay import LabelMarkerOverlay
 
 
 def render_overlay_frame(
@@ -51,7 +51,7 @@ def render_overlay_frame(
     *,
     draw_pose: bool = True,
     draw_segmentation: bool = True,
-    prediction_overlay: PredictionOverlay | None = None,
+    label_overlay: LabelMarkerOverlay | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Draw the requested overlays onto one frame.
 
@@ -66,8 +66,8 @@ def render_overlay_frame(
         draw_segmentation: Whether to draw the segmentation contours as well.
             Ignored when the pose file carries no segmentation data - it predates
             v6, or is v6+ but was generated without it.
-        prediction_overlay: Predictions to mark next to each identity, with the
-            caption explaining them, or ``None`` to draw no predictions.
+        label_overlay: Labels and/or predictions to mark next to each identity,
+            with the caption explaining them, or ``None`` to draw no label markers.
 
     Returns:
         A new BGR frame with the overlays drawn. The input is not modified. With
@@ -81,7 +81,7 @@ def render_overlay_frame(
     # in v6+ files, and this skips a no-op call per identity per frame.
     segmentation = draw_segmentation and getattr(pose_est, "has_segmentation", False)
 
-    if not segmentation and not draw_pose and prediction_overlay is None:
+    if not segmentation and not draw_pose and label_overlay is None:
         return img
 
     # QImage wraps this buffer, so painting below writes straight into `rgb`.
@@ -123,16 +123,14 @@ def render_overlay_frame(
                     active=True,
                 )
 
-        if prediction_overlay is not None:
-            _draw_prediction_markers(
-                painter, pose_est, frame_index, prediction_overlay, width, height
-            )
+        if label_overlay is not None:
+            _draw_label_markers(painter, pose_est, frame_index, label_overlay, width, height)
             draw_overlay_caption(
                 painter,
                 width,
                 height,
-                prediction_overlay.caption,
-                prediction_overlay.legend,
+                label_overlay.caption,
+                label_overlay.legend,
             )
     finally:
         painter.end()
@@ -140,25 +138,31 @@ def render_overlay_frame(
     return np.ascontiguousarray(rgb[..., ::-1])
 
 
-def _draw_prediction_markers(
+def _draw_label_markers(
     painter: QtGui.QPainter,
     pose_est: PoseEstimation,
     frame_index: int,
-    prediction_overlay: PredictionOverlay,
+    label_overlay: LabelMarkerOverlay,
     width: int,
     height: int,
 ) -> None:
-    """Draw one prediction marker beside each identity's centroid.
+    """Draw the overlay's label markers beside each identity's centroid.
 
-    Placed to the left of the centroid, the way the player places it in every
-    identity overlay mode but the floating one, so the marker sits beside the animal
-    rather than on top of its pose.
+    Placed to the left of the centroid, the way the player places them in every
+    identity overlay mode but the floating one, so the markers sit beside the animal
+    rather than on top of its pose. Drawing both a label and a prediction puts them
+    side by side in that order, again matching the player, and the group as a whole
+    keeps clear of the centroid.
     """
-    marker_size, gap = native_label_marker_sizes(width, height)
+    marker_size, gap, pair_gap = native_label_marker_sizes(width, height)
+    stride = marker_size + pair_gap
+    group_width = (
+        label_overlay.marker_count * marker_size + (label_overlay.marker_count - 1) * pair_gap
+    )
 
     for identity in pose_est.identities:
-        label = prediction_overlay.label_value(identity, frame_index)
-        if label is None:
+        values = label_overlay.marker_values(identity, frame_index)
+        if all(value is None for value in values):
             continue
 
         shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
@@ -167,8 +171,18 @@ def _draw_prediction_markers(
             continue
 
         center = shape.centroid
-        x = round(float(center.x)) - marker_size - gap
+        group_x = round(float(center.x)) - group_width - gap
         y = round(float(center.y)) - marker_size
-        draw_label_marker(
-            painter, x, y, marker_size, label_marker_color(label, prediction_overlay.color_lut)
-        )
+
+        for position, value in enumerate(values):
+            if value is None:
+                # Keeps the rest of the group in place, so a marker always means the
+                # same source whether or not its neighbor has a value.
+                continue
+            draw_label_marker(
+                painter,
+                group_x + position * stride,
+                y,
+                marker_size,
+                label_marker_color(value, label_overlay.color_lut),
+            )

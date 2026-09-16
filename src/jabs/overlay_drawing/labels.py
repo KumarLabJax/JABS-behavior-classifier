@@ -19,6 +19,10 @@ LABEL_MARKER_SIZE = 10
 # Base gap between the marker and the identity's centroid.
 LABEL_MARKER_GAP = 5
 
+# Base gap between the two markers drawn when a label and a prediction are shown
+# together. Smaller than the gap to the centroid so the pair reads as one group.
+LABEL_MARKER_PAIR_GAP = 2
+
 # White keeps the marker readable against both the animal and the arena floor.
 LABEL_MARKER_OUTLINE_COLOR = QtGui.QColor(255, 255, 255)
 
@@ -29,21 +33,23 @@ _LABEL_NOT_BEHAVIOR = 0
 _LABEL_BEHAVIOR = 1
 
 
-def native_label_marker_sizes(width: int, height: int) -> tuple[int, int]:
-    """Return ``(marker_size, gap)`` for drawing label markers at native resolution.
+def native_label_marker_sizes(width: int, height: int) -> tuple[int, int, int]:
+    """Return ``(marker_size, gap, pair_gap)`` for label markers at native resolution.
 
     Args:
         width: Frame width in pixels.
         height: Frame height in pixels.
 
     Returns:
-        Tuple of ``(marker_size, gap)`` in pixels, both scaled from the frame size by
-        :func:`~jabs.overlay_drawing.scaling.native_overlay_scale`.
+        Tuple of ``(marker_size, gap, pair_gap)`` in pixels, all scaled from the frame
+        size by :func:`~jabs.overlay_drawing.scaling.native_overlay_scale`. ``pair_gap``
+        separates the two markers drawn when a label and a prediction are shown together.
     """
     scale = native_overlay_scale(width, height)
     marker_size = max(LABEL_MARKER_SIZE, round(LABEL_MARKER_SIZE * scale))
     gap = max(LABEL_MARKER_GAP, round(LABEL_MARKER_GAP * scale))
-    return marker_size, gap
+    pair_gap = max(LABEL_MARKER_PAIR_GAP, round(LABEL_MARKER_PAIR_GAP * scale))
+    return marker_size, gap, pair_gap
 
 
 def label_marker_color(

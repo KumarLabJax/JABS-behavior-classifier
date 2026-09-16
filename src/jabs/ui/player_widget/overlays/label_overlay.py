@@ -2,7 +2,13 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
-from jabs.overlay_drawing import LABEL_MARKER_SIZE, draw_label_marker, label_marker_color
+from jabs.overlay_drawing import (
+    LABEL_MARKER_GAP,
+    LABEL_MARKER_PAIR_GAP,
+    LABEL_MARKER_SIZE,
+    draw_label_marker,
+    label_marker_color,
+)
 
 from .overlay import Overlay
 
@@ -11,9 +17,13 @@ if TYPE_CHECKING:
 
 
 class LabelOverlay(Overlay):
-    """Overlay for displaying manual or predicted labels on the video frame."""
+    """Overlay for displaying manual labels, predicted labels, or both, on the video frame.
 
-    _GAP = 5  # gap between identity label and behavior label
+    A marker is drawn for each label source the frame widget has values for, so giving it
+    both the manual labels and the predictions shows them side by side. The manual label
+    is always the first marker of the pair and the prediction the second, whichever side
+    of the identity label the pair is drawn on.
+    """
 
     def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
@@ -35,8 +45,24 @@ class LabelOverlay(Overlay):
         self._overlay_labels(painter, crop_rect)
 
     def _overlay_labels(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
-        if self.parent.pose is None or self.parent.labels is None:
+        if self.parent.pose is None:
             return
+
+        # one entry per label source to draw a marker for, in the order they are drawn
+        label_sources = [
+            values
+            for values in (self.parent.manual_labels, self.parent.predicted_labels)
+            if values
+        ]
+        if not label_sources:
+            return
+
+        # width of the full group of markers, so it can be placed as a unit relative to
+        # the identity label
+        group_width = (
+            len(label_sources) * LABEL_MARKER_SIZE
+            + (len(label_sources) - 1) * LABEL_MARKER_PAIR_GAP
+        )
 
         identities = self.parent.pose.identities
 
@@ -54,19 +80,27 @@ class LabelOverlay(Overlay):
 
             widget_x, widget_y = widget_coords
 
-            # draw a square next to the centroid to indicate behavior label
+            # draw a square next to the centroid for each behavior label we're showing
             if self.parent.identity_overlay_mode == self.parent.IdentityOverlayMode.FLOATING:
-                # if the identity overlay is floating, we draw the behavior label to the right of the identity label
-                # since that usually looks better due to the line connecting the label to the centroid
-                behavior_x = widget_x + self._GAP
+                # if the identity overlay is floating, we draw the behavior labels to the right of
+                # the identity label since that usually looks better due to the line connecting the
+                # label to the centroid
+                group_x = widget_x + LABEL_MARKER_GAP
             else:
-                # if the identity overlay is not floating, we draw the behavior label to the left of the identity label
-                # that leaves room for the identity label to be drawn
-                behavior_x = widget_x - LABEL_MARKER_SIZE - self._GAP
+                # if the identity overlay is not floating, we draw the behavior labels to the left
+                # of the identity label. that leaves room for the identity label to be drawn
+                group_x = widget_x - group_width - LABEL_MARKER_GAP
 
-            behavior_y = widget_y - LABEL_MARKER_SIZE
+            marker_y = widget_y - LABEL_MARKER_SIZE
 
-            label_val = int(self.parent.labels[identity][self.parent.current_frame])
-            prediction_color = label_marker_color(label_val, self.parent.label_color_lut)
+            for position, values in enumerate(label_sources):
+                if identity >= len(values):
+                    # a label source can be short an identity if it was built for a different
+                    # pose file. skipping the marker keeps the rest of the group in place.
+                    continue
 
-            draw_label_marker(painter, behavior_x, behavior_y, LABEL_MARKER_SIZE, prediction_color)
+                label_val = int(values[identity][self.parent.current_frame])
+                marker_color = label_marker_color(label_val, self.parent.label_color_lut)
+                marker_x = group_x + position * (LABEL_MARKER_SIZE + LABEL_MARKER_PAIR_GAP)
+
+                draw_label_marker(painter, marker_x, marker_y, LABEL_MARKER_SIZE, marker_color)

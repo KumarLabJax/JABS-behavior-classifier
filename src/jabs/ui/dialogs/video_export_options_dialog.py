@@ -22,13 +22,20 @@ class VideoExportOptionsDialog(QDialog):
     the reason as its tooltip, rather than hidden: that way its absence is explained,
     and nobody waits out a full export to find the overlay they wanted missing.
 
+    Manual labels and predictions are separate checkboxes rather than a choice
+    between them: checking both draws a marker for each beside every animal, the way
+    "View > Label Overlay > Labels and Predictions" does in the player.
+
     Args:
         parent: Parent widget.
         draw_pose: Initial state of the pose checkbox.
         draw_segmentation: Initial state of the segmentation checkbox.
+        draw_labels: Initial state of the manual labels checkbox.
         draw_predictions: Initial state of the predictions checkbox.
         segmentation_unavailable: Why segmentation cannot be drawn, or ``None`` when
             it can. A reason disables the checkbox and becomes its tooltip.
+        labels_unavailable: Why manual labels cannot be drawn, or ``None`` when they
+            can.
         predictions_unavailable: Why predictions cannot be drawn, or ``None`` when
             they can.
     """
@@ -39,8 +46,10 @@ class VideoExportOptionsDialog(QDialog):
         *,
         draw_pose: bool = True,
         draw_segmentation: bool = True,
+        draw_labels: bool = False,
         draw_predictions: bool = False,
         segmentation_unavailable: str | None = None,
+        labels_unavailable: str | None = None,
         predictions_unavailable: str | None = None,
     ) -> None:
         super().__init__(parent)
@@ -52,10 +61,14 @@ class VideoExportOptionsDialog(QDialog):
         self._segmentation_checkbox = QCheckBox("Segmentation contours", self)
         self._segmentation_checkbox.setChecked(draw_segmentation)
 
+        self._labels_checkbox = QCheckBox("Manual labels", self)
+        self._labels_checkbox.setChecked(draw_labels)
+
         self._predictions_checkbox = QCheckBox("Behavior predictions", self)
         self._predictions_checkbox.setChecked(draw_predictions)
 
         self._apply_availability(self._segmentation_checkbox, segmentation_unavailable)
+        self._apply_availability(self._labels_checkbox, labels_unavailable)
         self._apply_availability(self._predictions_checkbox, predictions_unavailable)
 
         self._button_box = QDialogButtonBox(
@@ -68,6 +81,7 @@ class VideoExportOptionsDialog(QDialog):
         for checkbox in (
             self._pose_checkbox,
             self._segmentation_checkbox,
+            self._labels_checkbox,
             self._predictions_checkbox,
         ):
             checkbox.toggled.connect(self._update_save_enabled)
@@ -76,6 +90,7 @@ class VideoExportOptionsDialog(QDialog):
         layout.addWidget(QLabel("Overlays to include in the exported video:", self))
         layout.addWidget(self._pose_checkbox)
         layout.addWidget(self._segmentation_checkbox)
+        layout.addWidget(self._labels_checkbox)
         layout.addWidget(self._predictions_checkbox)
         layout.addWidget(self._button_box)
 
@@ -92,6 +107,11 @@ class VideoExportOptionsDialog(QDialog):
         return self._segmentation_checkbox.isChecked()
 
     @property
+    def draw_labels(self) -> bool:
+        """Whether manual labels should be drawn."""
+        return self._labels_checkbox.isChecked()
+
+    @property
     def draw_predictions(self) -> bool:
         """Whether behavior predictions should be drawn."""
         return self._predictions_checkbox.isChecked()
@@ -105,6 +125,11 @@ class VideoExportOptionsDialog(QDialog):
         has no segmentation data.
         """
         return self._segmentation_checkbox.isEnabled()
+
+    @property
+    def labels_enabled(self) -> bool:
+        """Whether the manual labels checkbox was offered at all."""
+        return self._labels_checkbox.isEnabled()
 
     @property
     def predictions_enabled(self) -> bool:
@@ -125,5 +150,8 @@ class VideoExportOptionsDialog(QDialog):
         save_button = self._button_box.button(QDialogButtonBox.StandardButton.Save)
         if save_button is not None:
             save_button.setEnabled(
-                self.draw_pose or self.draw_segmentation or self.draw_predictions
+                self.draw_pose
+                or self.draw_segmentation
+                or self.draw_labels
+                or self.draw_predictions
             )
