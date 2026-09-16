@@ -94,8 +94,8 @@ class LabelMarkerOverlay:
             color_lut=None,
             caption=_caption(
                 subject=behavior,
-                labels=manual_labels is not None,
-                predictions=predicted_labels is not None,
+                labels=_draws_a_marker(manual_labels),
+                predictions=_draws_a_marker(predicted_labels),
                 postprocessed=postprocessed,
             ),
             legend=(
@@ -103,8 +103,8 @@ class LabelMarkerOverlay:
                 ("not behavior", NOT_BEHAVIOR_COLOR),
                 (
                     _no_value_label(
-                        labels=manual_labels is not None,
-                        predictions=predicted_labels is not None,
+                        labels=_draws_a_marker(manual_labels),
+                        predictions=_draws_a_marker(predicted_labels),
                     ),
                     BACKGROUND_COLOR,
                 ),
@@ -158,8 +158,8 @@ class LabelMarkerOverlay:
         legend.append(
             (
                 _no_value_label(
-                    labels=manual_labels is not None,
-                    predictions=predicted_labels is not None,
+                    labels=_draws_a_marker(manual_labels),
+                    predictions=_draws_a_marker(predicted_labels),
                 ),
                 color(0),
             )
@@ -170,8 +170,8 @@ class LabelMarkerOverlay:
             color_lut=color_lut,
             caption=_caption(
                 subject="Multi-class",
-                labels=manual_labels is not None,
-                predictions=predicted_labels is not None,
+                labels=_draws_a_marker(manual_labels),
+                predictions=_draws_a_marker(predicted_labels),
                 postprocessed=postprocessed,
             ),
             legend=tuple(legend),
@@ -193,7 +193,7 @@ class LabelMarkerOverlay:
         return tuple(
             source
             for source in (self.manual_labels, self.predicted_labels)
-            if source is not None and len(source) > 0
+            if _draws_a_marker(source)
         )
 
     @property
@@ -215,6 +215,16 @@ class LabelMarkerOverlay:
             a frame without a value gets no marker rather than a wrong one.
         """
         return tuple(_value(source, identity, frame_index) for source in self.sources)
+
+
+def _draws_a_marker(source: Sequence[npt.NDArray[np.integer]] | None) -> bool:
+    """Whether a label source will put a marker on the frame.
+
+    A source with no identities in it draws nothing, so it must not count towards the
+    caption or the legend either: naming a marker that never appears is what the
+    constructors exist to prevent.
+    """
+    return source is not None and len(source) > 0
 
 
 def _value(

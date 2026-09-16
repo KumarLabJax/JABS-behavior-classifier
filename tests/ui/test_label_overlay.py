@@ -190,6 +190,26 @@ def test_a_source_missing_an_identity_keeps_the_other_marker_in_place(monkeypatc
     assert draw.call_args_list[2].args[1] == prediction_x
 
 
+def test_a_source_shorter_than_the_video_keeps_the_other_marker_in_place(monkeypatch):
+    """Manual labels are sized to the pose file, predictions to the saved record.
+
+    In BOTH mode the two can run out on different frames, and reading past the end of
+    one would raise straight out of paintEvent.
+    """
+    draw = _paint(
+        _overlay(
+            manual_labels=[np.ones(1, dtype=np.int8)],  # ends before the current frame
+            predicted_labels=_labels(0),
+            floating=True,
+        ),
+        monkeypatch,
+    )
+
+    assert draw.call_count == 1
+    prediction_x = _CENTROID_X + LABEL_MARKER_GAP + LABEL_MARKER_SIZE + LABEL_MARKER_PAIR_GAP
+    assert draw.call_args.args[1] == prediction_x
+
+
 def test_the_marker_is_skipped_outside_a_crop(monkeypatch):
     """An animal cropped out of the displayed region gets no marker."""
     overlay = _overlay(manual_labels=_labels(1))

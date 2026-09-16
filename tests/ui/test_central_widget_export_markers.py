@@ -14,6 +14,7 @@ try:
         _NO_PREDICTIONS_REASON,
         _STALE_PREDICTIONS_REASON,
         CentralWidget,
+        ExportLabelMarkers,
     )
 
     SKIP_UI_TESTS = False
@@ -91,11 +92,14 @@ def _widget(
     return widget
 
 
+def _markers(widget: SimpleNamespace) -> "ExportLabelMarkers":
+    """Gather the export's label markers from the stand-in."""
+    return CentralWidget.export_label_markers(widget)
+
+
 def _overlay(widget: SimpleNamespace, *, labels: bool = False, predictions: bool = False):
     """Build the export overlay the way the options dialog's choices would."""
-    return CentralWidget.label_marker_overlay(
-        widget, draw_labels=labels, draw_predictions=predictions
-    )
+    return _markers(widget).overlay(labels=labels, predictions=predictions)
 
 
 def test_binary_overlay_carries_the_displayed_predictions() -> None:
@@ -200,7 +204,7 @@ def test_predictions_are_unavailable_when_there_is_nothing_to_draw(widget_kwargs
     """Every state with no drawable predictions is reported, not exported blank."""
     widget = _widget(**widget_kwargs)
 
-    _labels_reason, predictions_reason = CentralWidget.label_markers_unavailable(widget)
+    predictions_reason = _markers(widget).predictions_unavailable
 
     assert predictions_reason == _NO_PREDICTIONS_REASON
     assert _overlay(widget, predictions=True) is None
@@ -227,7 +231,7 @@ def test_labels_are_unavailable_when_there_is_nothing_to_draw(widget_kwargs: dic
     """Without label arrays to hand over there is nothing for the export to draw."""
     widget = _widget(**widget_kwargs)
 
-    labels_reason, _predictions_reason = CentralWidget.label_markers_unavailable(widget)
+    labels_reason = _markers(widget).labels_unavailable
 
     assert labels_reason == _NO_LABELS_REASON
     assert _overlay(widget, labels=True) is None
@@ -249,7 +253,7 @@ def test_the_labels_are_offered_even_when_nothing_is_labeled_yet(
         classifier_mode=classifier_mode, color_lut=color_lut, manual_labels=manual_labels
     )
 
-    labels_reason, _predictions_reason = CentralWidget.label_markers_unavailable(widget)
+    labels_reason = _markers(widget).labels_unavailable
 
     assert labels_reason is None
     assert _overlay(widget, labels=True) is not None
@@ -257,7 +261,43 @@ def test_the_labels_are_offered_even_when_nothing_is_labeled_yet(
 
 def test_both_sources_are_available_in_the_ordinary_case() -> None:
     """A labeled and classified video offers a choice between the two and both."""
-    assert CentralWidget.label_markers_unavailable(_widget()) == (None, None)
+    markers = _markers(_widget())
+
+    assert (markers.labels_unavailable, markers.predictions_unavailable) == (None, None)
+
+
+@pytest.mark.parametrize(
+    "classifier_mode",
+    [ClassifierMode.BINARY, ClassifierMode.MULTICLASS],
+    ids=["binary", "multiclass"],
+)
+def test_a_pose_file_with_no_identities_offers_nothing(classifier_mode) -> None:
+    """Zero identities means zero markers, which the overlay itself refuses to carry.
+
+    Reported as unavailable rather than passed on: the checkbox would otherwise come up
+    enabled and building the overlay would raise out of the export handler.
+    """
+    widget = _widget(
+        classifier_mode=classifier_mode,
+        color_lut=_LUT if classifier_mode == ClassifierMode.MULTICLASS else None,
+        manual_labels=[],
+        pose_est=SimpleNamespace(num_identities=0),
+        predictions={0: _RAW[0]},
+    )
+    widget._get_prediction_list = lambda: ([], [])
+    widget._build_multiclass_overlay_labels = lambda: []
+    markers = _markers(widget)
+
+    assert markers.labels_unavailable == _NO_LABELS_REASON
+    assert markers.predictions_unavailable == _NO_PREDICTIONS_REASON
+    assert markers.overlay(labels=True, predictions=True) is None
+
+
+def test_an_empty_source_never_reaches_the_overlay() -> None:
+    """Guarding on None alone would let an empty list through to a ValueError."""
+    markers = ExportLabelMarkers(manual_labels=[], predicted_labels=[], behavior="Grooming")
+
+    assert markers.overlay(labels=True, predictions=True) is None
 
 
 @pytest.mark.parametrize(
@@ -337,7 +377,9 @@ def test_multiclass_predictions_from_a_record_that_does_not_match_are_refused(
         multiclass_class_names=stored_names,
     )
 
-    labels_reason, predictions_reason = CentralWidget.label_markers_unavailable(widget)
+    markers = _markers(widget)
+    labels_reason = markers.labels_unavailable
+    predictions_reason = markers.predictions_unavailable
 
     # A stale record is not a missing one: telling the user to classify a video they
     # already classified would send them looking for a problem that is not there.

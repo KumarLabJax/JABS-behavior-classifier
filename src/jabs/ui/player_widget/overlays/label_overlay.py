@@ -99,7 +99,14 @@ class LabelOverlay(Overlay):
                     # pose file. skipping the marker keeps the rest of the group in place.
                     continue
 
-                label_val = int(values[identity][self.parent.current_frame])
+                identity_values = values[identity]
+                if self.parent.current_frame >= len(identity_values):
+                    # and a source can be shorter than the video: manual labels are sized
+                    # to the pose file while predictions come from the saved record, so in
+                    # BOTH mode the two can run out on different frames
+                    continue
+
+                label_val = int(identity_values[self.parent.current_frame])
                 marker_color = label_marker_color(label_val, self.parent.label_color_lut)
                 marker_x = group_x + position * (LABEL_MARKER_SIZE + LABEL_MARKER_PAIR_GAP)
 

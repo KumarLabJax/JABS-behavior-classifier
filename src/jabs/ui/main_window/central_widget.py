@@ -1,5 +1,6 @@
 import sys
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -50,6 +51,75 @@ _NO_PREDICTIONS_REASON = "No predictions for this video: classify it first"
 _STALE_PREDICTIONS_REASON = (
     "These predictions were generated for a different behavior list: classify this video again"
 )
+
+
+@dataclass(frozen=True)
+class ExportLabelMarkers:
+    """The label markers a video export can draw for the loaded video.
+
+    Gathered once and then asked for the overlay the user chose: the caption burned
+    into the frames names whichever markers were chosen, so the overlay cannot be built
+    until the choice is made, while gathering the values again to build it would repeat
+    work proportional to the length of the video.
+
+    Attributes:
+        manual_labels: Per-identity manual label arrays, or ``None`` when there are
+            none to draw.
+        predicted_labels: Per-identity prediction arrays, or ``None`` when there are
+            none to draw.
+        labels_unavailable: Why the manual labels cannot be drawn, or ``None`` when they
+            can. UI copy for the disabled checkbox's tooltip.
+        predictions_unavailable: The same, for the predictions.
+        color_lut: The multi-class color table both sources index, or ``None`` in a
+            binary project, where it doubles as the discriminator between the two.
+        behavior: Name of the behavior a binary project's markers are for.
+        class_names: A multi-class project's class names, in color table order from
+            index 1 on.
+        postprocessed: Whether the predictions are the post-processed ones.
+    """
+
+    manual_labels: list[np.ndarray] | None = None
+    predicted_labels: list[np.ndarray] | None = None
+    labels_unavailable: str | None = None
+    predictions_unavailable: str | None = None
+    color_lut: npt.NDArray[np.uint8] | None = None
+    behavior: str = ""
+    class_names: tuple[str, ...] = ()
+    postprocessed: bool = False
+
+    def overlay(self, *, labels: bool, predictions: bool) -> LabelMarkerOverlay | None:
+        """Build the overlay for the markers the user chose.
+
+        Args:
+            labels: Whether to draw the manual labels.
+            predictions: Whether to draw the predictions.
+
+        Returns:
+            The overlay, or ``None`` when neither of the chosen sources has anything to
+            draw. An unavailable source is left out whether or not it was chosen.
+        """
+        manual_labels = self.manual_labels if labels else None
+        predicted_labels = self.predicted_labels if predictions else None
+        # An empty list means a pose file with no identities, which draws nothing: the
+        # overlay itself refuses one, so it must not get that far.
+        if not manual_labels and not predicted_labels:
+            return None
+
+        if self.color_lut is not None:
+            return LabelMarkerOverlay.for_multiclass(
+                color_lut=self.color_lut,
+                class_names=self.class_names,
+                manual_labels=manual_labels,
+                predicted_labels=predicted_labels,
+                postprocessed=self.postprocessed,
+            )
+
+        return LabelMarkerOverlay.for_binary(
+            behavior=self.behavior,
+            manual_labels=manual_labels,
+            predicted_labels=predicted_labels,
+            postprocessed=self.postprocessed,
+        )
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -109,9 +179,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._probability_list = None
         self._pose_est: PoseEstimation | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
-        # whether the player widget currently has label overlay values, so the overlay
-        # is not cleared (forcing a repaint) every time labels or predictions change
-        # while it is switched off
+        # whether the player widget currently has label overlay values, so an overlay
+        # that is already empty is not cleared again every time labels or predictions
+        # change while it is switched off
         self._label_overlay_populated = False
         self._suppress_label_track_update = False
         self._prediction_type = PredictionType.RAW
@@ -1558,7 +1628,10 @@ class CentralWidget(QtWidgets.QWidget):
         """Remove any values the label overlay is drawing.
 
         Does nothing if the overlay has nothing to draw already, so that labeling with
-        the overlay switched off does not reload the displayed frame on every edit.
+        the overlay switched off does not reload the displayed frame a second time.
+        :meth:`_label_button_common` reloads it once regardless, which this cannot
+        avoid: dropping that reload would change what the frame shows after an edit,
+        which is more than this refactor set out to do.
         """
         if not self._label_overlay_populated:
             return
@@ -1600,56 +1673,39 @@ class CentralWidget(QtWidgets.QWidget):
             and self._predictions_postprocessed.keys() == self._predictions.keys()
         )
 
-    def label_markers_unavailable(self) -> tuple[str | None, str | None]:
-        """Say whether the export can draw manual labels and predictions, and why not.
-
-        Returns:
-            ``(labels_reason, predictions_reason)``, each ``None`` when that source can
-            be drawn and otherwise UI copy for the disabled checkbox's tooltip. The copy
-            comes from here rather than being inferred by the caller so that it cannot
-            disagree with the decision it explains.
-        """
-        return self._export_manual_labels()[1], self._export_predicted_labels()[1]
-
-    def label_marker_overlay(
-        self, *, draw_labels: bool, draw_predictions: bool
-    ) -> LabelMarkerOverlay | None:
-        """Build the label marker overlay for the loaded video, for the video export.
+    def export_label_markers(self) -> ExportLabelMarkers:
+        """Gather the label markers the video export can draw for the loaded video.
 
         Mirrors what "View > Label Overlay" paints in the player - the same
         per-identity values, colors, and raw/post-processed choice - so an exported
         video matches the live view, whether or not the overlay is currently switched
-        on. Asking for both draws a marker for each, side by side, as the player does.
+        on.
 
-        Args:
-            draw_labels: Whether to include the manual labels.
-            draw_predictions: Whether to include the predictions.
+        Gathered in one pass, including the reasons a source cannot be drawn, so that
+        the options dialog's tooltips and the overlay it goes on to build come from the
+        same look at the project. The reasons are UI copy from here rather than
+        inferred by the caller, so that they cannot disagree with the decision they
+        explain.
 
         Returns:
-            The overlay, or ``None`` when neither source was asked for or neither is
-            available. :meth:`label_markers_unavailable` says why a source is not.
+            What each marker source can draw, or why it cannot.
+            :meth:`ExportLabelMarkers.overlay` then builds the overlay for whichever
+            markers the user chose.
         """
-        manual_labels = self._export_manual_labels()[0] if draw_labels else None
-        predicted_labels = self._export_predicted_labels()[0] if draw_predictions else None
-        if manual_labels is None and predicted_labels is None:
-            return None
-
-        if self._multiclass_export_lut is not None:
-            return LabelMarkerOverlay.for_multiclass(
-                color_lut=self._multiclass_export_lut,
-                class_names=[MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors],
-                manual_labels=manual_labels,
-                predicted_labels=predicted_labels,
-                # The player draws raw predictions in multi-class mode: the
-                # post-processed view is binary-only. The export says the same.
-                postprocessed=False,
-            )
-
-        return LabelMarkerOverlay.for_binary(
-            behavior=self.behavior,
+        manual_labels, labels_unavailable = self._export_manual_labels()
+        predicted_labels, predictions_unavailable = self._export_predicted_labels()
+        color_lut = self._multiclass_export_lut
+        return ExportLabelMarkers(
             manual_labels=manual_labels,
             predicted_labels=predicted_labels,
-            postprocessed=self._showing_postprocessed_predictions,
+            labels_unavailable=labels_unavailable,
+            predictions_unavailable=predictions_unavailable,
+            color_lut=color_lut,
+            behavior=self.behavior,
+            class_names=(MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors),
+            # The player draws raw predictions in multi-class mode: the post-processed
+            # view is binary-only. The export says the same.
+            postprocessed=color_lut is None and self._showing_postprocessed_predictions,
         )
 
     @property
@@ -1681,9 +1737,10 @@ class CentralWidget(QtWidgets.QWidget):
 
         # Offered whatever the video's labels say, including none at all: unlike a
         # prediction record, labels are always there to be drawn, and an export of a
-        # partly labeled video is a legitimate thing to want.
+        # partly labeled video is a legitimate thing to want. An empty list is still
+        # nothing to draw, though - that is a pose file with no identities in it.
         labels = self._manual_overlay_labels(multiclass)
-        if labels is None:
+        if not labels:
             return None, _NO_LABELS_REASON
 
         return labels, None
@@ -1716,9 +1773,15 @@ class CentralWidget(QtWidgets.QWidget):
                 # writes a record that matches and makes the export available again.
                 return None, _STALE_PREDICTIONS_REASON
 
-            return self._build_multiclass_overlay_labels(), None
+            multiclass_predictions = self._build_multiclass_overlay_labels()
+            if not multiclass_predictions:
+                return None, _NO_PREDICTIONS_REASON
+            return multiclass_predictions, None
 
         predictions, _ = self._get_prediction_list()
+        if not predictions:
+            # a pose file with no identities in it: nothing to draw a marker beside
+            return None, _NO_PREDICTIONS_REASON
         return predictions, None
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:

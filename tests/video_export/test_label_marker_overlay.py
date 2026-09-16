@@ -163,6 +163,17 @@ def test_an_overlay_with_no_markers_is_rejected(sources: dict) -> None:
         LabelMarkerOverlay(**sources)
 
 
+def test_an_empty_source_is_not_named_in_the_caption_or_legend() -> None:
+    """A source with no identities draws nothing, so the caption must not promise it."""
+    overlay = LabelMarkerOverlay.for_binary(
+        behavior="Grooming", manual_labels=[], predicted_labels=_PREDICTIONS
+    )
+
+    assert overlay.marker_count == 1
+    assert overlay.caption == "Grooming predictions (raw)"
+    assert overlay.legend[-1][0] == "no prediction"
+
+
 def test_one_source_draws_one_marker() -> None:
     """Predictions alone put a single marker beside each animal."""
     overlay = LabelMarkerOverlay(predicted_labels=_PREDICTIONS)

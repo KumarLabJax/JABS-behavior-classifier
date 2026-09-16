@@ -224,9 +224,10 @@ class MenuHandlers:
             )
             segmentation_unavailable = f"No segmentation data available: {reason}"
 
-        # Asked up front so each checkbox can say whether there is anything to draw,
-        # and why not when there is not.
-        labels_unavailable, predictions_unavailable = central_widget.label_markers_unavailable()
+        # Gathered up front so each checkbox can say whether there is anything to draw,
+        # and why not when there is not. Gathering is proportional to the length of the
+        # video, so it is done once and the chosen overlay is built from it below.
+        label_markers = central_widget.export_label_markers()
 
         settings = self.window._settings
         options = VideoExportOptionsDialog(
@@ -236,8 +237,8 @@ class MenuHandlers:
             draw_labels=settings.value(_SETTINGS_EXPORT_VIDEO_LABELS, False, type=bool),
             draw_predictions=settings.value(_SETTINGS_EXPORT_VIDEO_PREDICTIONS, False, type=bool),
             segmentation_unavailable=segmentation_unavailable,
-            labels_unavailable=labels_unavailable,
-            predictions_unavailable=predictions_unavailable,
+            labels_unavailable=label_markers.labels_unavailable,
+            predictions_unavailable=label_markers.predictions_unavailable,
         )
         if options.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return  # user cancelled
@@ -247,9 +248,8 @@ class MenuHandlers:
         # Built after the dialog rather than before it: the caption burned into the
         # frames names whichever markers were chosen, so it cannot be built until they
         # have been.
-        label_overlay = central_widget.label_marker_overlay(
-            draw_labels=options.draw_labels,
-            draw_predictions=options.draw_predictions,
+        label_overlay = label_markers.overlay(
+            labels=options.draw_labels, predictions=options.draw_predictions
         )
 
         # Only persist a choice the user could actually make: an unavailable overlay
