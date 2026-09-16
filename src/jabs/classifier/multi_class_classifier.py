@@ -20,7 +20,7 @@ from jabs.core.enums import (
     compile_grouping_regex,
     filename_group_key,
 )
-from jabs.core.utils import hash_file
+from jabs.core.utils import hash_file, validate_behavior_names
 from jabs.project import load_multiclass_training_data
 
 from . import classifier_utils
@@ -97,12 +97,7 @@ class MultiClassClassifier(BaseClassifier):
         """
         if not behavior_names:
             raise ValueError("behavior_names must not be empty")
-        if MULTICLASS_NONE_BEHAVIOR in behavior_names:
-            raise ValueError(
-                f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
-            )
-        if len(behavior_names) != len(set(behavior_names)):
-            raise ValueError("behavior_names must not contain duplicate entries")
+        validate_behavior_names(behavior_names)
 
         super().__init__(classifier_type=classifier_type, n_jobs=n_jobs)
         self._behavior_names: list[str] = list(behavior_names)
