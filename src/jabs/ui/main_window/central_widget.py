@@ -936,13 +936,18 @@ class CentralWidget(QtWidgets.QWidget):
         functionality shared between _label_behavior(), _label_not_behavior(),
         and _clear_behavior_label(). To be called after the labels are changed
         for the current selection.
+
+        Does not repaint the video frame. The only thing drawn on it that comes from
+        the labels is the label overlay, which repaints itself when
+        :meth:`_refresh_label_overlay` pushes the new values, and which has nothing to
+        update while it is switched off. Callers that change something else the frame
+        does show, such as a timeline annotation, repaint it themselves.
         """
         self._project.save_annotations(self._labels, self._pose_est)
         self._controls.disable_label_buttons()
         self._jabs_timeline.clear_selection()
         self._update_label_counts()
         self.set_train_button_enabled_state()
-        self._player_widget.reload_frame()
         self._set_label_track()
 
     def _set_identities(self, identities: list[str]) -> None:
@@ -1628,10 +1633,7 @@ class CentralWidget(QtWidgets.QWidget):
         """Remove any values the label overlay is drawing.
 
         Does nothing if the overlay has nothing to draw already, so that labeling with
-        the overlay switched off does not reload the displayed frame a second time.
-        :meth:`_label_button_common` reloads it once regardless, which this cannot
-        avoid: dropping that reload would change what the frame shows after an edit,
-        which is more than this refactor set out to do.
+        the overlay switched off does not reload the displayed frame at all.
         """
         if not self._label_overlay_populated:
             return
