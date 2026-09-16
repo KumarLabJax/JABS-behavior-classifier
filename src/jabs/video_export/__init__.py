@@ -6,12 +6,12 @@ in :func:`export_overlay_video`.
 """
 
 from .frame_renderer import render_overlay_frame
-from .prediction_overlay import PredictionOverlay
+from .label_marker_overlay import LabelMarkerOverlay
 from .video_writer import DEFAULT_CODEC, VideoExportError, export_overlay_video
 
 __all__ = [
     "DEFAULT_CODEC",
-    "PredictionOverlay",
+    "LabelMarkerOverlay",
     "VideoExportError",
     "export_overlay_video",
     "render_overlay_frame",

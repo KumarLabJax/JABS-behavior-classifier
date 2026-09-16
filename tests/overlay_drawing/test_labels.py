@@ -9,6 +9,7 @@ try:
     from jabs.overlay_drawing import (
         BACKGROUND_COLOR,
         BEHAVIOR_COLOR,
+        LABEL_MARKER_PAIR_GAP,
         LABEL_MARKER_SIZE,
         NOT_BEHAVIOR_COLOR,
         draw_label_marker,
@@ -62,14 +63,23 @@ def test_out_of_range_lut_index_is_clamped(label_value: int, expected: tuple) ->
 
 def test_marker_grows_with_the_frame_but_never_shrinks() -> None:
     """Markers scale up for larger frames and stay at the base size for small ones."""
-    small_marker, small_gap = native_label_marker_sizes(400, 400)
-    reference_marker, _ = native_label_marker_sizes(800, 800)
-    large_marker, large_gap = native_label_marker_sizes(1920, 1080)
+    small_marker, small_gap, small_pair_gap = native_label_marker_sizes(400, 400)
+    reference_marker, _, _ = native_label_marker_sizes(800, 800)
+    large_marker, large_gap, large_pair_gap = native_label_marker_sizes(1920, 1080)
 
     assert small_marker == LABEL_MARKER_SIZE, "never smaller than the on-screen size"
+    assert small_pair_gap == LABEL_MARKER_PAIR_GAP
     assert reference_marker == LABEL_MARKER_SIZE
     assert large_marker > reference_marker
     assert large_gap > small_gap
+    assert large_pair_gap > small_pair_gap
+
+
+def test_the_pair_gap_stays_tighter_than_the_gap_to_the_centroid() -> None:
+    """A label and a prediction read as one group only if they sit closer together."""
+    _marker, gap, pair_gap = native_label_marker_sizes(1920, 1080)
+
+    assert pair_gap < gap
 
 
 def test_draw_label_marker_fills_the_requested_square() -> None:

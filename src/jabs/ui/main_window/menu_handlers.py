@@ -54,6 +54,7 @@ _SETTINGS_EXPORT_VIDEO_DIR = "ui/export_overlay_video_last_dir"
 _SETTINGS_EXPORT_VIDEO_SEGMENTATION = "ui/export_overlay_video_segmentation"
 _SETTINGS_EXPORT_VIDEO_POSE = "ui/export_overlay_video_pose"
 _SETTINGS_EXPORT_VIDEO_PREDICTIONS = "ui/export_overlay_video_predictions"
+_SETTINGS_EXPORT_VIDEO_LABELS = "ui/export_overlay_video_labels"
 
 
 class UpdateCheckThread(QtCore.QThread):
@@ -223,32 +224,41 @@ class MenuHandlers:
             )
             segmentation_unavailable = f"No segmentation data available: {reason}"
 
-        # Built up front so the checkbox can say whether there is anything to draw,
-        # and why not when there is not.
-        prediction_overlay, predictions_unavailable = central_widget.prediction_overlay()
+        # Gathered up front so each checkbox can say whether there is anything to draw,
+        # and why not when there is not. Gathering is proportional to the length of the
+        # video, so it is done once and the chosen overlay is built from it below.
+        label_markers = central_widget.export_label_markers()
 
         settings = self.window._settings
         options = VideoExportOptionsDialog(
             self.window,
             draw_pose=settings.value(_SETTINGS_EXPORT_VIDEO_POSE, True, type=bool),
             draw_segmentation=settings.value(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, True, type=bool),
+            draw_labels=settings.value(_SETTINGS_EXPORT_VIDEO_LABELS, False, type=bool),
             draw_predictions=settings.value(_SETTINGS_EXPORT_VIDEO_PREDICTIONS, False, type=bool),
             segmentation_unavailable=segmentation_unavailable,
-            predictions_unavailable=predictions_unavailable,
+            labels_unavailable=label_markers.labels_unavailable,
+            predictions_unavailable=label_markers.predictions_unavailable,
         )
         if options.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return  # user cancelled
 
         draw_pose = options.draw_pose
         draw_segmentation = options.draw_segmentation
-        if not options.draw_predictions:
-            prediction_overlay = None
+        # Built after the dialog rather than before it: the caption burned into the
+        # frames names whichever markers were chosen, so it cannot be built until they
+        # have been.
+        label_overlay = label_markers.overlay(
+            labels=options.draw_labels, predictions=options.draw_predictions
+        )
 
         # Only persist a choice the user could actually make: an unavailable overlay
         # is forced off, and saving that would lose the preference for the next video.
         settings.setValue(_SETTINGS_EXPORT_VIDEO_POSE, draw_pose)
         if options.segmentation_enabled:
             settings.setValue(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, draw_segmentation)
+        if options.labels_enabled:
+            settings.setValue(_SETTINGS_EXPORT_VIDEO_LABELS, options.draw_labels)
         if options.predictions_enabled:
             settings.setValue(_SETTINGS_EXPORT_VIDEO_PREDICTIONS, options.draw_predictions)
 
@@ -290,7 +300,7 @@ class MenuHandlers:
             draw_segmentation,
             parent=self.window,
             draw_pose=draw_pose,
-            prediction_overlay=prediction_overlay,
+            label_overlay=label_overlay,
         )
         # A plain QProgressDialog rather than the cancelable dialog used for training
         # and classification: those must not be dismissable because they mutate project
@@ -728,13 +738,16 @@ class MenuHandlers:
         refs.mc_hide_per_class_rows.setEnabled(enabled)
 
     def on_label_overlay_mode_changed(self) -> None:
-        """Handle label overlay mode change (None, Labels, or Predictions)."""
-        if self.window._menu_refs.label_overlay_none.isChecked():
+        """Handle label overlay mode change (None, Labels, Predictions, or both)."""
+        refs = self.window._menu_refs
+        if refs.label_overlay_none.isChecked():
             mode = PlayerWidget.LabelOverlayMode.NONE
-        elif self.window._menu_refs.label_overlay_labels.isChecked():
+        elif refs.label_overlay_labels.isChecked():
             mode = PlayerWidget.LabelOverlayMode.LABEL
-        else:
+        elif refs.label_overlay_preds.isChecked():
             mode = PlayerWidget.LabelOverlayMode.PREDICTION
+        else:
+            mode = PlayerWidget.LabelOverlayMode.BOTH
         self.window._central_widget.label_overlay_mode = mode
 
     # ========== Features Menu Handlers ==========

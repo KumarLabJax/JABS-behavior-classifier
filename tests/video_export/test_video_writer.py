@@ -12,7 +12,7 @@ try:
 
     from jabs.video_export import (
         DEFAULT_CODEC,
-        PredictionOverlay,
+        LabelMarkerOverlay,
         VideoExportError,
         export_overlay_video,
     )
@@ -359,7 +359,7 @@ def test_overlay_choices_reach_the_renderer(
     source_video: Path, tmp_path: Path, monkeypatch
 ) -> None:
     """Every overlay switch is passed through to the per-frame renderer."""
-    overlay = PredictionOverlay(labels=[np.ones(FRAMES, dtype=np.int8)])
+    overlay = LabelMarkerOverlay(predicted_labels=[np.ones(FRAMES, dtype=np.int8)])
     seen: list[dict] = []
 
     def record(frame, pose_est, frame_index, **kwargs):
@@ -374,7 +374,7 @@ def test_overlay_choices_reach_the_renderer(
         StubPose(),
         draw_pose=False,
         draw_segmentation=False,
-        prediction_overlay=overlay,
+        label_overlay=overlay,
     )
 
     assert len(seen) == FRAMES
@@ -383,7 +383,7 @@ def test_overlay_choices_reach_the_renderer(
         == {
             "draw_pose": False,
             "draw_segmentation": False,
-            "prediction_overlay": overlay,
+            "label_overlay": overlay,
         }
         for call in seen
     )
@@ -399,7 +399,7 @@ def test_prediction_markers_reach_the_written_video(source_video: Path, tmp_path
         StubPose(),
         draw_pose=False,
         draw_segmentation=False,
-        prediction_overlay=PredictionOverlay(labels=[np.ones(FRAMES, dtype=np.int8)]),
+        label_overlay=LabelMarkerOverlay(predicted_labels=[np.ones(FRAMES, dtype=np.int8)]),
     )
 
     assert written == FRAMES

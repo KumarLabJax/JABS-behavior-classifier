@@ -47,7 +47,9 @@ def handler_setup():
     window = SimpleNamespace(
         _central_widget=SimpleNamespace(
             _player_widget=player,
-            prediction_overlay=MagicMock(return_value=(None, "no predictions")),
+            export_label_markers=MagicMock(
+                return_value=_FakeLabelMarkers("no labels", "no predictions")
+            ),
         ),
         _settings=MagicMock(),
         display_status_message=MagicMock(),
@@ -259,6 +261,26 @@ class _FakeV6Pose:
         self.has_segmentation = has_segmentation
 
 
+class _FakeLabelMarkers:
+    """Stands in for the gathered export label markers, recording how it was asked."""
+
+    def __init__(
+        self,
+        labels_unavailable: str | None,
+        predictions_unavailable: str | None,
+        overlay: object = None,
+    ) -> None:
+        self.labels_unavailable = labels_unavailable
+        self.predictions_unavailable = predictions_unavailable
+        self._overlay = overlay
+        self.overlay_calls: list[dict] = []
+
+    def overlay(self, *, labels: bool, predictions: bool):
+        """Record the chosen markers and hand back the overlay under test."""
+        self.overlay_calls.append({"labels": labels, "predictions": predictions})
+        return self._overlay
+
+
 @pytest.fixture
 def video_export_setup(handler_setup, monkeypatch):
     """Handler wired for export_overlay_video, with the thread class replaced.
@@ -270,8 +292,12 @@ def video_export_setup(handler_setup, monkeypatch):
     player.pose_est = _FakeV6Pose(has_segmentation=True)
     player.num_frames = 100
     player.current_video_path = Path("/videos/clip.avi")
-    window._central_widget.prediction_overlay = MagicMock(
-        return_value=(None, "No predictions for this video: classify it first")
+    window._central_widget.export_label_markers = MagicMock(
+        return_value=_FakeLabelMarkers(
+            "No labels available to draw for this video",
+            "No predictions for this video: classify it first",
+            overlay=None,
+        )
     )
 
     thread = MagicMock()
@@ -288,8 +314,10 @@ def _patch_video_export_dialogs(
     selected: str = "/tmp/out.mp4",
     draw_pose: bool = True,
     draw_segmentation: bool = True,
+    draw_labels: bool = False,
     draw_predictions: bool = False,
     segmentation_enabled: bool = True,
+    labels_enabled: bool = True,
     predictions_enabled: bool = True,
 ):
     """Replace the overlay options dialog and the save dialog with controllable mocks.
@@ -305,8 +333,10 @@ def _patch_video_export_dialogs(
     )
     options.draw_pose = draw_pose
     options.draw_segmentation = draw_segmentation
+    options.draw_labels = draw_labels
     options.draw_predictions = draw_predictions
     options.segmentation_enabled = segmentation_enabled
+    options.labels_enabled = labels_enabled
     options.predictions_enabled = predictions_enabled
     options_cls = MagicMock(return_value=options)
     monkeypatch.setattr(menu_handlers_module, "VideoExportOptionsDialog", options_cls)
@@ -331,7 +361,7 @@ def test_export_overlay_video_starts_thread_with_chosen_path(video_export_setup,
     assert args[3] is True  # draw_segmentation
     kwargs = thread_cls.call_args.kwargs
     assert kwargs["draw_pose"] is True
-    assert kwargs["prediction_overlay"] is None  # no predictions available
+    assert kwargs["label_overlay"] is None  # nothing labeled and nothing classified
     assert kwargs["parent"] is handlers.window
     thread.start.assert_called_once()
 
@@ -422,42 +452,58 @@ def test_export_overlay_video_reports_why_predictions_are_unavailable(
     a video they already classified would send them looking for the wrong problem.
     """
     handlers, window, _player, _thread_cls, _thread = video_export_setup
-    window._central_widget.prediction_overlay = MagicMock(return_value=(None, reason))
+    window._central_widget.export_label_markers = MagicMock(
+        return_value=_FakeLabelMarkers(None, reason, overlay=None)
+    )
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
 
     handlers.export_overlay_video()
 
     assert options_cls.call_args.kwargs["predictions_unavailable"] == reason
+    assert options_cls.call_args.kwargs["labels_unavailable"] is None
 
 
-def test_export_overlay_video_passes_the_prediction_overlay_when_selected(
-    video_export_setup, monkeypatch
+@pytest.mark.parametrize(
+    ("draw_labels", "draw_predictions"),
+    [(True, False), (False, True), (True, True)],
+    ids=["labels", "predictions", "both"],
+)
+def test_export_overlay_video_passes_the_label_overlay_when_selected(
+    video_export_setup, monkeypatch, draw_labels: bool, draw_predictions: bool
 ):
-    """Ticking predictions sends the central widget's overlay to the exporter."""
+    """The marker choices reach the central widget, and its overlay reaches the exporter."""
     handlers, window, _player, thread_cls, _thread = video_export_setup
     overlay = object()
-    window._central_widget.prediction_overlay = MagicMock(return_value=(overlay, None))
+    markers = _FakeLabelMarkers(None, None, overlay=overlay)
+    window._central_widget.export_label_markers = MagicMock(return_value=markers)
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(
-        monkeypatch, draw_predictions=True
+        monkeypatch, draw_labels=draw_labels, draw_predictions=draw_predictions
     )
 
     handlers.export_overlay_video()
 
+    assert options_cls.call_args.kwargs["labels_unavailable"] is None
     assert options_cls.call_args.kwargs["predictions_unavailable"] is None
-    assert thread_cls.call_args.kwargs["prediction_overlay"] is overlay
+    # Gathered once, however the markers were chosen: it costs a pass over the video's
+    # labels and predictions, and it happens before the dialog is even on screen.
+    window._central_widget.export_label_markers.assert_called_once_with()
+    assert markers.overlay_calls == [{"labels": draw_labels, "predictions": draw_predictions}]
+    assert thread_cls.call_args.kwargs["label_overlay"] is overlay
 
 
-def test_export_overlay_video_drops_the_overlay_when_predictions_are_unticked(
+def test_export_overlay_video_draws_no_markers_when_both_are_unticked(
     video_export_setup, monkeypatch
 ):
-    """Predictions exist but were not asked for, so they are not drawn."""
+    """Labels and predictions exist but were not asked for, so neither is drawn."""
     handlers, window, _player, thread_cls, _thread = video_export_setup
-    window._central_widget.prediction_overlay = MagicMock(return_value=(object(), None))
-    _patch_video_export_dialogs(monkeypatch, draw_predictions=False)
+    markers = _FakeLabelMarkers(None, None, overlay=None)
+    window._central_widget.export_label_markers = MagicMock(return_value=markers)
+    _patch_video_export_dialogs(monkeypatch, draw_labels=False, draw_predictions=False)
 
     handlers.export_overlay_video()
 
-    assert thread_cls.call_args.kwargs["prediction_overlay"] is None
+    assert markers.overlay_calls == [{"labels": False, "predictions": False}]
+    assert thread_cls.call_args.kwargs["label_overlay"] is None
 
 
 def test_export_overlay_video_persists_available_choices_only(video_export_setup, monkeypatch):
@@ -467,17 +513,20 @@ def test_export_overlay_video_persists_available_choices_only(video_export_setup
         monkeypatch,
         draw_pose=True,
         draw_segmentation=False,
+        draw_labels=False,
         draw_predictions=False,
         segmentation_enabled=False,
-        predictions_enabled=True,
+        labels_enabled=True,
+        predictions_enabled=False,
     )
 
     handlers.export_overlay_video()
 
     saved = {c.args[0] for c in window._settings.setValue.call_args_list}
     assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_POSE in saved
-    assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_PREDICTIONS in saved
+    assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_LABELS in saved
     assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_SEGMENTATION not in saved
+    assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_PREDICTIONS not in saved
 
 
 def test_export_overlay_video_thread_deletes_itself_on_finished(video_export_setup, monkeypatch):

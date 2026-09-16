@@ -145,8 +145,8 @@ overlay drawn on every frame. It is the batch equivalent of the GUI's
 output matches what the player shows.
 
 It works on any video and pose file pair and does not need a JABS project. The
-GUI's prediction overlay has no equivalent here: predictions live inside a JABS
-project, which this command does not take.
+GUI's label and prediction markers have no equivalent here: labels and
+predictions live inside a JABS project, which this command does not take.
 
 **Usage:**
 

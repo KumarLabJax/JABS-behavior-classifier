@@ -6,7 +6,7 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
 from jabs.pose_estimation import PoseEstimation
-from jabs.video_export import PredictionOverlay, export_overlay_video
+from jabs.video_export import LabelMarkerOverlay, export_overlay_video
 
 
 class VideoExportThread(QThread):
@@ -27,8 +27,8 @@ class VideoExportThread(QThread):
         draw_segmentation: Whether to include segmentation contours.
         parent: Optional parent widget.
         draw_pose: Whether to include the pose keypoints and skeleton.
-        prediction_overlay: Predictions to mark next to each identity, or ``None``
-            to draw no predictions.
+        label_overlay: Labels and/or predictions to mark next to each identity,
+            or ``None`` to draw no label markers.
     """
 
     export_complete = Signal(int)
@@ -48,7 +48,7 @@ class VideoExportThread(QThread):
         parent: QWidget | None = None,
         *,
         draw_pose: bool = True,
-        prediction_overlay: PredictionOverlay | None = None,
+        label_overlay: LabelMarkerOverlay | None = None,
     ) -> None:
         super().__init__(parent=parent)
         self._video_path = video_path
@@ -56,7 +56,7 @@ class VideoExportThread(QThread):
         self._pose_est = pose_est
         self._draw_segmentation = draw_segmentation
         self._draw_pose = draw_pose
-        self._prediction_overlay = prediction_overlay
+        self._label_overlay = label_overlay
         self._should_terminate = False
 
     def request_termination(self) -> None:
@@ -76,7 +76,7 @@ class VideoExportThread(QThread):
                 self._pose_est,
                 draw_pose=self._draw_pose,
                 draw_segmentation=self._draw_segmentation,
-                prediction_overlay=self._prediction_overlay,
+                label_overlay=self._label_overlay,
                 progress_callback=lambda written, _total: self.update_progress.emit(written),
                 should_continue=lambda: not self._should_terminate,
             )

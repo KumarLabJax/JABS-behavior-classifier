@@ -52,6 +52,7 @@ class PlayerWidget(QtWidgets.QWidget):
         NONE = 0
         LABEL = 1
         PREDICTION = 2
+        BOTH = 3  # manual label and prediction, side by side
 
     update_frame_number = QtCore.Signal(int)
     playback_finished = QtCore.Signal()
@@ -606,14 +607,25 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         self._frame_widget.set_label_color_lut(lut)
 
-    def set_labels(self, labels: list[np.ndarray] | None) -> None:
+    def set_labels(
+        self,
+        manual_labels: list[np.ndarray] | None = None,
+        predicted_labels: list[np.ndarray] | None = None,
+    ) -> None:
         """set labels used for overlay in the frame widget
 
+        Passing both draws the manual label and the prediction side by side.
+
         Args:
-            labels: list of numpy arrays with behavior/not behavior/no label for each identity.
-              Must match the sorted order of identities or be None.
+            manual_labels: list of numpy arrays with the manual behavior/not behavior/no
+              label value for each identity, or None to hide the manual label marker.
+            predicted_labels: list of numpy arrays with the predicted value for each
+              identity, or None to hide the prediction marker.
+
+        Notes:
+            Each list must match the sorted order of identities.
         """
-        self._frame_widget.set_label_overlay(labels)
+        self._frame_widget.set_label_overlay(manual_labels, predicted_labels)
         self.reload_frame()
 
     @property

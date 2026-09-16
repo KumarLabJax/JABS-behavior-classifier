@@ -115,12 +115,12 @@ def test_overlay_choices_are_passed_through(monkeypatch, tmp_path: Path) -> None
         object(),
         False,
         draw_pose=False,
-        prediction_overlay=overlay,
+        label_overlay=overlay,
     ).run()
 
     assert captured["draw_segmentation"] is False
     assert captured["draw_pose"] is False
-    assert captured["prediction_overlay"] is overlay
+    assert captured["label_overlay"] is overlay
 
 
 def test_parent_keeps_its_positional_slot(tmp_path: Path) -> None:
@@ -132,13 +132,13 @@ def test_parent_keeps_its_positional_slot(tmp_path: Path) -> None:
     thread = VideoExportThread(tmp_path / "in.avi", tmp_path / "out.mp4", object(), True, None)
 
     assert thread._draw_pose is True
-    assert thread._prediction_overlay is None
+    assert thread._label_overlay is None
 
     with pytest.raises(TypeError):
         VideoExportThread(tmp_path / "in.avi", tmp_path / "out.mp4", object(), True, None, False)
 
 
-def test_defaults_draw_pose_and_no_predictions(monkeypatch, tmp_path: Path) -> None:
+def test_defaults_draw_pose_and_no_label_markers(monkeypatch, tmp_path: Path) -> None:
     """The pose-only export that predates the options dialog still works unchanged."""
     captured: dict = {}
 
@@ -151,4 +151,4 @@ def test_defaults_draw_pose_and_no_predictions(monkeypatch, tmp_path: Path) -> N
 
     assert captured["draw_pose"] is True
     assert captured["draw_segmentation"] is True
-    assert captured["prediction_overlay"] is None
+    assert captured["label_overlay"] is None
