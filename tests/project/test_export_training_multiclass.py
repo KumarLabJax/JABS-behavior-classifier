@@ -182,6 +182,8 @@ def test_load_multiclass_training_data_roundtrip(tmp_path: Path) -> None:
     # Identity None sentinel decoded correctly
     assert group_mapping[1]["identity"] is None
     assert group_mapping[0]["identity"] == 0
+    # Video names decode to str rather than the bytes h5py hands back
+    assert group_mapping[0]["video"] == "vid_a.mp4"
 
 
 def test_load_multiclass_rejects_binary_file(tmp_path: Path) -> None:

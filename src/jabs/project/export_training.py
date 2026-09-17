@@ -25,17 +25,25 @@ if TYPE_CHECKING:
 # attribute to decode the value back into the original Python object.
 JSON_ENCODED_SETTING_ATTR = "json_encoded"
 
+# Value stored in a group_mapping ``identity`` dataset when the cross-validation
+# group is not tied to a single animal identity (VIDEO and FILENAME_PATTERN
+# grouping). HDF5 has no null for an integer dataset, so the group mapping's
+# ``identity`` of None is written as this sentinel and
+# jabs.project.read_training decodes it back into None.
+NO_IDENTITY_SENTINEL = -1
+
 
 def _write_group_mapping(
     out_h5: h5py.File, group_mapping: dict[int, dict], string_type: np.dtype
 ) -> None:
     """Write the cross-validation group mapping into the exported HDF5 file.
 
-    For each group, stores an ``identity`` (the animal identity, or ``-1`` when the
-    group is not identity-specific) and a ``video_name``. ``identity`` is ``-1`` for
-    ``VIDEO`` and ``FILENAME_PATTERN`` grouping. For ``FILENAME_PATTERN`` groups,
-    ``video_name`` holds the regex-extracted group label (e.g. ``"cage_1234"``)
-    rather than a single filename, since one group can span multiple videos.
+    For each group, stores an ``identity`` (the animal identity, or
+    ``NO_IDENTITY_SENTINEL`` when the group is not identity-specific) and a
+    ``video_name``. ``identity`` is the sentinel for ``VIDEO`` and
+    ``FILENAME_PATTERN`` grouping. For ``FILENAME_PATTERN`` groups, ``video_name``
+    holds the regex-extracted group label (e.g. ``"cage_1234"``) rather than a
+    single filename, since one group can span multiple videos.
 
     Args:
         out_h5: Open HDF5 file to write into.
@@ -47,7 +55,7 @@ def _write_group_mapping(
             f"group_mapping/{group}/identity", (1,), dtype=np.int64
         )
         identity = info["identity"]
-        identity_dset[:] = identity if identity is not None else -1
+        identity_dset[:] = identity if identity is not None else NO_IDENTITY_SENTINEL
         video_name_dset = out_h5.create_dataset(
             f"group_mapping/{group}/video_name", (1,), dtype=string_type
         )
