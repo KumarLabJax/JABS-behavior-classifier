@@ -8,7 +8,50 @@ import pandas as pd
 
 from jabs.core.enums import ClassifierType, ProjectDistanceUnit
 
-from .export_training import JSON_ENCODED_SETTING_ATTR
+from .export_training import JSON_ENCODED_SETTING_ATTR, NO_IDENTITY_SENTINEL
+
+
+def _decode_h5_string(value: Any) -> str:
+    """Decode a value read from a variable-length string dataset.
+
+    h5py returns variable-length strings as ``bytes``, which is not what the
+    training-file readers document (and would render as ``b'video.avi'`` in a
+    cross-validation report), so decode them to ``str``.
+
+    Args:
+        value: Value read from a variable-length string dataset.
+
+    Returns:
+        The value as a ``str``.
+    """
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def _read_group_mapping(in_h5: h5py.File) -> dict[int, dict[str, Any]]:
+    """Read the cross-validation group mapping from a training file.
+
+    Both the binary and multi-class readers use this so the mapping is decoded the
+    same way regardless of which export wrote it:
+    :func:`jabs.project.export_training._write_group_mapping` stores the identity of
+    a group that is not identity-specific as ``NO_IDENTITY_SENTINEL``, which is
+    decoded back into ``None`` here.
+
+    Args:
+        in_h5: Open training HDF5 file.
+
+    Returns:
+        Mapping of group id to ``{"identity": int | None, "video": str}``. For
+        ``FILENAME_PATTERN`` grouping, ``video`` holds the regex-extracted group
+        label rather than a single video filename.
+    """
+    group_mapping: dict[int, dict[str, Any]] = {}
+    for name, val in in_h5["group_mapping"].items():
+        identity = int(val["identity"][0])
+        group_mapping[int(name)] = {
+            "identity": None if identity == NO_IDENTITY_SENTINEL else identity,
+            "video": _decode_h5_string(val["video_name"][0]),
+        }
+    return group_mapping
 
 
 def _read_setting_value(node: h5py.Dataset) -> Any:
@@ -100,13 +143,17 @@ def load_training_data(training_file: Path):
         group_mapping: dict containing group to identity/video mapping:
         {
             group_id: {
-                'identity': int,
+                'identity': int | None,
                 'video': str
             },
         }
+
+        ``identity`` is None for a group that is not tied to a single animal
+        identity (``VIDEO`` and ``FILENAME_PATTERN`` grouping), in which case
+        ``video`` is the video filename or the regex-extracted group label
+        respectively.
     """
     features: dict[str, Any] = {"per_frame": {}, "window": {}}
-    group_mapping = {}
 
     with h5py.File(training_file, "r") as in_h5:
         features["min_pose_version"] = in_h5.attrs["min_pose_version"]
@@ -150,11 +197,7 @@ def load_training_data(training_file: Path):
         features["window"] = pd.DataFrame(features["window"])
 
         # extract the group mapping from h5 file
-        for name, val in in_h5["group_mapping"].items():
-            group_mapping[int(name)] = {
-                "identity": val["identity"][0],
-                "video": val["video_name"][0],
-            }
+        group_mapping = _read_group_mapping(in_h5)
 
         # load required extended features
         if "extended_features" in in_h5:
@@ -195,7 +238,6 @@ def load_multiclass_training_data(training_file: Path) -> tuple[dict[str, Any], 
         ValueError: If the file does not contain a multi-class training export.
     """
     features: dict[str, Any] = {"per_frame": {}, "window": {}}
-    group_mapping: dict[int, dict[str, Any]] = {}
 
     with h5py.File(training_file, "r") as in_h5:
         classifier_mode = in_h5.attrs.get("classifier_mode", "")
@@ -210,8 +252,7 @@ def load_multiclass_training_data(training_file: Path) -> tuple[dict[str, Any], 
         features["classifier_type"] = ClassifierType(in_h5.attrs["classifier_type"])
         features["settings"] = read_project_settings(in_h5["settings"])
 
-        raw = in_h5["class_names"][:]
-        class_names = [n.decode() if isinstance(n, bytes) else str(n) for n in raw]
+        class_names = [_decode_h5_string(n) for n in in_h5["class_names"][:]]
         features["class_names"] = class_names
         features["behavior_names"] = class_names[1:]
 
@@ -230,11 +271,6 @@ def load_multiclass_training_data(training_file: Path) -> tuple[dict[str, Any], 
             features["window"][name] = val[:]
         features["window"] = pd.DataFrame(features["window"])
 
-        for name, val in in_h5["group_mapping"].items():
-            identity_raw = int(val["identity"][0])
-            group_mapping[int(name)] = {
-                "identity": None if identity_raw == -1 else identity_raw,
-                "video": val["video_name"][0],
-            }
+        group_mapping = _read_group_mapping(in_h5)
 
     return features, group_mapping
