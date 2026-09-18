@@ -7,8 +7,9 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -111,6 +112,36 @@ def _bounding_box_description(identity_name: str) -> str:
         "such as -1 or 0 from some converters) rather than one guaranteed sentinel, so "
         "treat non-finite or negative coordinates as absent"
     )
+
+
+def _stack_identity_datasets(
+    datasets: Sequence[Any], dtype: npt.DTypeLike | None = None
+) -> npt.NDArray:
+    """Stack one per-identity dataset into a single identity-first array.
+
+    ``np.stack`` on a list comprehension would hold every identity's array and the
+    combined array at the same time, which doubles the peak for the contour dataset -
+    the largest thing in the file. Filling a preallocated array one identity at a time
+    keeps only a single identity's slice alive alongside the result.
+
+    Args:
+        datasets: One per identity, all the same shape, in identity order. Each must
+            support ``[:]``, which covers both an h5py dataset and an ndarray.
+        dtype: dtype for the result. Defaults to the first dataset's own dtype, and each
+            identity is converted as it is assigned rather than in a second pass.
+
+    Returns:
+        An array of shape (len(datasets), *dataset_shape).
+    """
+    first = np.asarray(datasets[0][:])
+    stacked = np.empty(
+        (len(datasets), *first.shape), dtype=first.dtype if dtype is None else dtype
+    )
+    stacked[0] = first
+    del first
+    for i, dataset in enumerate(datasets[1:], start=1):
+        stacked[i] = dataset[:]
+    return stacked
 
 
 def _merge_segmentation(parts: list[SegmentationData | None]) -> SegmentationData | None:
@@ -1138,14 +1169,15 @@ class PoseNWBAdapter(Adapter):
                 f"Identities disagree on segmentation contour shape: {sorted(shapes)}"
             )
 
+        # Keep the contour dtype the file was written with rather than converting: the
+        # writer stores the pose file's own integer width, and a conversion here would
+        # copy the largest array in the file for nothing.
         return SegmentationData(
-            contours=np.stack([np.asarray(s.data[:]) for s in series], axis=0).astype(np.int32),
-            vertex_counts=np.stack([np.asarray(s.vertex_count[:]) for s in series], axis=0).astype(
-                np.uint32
+            contours=_stack_identity_datasets([s.data for s in series]),
+            vertex_counts=_stack_identity_datasets(
+                [s.vertex_count for s in series], dtype=np.uint32
             ),
-            is_external=np.stack([np.asarray(s.is_external[:]) for s in series], axis=0).astype(
-                bool
-            ),
+            is_external=_stack_identity_datasets([s.is_external for s in series], dtype=bool),
         )
 
     @staticmethod

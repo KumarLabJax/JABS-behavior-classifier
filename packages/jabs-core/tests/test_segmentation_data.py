@@ -37,6 +37,27 @@ def test_accepts_matching_shapes():
     assert seg.is_external.shape == (1, 3, 2)
 
 
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64], ids=str)
+def test_accepts_any_signed_integer_width(dtype):
+    """Contours keep whatever signed width the source used; nothing is widened for us."""
+    kw = _seg_kwargs()
+    kw["contours"] = kw["contours"].astype(dtype)
+    assert SegmentationData(**kw).contours.dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", [np.uint16, np.float32], ids=str)
+def test_contours_must_be_signed_integers(dtype):
+    """Unsigned and floating contours are rejected: the -1 padding sentinel needs a sign.
+
+    An unsigned array wraps -1 to its maximum value, which reads as a real coordinate
+    and silently inflates every vertex count derived from the padding.
+    """
+    kw = _seg_kwargs()
+    kw["contours"] = kw["contours"].astype(dtype)
+    with pytest.raises(ValueError, match="contours must be a signed integer array"):
+        SegmentationData(**kw)
+
+
 def test_contours_must_be_five_dimensional():
     """A contour array missing the contour-slot axis is rejected."""
     kw = _seg_kwargs()

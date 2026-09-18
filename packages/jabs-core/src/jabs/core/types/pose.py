@@ -47,7 +47,10 @@ class SegmentationData:
         contours: Contour vertex positions in (x, y) order, shape
             (num_identities, num_frames, num_contours, num_vertices, 2).  Only the first
             ``vertex_counts`` vertices of each contour slot hold a position; the rest is
-            padding.
+            padding.  The integer width is whatever the source carries - a pose file's
+            ``seg_data`` is int16, and widening it would double an array that is already
+            the largest thing JABS holds for a video.  It must be signed, because the
+            padding slots hold -1.
         vertex_counts: Number of valid vertices in each contour slot, shape
             (num_identities, num_frames, num_contours).  0 means the slot holds no
             contour on that frame.
@@ -57,7 +60,7 @@ class SegmentationData:
             ``vertex_counts`` is 0.
     """
 
-    contours: npt.NDArray[np.int32]
+    contours: npt.NDArray[np.signedinteger]
     vertex_counts: npt.NDArray[np.uint32]
     is_external: npt.NDArray[np.bool_]
 
@@ -66,8 +69,13 @@ class SegmentationData:
 
         Raises:
             ValueError: If the arrays have the wrong number of dimensions, if the
-                trailing axis of ``contours`` is not 2, or if the shapes disagree.
+                trailing axis of ``contours`` is not 2, if ``contours`` is not a signed
+                integer array, or if the shapes disagree.
         """
+        if not np.issubdtype(self.contours.dtype, np.signedinteger):
+            # An unsigned array would wrap the -1 padding sentinel to its maximum value,
+            # which reads as a real coordinate and silently inflates every vertex count.
+            raise ValueError(f"contours must be a signed integer array, got {self.contours.dtype}")
         if self.contours.ndim != 5:
             raise ValueError(
                 "contours must have 5 dimensions "

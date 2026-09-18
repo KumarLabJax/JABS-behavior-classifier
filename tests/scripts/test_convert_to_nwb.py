@@ -326,11 +326,25 @@ def test_pose_to_pose_data_builds_segmentation():
     num_identities = len(list(pose.identities))
     assert seg.contours.shape[0] == num_identities
     assert seg.contours.shape[1] == pose.num_frames
-    assert seg.contours.dtype == np.int32
 
     for i in pose.identities:
         np.testing.assert_array_equal(seg.contours[i], pose.get_segmentation_data(i))
         np.testing.assert_array_equal(seg.is_external[i], pose.get_segmentation_flags(i) > 0)
+
+
+def test_pose_to_pose_data_keeps_pose_file_contour_width():
+    """Contours keep seg_data's own integer width instead of being widened.
+
+    The contour array is the largest thing JABS holds for a video - int16 over a
+    full-length recording is already gigabytes - so widening it would double both the
+    peak during the stack and what the writer holds for the length of the export.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    source_dtype = pose.get_segmentation_data(0).dtype
+    assert source_dtype == np.int16, "fixture must be narrower than int32 to test anything"
+    assert seg.contours.dtype == source_dtype
 
 
 def test_pose_to_pose_data_vertex_counts_match_padding():
@@ -363,7 +377,9 @@ def test_run_conversion_forwards_segmentation(monkeypatch, tmp_path):
     pose = mock.Mock(num_identities=2, num_frames=10, fps=30)
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", lambda *a, **k: pose)
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.save", mock.Mock())
-    to_pose_data = mock.Mock(return_value=mock.Mock(segmentation_data=None))
+    # run_conversion validates subject metadata before writing, so this needs real
+    # PoseData rather than a sentinel.
+    to_pose_data = mock.Mock(return_value=_valid_pose_data())
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.pose_to_pose_data", to_pose_data)
 
     run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb", segmentation=False)

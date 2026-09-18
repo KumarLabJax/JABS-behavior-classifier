@@ -1,5 +1,6 @@
 """Tests for PoseNWBAdapter."""
 
+import dataclasses
 import datetime
 import json
 import logging
@@ -1195,7 +1196,7 @@ def test_roundtrip_segmentation_multisubject(tmp_path, adapter):
     result = adapter.read(path)
 
     _assert_pose_data_equal(data, result)
-    assert result.segmentation_data.contours.dtype == np.int32
+    assert result.segmentation_data.contours.dtype == data.segmentation_data.contours.dtype
 
 
 def test_roundtrip_segmentation_per_identity(tmp_path, adapter):
@@ -1209,6 +1210,33 @@ def test_roundtrip_segmentation_per_identity(tmp_path, adapter):
     result = adapter.read(tmp_path / "pose_seg_a.nwb")
 
     _assert_pose_data_equal(data, result)
+
+
+def test_narrow_contour_dtype_survives_the_roundtrip(tmp_path, adapter):
+    """A pose file's int16 contours are stored and read back as int16, not widened.
+
+    The contour dataset dominates the file and the process's memory, so neither the
+    writer nor the reader may quietly double its width.
+    """
+    path = tmp_path / "pose_seg_int16.nwb"
+    data = _make_pose_data(num_identities=2, num_frames=8, with_segmentation=True)
+    seg = data.segmentation_data
+    data = dataclasses.replace(
+        data,
+        segmentation_data=SegmentationData(
+            contours=seg.contours.astype(np.int16),
+            vertex_counts=seg.vertex_counts,
+            is_external=seg.is_external,
+        ),
+    )
+
+    adapter.write(data, path, multisubject=True)
+    with h5py.File(path, "r") as h5:
+        assert h5["processing/behavior/subject_1/segmentation_contours/data"].dtype == np.int16
+
+    result = adapter.read(path)
+    _assert_pose_data_equal(data, result)
+    assert result.segmentation_data.contours.dtype == np.int16
 
 
 def test_segmentation_absent_roundtrips_as_none(tmp_path, adapter):

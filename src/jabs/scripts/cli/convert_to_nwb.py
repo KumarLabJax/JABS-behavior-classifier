@@ -142,7 +142,10 @@ def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
             flags = np.ones(contours.shape[:2], dtype=bool)
         per_identity_flags.append(flags)
 
-    # (num_identities, num_frames, num_contours, num_vertices, 2)
+    # (num_identities, num_frames, num_contours, num_vertices, 2). Keep the pose file's
+    # own integer width: seg_data is int16, and this is the largest array JABS holds for a
+    # video, so widening it here would double both the peak during the stack and what the
+    # writer then holds for the length of the export.
     contour_array = np.stack(per_identity_contours, axis=0)
     # PoseEstimationV6 sorts the flags into identity order with an array it fills with
     # -1, so an identity's unused slots come back as -1 rather than False. Compare
@@ -156,7 +159,7 @@ def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
     vertex_counts = valid_vertices.sum(axis=-1).astype(np.uint32)
 
     return SegmentationData(
-        contours=contour_array.astype(np.int32),
+        contours=contour_array,
         vertex_counts=vertex_counts,
         is_external=is_external,
     )
