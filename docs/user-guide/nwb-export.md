@@ -155,6 +155,113 @@ All fields are optional. Unknown keys are ignored with a warning.
 
 ---
 
+## Publishing to the DANDI archive
+
+JABS NWB output is intended for the
+[EMBER archive](https://emberarchive.org/) — the data archive for the NIH BRAIN
+Initiative's Brain Behavior Quantification and Synchronization (BBQS) program. EMBER
+is operationally distinct from [DANDI](https://dandiarchive.org/) but runs on DANDI
+infrastructure at [dandi.emberarchive.org](https://dandi.emberarchive.org/), so
+DANDI's validation rules apply.
+
+Uploads are validated with [`nwbinspector`](https://nwbinspector.readthedocs.io/),
+and **any `CRITICAL` finding blocks the upload.** The guidance below is about
+clearing that gate.
+
+### Requirements at a glance
+
+| Requirement | Why |
+|---|---|
+| Use per-identity mode (the default) | One `Subject` per file is what DANDI's subject checks expect. `--multisubject` is **not archive-eligible** — see [Limitations](#limitations-for-archive-submission). |
+| Pass `--subjects` with complete metadata | `species`, `sex`, and `age` or `date_of_birth` are mandatory. Without them every file fails three `CRITICAL` checks. |
+| Pass `--session-metadata` | Not mandatory, but it clears the remaining best-practice warnings and records provenance the archive displays. |
+
+### 1. Prepare the metadata files
+
+Write a `subjects.json` covering **every** identity in the pose file (see
+[Subjects JSON format](#subjects-json-format)), and a `session.json` with at least
+`session_start_time` (see
+[Session metadata JSON format](#session-metadata-json-format)). Pose files do not
+record a session start time, so without it the export falls back to the time the
+conversion ran, which is not the recording time.
+
+### 2. Convert
+
+```bash
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
+    --subjects subjects.json \
+    --session-metadata session.json
+```
+
+The converter validates subject metadata **before writing anything**. If a required
+field is missing or malformed it reports every problem across every identity at once
+and writes no files:
+
+```
+Error: Subject metadata required by the DANDI archive is missing or malformed:
+  subject_1: species is missing; sex is missing; age or date_of_birth is missing
+  subject_2: sex 'male' must be one of 'M', 'F', 'O', 'U'
+```
+
+A `--subjects` key that matches no identity is reported as a warning naming the valid
+identity names, which is the usual explanation for an identity that looks like it was
+given metadata but reports it as missing.
+
+### 3. Validate locally before uploading
+
+JABS's pre-flight check mirrors `nwbinspector`'s subject rules, but it is not a
+substitute for running the real validator — it checks subject metadata, not the rest
+of the file. Run `nwbinspector` on each output before you upload:
+
+```bash
+pip install nwbinspector
+nwbinspector session_subject_1.nwb --config dandi
+```
+
+A clean result reports no `CRITICAL` findings. See
+[Expected warnings](#expected-warnings) for the ones that are safe to ignore.
+
+### 4. Upload
+
+Follow the [DANDI upload documentation](https://docs.dandiarchive.org/user-guide-sharing/uploading-data/),
+pointing the DANDI CLI at the EMBER instance rather than the main archive. Upload all
+per-identity files from a session together — the JABS reader needs the full set of
+siblings to reassemble the session (see [Reading per-identity files](#reading-per-identity-files)).
+
+### What JABS checks, and what it does not
+
+| Checked before writing | Left to `nwbinspector` / the archive |
+|---|---|
+| `species` present and in Latin binomial or NCBI IRI form | Everything outside `Subject` metadata |
+| `sex` present and a valid code for the species | File structure, timestamps, data orientation |
+| `age` or `date_of_birth` present, and well-formed | Dataset-level best practices |
+| `age` ranges strictly increasing | |
+| `subject_id` free of `/` | |
+| `weight` in `[numeric] [unit]` form | |
+
+Passing the JABS check is necessary but **not sufficient** — always run
+`nwbinspector` before uploading.
+
+### Expected warnings
+
+These appear in a normal, acceptable export and do not block upload:
+
+- **Missing session-level metadata**, when `--session-metadata` is omitted:
+  `check_experimenter_exists`, `check_institution`, `check_keywords`,
+  `check_experiment_description`, and a missing subject `description`. All are
+  best-practice suggestions rather than blocking findings.
+
+### Limitations for archive submission
+
+- **`--multisubject` output cannot be validated.** The file depends on the
+  `ndx-multisubjects` extension, and `nwbinspector` fails to read it, so the archive
+  cannot validate it. It also does not populate `NWBFile.subject`, which DANDI's
+  required subject checks read. Use the default per-identity mode for anything
+  destined for the archive.
+- **Segmentation data is not exported.** See [Data not exported](#data-not-exported).
+
+---
+
 ## Output modes
 
 ### Per-identity files (default)
@@ -345,24 +452,16 @@ Common static objects:
 | `lixit`       | `(1, 2)` or `(3, 2)` | Water spout — single tip, or tip + left + right |
 | `food_hopper` | `(4, 2)`             | Four corners of the food hopper opening         |
 
-Each static object is a `PoseEstimation` container with a **single timestamp
-(`t = 0.0 s`)**, one `PoseEstimationSeries` per keypoint, and a dedicated `Skeleton`.
-Nodes are named `{object_name}_{i}` (zero-indexed).
+Each static object is a `PoseEstimation` container with one
+`PoseEstimationSeries` per keypoint and a dedicated `Skeleton`. Nodes are named
+`{object_name}_{i}` (zero-indexed).
 
-Each `PoseEstimationSeries` for a static object has data shape `(1, 2)` — one row for
-the single timestamp and two columns for `(x, y)`. Because the time dimension (1) is
-shorter than the spatial dimension (2), the DANDI validator will emit a
-`NWBI.check_data_orientation` warning for each static keypoint:
-
-```
-[NWBI.check_data_orientation] — Data may be in the wrong orientation. Time should be
-in the first dimension, and is usually the longest dimension. Here, another dimension
-is longer.
-```
-
-**These warnings are expected and can be ignored.** The check is a heuristic designed
-to catch transposed animal pose arrays; it fires a false positive for static objects,
-which legitimately have only one timestamp by definition.
+The constant `(x, y)` value is written at **two timestamps spanning the session** —
+the first and last frame — giving each series data shape `(2, 2)`. A single-timestamp
+series would have shape `(1, 2)`, whose non-time axis is longer than its time axis,
+which `nwbinspector`'s `check_data_orientation` flags regardless of the data being
+genuinely static. Repeating the value at both ends leaves it unchanged while keeping
+the export clean.
 
 ---
 

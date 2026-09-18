@@ -28,6 +28,7 @@ site_url = "https://kumarlabjax.github.io/JABS-behavior-classifier/"
             { "Features" = "user-guide/features.md" },
             { "Command Line Tools" = "user-guide/cli-tools.md" },
             { "File Formats" = "user-guide/file-formats.md" },
+            { "NWB Export" = "user-guide/nwb-export.md" },
             { "Keyboard Shortcuts" = "user-guide/keyboard-shortcuts.md" },
      ]},
      { "Development" = [
