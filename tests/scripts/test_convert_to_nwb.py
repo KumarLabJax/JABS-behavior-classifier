@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
+from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.types.pose import PoseData
 from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
@@ -66,13 +68,41 @@ def test_parse_non_string_raises(value):
 # ---------------------------------------------------------------------------
 
 
-def _patch_conversion_internals(monkeypatch):
+def _valid_pose_data(num_identities=2, num_frames=10):
+    """Build a PoseData whose subject metadata satisfies the DANDI pre-flight check.
+
+    run_conversion validates subject metadata before writing, so the write-mode
+    wiring tests need real data rather than a sentinel.
+    """
+    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    num_keypoints = len(body_parts)
+    subjects = {
+        f"subject_{i + 1}": {
+            "subject_id": f"M{i + 1}",
+            "species": "Mus musculus",
+            "sex": "M",
+            "age": "P70D",
+        }
+        for i in range(num_identities)
+    }
+    return PoseData(
+        points=np.zeros((num_identities, num_frames, num_keypoints, 2)),
+        point_mask=np.ones((num_identities, num_frames, num_keypoints), dtype=bool),
+        identity_mask=np.ones((num_identities, num_frames), dtype=bool),
+        body_parts=body_parts,
+        edges=[],
+        fps=30,
+        subjects=subjects,
+    )
+
+
+def _patch_conversion_internals(monkeypatch, pose_data=None):
     """Patch the pose-loading and save boundaries of run_conversion; return the save mock."""
     pose = mock.Mock(num_identities=2, num_frames=10, fps=30)
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", lambda *a, **k: pose)
     monkeypatch.setattr(
         "jabs.scripts.cli.convert_to_nwb.pose_to_pose_data",
-        lambda *a, **k: mock.sentinel.pose_data,
+        lambda *a, **k: pose_data if pose_data is not None else _valid_pose_data(),
     )
     save_mock = mock.Mock()
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.save", save_mock)
@@ -96,6 +126,23 @@ def test_run_conversion_defaults_to_per_identity(monkeypatch, tmp_path):
     run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb")
 
     assert save_mock.call_args.kwargs["multisubject"] is False
+
+
+def test_run_conversion_rejects_invalid_subjects_before_saving(monkeypatch, tmp_path):
+    """Invalid subject metadata must abort before save(), leaving nothing on disk.
+
+    Per-identity output writes one file per identity in a loop, so validating after
+    the first write would leave a partial, unpublishable set behind.
+    """
+    invalid = _valid_pose_data()
+    object.__setattr__(invalid, "subjects", None)
+    save_mock = _patch_conversion_internals(monkeypatch, pose_data=invalid)
+
+    with pytest.raises(ValueError, match="missing or malformed"):
+        run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb")
+
+    save_mock.assert_not_called()
+    assert list(tmp_path.glob("*.nwb")) == []
 
 
 # ---------------------------------------------------------------------------

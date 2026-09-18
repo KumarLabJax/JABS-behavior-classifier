@@ -37,6 +37,11 @@ convention = "google"
     # imports it guards, so those imports cannot sit at the top of the module
     "E402",
 ]
+"tests/scripts/test_convert_to_nwb_dandi_validation.py" = [
+    # pytest.importorskip() for the optional `nwb` extra and for nwbinspector has
+    # to run before the imports it guards
+    "E402",
+]
 "src/jabs/scripts/cli/cli.py" = [
     "D301",  # Click uses \b in docstrings to control help formatting
     "D412",  # Click Examples sections look better with a blank line before \b blocks

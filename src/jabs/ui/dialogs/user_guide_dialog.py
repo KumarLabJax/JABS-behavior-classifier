@@ -214,7 +214,10 @@ class UserGuideDialog(QDialog):
             "Post-Processing": "postprocessing.md",
             "Features Reference": "features.md",
             "Keyboard Shortcuts Reference": "keyboard-shortcuts.md",
-            "NWB Pose Export": "nwb-export.md",
+            "NWB Pose Export": {
+                "_file": "nwb-export.md",
+                "Publishing to DANDI": "nwb-export.md#publishing-to-the-dandi-archive",
+            },
         }
 
         def add_tree_items(
