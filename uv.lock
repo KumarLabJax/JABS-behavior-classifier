@@ -1728,6 +1728,15 @@ wheels = [
 ]
 
 [[package]]
+name = "isodate"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/4d/e940025e2ce31a8ce1202635910747e5a87cc3a6a6bb2d00973375014749/isodate-0.7.2.tar.gz", hash = "sha256:4cd1aa0f43ca76f4a6c6c0292a85f40b35ec2e43e315b59f06e6d32171a953e6", size = 29705, upload-time = "2024-10-08T23:04:11.5Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/aa/0aca39a37d3c7eb941ba736ede56d689e7be91cab5d9ca846bde3999eba6/isodate-0.7.2-py3-none-any.whl", hash = "sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15", size = 22320, upload-time = "2024-10-08T23:04:09.501Z" },
+]
+
+[[package]]
 name = "itsdangerous"
 version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1827,6 +1836,7 @@ yaml = [
 [package.dev-dependencies]
 dev = [
     { name = "matplotlib" },
+    { name = "nwbinspector" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1840,6 +1850,7 @@ lint = [
     { name = "ruff" },
 ]
 test = [
+    { name = "nwbinspector" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -1879,6 +1890,7 @@ provides-extras = ["nwb", "yaml", "mlflow"]
 [package.metadata.requires-dev]
 dev = [
     { name = "matplotlib", specifier = ">=3.9.3,<4.0.0" },
+    { name = "nwbinspector", specifier = ">=0.7.2" },
     { name = "pre-commit", specifier = ">=4.2.0,<5.0.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
@@ -1890,6 +1902,7 @@ docs = [
 ]
 lint = [{ name = "ruff", specifier = ">=0.11.5,<0.12.0" }]
 test = [
+    { name = "nwbinspector", specifier = ">=0.7.2" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
 ]
@@ -2829,6 +2842,15 @@ wheels = [
 ]
 
 [[package]]
+name = "natsort"
+version = "8.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/a9/a0c57aee75f77794adaf35322f8b6404cbd0f89ad45c87197a937764b7d0/natsort-8.4.0.tar.gz", hash = "sha256:45312c4a0e5507593da193dedd04abb1469253b601ecaf63445ad80f0a1ea581", size = 76575, upload-time = "2023-06-20T04:17:19.925Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/82/7a9d0550484a62c6da82858ee9419f3dd1ccc9aa1c26a1e43da3ecd20b0d/natsort-8.4.0-py3-none-any.whl", hash = "sha256:4732914fb471f56b5cce04d7bae6f164a592c7712e1c85f9ef585e197299521c", size = 38268, upload-time = "2023-06-20T04:17:17.522Z" },
+]
+
+[[package]]
 name = "ndx-multisubjects"
 version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3192,6 +3214,28 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/f3/d86c845465a2723ad7e1e5c36dcd75ddb82898b3f53be47ebd429fb2fa5d/nvidia_nvtx-13.0.85-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:4936d1d6780fbe68db454f5e72a42ff64d1fd6397df9f363ae786930fd5c1cd4", size = 148047, upload-time = "2025-09-04T08:29:01.761Z" },
     { url = "https://files.pythonhosted.org/packages/a8/64/3708a90d1ebe202ffdeb7185f878a3c84d15c2b2c31858da2ce0583e2def/nvidia_nvtx-13.0.85-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:cb7780edb6b14107373c835bf8b72e7a178bac7367e23da7acb108f973f157a6", size = 148878, upload-time = "2025-09-04T08:28:53.627Z" },
+]
+
+[[package]]
+name = "nwbinspector"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "click" },
+    { name = "fsspec" },
+    { name = "isodate" },
+    { name = "jsonschema" },
+    { name = "natsort" },
+    { name = "packaging" },
+    { name = "pynwb" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2e/7d/fcb4b0002445cc940dad1277e88dc840ee229cd628d404b693cf05bbafe8/nwbinspector-0.7.2.tar.gz", hash = "sha256:2e49bee5e5de9bcf2cd8e293aa88d8cf845a4a2a16387052aebd7faef8230ab4", size = 634193, upload-time = "2026-05-19T18:08:23.463Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/0b/9ed001e9d16a94ea5bd74dee2462786fcc869c4bcb3dd568c2373ac9d260/nwbinspector-0.7.2-py3-none-any.whl", hash = "sha256:40d008eedd8afdc5d6841825d6efb6891933c1fd3b8c5b599ab2db14f62db8e8", size = 86926, upload-time = "2026-05-19T18:08:22.348Z" },
 ]
 
 [[package]]
