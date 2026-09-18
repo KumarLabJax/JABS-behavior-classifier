@@ -2866,7 +2866,7 @@ wheels = [
 [[package]]
 name = "ndx-pose"
 version = "0.4.0"
-source = { git = "https://github.com/KumarLabJax/ndx-pose?branch=feature%2Fcontour-series#1317236da6248a7a72d29f0b8829c59a7d003868" }
+source = { git = "https://github.com/KumarLabJax/ndx-pose?branch=feature%2Fcontour-series#d373f4c02880f4d5ff273e48ebe6ce7c753564cb" }
 dependencies = [
     { name = "hdmf" },
     { name = "pynwb" },
