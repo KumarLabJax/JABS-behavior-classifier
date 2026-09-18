@@ -8,6 +8,7 @@ import pytest
 
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
+from jabs.io.internal.pose import PoseNWBAdapter
 from jabs.scripts.cli.dandi_subject_metadata import (
     subject_metadata_problems,
     validate_subjects,
@@ -203,13 +204,6 @@ def test_unparseable_date_of_birth_is_caught() -> None:
     assert "ISO 8601 datetime" in problems[0]
 
 
-def test_datetime_date_of_birth_is_accepted() -> None:
-    """An already-parsed datetime is accepted as date_of_birth."""
-    meta = {**VALID, "date_of_birth": datetime.datetime(2024, 1, 15, tzinfo=datetime.timezone.utc)}
-
-    assert subject_metadata_problems(meta) == []
-
-
 @pytest.mark.parametrize(
     "weight", ["25 g", "0.025 kg", "1 mg"], ids=["grams", "kilograms", "milligrams"]
 )
@@ -296,7 +290,7 @@ def test_validate_warns_about_unused_subjects_keys(caplog) -> None:
         validate_subjects(data)
 
     assert "subject_0" in caplog.text
-    assert "match no identity" in caplog.text
+    assert "no identity reads them" in caplog.text
     assert "subject_1, subject_2" in caplog.text
 
 
@@ -319,4 +313,155 @@ def test_no_warning_when_every_key_matches(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         validate_subjects(data)
 
-    assert "match no identity" not in caplog.text
+    assert "no identity reads them" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Validator/writer agreement (PR #479 review)
+#
+# Each case below passed validation and then either crashed the write or reached
+# the archive as the CRITICAL finding this module exists to prevent, because the
+# validator treated a falsy value as absent while the writer only filtered None.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
+    ids=["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
+)
+def test_blank_agrees_with_the_writer(field: str) -> None:
+    """A blank value is absent to the validator and omitted by the writer alike."""
+    meta = {**VALID, field: ""}
+    problems = subject_metadata_problems(meta, default_subject_id="subject_1")
+    written = PoseNWBAdapter._make_subject(meta)
+
+    if field in ("species", "sex"):
+        assert problems == [f"{field} is missing"]
+    else:
+        # age is covered by date_of_birth being absent only when both are; here the
+        # remaining required fields are present, so a blank optional/alternative
+        # field is simply dropped.
+        assert problems == ([] if field != "age" else ["age or date_of_birth is missing"])
+    assert getattr(written, field, None) in (None, "M123", "Mus musculus", "M")
+
+
+def test_blank_date_of_birth_does_not_crash_the_writer() -> None:
+    """A blank date_of_birth used to raise ValueError inside the write loop."""
+    meta = {**VALID, "date_of_birth": ""}
+
+    assert subject_metadata_problems(meta) == []
+    assert PoseNWBAdapter._make_subject(meta).date_of_birth is None
+
+
+def test_blank_age_is_not_written_as_an_empty_age() -> None:
+    """Subject(age="") tripped check_subject_age at the archive."""
+    meta = {**VALID, "age": "", "date_of_birth": "2024-01-15T00:00:00+00:00"}
+
+    assert subject_metadata_problems(meta) == []
+    assert PoseNWBAdapter._make_subject(meta).age is None
+
+
+@pytest.mark.parametrize("value", ["", None], ids=["blank", "null"])
+def test_blank_subject_id_falls_back_like_the_writer(value: str | None) -> None:
+    """Both halves fall back to the identity name, so no empty id is written."""
+    meta = {**VALID, "subject_id": value}
+
+    assert subject_metadata_problems(meta, default_subject_id="subject_1") == []
+    assert PoseNWBAdapter._make_subject({**meta, "subject_id": "subject_1"}).subject_id == (
+        "subject_1"
+    )
+
+
+def test_datetime_date_of_birth_survives_the_writer() -> None:
+    """The validator accepts a datetime, so the writer has to take one too."""
+    dob = datetime.datetime(2024, 1, 15, tzinfo=datetime.timezone.utc)
+    meta = {**VALID, "date_of_birth": dob}
+
+    assert subject_metadata_problems(meta) == []
+    assert PoseNWBAdapter._make_subject(meta).date_of_birth == dob
+
+
+def test_naive_datetime_date_of_birth_gets_utc() -> None:
+    """A naive datetime is made timezone-aware, matching the string path."""
+    meta = {**VALID, "date_of_birth": datetime.datetime(2024, 1, 15)}
+
+    written = PoseNWBAdapter._make_subject(meta)
+
+    assert written.date_of_birth.tzinfo is not None
+
+
+# ---------------------------------------------------------------------------
+# Age range ordering
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "age", ["P3D/P1D", "P1D/P1D", "P2Y/P1Y", "P1W/P3D"], ids=["days", "equal", "years", "week-day"]
+)
+def test_reversed_age_ranges_are_rejected(age: str) -> None:
+    """check_subject_proper_age_range is CRITICAL under the DANDI config."""
+    problems = subject_metadata_problems({**VALID, "age": age})
+
+    assert len(problems) == 1
+    assert "strictly increasing" in problems[0]
+
+
+@pytest.mark.parametrize(
+    "age",
+    ["P1D/P3D", "P90Y/", "/P3D", "/", "P1M/P30D", "P30D/P1M"],
+    ids=["increasing", "open-upper", "open-lower", "both-open", "ambiguous", "ambiguous-rev"],
+)
+def test_ranges_that_must_not_be_rejected(age: str) -> None:
+    """Open bounds are legal, and calendar-ambiguous pairs are left to the archive."""
+    assert subject_metadata_problems({**VALID, "age": age}) == []
+
+
+# ---------------------------------------------------------------------------
+# Malformed input types
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "metadata", ["Mus musculus", [], 42, None], ids=["str", "list", "int", "none"]
+)
+def test_non_object_metadata_is_reported_not_raised(metadata) -> None:
+    """A non-object value for one identity used to raise an opaque AttributeError."""
+    problems = subject_metadata_problems(metadata, default_subject_id="subject_1")
+
+    assert len(problems) == 1
+    assert "must be a JSON object" in problems[0]
+
+
+@pytest.mark.parametrize("weight", [25, True], ids=["int", "bool"])
+def test_weight_types_pynwb_rejects_are_reported(weight) -> None:
+    """pynwb's Subject takes only str or float; an int raises during the write."""
+    problems = subject_metadata_problems({**VALID, "weight": weight})
+
+    assert len(problems) == 1
+    assert "string with units" in problems[0]
+
+
+def test_float_weight_is_accepted() -> None:
+    """A float weight is valid to pynwb and clean at the archive."""
+    assert subject_metadata_problems({**VALID, "weight": 0.025}) == []
+
+
+# ---------------------------------------------------------------------------
+# Shadowed subjects keys
+# ---------------------------------------------------------------------------
+
+
+def test_shadowed_key_is_warned_about(caplog) -> None:
+    """When both the raw and sanitized keys exist, only the raw one is read."""
+    data = _pose_data(
+        num_identities=1,
+        external_ids=["mouse/a"],
+        subjects={"mouse/a": {**VALID}, "mouse_a": {**VALID}},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        validate_subjects(data)
+
+    assert "mouse_a" in caplog.text
+    assert "no identity reads them" in caplog.text

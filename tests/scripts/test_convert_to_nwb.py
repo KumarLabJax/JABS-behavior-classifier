@@ -128,6 +128,23 @@ def test_run_conversion_defaults_to_per_identity(monkeypatch, tmp_path):
     assert save_mock.call_args.kwargs["multisubject"] is False
 
 
+def test_run_conversion_rejects_invalid_subjects_before_saving(monkeypatch, tmp_path):
+    """Invalid subject metadata must abort before save(), leaving nothing on disk.
+
+    Per-identity output writes one file per identity in a loop, so validating after
+    the first write would leave a partial, unpublishable set behind.
+    """
+    invalid = _valid_pose_data()
+    object.__setattr__(invalid, "subjects", None)
+    save_mock = _patch_conversion_internals(monkeypatch, pose_data=invalid)
+
+    with pytest.raises(ValueError, match="missing or malformed"):
+        run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb")
+
+    save_mock.assert_not_called()
+    assert list(tmp_path.glob("*.nwb")) == []
+
+
 # ---------------------------------------------------------------------------
 # convert-to-nwb CLI wiring
 # ---------------------------------------------------------------------------

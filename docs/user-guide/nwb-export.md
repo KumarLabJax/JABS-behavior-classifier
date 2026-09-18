@@ -68,9 +68,12 @@ IDs.
     identity. The converter validates them before writing anything and **fails** if any
     are missing or malformed, because the DANDI archive rejects files without them.
 
-    A key that matches no identity is ignored with a warning, which leaves that identity
-    without metadata and fails the check. If you see that warning, compare your keys
-    against the identity names the warning lists.
+    A key no identity reads is ignored with a warning - either because it matches
+    nothing, or because a higher-precedence key for the same identity shadows it.
+    That usually leaves an identity without metadata and fails the check, so if you
+    see the warning, compare your keys against the identity names it lists.
+
+    A blank value (`""`) counts as not supplied, exactly as the writer treats it.
 
 ```json
 {
@@ -95,14 +98,14 @@ IDs.
 
 | Field           | Type   | Notes                                                                                                                                                          |
 |-----------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `subject_id`    | string | Lab identifier for the animal. Defaults to the identity name when omitted. Must not contain `/`, which breaks DANDI paths.                                     |
+| `subject_id`    | string | Lab identifier for the animal. Defaults to the identity name when omitted or blank. Must not contain `/`, which breaks DANDI paths.                           |
 | `sex`           | string | **Required.** Exactly `"M"`, `"F"`, `"O"`, or `"U"` - case-sensitive, so `"male"` and `"m"` are both rejected. For *C. elegans*, `"XO"` or `"XX"` instead.      |
 | `species`       | string | **Required.** Latin binomial, e.g. `"Mus musculus"` - capitalized genus, lowercase epithet, so `"Mus Musculus"` and `"mouse"` are rejected. An NCBI taxonomy IRI such as `"http://purl.obolibrary.org/obo/NCBITaxon_10090"` is also accepted. |
-| `age`           | string | **Required** (or `date_of_birth`). ISO 8601 duration, e.g. `"P70D"` (70 days) or `"P2Y"`. A range is allowed: `"P1D/P3D"`, or open-ended as `"P90Y/"`.          |
+| `age`           | string | **Required** (or `date_of_birth`). ISO 8601 duration, e.g. `"P70D"` (70 days) or `"P2Y"`. A range is allowed: `"P1D/P3D"`, and either end may be left open (`"P90Y/"`, `"/P3D"`). A range must be strictly increasing. |
 | `date_of_birth` | string | Alternative to `age`. ISO 8601 datetime, e.g. `"2024-01-15T00:00:00+00:00"`.                                                                                   |
 | `genotype`      | string | Genetic background, e.g. `"Shank3B+/-"`                                                                                                                        |
 | `strain`        | string | Inbred strain, e.g. `"C57BL/6J"`                                                                                                                               |
-| `weight`        | string | Body weight as `[numeric] [unit]` **with a space**, e.g. `"25 g"` or `"0.025 kg"`. `"25g"` is rejected. Units: kg, g, mg, ug, ng, pg.                          |
+| `weight`        | string | Body weight as `[numeric] [unit]` **with a space**, e.g. `"25 g"` or `"0.025 kg"`. `"25g"` is rejected. Units: kg, g, mg, ug, μg, ng, pg. A bare number is accepted only as a JSON float, interpreted as kilograms. |
 | `description`   | string | Free-text notes                                                                                                                                                |
 
 In per-identity mode (the default), subject metadata is written to both the standard

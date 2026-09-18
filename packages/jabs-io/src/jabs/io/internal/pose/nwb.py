@@ -402,7 +402,11 @@ class PoseNWBAdapter(Adapter):
             identity_path = self._identity_file_path(path, identity_name)
 
             raw_key, raw_meta = self._resolve_subject(data, i, identity_name)
-            subject_meta = {**raw_meta, "subject_id": raw_meta.get("subject_id", raw_key)}
+            supplied_id = raw_meta.get("subject_id")
+            subject_meta = {
+                **raw_meta,
+                "subject_id": raw_key if subject_value_is_absent(supplied_id) else supplied_id,
+            }
             nwbfile = self._make_nwb_file(subject=self._make_subject(subject_meta), **kwargs)
             skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
             # Rebuild static/dynamic skeletons each iteration: HDMF objects can
@@ -799,7 +803,11 @@ class PoseNWBAdapter(Adapter):
         Args:
             subject_meta: Dict with optional keys subject_id, sex, species,
                 age, date_of_birth, genotype, strain, weight, description.
-                None values are omitted so pynwb uses its own defaults.
+                Absent values - ``None`` or a blank string, per
+                :func:`subject_value_is_absent` - are omitted so pynwb uses its own
+                defaults, rather than written through as an empty field that the
+                DANDI validator then rejects.  ``date_of_birth`` accepts either an
+                ISO 8601 string or a :class:`datetime.datetime`.
 
         Returns:
             A pynwb Subject object populated from the non-None fields.
@@ -815,11 +823,19 @@ class PoseNWBAdapter(Adapter):
             "description",
         )
         kwargs: dict = {
-            k: v for k, v in subject_meta.items() if k in _SUBJECT_FIELDS and v is not None
+            k: v
+            for k, v in subject_meta.items()
+            if k in _SUBJECT_FIELDS and not subject_value_is_absent(v)
         }
         dob_raw = subject_meta.get("date_of_birth")
-        if dob_raw is not None:
-            dob = datetime.datetime.fromisoformat(dob_raw)
+        if not subject_value_is_absent(dob_raw):
+            # Accept an already-parsed datetime as well as an ISO 8601 string, so a
+            # programmatic caller passing a datetime is not punished for it.
+            dob = (
+                dob_raw
+                if isinstance(dob_raw, datetime.datetime)
+                else datetime.datetime.fromisoformat(dob_raw)
+            )
             if dob.tzinfo is None:
                 dob = dob.replace(tzinfo=datetime.timezone.utc)
             kwargs["date_of_birth"] = dob
@@ -1259,20 +1275,43 @@ class PoseNWBAdapter(Adapter):
         return base_path.with_stem(f"{base_path.stem}_{identity_name}")
 
 
+def subject_value_is_absent(value: object) -> bool:
+    """Return whether a subject metadata value counts as not supplied.
+
+    ``None`` and a blank or whitespace-only string both mean "not supplied". This
+    is the single definition shared by the writer and by pre-flight validation:
+    when the two disagree, a value can pass validation and still be written as an
+    empty field that a downstream validator rejects, or crash the write outright.
+
+    Args:
+        value: A raw value from a subject metadata dict.
+
+    Returns:
+        True when the value should be treated as though the key were absent.
+    """
+    if value is None:
+        return True
+    return isinstance(value, str) and not value.strip()
+
+
 class IdentitySubject(NamedTuple):
     """One identity's NWB container name and the subject metadata resolved for it.
 
     Attributes:
         identity_name: Sanitized NWB container name for the identity.
         lookup_keys: The keys of ``PoseData.subjects`` that resolve to this
-            identity, in the order the writer tries them. A ``subjects`` key
-            matching none of any identity's ``lookup_keys`` is unused.
+            identity, in the order the writer tries them.
+        matched_key: The one key the writer actually reads metadata from, or None
+            when ``PoseData.subjects`` has no entry for this identity. A supplied
+            key that is no identity's ``matched_key`` contributes nothing to the
+            output - including a key shadowed by a higher-precedence one.
         metadata: The metadata the writer will use, or an empty dict when
             ``PoseData.subjects`` has no entry for this identity.
     """
 
     identity_name: str
     lookup_keys: tuple[str, ...]
+    matched_key: str | None
     metadata: dict
 
 
@@ -1290,12 +1329,16 @@ def resolve_identity_subjects(data: PoseData) -> list[IdentitySubject]:
     Returns:
         One :class:`IdentitySubject` per identity, ordered by identity index.
     """
+    subjects = data.subjects or {}
     resolved: list[IdentitySubject] = []
     for index in range(data.points.shape[0]):
         identity_name = PoseNWBAdapter._identity_name(data, index)
         raw_key, metadata = PoseNWBAdapter._resolve_subject(data, index, identity_name)
         keys = (raw_key,) if raw_key == identity_name else (raw_key, identity_name)
-        resolved.append(IdentitySubject(identity_name, keys, metadata))
+        # Same precedence _resolve_subject applies: the raw external ID, then the
+        # sanitized name. Only the first hit is read, so the other is shadowed.
+        matched_key = next((key for key in keys if key in subjects), None)
+        resolved.append(IdentitySubject(identity_name, keys, matched_key, metadata))
     return resolved
 
 

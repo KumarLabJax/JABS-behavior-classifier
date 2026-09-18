@@ -134,3 +134,36 @@ def test_entry_count_matches_identity_count(num_identities: int) -> None:
     resolved = resolve_identity_subjects(_pose_data(num_identities=num_identities))
 
     assert len(resolved) == num_identities
+
+
+def test_matched_key_is_the_one_the_writer_reads() -> None:
+    """With both keys present the raw external ID wins, so the other is shadowed."""
+    (entry,) = resolve_identity_subjects(
+        _pose_data(
+            num_identities=1,
+            external_ids=["mouse/a"],
+            subjects={"mouse/a": {"sex": "M"}, "mouse_a": {"sex": "F"}},
+        )
+    )
+
+    assert entry.matched_key == "mouse/a"
+    assert entry.lookup_keys == ("mouse/a", "mouse_a")
+
+
+def test_matched_key_falls_back_to_the_sanitized_name() -> None:
+    """Only the sanitized key is present, so that is what the writer reads."""
+    (entry,) = resolve_identity_subjects(
+        _pose_data(num_identities=1, external_ids=["mouse/a"], subjects={"mouse_a": {"sex": "F"}})
+    )
+
+    assert entry.matched_key == "mouse_a"
+
+
+def test_matched_key_is_none_without_metadata() -> None:
+    """An identity with no entry reports no matched key."""
+    resolved = resolve_identity_subjects(
+        _pose_data(num_identities=2, subjects={"subject_1": {"sex": "M"}})
+    )
+
+    assert resolved[0].matched_key == "subject_1"
+    assert resolved[1].matched_key is None

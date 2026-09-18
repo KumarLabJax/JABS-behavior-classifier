@@ -24,7 +24,7 @@ import logging
 import re
 
 from jabs.core.types.pose import PoseData
-from jabs.io.internal.pose import resolve_identity_subjects
+from jabs.io.internal.pose import resolve_identity_subjects, subject_value_is_absent
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,25 @@ _C_ELEGANS_SPECIES = ("Caenorhabditis elegans", "C. elegans")
 _DOCS_REFERENCE = "docs/user-guide/nwb-export.md (Subjects JSON format)"
 
 
+# Nominal day-count bounds per ISO 8601 duration unit. Years and months are ranges
+# because their real length depends on the calendar date they are measured from.
+_UNIT_DAY_BOUNDS: dict[str, tuple[float, float]] = {
+    "Y": (365.0, 366.0),
+    "M": (28.0, 31.0),
+    "W": (7.0, 7.0),
+    "D": (1.0, 1.0),
+    "TH": (1 / 24, 1 / 24),
+    "TM": (1 / 1440, 1 / 1440),
+    "TS": (1 / 86400, 1 / 86400),
+}
+
+
 def _is_iso_duration(value: str) -> bool:
     """Return whether a string is an ISO 8601 duration, or a range of two.
 
     Mirrors ``check_subject_age``, which accepts a plain duration (``"P70D"``) as
-    well as a ``/``-separated range with either bound optionally blank
-    (``"P1D/P3D"``, ``"P90Y/"``).
+    well as a ``/``-separated range with either bound optionally blank - so
+    ``"P1D/P3D"``, ``"P90Y/"`` and ``"/P3D"`` are all valid.
     """
     if _DURATION.fullmatch(value):
         return True
@@ -62,12 +75,60 @@ def _is_iso_duration(value: str) -> bool:
     return all(bound == "" or bool(_DURATION.fullmatch(bound)) for bound in (lower, upper))
 
 
+def _duration_day_bounds(value: str) -> tuple[float, float] | None:
+    """Return the (minimum, maximum) possible length of a duration, in days.
+
+    A duration containing years or months has no single length - ``P1M`` is 28 to
+    31 days depending on when it starts - so this returns an interval rather than a
+    point. Returns None when the string is not a plain ISO 8601 duration.
+    """
+    match = _DURATION.fullmatch(value)
+    if not match:
+        return None
+    groups = match.groups()
+    # Group order follows _DURATION: Y, M, W, D, (T...), TH, TM, TS. Index 4 is the
+    # whole time section, which carries no magnitude of its own.
+    units = ("Y", "M", "W", "D", None, "TH", "TM", "TS")
+    low = high = 0.0
+    for unit, group in zip(units, groups, strict=True):
+        if unit is None or group is None:
+            continue
+        amount = float(group[:-1])
+        unit_low, unit_high = _UNIT_DAY_BOUNDS[unit]
+        low += amount * unit_low
+        high += amount * unit_high
+    return low, high
+
+
+def _age_range_is_reversed(value: str) -> bool:
+    """Return whether an age range's bounds are provably not strictly increasing.
+
+    Mirrors ``check_subject_proper_age_range``, which flags ``lower >= upper``, but
+    stays conservative where that check uses exact calendar arithmetic: this only
+    reports a range whose bounds cannot overlap under any calendar, so a genuinely
+    ambiguous pair such as ``"P1M/P30D"`` is left for the archive's validator
+    rather than rejected here.
+    """
+    if "/" not in value:
+        return False
+    lower_text, _, upper_text = value.partition("/")
+    lower = _duration_day_bounds(lower_text)
+    upper = _duration_day_bounds(upper_text)
+    if lower is None or upper is None:
+        return False
+    # Shortest the lower bound can be vs. longest the upper bound can be.
+    return lower[0] >= upper[1]
+
+
 def _missing(metadata: dict, field: str) -> bool:
-    """Return whether a field is absent, None, or an empty/whitespace-only string."""
-    value = metadata.get(field)
-    if value is None:
-        return True
-    return isinstance(value, str) and not value.strip()
+    """Return whether a field is absent, None, or an empty/whitespace-only string.
+
+    Delegates to :func:`~jabs.io.internal.pose.subject_value_is_absent` so this
+    agrees with what the writer omits. Keeping one definition matters: when the two
+    drift, a blank value passes validation and then either crashes the write or
+    reaches the archive as the CRITICAL finding this check exists to prevent.
+    """
+    return subject_value_is_absent(metadata.get(field))
 
 
 def subject_metadata_problems(metadata: dict, *, default_subject_id: str = "") -> list[str]:
@@ -75,7 +136,8 @@ def subject_metadata_problems(metadata: dict, *, default_subject_id: str = "") -
 
     Args:
         metadata: One identity's subject metadata, as supplied via ``--subjects``.
-            An empty dict means the identity has no metadata at all.
+            An empty dict means the identity has no metadata at all. A non-dict
+            value is reported as a problem rather than raising.
         default_subject_id: The ``subject_id`` the writer falls back to when
             ``metadata`` supplies none - the identity's raw external ID, or its
             sanitized container name. Checked in place of an absent ``subject_id``
@@ -87,12 +149,20 @@ def subject_metadata_problems(metadata: dict, *, default_subject_id: str = "") -
         so that missing required fields come before malformed optional ones.
         Empty when the metadata satisfies every requirement checked here.
     """
+    if not isinstance(metadata, dict):
+        # The CLI only checks that the subjects JSON is an object at the top level, so
+        # a non-object value for one identity reaches here. Report it rather than
+        # letting .get() raise an AttributeError the user cannot act on.
+        return [f"metadata must be a JSON object, got {type(metadata).__name__}"]
+
     problems: list[str] = []
 
-    # The writer defaults subject_id rather than leaving it unset, so validate the
-    # value that will actually be written.
-    subject_id = metadata.get("subject_id") or default_subject_id
-    if not str(subject_id).strip():
+    # The writer falls back to the identity name whenever the supplied id is absent
+    # - including a blank string - so apply exactly the same rule here. Reporting a
+    # blank id instead would reject input that in fact produces a valid Subject.
+    supplied_id = metadata.get("subject_id")
+    subject_id = default_subject_id if subject_value_is_absent(supplied_id) else supplied_id
+    if subject_value_is_absent(subject_id):
         problems.append("subject_id is missing")
     elif "/" in str(subject_id):
         problems.append(f"subject_id {subject_id!r} contains '/', which breaks DANDI paths")
@@ -118,11 +188,18 @@ def subject_metadata_problems(metadata: dict, *, default_subject_id: str = "") -
     dob_missing = _missing(metadata, "date_of_birth")
     if age_missing and dob_missing:
         problems.append("age or date_of_birth is missing")
-    if not age_missing and not _is_iso_duration(str(metadata["age"])):
-        problems.append(
-            f"age {metadata['age']!r} must be an ISO 8601 duration (e.g. 'P70D', 'P2Y') "
-            "or a range (e.g. 'P1D/P3D', 'P90Y/')"
-        )
+    if not age_missing:
+        age = str(metadata["age"])
+        if not _is_iso_duration(age):
+            problems.append(
+                f"age {age!r} must be an ISO 8601 duration (e.g. 'P70D', 'P2Y') "
+                "or a range (e.g. 'P1D/P3D', 'P90Y/')"
+            )
+        elif _age_range_is_reversed(age):
+            problems.append(
+                f"age range {age!r} must be strictly increasing - the upper (right) "
+                "bound has to be a longer duration than the lower (left) bound"
+            )
     if not dob_missing:
         dob = metadata["date_of_birth"]
         # _make_subject parses a string date_of_birth with datetime.fromisoformat;
@@ -141,10 +218,20 @@ def subject_metadata_problems(metadata: dict, *, default_subject_id: str = "") -
             )
 
     weight = metadata.get("weight")
-    if weight is not None and isinstance(weight, str) and not _WEIGHT_FORM.fullmatch(weight):
-        problems.append(
-            f"weight {weight!r} must be '[numeric] [unit]' with a space, e.g. '25 g' or '0.025 kg'"
-        )
+    if not _missing(metadata, "weight"):
+        if isinstance(weight, str):
+            if not _WEIGHT_FORM.fullmatch(weight):
+                problems.append(
+                    f"weight {weight!r} must be '[numeric] [unit]' with a space, "
+                    "e.g. '25 g' or '0.025 kg'"
+                )
+        elif not isinstance(weight, float) or isinstance(weight, bool):
+            # pynwb's Subject accepts only str or float; an int from JSON raises
+            # TypeError during the write rather than failing validation here.
+            problems.append(
+                f"weight must be a string with units (e.g. '25 g') or a float in "
+                f"kilograms, got {type(weight).__name__}"
+            )
 
     return problems
 
@@ -156,9 +243,10 @@ def validate_subjects(data: PoseData) -> None:
     ``--subjects`` key does not match is seen as having none - and reports every
     problem across every identity at once, rather than failing on the first.
 
-    Unused ``subjects`` keys are logged as a warning rather than raising: a key
-    that matches no identity leaves that identity without metadata, which surfaces
-    below as a missing-field error, and the warning is what explains why.
+    ``subjects`` keys that no identity reads are logged as a warning rather than
+    raising - both keys matching no identity at all, and keys shadowed by a
+    higher-precedence one. An unmatched key leaves its identity without metadata,
+    which surfaces below as a missing-field error, and the warning explains why.
 
     Args:
         data: The pose data about to be written.
@@ -171,11 +259,14 @@ def validate_subjects(data: PoseData) -> None:
 
     supplied = set((data.subjects or {}).keys())
     if supplied:
-        matched = {key for entry in resolved for key in entry.lookup_keys}
-        unused = sorted(supplied - matched)
+        # matched_key, not lookup_keys: when an identity offers both a raw and a
+        # sanitized key and the subjects dict has both, only the raw one is read and
+        # the other is silently discarded. That shadowed key needs the warning too.
+        used = {entry.matched_key for entry in resolved if entry.matched_key is not None}
+        unused = sorted(supplied - used)
         if unused:
             logger.warning(
-                "These --subjects keys match no identity and were ignored: %s. "
+                "These --subjects keys were ignored because no identity reads them: %s. "
                 "Valid identity names for this pose file are: %s",
                 ", ".join(unused),
                 ", ".join(entry.identity_name for entry in resolved),
