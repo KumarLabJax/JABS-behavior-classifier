@@ -36,6 +36,7 @@ jabs-cli convert-to-nwb INPUT_PATH OUTPUT [OPTIONS]
 | `--session-description TEXT` | NWB session description string. Defaults to `'JABS PoseEstimation Data'`.                                                    |
 | `--subjects PATH`            | **Required.** Path to a JSON file with per-animal biological metadata. The conversion fails without the fields DANDI requires - see [Subjects JSON format](#subjects-json-format). |
 | `--session-metadata PATH`    | Path to a JSON file with NWB session-level metadata (start time, experimenter, etc.).                                        |
+| `--segmentation` / `--no-segmentation` | Whether to include instance segmentation contours when the pose file has them. Defaults to `--segmentation`. Pose files before v6, and v6+ files generated without segmentation, carry none either way. |
 
 ### Examples
 
@@ -49,6 +50,10 @@ jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.j
 # Also set session start time and experimenter
 jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
     --subjects subjects.json --session-metadata session.json
+
+# Leave segmentation contours out of a pose file that has them
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
+    --subjects subjects.json --no-segmentation
 ```
 
 `--subjects` appears in every example because the conversion fails without it; see
@@ -439,6 +444,52 @@ Format: `[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]` in pixe
 
 ---
 
+### Segmentation contours (optional)
+
+When the pose file contains instance segmentation (v6 and later, and only when the file
+was generated with segmentation), each identity's `PoseEstimation` container also holds
+a `ContourSeries` named `segmentation_contours`. It sits next to that identity's
+`PoseEstimationSeries` objects, so the contours, the keypoints, and the subject all
+describe the same animal.
+
+`ContourSeries` comes from the [ndx-pose](https://github.com/rly/ndx-pose) extension.
+
+| Field          | Value                                                                              |
+|----------------|------------------------------------------------------------------------------------|
+| `name`         | `segmentation_contours`                                                            |
+| `data`         | shape `(num_frames, num_contours, num_vertices, 2)` — `(x, y)` vertices in pixels  |
+| `vertex_count` | shape `(num_frames, num_contours)` — valid vertices in each contour slot           |
+| `is_external`  | shape `(num_frames, num_contours)` — `True` = outer boundary, `False` = hole       |
+| `rate`         | Frames per second (float)                                                          |
+| `unit`         | `"pixels"`                                                                         |
+
+An animal needs more than one contour on a frame when its outline has a hole (it curls
+around a gap) or when an occluder splits it into disjoint parts. Because different
+frames need different numbers of contours and vertices, `data` is padded out to the
+largest of each with `-1`, and **`vertex_count` is what says how much of each slot is
+real**. Read it rather than scanning for the padding value:
+
+```python
+n = contour_series.vertex_count[frame, slot]
+if n:  # 0 means this slot holds no contour on this frame
+    vertices = contour_series.data[frame, slot, :n, :]
+```
+
+`is_external` has no meaning where `vertex_count` is 0.
+
+The contour dataset is chunked along the frame axis and gzip compressed. It is mostly
+padding, which compresses well: roughly 40 MB per identity per hour of 30fps video.
+
+Segmentation presence is independent of `jabs_identity_mask`: an identity can have
+contours on a frame where its keypoints were not resolved, because JABS assigns
+contours from `longterm_seg_id` and keypoints from `instance_embed_id`. Use
+`vertex_count` to decide whether an identity has an outline on a given frame.
+
+Pass `--no-segmentation` to leave the contours out of a pose file that has them.
+`jabs_metadata.has_segmentation` records whether they were written.
+
+---
+
 ### Static objects
 
 Static objects are fixed-position spatial landmarks that do not move during a session.
@@ -586,8 +637,9 @@ NWB files always store coordinates in `(x, y)` order.
 
 ## Data not exported
 
-Pose files v6 and later may contain instance segmentation data. This data is **not**
-included in the NWB output. See
+Instance segmentation contours (`poseest/seg_data`) **are** exported; see
+[Segmentation contours](#segmentation-contours-optional) above. The segmentation
+bookkeeping datasets JABS uses to assign those contours to identities are not, because
+the export resolves them into per-identity contours. See
 [File Formats — Data not exported to NWB](file-formats.md#data-not-exported-to-nwb)
-for the full list of omitted fields. If you need segmentation data, read it directly
-from the source JABS pose HDF5 file.
+for the full list of omitted fields.

@@ -2,6 +2,7 @@
 
 import datetime
 import json
+from pathlib import Path
 from unittest import mock
 
 import h5py
@@ -11,10 +12,12 @@ from click.testing import CliRunner
 
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
+from jabs.pose_estimation import open_pose_file
 from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
     _parse_session_start_time,
+    pose_to_pose_data,
     run_conversion,
 )
 
@@ -300,3 +303,106 @@ def test_collect_hdf5_attributes_is_json_serializable(tmp_path):
 
     # Should not raise; round-trips back to the same structure.
     assert json.loads(json.dumps(collected)) == collected
+
+
+# ---------------------------------------------------------------------------
+# segmentation contours
+# ---------------------------------------------------------------------------
+
+SAMPLE_POSE_V6 = Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
+
+
+def test_pose_to_pose_data_builds_segmentation():
+    """A v6 pose file's contours reach PoseData, identity-ordered and unflipped.
+
+    seg_data is stored (x, y) in the pose file, unlike poseest/points which is (y, x),
+    so the contours must come through with no axis flip.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    data = pose_to_pose_data(pose)
+
+    seg = data.segmentation_data
+    assert seg is not None
+    num_identities = len(list(pose.identities))
+    assert seg.contours.shape[0] == num_identities
+    assert seg.contours.shape[1] == pose.num_frames
+    assert seg.contours.dtype == np.int32
+
+    for i in pose.identities:
+        np.testing.assert_array_equal(seg.contours[i], pose.get_segmentation_data(i))
+        np.testing.assert_array_equal(seg.is_external[i], pose.get_segmentation_flags(i) > 0)
+
+
+def test_pose_to_pose_data_vertex_counts_match_padding():
+    """vertex_counts counts exactly the vertices that are not the -1 padding sentinel."""
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    expected = np.all(seg.contours != -1, axis=-1).sum(axis=-1)
+    np.testing.assert_array_equal(seg.vertex_counts, expected)
+    # the fixture must actually exercise padding, or this asserts nothing
+    assert seg.vertex_counts.min() == 0
+    assert 0 < seg.vertex_counts.max() <= seg.contours.shape[3]
+
+
+def test_pose_to_pose_data_segmentation_disabled():
+    """segmentation=False drops the contours even when the pose file has them."""
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    assert pose.has_segmentation
+    assert pose_to_pose_data(pose, segmentation=False).segmentation_data is None
+
+
+def test_pose_to_pose_data_no_segmentation_in_older_pose():
+    """A v5 pose file has no contours, so segmentation_data stays None."""
+    pose = open_pose_file(SAMPLE_POSE_V6.with_name("sample_pose_est_v5.h5"))
+    assert pose_to_pose_data(pose).segmentation_data is None
+
+
+def test_run_conversion_forwards_segmentation(monkeypatch, tmp_path):
+    """run_conversion passes its segmentation flag down to pose_to_pose_data."""
+    pose = mock.Mock(num_identities=2, num_frames=10, fps=30)
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", lambda *a, **k: pose)
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.save", mock.Mock())
+    to_pose_data = mock.Mock(return_value=mock.Mock(segmentation_data=None))
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.pose_to_pose_data", to_pose_data)
+
+    run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb", segmentation=False)
+
+    assert to_pose_data.call_args.kwargs["segmentation"] is False
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [([], True), (["--segmentation"], True), (["--no-segmentation"], False)],
+    ids=["default", "explicit_on", "off"],
+)
+def test_cli_segmentation_flag_forwarded(monkeypatch, tmp_path, flag, expected):
+    """--segmentation/--no-segmentation reaches run_conversion, defaulting to on."""
+    from jabs.scripts.cli.cli import cli
+
+    run_mock = mock.Mock()
+    monkeypatch.setattr("jabs.scripts.cli.cli.run_conversion", run_mock)
+    input_path = tmp_path / "session_pose_est_v6.h5"
+    input_path.write_bytes(b"")
+    output = tmp_path / "session.nwb"
+
+    result = CliRunner().invoke(cli, ["convert-to-nwb", str(input_path), str(output), *flag])
+
+    assert result.exit_code == 0, result.output
+    assert run_mock.call_args.kwargs["segmentation"] is expected
+
+
+def test_unused_contour_slots_are_not_marked_external():
+    """The -1 that identity-sorting leaves in unused flag slots must not read as True.
+
+    PoseEstimationV6._segmentation_sort fills its output with -1 before scattering the
+    per-identity flags into it, so an identity's unused contour slots come back as -1
+    rather than False. A plain bool cast would turn those into True and claim an unused
+    slot is an external boundary.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    raw_flags = np.stack([pose.get_segmentation_flags(i) for i in pose.identities], axis=0)
+    assert (raw_flags == -1).any(), "fixture no longer exercises the -1 sentinel"
+    assert not seg.is_external[raw_flags == -1].any()

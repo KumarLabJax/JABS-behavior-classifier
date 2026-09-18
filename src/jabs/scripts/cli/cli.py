@@ -550,6 +550,16 @@ def cross_validation(
         "keywords (list of strings)."
     ),
 )
+@click.option(
+    "--segmentation/--no-segmentation",
+    default=True,
+    help=(
+        "Whether to include instance segmentation contours alongside the pose skeleton. "
+        "Defaults to --segmentation. Segmentation needs a pose file that actually contains "
+        "it: version 6 or newer and generated with segmentation, which is optional even in "
+        "v6+. Files without it convert the same either way."
+    ),
+)
 @click.pass_context
 def convert_to_nwb(
     ctx: click.Context,
@@ -559,6 +569,7 @@ def convert_to_nwb(
     session_description: str | None,
     subjects_path: Path | None,
     session_metadata_path: Path | None,
+    segmentation: bool,
 ) -> None:
     """Convert a JABS pose estimation file to NWB format.
 
@@ -589,11 +600,17 @@ def convert_to_nwb(
         # Also set session start time and other session metadata
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json \
             --session-metadata session.json
+
+    \b
+        # Leave segmentation contours out of a pose file that has them
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json \
+            --no-segmentation
     """
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")
         click.echo(f"Output: {output}")
         click.echo(f"Multisubject: {multisubject}")
+        click.echo(f"Segmentation: {segmentation}")
         if subjects_path:
             click.echo(f"Subjects: {subjects_path}")
         if session_metadata_path:
@@ -632,6 +649,7 @@ def convert_to_nwb(
                 session_description=session_description,
                 subjects=subjects,
                 session_metadata=session_metadata,
+                segmentation=segmentation,
             )
         except Exception as e:
             raise click.ClickException(str(e)) from e

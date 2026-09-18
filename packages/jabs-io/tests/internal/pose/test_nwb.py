@@ -24,7 +24,7 @@ from pynwb import NWBHDF5IO
 
 from jabs.core.abstract.pose_est import PoseEstimation as JABSPoseEst
 from jabs.core.enums import StorageFormat
-from jabs.core.types import DynamicObjectData, PoseData
+from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
 from jabs.io.internal.pose.nwb import PoseNWBAdapter
 from jabs.io.registry import get_adapter
 
@@ -33,6 +33,36 @@ from jabs.io.registry import get_adapter
 def adapter():
     """Return a PoseNWBAdapter instance."""
     return PoseNWBAdapter()
+
+
+def _make_segmentation_data(num_identities, num_frames, num_contours, num_vertices):
+    """Build a SegmentationData whose contours are padded the way a pose file pads them.
+
+    Every frame gets one full-length external contour. Every third frame also gets a
+    shorter internal contour (a hole), so the fixture covers both an unused contour slot
+    and a partially used one.
+    """
+    rng = np.random.default_rng(7)
+    contours = np.full(
+        (num_identities, num_frames, num_contours, num_vertices, 2), -1, dtype=np.int32
+    )
+    vertex_counts = np.zeros((num_identities, num_frames, num_contours), dtype=np.uint32)
+    is_external = np.zeros((num_identities, num_frames, num_contours), dtype=bool)
+
+    for i in range(num_identities):
+        for f in range(num_frames):
+            contours[i, f, 0] = rng.integers(0, 500, size=(num_vertices, 2))
+            vertex_counts[i, f, 0] = num_vertices
+            is_external[i, f, 0] = True
+            if num_contours > 1 and f % 3 == 0:
+                n = max(1, num_vertices // 2)
+                contours[i, f, 1, :n] = rng.integers(0, 500, size=(n, 2))
+                vertex_counts[i, f, 1] = n
+                is_external[i, f, 1] = False
+
+    return SegmentationData(
+        contours=contours, vertex_counts=vertex_counts, is_external=is_external
+    )
 
 
 def _make_pose_data(
@@ -46,6 +76,9 @@ def _make_pose_data(
     with_metadata=True,
     with_subjects=False,
     with_dynamic_objects=False,
+    with_segmentation=False,
+    num_contours=3,
+    num_vertices=7,
     edges=None,
 ):
     body_parts = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
@@ -81,6 +114,12 @@ def _make_pose_data(
     else:
         dynamic_objects = {}
 
+    segmentation_data = (
+        _make_segmentation_data(num_identities, num_frames, num_contours, num_vertices)
+        if with_segmentation
+        else None
+    )
+
     return PoseData(
         points=points,
         point_mask=point_mask,
@@ -90,6 +129,7 @@ def _make_pose_data(
         fps=fps,
         cm_per_pixel=cm_per_pixel,
         bounding_boxes=bounding_boxes,
+        segmentation_data=segmentation_data,
         static_objects=static_objects,
         dynamic_objects=dynamic_objects,
         external_ids=external_ids,
@@ -126,6 +166,17 @@ def _assert_pose_data_equal(a: PoseData, b: PoseData):
         assert b.bounding_boxes is None
     else:
         np.testing.assert_allclose(a.bounding_boxes, b.bounding_boxes, atol=1e-10)
+    if a.segmentation_data is None:
+        assert b.segmentation_data is None
+    else:
+        assert b.segmentation_data is not None
+        np.testing.assert_array_equal(a.segmentation_data.contours, b.segmentation_data.contours)
+        np.testing.assert_array_equal(
+            a.segmentation_data.vertex_counts, b.segmentation_data.vertex_counts
+        )
+        np.testing.assert_array_equal(
+            a.segmentation_data.is_external, b.segmentation_data.is_external
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1133,3 +1184,123 @@ def test_bounding_box_description_documents_fill_value_ambiguity(tmp_path, adapt
         description = behavior.data_interfaces[bbox_keys[0]].description
         assert "NaN" in description
         assert "-1" in description
+
+
+def test_roundtrip_segmentation_multisubject(tmp_path, adapter):
+    """Segmentation contours survive a multisubject write/read unchanged."""
+    path = tmp_path / "pose_seg_multi.nwb"
+    data = _make_pose_data(num_identities=3, num_frames=12, with_segmentation=True)
+
+    adapter.write(data, path, multisubject=True)
+    result = adapter.read(path)
+
+    _assert_pose_data_equal(data, result)
+    assert result.segmentation_data.contours.dtype == np.int32
+
+
+def test_roundtrip_segmentation_per_identity(tmp_path, adapter):
+    """Segmentation contours survive a per-identity write and the sibling-file merge."""
+    path = tmp_path / "pose_seg.nwb"
+    data = _make_pose_data(
+        num_identities=3, num_frames=12, with_segmentation=True, external_ids=["a", "b", "c"]
+    )
+
+    adapter.write(data, path)
+    result = adapter.read(tmp_path / "pose_seg_a.nwb")
+
+    _assert_pose_data_equal(data, result)
+
+
+def test_segmentation_absent_roundtrips_as_none(tmp_path, adapter):
+    """A pose file without segmentation reads back with segmentation_data None."""
+    path = tmp_path / "pose_no_seg.nwb"
+    data = _make_pose_data(num_identities=2, with_segmentation=False)
+    assert data.segmentation_data is None
+
+    adapter.write(data, path, multisubject=True)
+    result = adapter.read(path)
+
+    assert result.segmentation_data is None
+
+
+def test_contour_series_stored_in_pose_estimation(tmp_path, adapter):
+    """Contours live inside the identity's PoseEstimation, next to its keypoints."""
+    path = tmp_path / "pose_seg_layout.nwb"
+    data = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["m1", "m2"]
+    )
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        nwb = io.read()
+        for i, name in enumerate(["m1", "m2"]):
+            pe = nwb.processing["behavior"].data_interfaces[name]
+            assert isinstance(pe, PoseEstimation)
+            series = pe.contour_series["segmentation_contours"]
+
+            np.testing.assert_array_equal(series.data[:], data.segmentation_data.contours[i])
+            np.testing.assert_array_equal(
+                series.vertex_count[:], data.segmentation_data.vertex_counts[i]
+            )
+            np.testing.assert_array_equal(
+                series.is_external[:], data.segmentation_data.is_external[i]
+            )
+            assert series.unit == "pixels"
+            assert series.rate == float(data.fps)
+            # the contours belong to this identity, so the description must say which
+            assert name in series.description
+
+
+def test_segmentation_contours_are_compressed(tmp_path, adapter):
+    """The contour dataset is chunked and gzipped: it is mostly padding and dominates the file."""
+    path = tmp_path / "pose_seg_compressed.nwb"
+    data = _make_pose_data(
+        num_identities=1, num_frames=200, with_segmentation=True, num_vertices=64
+    )
+
+    adapter.write(data, path, multisubject=True)
+
+    with h5py.File(path, "r") as h5:
+        dset = h5["processing/behavior/subject_1/segmentation_contours/data"]
+        assert dset.compression == "gzip"
+        assert dset.chunks is not None
+        # the chunk covers whole frames so a frame-range read need not decompress it all
+        assert dset.chunks[1:] == dset.shape[1:]
+
+
+def test_has_segmentation_recorded_in_jabs_metadata(tmp_path, adapter):
+    """jabs_metadata records whether segmentation was written, so absence is unambiguous."""
+    with_seg = tmp_path / "with_seg.nwb"
+    without_seg = tmp_path / "without_seg.nwb"
+    adapter.write(
+        _make_pose_data(num_identities=1, with_segmentation=True), with_seg, multisubject=True
+    )
+    adapter.write(
+        _make_pose_data(num_identities=1, with_segmentation=False), without_seg, multisubject=True
+    )
+
+    for path, expected in ((with_seg, True), (without_seg, False)):
+        with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+            meta = json.loads(str(io.read().scratch["jabs_metadata"].data))
+        assert meta["has_segmentation"] is expected
+
+
+def test_read_tolerates_missing_contours_despite_metadata_flag(tmp_path, adapter, caplog):
+    """A file claiming segmentation but holding none reads without it, and warns.
+
+    The flag and the contours are written together, so they can only disagree in a file
+    that was edited afterwards. Dropping the contours beats refusing to read the pose.
+    """
+    path = tmp_path / "pose_seg_stripped.nwb"
+    data = _make_pose_data(num_identities=1, num_frames=6, with_segmentation=True)
+    adapter.write(data, path, multisubject=True)
+
+    with h5py.File(path, "r+") as h5:
+        del h5["processing/behavior/subject_1/segmentation_contours"]
+
+    with caplog.at_level(logging.WARNING):
+        result = adapter.read(path)
+
+    assert result.segmentation_data is None
+    assert "claims segmentation" in caplog.text

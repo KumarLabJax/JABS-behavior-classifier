@@ -1524,7 +1524,7 @@ wheels = [
 
 [[package]]
 name = "hdmf"
-version = "4.3.1"
+version = "6.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -1534,9 +1534,9 @@ dependencies = [
     { name = "pandas" },
     { name = "ruamel-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b8/e9/8ccaa1c8b3c9aca25c0216ec09a0051f247283dad9be928424686f5cbaaa/hdmf-4.3.1.tar.gz", hash = "sha256:dd16335c1a2fd38c3b9f01ed2b9be8a80536cc42d7b72f49a16bad9999668b99", size = 16622252, upload-time = "2026-01-28T17:32:05.93Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ed/0d/1d41f54b7bc2232b168bdfc84d3f46958b40f086081e04d24378f2bc573d/hdmf-6.2.0.tar.gz", hash = "sha256:47dd0d0ebdf834b0cc5d1fdbe6b73d718549cffa489e47f68f638a4add20b65d", size = 16703812, upload-time = "2026-08-19T14:52:50.954Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/dd/5f86c7ac3f31cd9d959be6dec9e54d2ede02aa932fc599a7ff0e03c67758/hdmf-4.3.1-py3-none-any.whl", hash = "sha256:030e52c38adacaca62bcf39bf6bc7c7d23fe481a9ae94d2ad480f7e0e49296bd", size = 341916, upload-time = "2026-01-28T17:32:04.11Z" },
+    { url = "https://files.pythonhosted.org/packages/02/97/c6db59c49643f10bf1d9185a23263be78e54205d881a6004c898573624fa/hdmf-6.2.0-py3-none-any.whl", hash = "sha256:303e5c066a175448b3176b3377389e5d16bb4c5fc753f2dca540d6bd7b118b7c", size = 366628, upload-time = "2026-08-19T14:52:48.53Z" },
 ]
 
 [[package]]
@@ -2013,7 +2013,7 @@ requires-dist = [
     { name = "h5py", specifier = ">=3.10.0,<4.0.0" },
     { name = "jabs-core", editable = "packages/jabs-core" },
     { name = "ndx-multisubjects", marker = "extra == 'nwb'", specifier = ">=0.1.1" },
-    { name = "ndx-pose", marker = "extra == 'nwb'", specifier = ">=0.2.2" },
+    { name = "ndx-pose", marker = "extra == 'nwb'", git = "https://github.com/KumarLabJax/ndx-pose?branch=feature%2Fcontour-series" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=18.0.0" },
     { name = "pynwb", marker = "extra == 'nwb'", specifier = ">=3.1.3" },
@@ -2865,15 +2865,11 @@ wheels = [
 
 [[package]]
 name = "ndx-pose"
-version = "0.2.2"
-source = { registry = "https://pypi.org/simple" }
+version = "0.4.0"
+source = { git = "https://github.com/KumarLabJax/ndx-pose?branch=feature%2Fcontour-series#1317236da6248a7a72d29f0b8829c59a7d003868" }
 dependencies = [
     { name = "hdmf" },
     { name = "pynwb" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/49/9a/137b1334efc99d8e044948b7d1c52b3ef0f6c44d39654ced1d5236a2af14/ndx_pose-0.2.2.tar.gz", hash = "sha256:69a9a139363ccf8406f36752146d345914330e69921b9734db2425fc9808a0a1", size = 99404, upload-time = "2025-05-08T15:34:38.925Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/0d/14e1242b3776a06ad6f93107f147e0d0630221c13a1f5e328fba62d95adf/ndx_pose-0.2.2-py3-none-any.whl", hash = "sha256:76d55ec5d363673b66cd9540dac87c92cba16f5def9836874fd4d96b29a94b90", size = 15045, upload-time = "2025-05-08T15:34:37.396Z" },
 ]
 
 [[package]]
@@ -3933,7 +3929,7 @@ wheels = [
 
 [[package]]
 name = "pynwb"
-version = "3.1.3"
+version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -3944,9 +3940,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-dateutil" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/83/0c37d99d2a262ca69be2df5bf9153b7bf2d79391d668e7ec232e89129ab4/pynwb-3.1.3.tar.gz", hash = "sha256:ee75219aa241b72b10d1c6830ae6bafa7e3e44f0429715c2ef0920a19654e185", size = 35784649, upload-time = "2025-12-09T23:40:50.358Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/30/cceb14ab8ffb1702b062845e2f54358955378057660d811e973687ded1c2/pynwb-4.2.0.tar.gz", hash = "sha256:681e86b73cf21fc607003936ac9e575efdb64d3d01001bfa351862d40f9b5e7e", size = 36416898, upload-time = "2026-09-02T22:53:50.971Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/47/b5b7d5285e823a16fe7b007bce3cf79ddcd3b6d7c8b3ca15cbe8c17c0a17/pynwb-3.1.3-py3-none-any.whl", hash = "sha256:43b5d753c6c2c8f6b4fa6c784ac85675556b64b42c727d9eab27670ef529929a", size = 1396673, upload-time = "2025-12-09T23:40:48.454Z" },
+    { url = "https://files.pythonhosted.org/packages/be/be/455b569cf15d7478a36d6ca4c7d5992f6af273edd1d56f3c34ace34c01ec/pynwb-4.2.0-py3-none-any.whl", hash = "sha256:9710364ecac03b6e6b8693d9eeaeb9f3dc6e61195baa88adb251def901655445", size = 1415526, upload-time = "2026-09-02T22:53:48.082Z" },
 ]
 
 [[package]]
