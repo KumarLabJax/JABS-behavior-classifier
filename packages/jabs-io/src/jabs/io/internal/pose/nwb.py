@@ -113,6 +113,52 @@ def _bounding_box_description(identity_name: str) -> str:
     )
 
 
+def _merge_segmentation(parts: list[SegmentationData | None]) -> SegmentationData | None:
+    """Concatenate per-identity segmentation along the identity axis.
+
+    The producer sizes a pose file's contour array to the maxima it observed over that
+    whole video (see ``contour_capacity``/``point_capacity`` in JABS-pose's
+    ``video_pose.py``), so two files can legitimately pad to different numbers of contour
+    slots and vertices. Pad every part up to the largest of each before concatenating
+    rather than assuming they line up. ``vertex_counts`` stays authoritative, so slots
+    added here read as unused.
+
+    Args:
+        parts: One SegmentationData per identity file, in identity order.
+
+    Returns:
+        The combined SegmentationData, or None if any part is missing. Segmentation is
+        all-or-nothing in PoseData, so a partial set cannot be represented.
+    """
+    if not parts or any(p is None for p in parts):
+        return None
+
+    max_contours = max(p.contours.shape[2] for p in parts)
+    max_vertices = max(p.contours.shape[3] for p in parts)
+
+    contours, counts, external = [], [], []
+    for part in parts:
+        pad_c = max_contours - part.contours.shape[2]
+        pad_v = max_vertices - part.contours.shape[3]
+        contours.append(
+            np.pad(
+                part.contours,
+                ((0, 0), (0, 0), (0, pad_c), (0, pad_v), (0, 0)),
+                constant_values=_SEG_PADDING,
+            )
+            if pad_c or pad_v
+            else part.contours
+        )
+        counts.append(np.pad(part.vertex_counts, ((0, 0), (0, 0), (0, pad_c))))
+        external.append(np.pad(part.is_external, ((0, 0), (0, 0), (0, pad_c))))
+
+    return SegmentationData(
+        contours=np.concatenate(contours, axis=0),
+        vertex_counts=np.concatenate(counts, axis=0),
+        is_external=np.concatenate(external, axis=0),
+    )
+
+
 @register_adapter(StorageFormat.NWB, PoseData, priority=10)
 class PoseNWBAdapter(Adapter):
     """NWB adapter for PoseData."""
@@ -769,36 +815,7 @@ class PoseNWBAdapter(Adapter):
         if all(pd.bounding_boxes is not None for pd in pose_datas):
             bounding_boxes = np.concatenate([pd.bounding_boxes for pd in pose_datas], axis=0)
 
-        # Segmentation contours. Each per-identity file is written independently, so in
-        # principle the files could differ in how many contour slots or vertices they
-        # pad to; pad to the largest before concatenating rather than assuming they line
-        # up. vertex_counts stays authoritative, so the extra slots read as unused.
-        segmentation_data = None
-        seg_parts = [pd.segmentation_data for pd in pose_datas]
-        if all(s is not None for s in seg_parts):
-            max_contours = max(s.contours.shape[2] for s in seg_parts)
-            max_vertices = max(s.contours.shape[3] for s in seg_parts)
-
-            def _pad(seg):
-                pad_c = max_contours - seg.contours.shape[2]
-                pad_v = max_vertices - seg.contours.shape[3]
-                if pad_c == 0 and pad_v == 0:
-                    return seg.contours, seg.vertex_counts, seg.is_external
-                contours = np.pad(
-                    seg.contours,
-                    ((0, 0), (0, 0), (0, pad_c), (0, pad_v), (0, 0)),
-                    constant_values=_SEG_PADDING,
-                )
-                counts = np.pad(seg.vertex_counts, ((0, 0), (0, 0), (0, pad_c)))
-                external = np.pad(seg.is_external, ((0, 0), (0, 0), (0, pad_c)))
-                return contours, counts, external
-
-            padded = [_pad(s) for s in seg_parts]
-            segmentation_data = SegmentationData(
-                contours=np.concatenate([p[0] for p in padded], axis=0),
-                vertex_counts=np.concatenate([p[1] for p in padded], axis=0),
-                is_external=np.concatenate([p[2] for p in padded], axis=0),
-            )
+        segmentation_data = _merge_segmentation([pd.segmentation_data for pd in pose_datas])
 
         # Recover external_ids and subjects from jabs_meta of the first file;
         # each per-identity file stores the full original values, so any file's meta will do.

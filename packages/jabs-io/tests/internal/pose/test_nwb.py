@@ -25,7 +25,7 @@ from pynwb import NWBHDF5IO
 from jabs.core.abstract.pose_est import PoseEstimation as JABSPoseEst
 from jabs.core.enums import StorageFormat
 from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
-from jabs.io.internal.pose.nwb import PoseNWBAdapter
+from jabs.io.internal.pose.nwb import PoseNWBAdapter, _merge_segmentation
 from jabs.io.registry import get_adapter
 
 
@@ -1304,3 +1304,60 @@ def test_read_tolerates_missing_contours_despite_metadata_flag(tmp_path, adapter
 
     assert result.segmentation_data is None
     assert "claims segmentation" in caplog.text
+
+
+def _one_identity_segmentation(num_frames, num_contours, num_vertices, fill):
+    """Build a single-identity SegmentationData with every slot fully used."""
+    contours = np.full((1, num_frames, num_contours, num_vertices, 2), fill, dtype=np.int32)
+    return SegmentationData(
+        contours=contours,
+        vertex_counts=np.full((1, num_frames, num_contours), num_vertices, dtype=np.uint32),
+        is_external=np.ones((1, num_frames, num_contours), dtype=bool),
+    )
+
+
+def test_merge_segmentation_pads_differing_capacities():
+    """Identity files that pad to different capacities merge to the largest of each.
+
+    JABS-pose sizes a pose file's contour array to the maxima observed across that whole
+    video, so two files can legitimately disagree on how many contour slots and vertices
+    they carry. The merge must not assume they line up.
+    """
+    small = _one_identity_segmentation(num_frames=4, num_contours=1, num_vertices=3, fill=7)
+    large = _one_identity_segmentation(num_frames=4, num_contours=3, num_vertices=5, fill=9)
+
+    merged = _merge_segmentation([small, large])
+
+    assert merged.contours.shape == (2, 4, 3, 5, 2)
+    # the smaller part keeps its real vertices and is padded out with the -1 sentinel
+    np.testing.assert_array_equal(merged.contours[0, :, 0, :3, :], small.contours[0, :, 0, :, :])
+    assert (merged.contours[0, :, 0, 3:, :] == -1).all()
+    assert (merged.contours[0, :, 1:, :, :] == -1).all()
+    # the larger part is untouched
+    np.testing.assert_array_equal(merged.contours[1], large.contours[0])
+    # vertex_counts stays authoritative: the slots added by padding read as unused
+    np.testing.assert_array_equal(merged.vertex_counts[0], [[3, 0, 0]] * 4)
+    np.testing.assert_array_equal(merged.vertex_counts[1], [[5, 5, 5]] * 4)
+    assert not merged.is_external[0, :, 1:].any()
+
+
+def test_merge_segmentation_identical_capacities_is_a_plain_concatenate():
+    """The common case, where every file agrees, must not be perturbed by the padding."""
+    a = _one_identity_segmentation(num_frames=3, num_contours=2, num_vertices=4, fill=1)
+    b = _one_identity_segmentation(num_frames=3, num_contours=2, num_vertices=4, fill=2)
+
+    merged = _merge_segmentation([a, b])
+
+    assert merged.contours.shape == (2, 3, 2, 4, 2)
+    np.testing.assert_array_equal(merged.contours[0], a.contours[0])
+    np.testing.assert_array_equal(merged.contours[1], b.contours[0])
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [[], [None], [_one_identity_segmentation(2, 1, 2, 1), None]],
+    ids=["empty", "all_missing", "partial"],
+)
+def test_merge_segmentation_returns_none_when_incomplete(parts):
+    """Segmentation is all-or-nothing in PoseData, so a partial set reads as absent."""
+    assert _merge_segmentation(parts) is None
