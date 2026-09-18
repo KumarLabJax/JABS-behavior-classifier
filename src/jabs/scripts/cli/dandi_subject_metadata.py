@@ -100,6 +100,21 @@ def _duration_day_bounds(value: str) -> tuple[float, float] | None:
     return low, high
 
 
+def _age_range_is_unbounded(value: str) -> bool:
+    """Return whether an age range leaves both bounds blank.
+
+    ``"/"`` is accepted by both ``nwbinspector`` and DANDI's own ``parse_age``, but
+    it states no age at all while still satisfying the "age or date_of_birth"
+    requirement - so it would let an identity reach the archive with the age field
+    effectively empty. One open bound (``"/P3D"``, ``"P90Y/"``) is still meaningful
+    and stays allowed.
+    """
+    if "/" not in value:
+        return False
+    lower, _, upper = value.partition("/")
+    return not lower.strip() and not upper.strip()
+
+
 def _age_range_is_reversed(value: str) -> bool:
     """Return whether an age range's bounds are provably not strictly increasing.
 
@@ -194,6 +209,12 @@ def subject_metadata_problems(metadata: dict, *, default_subject_id: str = "") -
             problems.append(
                 f"age {age!r} must be an ISO 8601 duration (e.g. 'P70D', 'P2Y') "
                 "or a range (e.g. 'P1D/P3D', 'P90Y/')"
+            )
+        elif _age_range_is_unbounded(age):
+            problems.append(
+                f"age {age!r} gives neither bound, so it states no age at all; "
+                "supply a duration (e.g. 'P70D') or a range with at least one "
+                "bound (e.g. '/P3D', 'P90Y/')"
             )
         elif _age_range_is_reversed(age):
             problems.append(

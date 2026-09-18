@@ -409,12 +409,25 @@ def test_reversed_age_ranges_are_rejected(age: str) -> None:
 
 @pytest.mark.parametrize(
     "age",
-    ["P1D/P3D", "P90Y/", "/P3D", "/", "P1M/P30D", "P30D/P1M"],
-    ids=["increasing", "open-upper", "open-lower", "both-open", "ambiguous", "ambiguous-rev"],
+    ["P1D/P3D", "P90Y/", "/P3D", "P1M/P30D", "P30D/P1M"],
+    ids=["increasing", "open-upper", "open-lower", "ambiguous", "ambiguous-rev"],
 )
 def test_ranges_that_must_not_be_rejected(age: str) -> None:
-    """Open bounds are legal, and calendar-ambiguous pairs are left to the archive."""
+    """One open bound is legal, and calendar-ambiguous pairs are left to the archive."""
     assert subject_metadata_problems({**VALID, "age": age}) == []
+
+
+def test_wholly_unbounded_age_range_is_rejected() -> None:
+    """'/' satisfies "age or date_of_birth" while stating no age at all.
+
+    Both nwbinspector and DANDI's own parse_age accept it, so this is stricter than
+    either on purpose: it would otherwise be a way to pass the age requirement with
+    a value that carries no information.
+    """
+    problems = subject_metadata_problems({**VALID, "age": "/"})
+
+    assert len(problems) == 1
+    assert "states no age at all" in problems[0]
 
 
 # ---------------------------------------------------------------------------
