@@ -8,6 +8,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -1256,6 +1257,46 @@ class PoseNWBAdapter(Adapter):
     @staticmethod
     def _identity_file_path(base_path: Path, identity_name: str) -> Path:
         return base_path.with_stem(f"{base_path.stem}_{identity_name}")
+
+
+class IdentitySubject(NamedTuple):
+    """One identity's NWB container name and the subject metadata resolved for it.
+
+    Attributes:
+        identity_name: Sanitized NWB container name for the identity.
+        lookup_keys: The keys of ``PoseData.subjects`` that resolve to this
+            identity, in the order the writer tries them. A ``subjects`` key
+            matching none of any identity's ``lookup_keys`` is unused.
+        metadata: The metadata the writer will use, or an empty dict when
+            ``PoseData.subjects`` has no entry for this identity.
+    """
+
+    identity_name: str
+    lookup_keys: tuple[str, ...]
+    metadata: dict
+
+
+def resolve_identity_subjects(data: PoseData) -> list[IdentitySubject]:
+    """Resolve each identity's container name and subject metadata, in identity order.
+
+    Shares :class:`PoseNWBAdapter`'s name-sanitizing and metadata-lookup logic so
+    callers can inspect what the writer *will* resolve without writing a file -
+    for example to validate subject metadata against an archive's requirements
+    before any output is produced. Requires no NWB dependencies.
+
+    Args:
+        data: The pose data whose identities and ``subjects`` are resolved.
+
+    Returns:
+        One :class:`IdentitySubject` per identity, ordered by identity index.
+    """
+    resolved: list[IdentitySubject] = []
+    for index in range(data.points.shape[0]):
+        identity_name = PoseNWBAdapter._identity_name(data, index)
+        raw_key, metadata = PoseNWBAdapter._resolve_subject(data, index, identity_name)
+        keys = (raw_key,) if raw_key == identity_name else (raw_key, identity_name)
+        resolved.append(IdentitySubject(identity_name, keys, metadata))
+    return resolved
 
 
 def _json_default(obj):

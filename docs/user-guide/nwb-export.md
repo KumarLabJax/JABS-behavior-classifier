@@ -34,24 +34,25 @@ jabs-cli convert-to-nwb INPUT_PATH OUTPUT [OPTIONS]
 | `OUTPUT`                     | Destination `.nwb` file. By default (per-identity), used as a naming template; the file itself is not created directly. With `--multisubject`, the single combined file is written directly to this path. |
 | `--multisubject`             | Write a single multi-subject NWB file (using the ndx-multisubjects extension) instead of the default one file per identity. |
 | `--session-description TEXT` | NWB session description string. Defaults to `'JABS PoseEstimation Data'`.                                                    |
-| `--subjects PATH`            | Path to a JSON file with per-animal biological metadata.                                                                     |
+| `--subjects PATH`            | **Required.** Path to a JSON file with per-animal biological metadata. The conversion fails without the fields DANDI requires - see [Subjects JSON format](#subjects-json-format). |
 | `--session-metadata PATH`    | Path to a JSON file with NWB session-level metadata (start time, experimenter, etc.).                                        |
 
 ### Examples
 
 ```bash
 # One NWB file per identity (default; recommended for DANDI upload)
-jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
-
-# A single multi-subject file holding every identity
-jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --multisubject
-
-# Include per-animal metadata
 jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
 
-# Specify session start time and experimenter
-jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata session.json
+# A single multi-subject file holding every identity
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json --multisubject
+
+# Also set session start time and experimenter
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
+    --subjects subjects.json --session-metadata session.json
 ```
+
+`--subjects` appears in every example because the conversion fails without it; see
+[Subjects JSON format](#subjects-json-format).
 
 ---
 
@@ -59,10 +60,17 @@ jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata se
 
 Pass a JSON file to `--subjects` to attach per-animal biological metadata to the NWB
 output. Keys are identity names: use external IDs from the pose file when present (e.g.
-`"mouse_a"`), or `subject_1`, `subject_2`, … when the pose file has no external IDs.
+`"mouse_a"`), or `subject_1`, `subject_2`, … (1-based) when the pose file has no external
+IDs.
 
-**DANDI requires `species`, `sex`, and either `age` or `date_of_birth` on every
-subject.** All other fields are optional.
+!!! warning "`--subjects` is required"
+    `species`, `sex`, and either `age` or `date_of_birth` are mandatory on every
+    identity. The converter validates them before writing anything and **fails** if any
+    are missing or malformed, because the DANDI archive rejects files without them.
+
+    A key that matches no identity is ignored with a warning, which leaves that identity
+    without metadata and fails the check. If you see that warning, compare your keys
+    against the identity names the warning lists.
 
 ```json
 {
@@ -85,24 +93,30 @@ subject.** All other fields are optional.
 }
 ```
 
-| Field            | Type   | Notes                                                                                  |
-|------------------|--------|----------------------------------------------------------------------------------------|
-| `subject_id`     | string | Lab identifier for the animal                                                          |
-| `sex`            | string | **Required by DANDI.** `"M"`, `"F"`, `"U"`, or `"O"`                                   |
-| `species`        | string | **Required by DANDI.** Latin binomial, e.g. `"Mus musculus"`                           |
-| `age`            | string | **Required by DANDI** (or `date_of_birth`). ISO 8601 duration, e.g. `"P70D"` (70 days) |
-| `date_of_birth`  | string | Alternative to `age`. ISO 8601 datetime, e.g. `"2024-01-15T00:00:00+00:00"`            |
-| `genotype`       | string | Genetic background, e.g. `"Shank3B+/-"`                                                |
-| `strain`         | string | Inbred strain, e.g. `"C57BL/6J"`                                                       |
-| `weight`         | string | Body weight, e.g. `"25g"`                                                              |
-| `description`    | string | Free-text notes                                                                        |
+| Field           | Type   | Notes                                                                                                                                                          |
+|-----------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `subject_id`    | string | Lab identifier for the animal. Defaults to the identity name when omitted. Must not contain `/`, which breaks DANDI paths.                                     |
+| `sex`           | string | **Required.** Exactly `"M"`, `"F"`, `"O"`, or `"U"` - case-sensitive, so `"male"` and `"m"` are both rejected. For *C. elegans*, `"XO"` or `"XX"` instead.      |
+| `species`       | string | **Required.** Latin binomial, e.g. `"Mus musculus"` - capitalized genus, lowercase epithet, so `"Mus Musculus"` and `"mouse"` are rejected. An NCBI taxonomy IRI such as `"http://purl.obolibrary.org/obo/NCBITaxon_10090"` is also accepted. |
+| `age`           | string | **Required** (or `date_of_birth`). ISO 8601 duration, e.g. `"P70D"` (70 days) or `"P2Y"`. A range is allowed: `"P1D/P3D"`, or open-ended as `"P90Y/"`.          |
+| `date_of_birth` | string | Alternative to `age`. ISO 8601 datetime, e.g. `"2024-01-15T00:00:00+00:00"`.                                                                                   |
+| `genotype`      | string | Genetic background, e.g. `"Shank3B+/-"`                                                                                                                        |
+| `strain`        | string | Inbred strain, e.g. `"C57BL/6J"`                                                                                                                               |
+| `weight`        | string | Body weight as `[numeric] [unit]` **with a space**, e.g. `"25 g"` or `"0.025 kg"`. `"25g"` is rejected. Units: kg, g, mg, ug, ng, pg.                          |
+| `description`   | string | Free-text notes                                                                                                                                                |
 
 In per-identity mode (the default), subject metadata is written to both the standard
-`NWBFile.subject` field and the `jabs_metadata` scratch field. If no `--subjects` file is
-provided, a minimal subject with `subject_id` set to the identity name is written
-automatically. In multisubject mode, subject metadata is written to a `SubjectsTable`
-(one row per subject) and to `jabs_metadata` (see
+`NWBFile.subject` field and the `jabs_metadata` scratch field. In multisubject mode it is
+written to a `SubjectsTable` (one row per subject) and to `jabs_metadata` (see
 [below](#subject-metadata-by-mode)).
+
+The validation above is a pre-flight check that mirrors `nwbinspector`'s subject checks,
+which DANDI treats as blocking. It is not a substitute for the real thing - run
+`nwbinspector` against the converted files before uploading:
+
+```bash
+nwbinspector session_subject_1.nwb --config dandi
+```
 
 ---
 
@@ -153,8 +167,8 @@ session_subject_3.nwb   ← identity 2 + all objects
 ```
 
 **This is the most standard output.** Each file contains exactly one animal, so
-`NWBFile.subject` is populated with that animal's biological metadata (when provided
-via `--subjects`). Any standard NWB tool — including the DANDI archive — can read
+`NWBFile.subject` is populated with that animal's biological metadata from
+`--subjects`. Any standard NWB tool — including the DANDI archive — can read
 the subject field directly without knowing anything about JABS.
 
 Identity names in the filenames come from `external_ids` in the pose file (sanitized

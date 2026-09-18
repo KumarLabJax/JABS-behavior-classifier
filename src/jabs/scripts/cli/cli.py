@@ -526,12 +526,15 @@ def cross_validation(
     default=None,
     help=(
         "Path to a JSON file containing per-animal biological metadata. "
+        "Required: the DANDI archive rejects output without it. "
         "Keys are identity names: use the external IDs from the pose file "
-        "if present (e.g. 'mouse_a'), or 'subject_0', 'subject_1', … if the "
-        "pose file has no external IDs. "
-        "DANDI requires species, sex, and age (ISO 8601 duration, e.g. 'P70D') "
-        "or date_of_birth (ISO 8601 datetime) on every subject. "
-        "Additional fields: subject_id, genotype, strain, weight, description."
+        "if present (e.g. 'mouse_a'), or 'subject_1', 'subject_2', … (1-based) if "
+        "the pose file has no external IDs. "
+        "Every identity needs subject_id, species (Latin binomial, e.g. "
+        "'Mus musculus'), sex ('M', 'F', 'O' or 'U'), and age (ISO 8601 duration, "
+        "e.g. 'P70D') or date_of_birth (ISO 8601 datetime). "
+        "Optional fields: genotype, strain, weight ('[numeric] [unit]', e.g. "
+        "'25 g'), description."
     ),
 )
 @click.option(

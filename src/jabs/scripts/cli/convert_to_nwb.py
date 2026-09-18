@@ -11,6 +11,7 @@ from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
 from jabs.io import save
 from jabs.pose_estimation import open_pose_file
+from jabs.scripts.cli.dandi_subject_metadata import validate_subjects
 
 logger = logging.getLogger(__name__)
 
@@ -261,8 +262,11 @@ def run_conversion(
             (list[str]).  Unknown keys are ignored with a warning.
 
     Raises:
-        ValueError: If the input file is not a recognized JABS pose file, or
-            if ``session_start_time`` cannot be parsed.
+        ValueError: If the input file is not a recognized JABS pose file, if
+            ``session_start_time`` cannot be parsed, or if any identity's subject
+            metadata does not meet the DANDI archive's requirements (see
+            :mod:`jabs.scripts.cli.dandi_subject_metadata`).  Subject metadata is
+            validated before any file is written.
         FileNotFoundError: If the input file does not exist.
     """
     logger.info("Loading %s", input_path)
@@ -273,6 +277,11 @@ def run_conversion(
     )
 
     pose_data = pose_to_pose_data(pose, subjects=subjects)
+
+    # Validate before writing: per-identity output writes one file per identity in a
+    # loop, so failing partway would leave an incomplete set on disk, and the whole
+    # set would be unpublishable anyway.
+    validate_subjects(pose_data)
 
     write_kwargs: dict = {"multisubject": multisubject}
     if session_description is not None:
