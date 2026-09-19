@@ -135,10 +135,18 @@ def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
             )
             return None
         per_identity_contours.append(contours)
-        # seg_external_flag is optional even in files that have seg_data. Treat a
-        # missing flag as an external boundary: a file without hole markings is read
-        # as one whose contours are all outer edges.
+        # seg_external_flag is optional even in files that have seg_data, and ndx-pose
+        # requires is_external, so a missing flag has to be filled rather than omitted.
+        # Treat every contour as an outer edge, and say so: that is a claim the file did
+        # not make, and it is wrong for any contour that is really a hole. JABS-pose
+        # writes seg_data and seg_external_flag together, so this should not fire.
         if flags is None:
+            logger.warning(
+                "Pose file has segmentation but no seg_external_flag; exporting every "
+                "contour of identity %s as an external boundary, which is wrong for any "
+                "that are holes",
+                identity,
+            )
             flags = np.ones(contours.shape[:2], dtype=bool)
         per_identity_flags.append(flags)
 
