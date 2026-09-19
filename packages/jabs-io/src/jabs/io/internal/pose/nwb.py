@@ -1127,6 +1127,7 @@ class PoseNWBAdapter(Adapter):
             vertex_count=seg.vertex_counts[index],
             is_external=seg.is_external[index],
             unit="pixels",
+            reference_frame=_REFERENCE_FRAME,
             description=(
                 f"Instance segmentation contours for identity '{identity_name}', as polygon "
                 "outlines in (x, y) pixel coordinates. Only the first vertex_count vertices of "

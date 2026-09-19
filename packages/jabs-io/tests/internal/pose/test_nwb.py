@@ -1276,6 +1276,10 @@ def test_contour_series_stored_in_pose_estimation(tmp_path, adapter):
             )
             assert series.unit == "pixels"
             assert series.rate == float(data.fps)
+            # the contours are pixel coordinates, so they must carry the same frame of
+            # reference as the keypoints they sit beside
+            keypoints = next(iter(pe.pose_estimation_series.values()))
+            assert series.reference_frame == keypoints.reference_frame
             # the contours belong to this identity, so the description must say which
             assert name in series.description
 
