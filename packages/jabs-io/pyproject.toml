@@ -19,6 +19,11 @@ dependencies = [
     # feature cache are all HDF5, and most modules in this package import h5py
     # unconditionally. Declared directly rather than relied on transitively.
     "h5py>=3.10.0,<4.0.0",
+    # The pose file manifest and provenance documents are JSON, and their
+    # validity is defined by the JSON Schemas shipped in
+    # jabs/io/internal/pose_file/schemas/ (ADR 0002). Already a root and
+    # jabs-behavior dependency, so this pins to the same range.
+    "jsonschema>=4.25.1,<5.0.0",
 ]
 
 [tool.uv.sources]
