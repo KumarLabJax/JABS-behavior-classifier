@@ -61,7 +61,10 @@ jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
 Pass a JSON file to `--subjects` to attach per-animal biological metadata to the NWB
 output. Keys are identity names: use external IDs from the pose file when present (e.g.
 `"mouse_a"`), or `subject_1`, `subject_2`, … (1-based) when the pose file has no external
-IDs.
+IDs. `subject_1` is identity index 0.
+
+An optional `name` field renames the identity — see
+[Naming identities](#naming-identities).
 
 !!! warning "`--subjects` is required"
     `species`, `sex`, and either `age` or `date_of_birth` are mandatory on every
@@ -98,6 +101,7 @@ IDs.
 
 | Field           | Type   | Notes                                                                                                                                                          |
 |-----------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`          | string | Renames the identity itself: the NWB container, the per-identity output filename, and the bounding box series. Defaults to the key. See [Naming identities](#naming-identities). |
 | `subject_id`    | string | Lab identifier for the animal. Defaults to the identity name when omitted or blank. Must not contain `/`, which breaks DANDI paths.                           |
 | `sex`           | string | **Required.** Exactly `"M"`, `"F"`, `"O"`, or `"U"` - case-sensitive, so `"male"` and `"m"` are both rejected. For *C. elegans*, `"XO"` or `"XX"` instead.      |
 | `species`       | string | **Required.** Latin binomial, e.g. `"Mus musculus"` - capitalized genus, lowercase epithet, so `"Mus Musculus"` and `"mouse"` are rejected. An NCBI taxonomy IRI such as `"http://purl.obolibrary.org/obo/NCBITaxon_10090"` is also accepted. |
@@ -120,6 +124,40 @@ which DANDI treats as blocking. It is not a substitute for the real thing - run
 ```bash
 nwbinspector session_subject_1.nwb --config dandi
 ```
+
+### Naming identities
+
+A pose file with no external identities leaves its animals called `subject_1`,
+`subject_2`, … . That name is not cosmetic — it names the `PoseEstimation` container, the
+per-identity output file (`{stem}_{identity_name}.nwb`) and the bounding box series.
+`subject_id` does **not** change any of them; it only labels the `Subject`.
+
+To rename the identity itself, give its entry a `name`:
+
+```json
+{
+  "subject_1": {
+    "name": "NV1-B2A",
+    "subject_id": "M123",
+    "species": "Mus musculus",
+    "sex": "M",
+    "age": "P70D"
+  }
+}
+```
+
+That writes `session_NV1-B2A.nwb` holding an `NV1-B2A` container, whose `Subject` is
+`M123`. Use the same `name` and `subject_id` if you want them to agree.
+
+- The key still identifies *which* identity you mean, so it stays `subject_1` (or the
+  pose file's external ID) even though the entry renames it.
+- Renaming some identities and not others is fine; the rest keep the names they had.
+- Names must be unique, and are sanitized for use as container names — any character
+  that is not alphanumeric, `_` or `-` becomes `_`, so `NV1/B2A` is stored as `NV1_B2A`
+  and a warning says so.
+- A pose file that already has external identities can be renamed the same way, keyed by
+  the existing external ID.
+
 
 ---
 

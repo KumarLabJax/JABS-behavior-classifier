@@ -1,5 +1,6 @@
 """Convert a JABS pose estimation file (any version) to NWB format."""
 
+import dataclasses
 import datetime
 import logging
 from pathlib import Path
@@ -10,6 +11,11 @@ import numpy as np
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
 from jabs.io import save
+from jabs.io.internal.pose import (
+    resolve_identity_subjects,
+    sanitize_identity_name,
+    subject_value_is_absent,
+)
 from jabs.pose_estimation import open_pose_file
 from jabs.scripts.cli.dandi_subject_metadata import validate_subjects
 
@@ -98,6 +104,70 @@ def _collect_hdf5_attributes(path: Path) -> dict[str, dict[str, object]]:
     return collected
 
 
+# Key in a --subjects entry that renames the identity it applies to. Stripped before the
+# metadata reaches PoseData.subjects: it is not a pynwb Subject field, and leaving it in
+# would also write it through to jabs_metadata.
+_IDENTITY_NAME_KEY = "name"
+
+
+def _apply_identity_names(data: PoseData) -> PoseData:
+    """Rename identities from the ``name`` field of their subject metadata.
+
+    A pose file without external identities leaves its animals called ``subject_1``,
+    ``subject_2``, ... , which names the NWB container, the per-identity output file and
+    the bounding box series. ``subject_id`` cannot change any of those - it only labels
+    the Subject - so a ``name`` in the subject entry sets the identity name instead.
+
+    The rename is applied by filling ``external_ids``, which is what the writer reads the
+    identity name from, so nothing downstream needs to know this happened. ``subjects`` is
+    re-keyed to match: the writer looks metadata up by identity name, so leaving the old
+    key in place would orphan the metadata the rename was attached to.
+
+    Args:
+        data: Pose data whose ``subjects`` may carry ``name`` overrides.
+
+    Returns:
+        ``data`` unchanged when no entry supplies a name, otherwise a copy with
+        ``external_ids`` and ``subjects`` updated.
+
+    Raises:
+        ValueError: If the resulting identity names are not unique.
+    """
+    resolved = resolve_identity_subjects(data)
+    if not any(not subject_value_is_absent(e.metadata.get(_IDENTITY_NAME_KEY)) for e in resolved):
+        return data
+
+    names: list[str] = []
+    subjects: dict[str, dict] = {}
+    for entry in resolved:
+        metadata = {k: v for k, v in entry.metadata.items() if k != _IDENTITY_NAME_KEY}
+        override = entry.metadata.get(_IDENTITY_NAME_KEY)
+        if subject_value_is_absent(override):
+            # Not every identity has to be renamed; the rest keep the name they had.
+            name = entry.identity_name
+        else:
+            name = sanitize_identity_name(str(override))
+            if name != str(override).strip():
+                logger.warning(
+                    "Identity name %r is not usable as an NWB container name; using %r instead",
+                    override,
+                    name,
+                )
+            logger.info("Renaming identity %s to %s", entry.identity_name, name)
+        names.append(name)
+        if metadata:
+            subjects[name] = metadata
+
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(
+            f"Identity names must be unique, but {', '.join(repr(d) for d in duplicates)} "
+            f"is used more than once: {names}. Check the 'name' fields in --subjects."
+        )
+
+    return dataclasses.replace(data, external_ids=names, subjects=subjects or None)
+
+
 def pose_to_pose_data(
     pose: PoseEstimation,
     subjects: dict[str, dict] | None = None,
@@ -113,8 +183,10 @@ def pose_to_pose_data(
     Args:
         pose: A loaded PoseEstimation object (any version).
         subjects: Optional per-animal biological metadata, keyed by identity
-            name (matching external_identities values).  Passed through
-            directly to PoseData.subjects.
+            name (matching external_identities values, or "subject_1",
+            "subject_2", ... when the pose file has none).  Passed through to
+            PoseData.subjects, except for a ``name`` field, which renames the
+            identity it belongs to - see :func:`_apply_identity_names`.
 
     Returns:
         A PoseData instance ready for NWB export.
@@ -158,19 +230,21 @@ def pose_to_pose_data(
     if hdf5_attributes:
         metadata["hdf5_attributes"] = hdf5_attributes
 
-    return PoseData(
-        points=points_array,
-        point_mask=point_mask_array,
-        identity_mask=identity_mask_array,
-        body_parts=body_parts,
-        edges=edges,
-        fps=pose.fps,
-        cm_per_pixel=cm_per_pixel,
-        bounding_boxes=bounding_boxes,
-        static_objects=static_objects,
-        external_ids=external_ids,
-        subjects=subjects,
-        metadata=metadata,
+    return _apply_identity_names(
+        PoseData(
+            points=points_array,
+            point_mask=point_mask_array,
+            identity_mask=identity_mask_array,
+            body_parts=body_parts,
+            edges=edges,
+            fps=pose.fps,
+            cm_per_pixel=cm_per_pixel,
+            bounding_boxes=bounding_boxes,
+            static_objects=static_objects,
+            external_ids=external_ids,
+            subjects=subjects,
+            metadata=metadata,
+        )
     )
 
 

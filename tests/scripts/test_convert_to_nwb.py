@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import logging
 from unittest import mock
 
 import h5py
@@ -15,6 +16,7 @@ from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
     _parse_session_start_time,
+    pose_to_pose_data,
     run_conversion,
 )
 
@@ -300,3 +302,115 @@ def test_collect_hdf5_attributes_is_json_serializable(tmp_path):
 
     # Should not raise; round-trips back to the same structure.
     assert json.loads(json.dumps(collected)) == collected
+
+
+# --- identity renaming via the subjects file ------------------------------------------
+
+
+def _renaming_pose(num_identities=1, external_ids=None):
+    """A minimal fake pose whose identities are unnamed unless external_ids is given."""
+    pose = mock.Mock(
+        num_frames=4,
+        fps=30,
+        identities=list(range(num_identities)),
+        cm_per_pixel=None,
+        static_objects={},
+        external_identities=external_ids,
+        pose_file="/tmp/sample_pose_est_v6.h5",
+        hash=None,
+    )
+    pose.get_identity_poses.return_value = (
+        np.zeros((4, 12, 2)),
+        np.ones((4, 12), dtype=bool),
+    )
+    pose.identity_mask.return_value = np.ones(4, dtype=bool)
+    pose.get_connected_segments.return_value = []
+    pose.get_bounding_boxes.return_value = None
+    return pose
+
+
+def test_name_renames_the_identity(monkeypatch):
+    """A 'name' in the subject entry becomes the identity name, not just the subject_id.
+
+    The identity name is what names the NWB container and the per-identity output file,
+    which subject_id cannot reach.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "NV1-B2A", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids == ["NV1-B2A"]
+    # re-keyed, or the writer would look up "NV1-B2A" and find nothing
+    assert set(data.subjects) == {"NV1-B2A"}
+    # 'name' is not a Subject field and must not reach the output metadata
+    assert "name" not in data.subjects["NV1-B2A"]
+    assert data.subjects["NV1-B2A"]["species"] == "Mus musculus"
+
+
+def test_without_name_nothing_changes(monkeypatch):
+    """Subjects with no 'name' leave external_ids alone, so identities stay subject_N."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids is None
+    assert set(data.subjects) == {"subject_1"}
+
+
+def test_partial_rename_keeps_the_other_identities(monkeypatch):
+    """Renaming one identity leaves the rest with the names they already had."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_2": {"name": "mouse_b", "species": "Mus musculus", "sex": "F"}}
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=3), subjects=subjects)
+
+    assert data.external_ids == ["subject_1", "mouse_b", "subject_3"]
+
+
+def test_name_is_sanitized_with_a_warning(monkeypatch, caplog):
+    """A name that is not a legal container name is sanitized, and the user is told."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "NV1/B2A", "species": "Mus musculus", "sex": "M"}}
+
+    with caplog.at_level(logging.WARNING):
+        data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids == ["NV1_B2A"]
+    assert "NV1_B2A" in caplog.text
+
+
+def test_duplicate_names_raise(monkeypatch):
+    """Two identities cannot share a name: it would collide in the container and filename."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "same", "species": "Mus musculus", "sex": "M"},
+        "subject_2": {"name": "same", "species": "Mus musculus", "sex": "F"},
+    }
+
+    with pytest.raises(ValueError, match="Identity names must be unique"):
+        pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+
+def test_name_overrides_a_pose_file_external_id(monkeypatch):
+    """A pose file's own external ID can be overridden too, keyed by that ID."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"orig_a": {"name": "renamed_a", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(external_ids=["orig_a"]), subjects=subjects)
+
+    assert data.external_ids == ["renamed_a"]
+    assert set(data.subjects) == {"renamed_a"}
