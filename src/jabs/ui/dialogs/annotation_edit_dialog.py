@@ -342,26 +342,13 @@ class AnnotationEditDialog(QDialog):
             # Close the dialog after emitting
             self.reject()
 
-    @staticmethod
-    def _is_tag_valid(tag: str) -> bool:
-        """Check if a tag is valid
-
-        Args:
-            tag: the tag string to validate
-        Returns:
-            True if valid, False otherwise
-        """
-        return 0 < len(tag) <= timeline_annotations.MAX_TAG_LEN and all(
-            c.isalnum() or c in "_-" for c in tag
-        )
-
     def _update_tag_label_style(self, tag: str) -> None:
         """Update the tag field style based on validity.
 
         Args:
             tag: the current tag text
         """
-        invalid = not self._is_tag_valid(tag)
+        invalid = not timeline_annotations.is_valid_tag(tag)
         self._tag_edit.setStyleSheet("" if not invalid else "color: red;")
         self._tag_edit.setToolTip(
             ""
@@ -371,6 +358,6 @@ class AnnotationEditDialog(QDialog):
 
     def _update_ok_button_state(self) -> None:
         """Enable or disable the OK button based on form validity."""
-        tag_valid = self._is_tag_valid(self._tag_edit.text())
+        tag_valid = timeline_annotations.is_valid_tag(self._tag_edit.text())
         color_valid = self._color.isValid()
         self._ok_button.setEnabled(tag_valid and color_valid)
