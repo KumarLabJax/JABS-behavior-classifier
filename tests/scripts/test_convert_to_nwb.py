@@ -403,6 +403,52 @@ def test_duplicate_names_raise(monkeypatch):
         pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
 
 
+def test_rename_keeps_keys_that_match_no_identity(monkeypatch):
+    """A typo'd key must survive the rename so validate_subjects can still report it.
+
+    Rebuilding subjects from the resolved metadata would drop it, and the user would see
+    only an unexplained "species is missing" for the identity it was meant for.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "mouse_a", "species": "Mus musculus", "sex": "M"},
+        "subejct_2": {"species": "Mus musculus", "sex": "F"},  # typo, matches nothing
+    }
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+    assert set(data.subjects) == {"mouse_a", "subejct_2"}
+
+
+def test_name_equal_to_the_existing_name_is_stripped(monkeypatch):
+    """A no-op rename still has to have 'name' removed; it is not a Subject field."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "subject_1", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids == ["subject_1"]
+    assert "name" not in data.subjects["subject_1"]
+
+
+def test_rename_onto_an_unrelated_key_raises(monkeypatch):
+    """Renaming onto a key that belongs to something else would discard one of them."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "mouse_b", "species": "Mus musculus", "sex": "M"},
+        "mouse_b": {"species": "Mus musculus", "sex": "F"},
+    }
+
+    with pytest.raises(ValueError, match="collides with the --subjects key"):
+        pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+
 def test_name_overrides_a_pose_file_external_id(monkeypatch):
     """A pose file's own external ID can be overridden too, keyed by that ID."""
     monkeypatch.setattr(

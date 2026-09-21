@@ -1,5 +1,6 @@
 """Convert a JABS pose estimation file (any version) to NWB format."""
 
+import collections
 import dataclasses
 import datetime
 import logging
@@ -131,39 +132,56 @@ def _apply_identity_names(data: PoseData) -> PoseData:
         ``external_ids`` and ``subjects`` updated.
 
     Raises:
-        ValueError: If the resulting identity names are not unique.
+        ValueError: If the resulting identity names are not unique, or if a new name
+            collides with a ``subjects`` key belonging to something else.
     """
     resolved = resolve_identity_subjects(data)
     if not any(not subject_value_is_absent(e.metadata.get(_IDENTITY_NAME_KEY)) for e in resolved):
         return data
 
+    # Resolve every name before touching subjects, so two identities renamed to the same
+    # thing are reported as the duplicate they are rather than as a key collision.
     names: list[str] = []
-    subjects: dict[str, dict] = {}
     for entry in resolved:
-        metadata = {k: v for k, v in entry.metadata.items() if k != _IDENTITY_NAME_KEY}
         override = entry.metadata.get(_IDENTITY_NAME_KEY)
         if subject_value_is_absent(override):
             # Not every identity has to be renamed; the rest keep the name they had.
-            name = entry.identity_name
-        else:
-            name = sanitize_identity_name(str(override))
-            if name != str(override).strip():
-                logger.warning(
-                    "Identity name %r is not usable as an NWB container name; using %r instead",
-                    override,
-                    name,
-                )
-            logger.info("Renaming identity %s to %s", entry.identity_name, name)
+            names.append(entry.identity_name)
+            continue
+        name = sanitize_identity_name(str(override))
+        if name != str(override).strip():
+            logger.warning(
+                "Identity name %r is not usable as an NWB container name; using %r instead",
+                override,
+                name,
+            )
+        logger.info("Renaming identity %s to %s", entry.identity_name, name)
         names.append(name)
-        if metadata:
-            subjects[name] = metadata
 
-    duplicates = sorted({n for n in names if names.count(n) > 1})
+    duplicates = sorted(n for n, count in collections.Counter(names).items() if count > 1)
     if duplicates:
         raise ValueError(
             f"Identity names must be unique, but {', '.join(repr(d) for d in duplicates)} "
             f"is used more than once: {names}. Check the 'name' fields in --subjects."
         )
+
+    # Re-key in place rather than rebuilding from the resolved metadata: a key that
+    # matches no identity has to survive, or validate_subjects can no longer report it
+    # and a typo'd key becomes an unexplained "species is missing".
+    subjects: dict[str, dict] = dict(data.subjects or {})
+    for entry, name in zip(resolved, names, strict=True):
+        # Keyed on whether a name was supplied, not on whether it differs: an override
+        # equal to the existing name still has to have the key stripped out of it.
+        if subject_value_is_absent(entry.metadata.get(_IDENTITY_NAME_KEY)):
+            continue
+        metadata = subjects.pop(entry.matched_key) if entry.matched_key is not None else {}
+        if name in subjects:
+            raise ValueError(
+                f"Renaming identity {entry.identity_name!r} to {name!r} collides with the "
+                f"--subjects key {name!r}, which would discard one of them. Rename the "
+                "identity to something else, or drop the conflicting key."
+            )
+        subjects[name] = {k: v for k, v in metadata.items() if k != _IDENTITY_NAME_KEY}
 
     return dataclasses.replace(data, external_ids=names, subjects=subjects or None)
 
