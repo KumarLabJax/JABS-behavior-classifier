@@ -548,12 +548,15 @@ JABS flips them to `(x, y)` before writing NWB.
 The following data present in JABS pose HDF5 files is **not** included in the NWB
 output:
 
-| Data                        | Pose version   | HDF5 location               | Notes                                           |
-|-----------------------------|----------------|-----------------------------|-------------------------------------------------|
-| Instance segmentation masks | v6+            | `poseest/seg_data`          | Per-frame per-identity binary or instance masks |
-| Long-term segmentation IDs  | v6+            | `poseest/longterm_seg_id`   | Identity tracking via segmentation              |
-| Instance segmentation IDs   | v6+            | `poseest/instance_seg_id`   | Frame-level instance assignments                |
-| Segmentation external flags | v6+            | `poseest/seg_external_flag` | Internal/external identity classification       |
+| Data                       | Pose version | HDF5 location             | Notes                                 |
+|----------------------------|--------------|---------------------------|---------------------------------------|
+| Long-term segmentation IDs | v6+          | `poseest/longterm_seg_id` | Identity tracking via segmentation    |
+| Instance segmentation IDs  | v6+          | `poseest/instance_seg_id` | Frame-level instance assignments      |
 
-There is no standard NWB or ndx-pose representation for instance segmentation masks.
-If you need this data downstream, read it directly from the source JABS pose HDF5 file.
+These two datasets are how JABS assigns each raw segmentation to an identity. The NWB
+export applies that assignment and writes one identity's contours per `PoseEstimation`
+container, so the mapping is already resolved and the raw IDs would add nothing.
+
+Instance segmentation contours (`poseest/seg_data`) and their internal/external flags
+(`poseest/seg_external_flag`) **are** exported, as an ndx-pose `ContourSeries`. See
+[NWB Export — Segmentation contours](nwb-export.md#segmentation-contours-optional).

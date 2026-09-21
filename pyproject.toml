@@ -77,6 +77,11 @@ constraint-dependencies = [
 jabs-behavior = { workspace = true }
 jabs-io = { workspace = true }
 jabs-core = { workspace = true }
+# Temporary git source for ndx-pose. The NWB segmentation export needs the ContourSeries
+# neurodata type, which is proposed upstream in rly/ndx-pose#67 and not in any release yet.
+# Drop this entry and let ndx-pose resolve from PyPI once that lands in a release; the
+# requirement in packages/jabs-io/pyproject.toml is already the >=0.4.0 that will carry it.
+ndx-pose = { git = "https://github.com/KumarLabJax/ndx-pose", branch = "feature/contour-series" }
 
 [dependency-groups]
 dev = [
