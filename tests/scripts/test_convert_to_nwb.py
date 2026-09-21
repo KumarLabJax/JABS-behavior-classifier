@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
+from jabs.io.internal.pose import resolve_identity_subjects
 from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
@@ -401,6 +402,49 @@ def test_duplicate_names_raise(monkeypatch):
 
     with pytest.raises(ValueError, match="Identity names must be unique"):
         pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+
+def test_rename_preserves_raw_external_ids_of_other_identities(monkeypatch):
+    """Renaming one identity must not re-key the others to their sanitized names.
+
+    The writer looks subjects up by the raw external ID first, so writing the sanitized
+    form back to external_ids would orphan metadata keyed by an ID that needed
+    sanitizing - and only when some *other* identity happens to be renamed.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "mouse/a": {"species": "Mus musculus", "sex": "M"},
+        "mouse/b": {"name": "renamed_b", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(
+        _renaming_pose(num_identities=2, external_ids=["mouse/a", "mouse/b"]),
+        subjects=subjects,
+    )
+
+    # the untouched identity keeps its raw ID, the renamed one takes the new name
+    assert data.external_ids == ["mouse/a", "renamed_b"]
+    resolved = resolve_identity_subjects(data)
+    assert [e.matched_key for e in resolved] == ["mouse/a", "renamed_b"]
+    assert all(e.metadata.get("species") == "Mus musculus" for e in resolved)
+
+
+def test_rename_colliding_after_sanitization_raises(monkeypatch):
+    """Two ids that differ only in sanitized-away characters collide as container names."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "mouse/a": {"species": "Mus musculus", "sex": "M"},
+        "z": {"name": "mouse_a", "species": "Mus musculus", "sex": "F"},
+    }
+
+    with pytest.raises(ValueError, match="Identity names must be unique"):
+        pose_to_pose_data(
+            _renaming_pose(num_identities=2, external_ids=["mouse/a", "z"]), subjects=subjects
+        )
 
 
 def test_rename_keeps_keys_that_match_no_identity(monkeypatch):

@@ -145,8 +145,11 @@ def _apply_identity_names(data: PoseData) -> PoseData:
     for entry in resolved:
         override = entry.metadata.get(_IDENTITY_NAME_KEY)
         if subject_value_is_absent(override):
-            # Not every identity has to be renamed; the rest keep the name they had.
-            names.append(entry.identity_name)
+            # Not every identity has to be renamed; the rest keep the id they had. That
+            # is lookup_keys[0], the *raw* external ID, not the sanitized container name:
+            # the writer looks subjects up by the raw ID first, so writing the sanitized
+            # form back would orphan metadata keyed by an ID that needed sanitizing.
+            names.append(entry.lookup_keys[0])
             continue
         name = sanitize_identity_name(str(override))
         if name != str(override).strip():
@@ -158,11 +161,17 @@ def _apply_identity_names(data: PoseData) -> PoseData:
         logger.info("Renaming identity %s to %s", entry.identity_name, name)
         names.append(name)
 
-    duplicates = sorted(n for n, count in collections.Counter(names).items() if count > 1)
+    # Compare the container names the writer will derive, not the ids themselves: two
+    # ids that differ only in characters sanitization strips would collide there.
+    container_names = [sanitize_identity_name(n) for n in names]
+    duplicates = sorted(
+        n for n, count in collections.Counter(container_names).items() if count > 1
+    )
     if duplicates:
         raise ValueError(
             f"Identity names must be unique, but {', '.join(repr(d) for d in duplicates)} "
-            f"is used more than once: {names}. Check the 'name' fields in --subjects."
+            f"is used more than once: {container_names}. "
+            "Check the 'name' fields in --subjects."
         )
 
     # Re-key in place rather than rebuilding from the resolved metadata: a key that
