@@ -1509,3 +1509,56 @@ def test_build_summary_buckets_rather_than_rescanning(monkeypatch: pytest.Monkey
     assert raw["videos"]["a.mp4"]["identities"]["1"]["frames"]["false_negative"] == 1
     # the overall block is the sum of the per-video blocks
     assert raw["overall"]["frames"]["true_positive"] == 2 + 2
+
+
+def test_sweep_legend_explains_a_star_that_is_not_on_the_top_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The star marks one global choice, drawn in every table.
+
+    It is picked by the strictest criterion, so in a table sorted by a
+    different criterion it can land below the top row. That reads as a bug
+    unless the legend says so, which is what this pins.
+    """
+    from rich.console import Console
+
+    _fake_project(
+        monkeypatch,
+        {
+            "a.mp4": {
+                "truth": {0: [0] * 14},
+                "predicted": {0: [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0]},
+            }
+        },
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    console = Console(width=160, record=True)
+    evaluate_report.print_console_report(result, console, per_video=False)
+    text = console.export_text()
+
+    # every table says what it is sorted by, on one line (Rich wraps a long title
+    # to the table width, which is why the explanation lives in the note instead)
+    assert text.count("(sorted by bout F1)") == len(result.criteria)
+    for line in text.splitlines():
+        if "Postprocessing sweep -" in line:
+            assert line.rstrip().endswith("(sorted by bout F1)"), f"title wrapped: {line!r}"
+    # and no table claims the star marks that table's best
+    assert "* = best" not in text
+    # the legend explains the star, names the deciding criterion, and warns about the row
+    assert "* marks the one combination" in text
+    assert result.criteria[-1] in text
+    assert "not necessarily the top row" in text
+
+
+def test_sweep_markdown_legend_matches_the_console(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The written report carries the same explanation."""
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+    text = render_markdown(result, datetime(2026, 9, 22))
+
+    assert "sorted by bout F1 under its own" in text
+    assert "not necessarily the top row" in text
+    assert "marking the best" not in text

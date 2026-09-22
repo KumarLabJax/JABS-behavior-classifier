@@ -186,7 +186,9 @@ def print_sweep_tables(result: EvaluationResult, console: Console) -> None:
     headers = _sweep_headers(result)
     for criterion in result.criteria:
         table = Table(
-            title=f"Postprocessing sweep - {criterion} (sorted by bout F1, * = best)",
+            # kept short so Rich does not wrap it to the table width; the note printed
+            # below both tables carries the rest
+            title=f"Postprocessing sweep - {criterion} (sorted by bout F1)",
             title_justify="left",
         )
         for index, heading in enumerate(headers):
@@ -199,9 +201,10 @@ def print_sweep_tables(result: EvaluationResult, console: Console) -> None:
         console.print()
 
     console.print(
-        "[dim]Ranked by bout F1 under "
-        f"{result.criteria[-1]}, the strictest criterion; frame F1 breaks ties. "
-        "The detailed tables below cover the raw predictions and the best combination.[/dim]"
+        "[dim]Each table is sorted by bout F1 under its own criterion. * marks the one "
+        "combination the detailed tables below describe, chosen by bout F1 under "
+        f"{result.criteria[-1]} (the strictest criterion) with frame F1 breaking ties - so "
+        "it is not necessarily the top row of every table.[/dim]"
     )
     console.print()
 
@@ -518,8 +521,10 @@ def render_markdown(result: EvaluationResult, timestamp: datetime) -> str:
         lines.append("")
         lines.append(
             f"{len(result.sweep_stages)} parameter combination(s), all applied to a single "
-            "classification pass. Ranked by bout F1 under "
-            f"`{result.criteria[-1]}`, the strictest criterion, with `*` marking the best."
+            "classification pass. Each table below is sorted by bout F1 under its own "
+            "criterion. `*` marks the one combination the detailed sections describe, chosen "
+            f"by bout F1 under `{result.criteria[-1]}` (the strictest criterion) with frame F1 "
+            "breaking ties - so it is not necessarily the top row of every table."
         )
         lines.append("")
         for criterion in result.criteria:
