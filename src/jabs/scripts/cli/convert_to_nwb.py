@@ -128,17 +128,21 @@ def _name_override(entry) -> object:
 
 
 def _apply_identity_names(data: PoseData) -> PoseData:
-    """Rename identities from the ``name`` field of their subject metadata.
+    """Name identities from the ``name`` field of their subject metadata.
 
     A pose file without external identities leaves its animals called ``subject_1``,
     ``subject_2``, ... , which names the NWB container, the per-identity output file and
     the bounding box series. ``subject_id`` cannot change any of those - it only labels
-    the Subject - so a ``name`` in the subject entry sets the identity name instead.
+    the Subject - so a ``name`` in the subject entry sets the identity name instead. This
+    is chiefly how a pose file that has no external identities gets them; a file that
+    already carries them normally keeps what it has.
 
-    The rename is applied by filling ``external_ids``, which is what the writer reads the
-    identity name from, so nothing downstream needs to know this happened. ``subjects`` is
-    re-keyed to match: the writer looks metadata up by identity name, so leaving the old
-    key in place would orphan the metadata the rename was attached to.
+    The name is applied by filling ``external_ids``, which is both what the writer reads
+    the identity name from and where the name is recorded for a reader to restore, so
+    nothing downstream needs to know this happened. An identity left unnamed keeps the id
+    it already had, which for such a file is its ``subject_N`` placeholder. ``subjects``
+    is re-keyed to match: the writer looks metadata up by identity name, so leaving the
+    old key in place would orphan the metadata the name was attached to.
 
     Args:
         data: Pose data whose ``subjects`` may carry ``name`` overrides.
