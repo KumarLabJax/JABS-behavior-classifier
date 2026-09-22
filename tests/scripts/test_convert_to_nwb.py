@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import logging
 from unittest import mock
 
 import h5py
@@ -11,12 +12,15 @@ from click.testing import CliRunner
 
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
+from jabs.io.internal.pose import resolve_identity_subjects
 from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
     _parse_session_start_time,
+    pose_to_pose_data,
     run_conversion,
 )
+from jabs.scripts.cli.dandi_subject_metadata import validate_subjects
 
 
 def test_parse_utc_offset():
@@ -300,3 +304,289 @@ def test_collect_hdf5_attributes_is_json_serializable(tmp_path):
 
     # Should not raise; round-trips back to the same structure.
     assert json.loads(json.dumps(collected)) == collected
+
+
+# --- identity renaming via the subjects file ------------------------------------------
+
+
+def _renaming_pose(num_identities=1, external_ids=None):
+    """A minimal fake pose whose identities are unnamed unless external_ids is given."""
+    pose = mock.Mock(
+        num_frames=4,
+        fps=30,
+        identities=list(range(num_identities)),
+        cm_per_pixel=None,
+        static_objects={},
+        external_identities=external_ids,
+        pose_file="/tmp/sample_pose_est_v6.h5",
+        hash=None,
+    )
+    pose.get_identity_poses.return_value = (
+        np.zeros((4, 12, 2)),
+        np.ones((4, 12), dtype=bool),
+    )
+    pose.identity_mask.return_value = np.ones(4, dtype=bool)
+    pose.get_connected_segments.return_value = []
+    pose.get_bounding_boxes.return_value = None
+    return pose
+
+
+def test_name_renames_the_identity(monkeypatch):
+    """A 'name' in the subject entry becomes the identity name, not just the subject_id.
+
+    The identity name is what names the NWB container and the per-identity output file,
+    which subject_id cannot reach.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "NV1-B2A", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids == ["NV1-B2A"]
+    # re-keyed, or the writer would look up "NV1-B2A" and find nothing
+    assert set(data.subjects) == {"NV1-B2A"}
+    # 'name' is not a Subject field and must not reach the output metadata
+    assert "name" not in data.subjects["NV1-B2A"]
+    assert data.subjects["NV1-B2A"]["species"] == "Mus musculus"
+
+
+def test_without_name_nothing_changes(monkeypatch):
+    """Subjects with no 'name' leave external_ids alone, so identities stay subject_N."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids is None
+    assert set(data.subjects) == {"subject_1"}
+
+
+def test_partial_rename_keeps_the_other_identities(monkeypatch):
+    """Renaming one identity leaves the rest with the names they already had."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_2": {"name": "mouse_b", "species": "Mus musculus", "sex": "F"}}
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=3), subjects=subjects)
+
+    assert data.external_ids == ["subject_1", "mouse_b", "subject_3"]
+
+
+def test_name_is_sanitized_with_a_warning(monkeypatch, caplog):
+    """A name that is not a legal container name is sanitized, and the user is told."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "NV1/B2A", "species": "Mus musculus", "sex": "M"}}
+
+    with caplog.at_level(logging.WARNING):
+        data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids == ["NV1_B2A"]
+    assert "NV1_B2A" in caplog.text
+
+
+def test_duplicate_names_raise(monkeypatch):
+    """Two identities cannot share a name: it would collide in the container and filename."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "same", "species": "Mus musculus", "sex": "M"},
+        "subject_2": {"name": "same", "species": "Mus musculus", "sex": "F"},
+    }
+
+    with pytest.raises(ValueError, match="Identity names must be unique"):
+        pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+
+def test_rename_preserves_raw_external_ids_of_other_identities(monkeypatch):
+    """Renaming one identity must not re-key the others to their sanitized names.
+
+    The writer looks subjects up by the raw external ID first, so writing the sanitized
+    form back to external_ids would orphan metadata keyed by an ID that needed
+    sanitizing - and only when some *other* identity happens to be renamed.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "mouse/a": {"species": "Mus musculus", "sex": "M"},
+        "mouse/b": {"name": "renamed_b", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(
+        _renaming_pose(num_identities=2, external_ids=["mouse/a", "mouse/b"]),
+        subjects=subjects,
+    )
+
+    # the untouched identity keeps its raw ID, the renamed one takes the new name
+    assert data.external_ids == ["mouse/a", "renamed_b"]
+    resolved = resolve_identity_subjects(data)
+    assert [e.matched_key for e in resolved] == ["mouse/a", "renamed_b"]
+    assert all(e.metadata.get("species") == "Mus musculus" for e in resolved)
+
+
+def test_rename_colliding_after_sanitization_raises(monkeypatch):
+    """Two ids that differ only in sanitized-away characters collide as container names."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "mouse/a": {"species": "Mus musculus", "sex": "M"},
+        "z": {"name": "mouse_a", "species": "Mus musculus", "sex": "F"},
+    }
+
+    with pytest.raises(ValueError, match="Identity names must be unique"):
+        pose_to_pose_data(
+            _renaming_pose(num_identities=2, external_ids=["mouse/a", "z"]), subjects=subjects
+        )
+
+
+def test_non_dict_subject_entry_is_left_for_validation(monkeypatch):
+    """A non-dict entry must reach subject_metadata_problems, not crash before it.
+
+    The CLI only checks that the top level of the subjects JSON is an object, so the
+    per-identity check lives in validation - which never runs if the rename raises an
+    AttributeError on the way past.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": "M123",  # a string where an object belongs
+        "subject_2": {"name": "mouse_b", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+    with pytest.raises(ValueError, match="metadata must be a JSON object, got str"):
+        validate_subjects(data)
+
+
+def test_two_identities_can_swap_names(monkeypatch):
+    """Swapping two names is legitimate; the collision check must not reject it.
+
+    Popping as we insert would test the second name against a key that is itself about
+    to move, making the outcome depend on the order the entries happen to be processed.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "a": {"name": "b", "species": "Mus musculus", "sex": "M"},
+        "b": {"name": "a", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(
+        _renaming_pose(num_identities=2, external_ids=["a", "b"]), subjects=subjects
+    )
+
+    assert data.external_ids == ["b", "a"]
+    assert data.subjects["b"]["sex"] == "M"
+    assert data.subjects["a"]["sex"] == "F"
+
+
+@pytest.mark.parametrize("value", [["NV1-B2A"], 0, False, 3.5], ids=str)
+def test_non_string_name_is_rejected(monkeypatch, value):
+    """str() would coerce these into plausible container names and write real files."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": value, "species": "Mus musculus", "sex": "M"}}
+
+    with pytest.raises(ValueError, match="must be a string"):
+        pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+
+def test_blank_name_is_stripped_alongside_a_real_rename(monkeypatch):
+    """A blank name renames nothing, but must not survive into the output metadata."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "", "species": "Mus musculus", "sex": "M"},
+        "subject_2": {"name": "mouse_b", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+    assert "name" not in data.subjects["subject_1"]
+    assert data.external_ids == ["subject_1", "mouse_b"]
+
+
+def test_blank_name_alone_is_stripped_and_renames_nothing(monkeypatch):
+    """The only 'name' being blank must still strip it, without inventing external_ids."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert "name" not in data.subjects["subject_1"]
+    assert data.external_ids is None
+
+
+def test_rename_keeps_keys_that_match_no_identity(monkeypatch):
+    """A typo'd key must survive the rename so validate_subjects can still report it.
+
+    Rebuilding subjects from the resolved metadata would drop it, and the user would see
+    only an unexplained "species is missing" for the identity it was meant for.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "mouse_a", "species": "Mus musculus", "sex": "M"},
+        "subejct_2": {"species": "Mus musculus", "sex": "F"},  # typo, matches nothing
+    }
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+    assert set(data.subjects) == {"mouse_a", "subejct_2"}
+
+
+def test_name_equal_to_the_existing_name_is_stripped(monkeypatch):
+    """A no-op rename still has to have 'name' removed; it is not a Subject field."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "subject_1", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert data.external_ids == ["subject_1"]
+    assert "name" not in data.subjects["subject_1"]
+
+
+def test_rename_onto_an_unrelated_key_raises(monkeypatch):
+    """Renaming onto a key that belongs to something else would discard one of them."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "mouse_b", "species": "Mus musculus", "sex": "M"},
+        "mouse_b": {"species": "Mus musculus", "sex": "F"},
+    }
+
+    with pytest.raises(ValueError, match="collides with the --subjects key"):
+        pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+
+def test_name_overrides_a_pose_file_external_id(monkeypatch):
+    """A pose file's own external ID can be overridden too, keyed by that ID."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"orig_a": {"name": "renamed_a", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(external_ids=["orig_a"]), subjects=subjects)
+
+    assert data.external_ids == ["renamed_a"]
+    assert set(data.subjects) == {"renamed_a"}

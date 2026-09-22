@@ -1253,26 +1253,37 @@ class PoseNWBAdapter(Adapter):
         return meta
 
     @staticmethod
-    def _sanitize_identity_name(name: str) -> str:
-        """Sanitize an external ID for use as an NWB/HDF5 container name.
-
-        Strips leading/trailing whitespace and replaces any character that is
-        not alphanumeric, underscore, or hyphen with an underscore.
-        """
-        name = name.strip()
-        if not name:
-            raise ValueError("Identity name cannot be empty or whitespace-only")
-        return re.sub(r"[^A-Za-z0-9_\-]", "_", name)
-
-    @staticmethod
     def _identity_name(data: PoseData, index: int) -> str:
         if data.external_ids is not None:
-            return PoseNWBAdapter._sanitize_identity_name(data.external_ids[index])
+            return sanitize_identity_name(data.external_ids[index])
         return f"subject_{index + 1}"
 
     @staticmethod
     def _identity_file_path(base_path: Path, identity_name: str) -> Path:
         return base_path.with_stem(f"{base_path.stem}_{identity_name}")
+
+
+def sanitize_identity_name(name: str) -> str:
+    """Sanitize an external ID for use as an NWB/HDF5 container name.
+
+    Strips leading/trailing whitespace and replaces any character that is not
+    alphanumeric, underscore, or hyphen with an underscore. Public so a caller
+    choosing identity names can predict the name the writer will give a container,
+    rather than reimplementing this and drifting from it.
+
+    Args:
+        name: The external ID to sanitize.
+
+    Returns:
+        The sanitized name.
+
+    Raises:
+        ValueError: If the name is empty or whitespace-only.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("Identity name cannot be empty or whitespace-only")
+    return re.sub(r"[^A-Za-z0-9_\-]", "_", name)
 
 
 def subject_value_is_absent(value: object) -> bool:

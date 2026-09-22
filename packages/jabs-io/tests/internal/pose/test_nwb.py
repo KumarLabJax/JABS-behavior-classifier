@@ -25,7 +25,7 @@ from pynwb import NWBHDF5IO
 from jabs.core.abstract.pose_est import PoseEstimation as JABSPoseEst
 from jabs.core.enums import StorageFormat
 from jabs.core.types import DynamicObjectData, PoseData
-from jabs.io.internal.pose.nwb import PoseNWBAdapter
+from jabs.io.internal.pose.nwb import PoseNWBAdapter, sanitize_identity_name
 from jabs.io.registry import get_adapter
 
 
@@ -710,39 +710,39 @@ def test_can_handle():
 
 def test_sanitize_identity_name_alphanumeric():
     """Alphanumeric names and underscores/hyphens pass through unchanged."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse_A-1") == "mouse_A-1"
+    assert sanitize_identity_name("mouse_A-1") == "mouse_A-1"
 
 
 def test_sanitize_identity_name_slash():
     """Forward slash is replaced with underscore."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse/A") == "mouse_A"
+    assert sanitize_identity_name("mouse/A") == "mouse_A"
 
 
 def test_sanitize_identity_name_space():
     """Spaces within a name are replaced with underscores."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse A") == "mouse_A"
+    assert sanitize_identity_name("mouse A") == "mouse_A"
 
 
 def test_sanitize_identity_name_strips_whitespace():
     """Leading and trailing whitespace is stripped before substitution."""
-    assert PoseNWBAdapter._sanitize_identity_name("  mouse  ") == "mouse"
+    assert sanitize_identity_name("  mouse  ") == "mouse"
 
 
 def test_sanitize_identity_name_special_chars():
     """Dots, colons, and other special characters are replaced with underscores."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse.A:1") == "mouse_A_1"
+    assert sanitize_identity_name("mouse.A:1") == "mouse_A_1"
 
 
 def test_sanitize_identity_name_empty_raises():
     """Empty string raises ValueError."""
     with pytest.raises(ValueError, match="empty"):
-        PoseNWBAdapter._sanitize_identity_name("")
+        sanitize_identity_name("")
 
 
 def test_sanitize_identity_name_whitespace_only_raises():
     """Whitespace-only string raises ValueError after stripping."""
     with pytest.raises(ValueError, match="empty"):
-        PoseNWBAdapter._sanitize_identity_name("   ")
+        sanitize_identity_name("   ")
 
 
 def test_write_sanitizes_external_ids(tmp_path, adapter):

@@ -61,7 +61,10 @@ jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
 Pass a JSON file to `--subjects` to attach per-animal biological metadata to the NWB
 output. Keys are identity names: use external IDs from the pose file when present (e.g.
 `"mouse_a"`), or `subject_1`, `subject_2`, … (1-based) when the pose file has no external
-IDs.
+IDs. `subject_1` is identity index 0.
+
+An optional `name` field renames the identity — see
+[Naming identities](#naming-identities).
 
 !!! warning "`--subjects` is required"
     `species`, `sex`, and either `age` or `date_of_birth` are mandatory on every
@@ -98,6 +101,7 @@ IDs.
 
 | Field           | Type   | Notes                                                                                                                                                          |
 |-----------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`          | string | Renames the identity itself: the NWB container, the per-identity output filename, and the bounding box series. Defaults to the key. See [Naming identities](#naming-identities). |
 | `subject_id`    | string | Lab identifier for the animal. Defaults to the identity name when omitted or blank. Must not contain `/`, which breaks DANDI paths.                           |
 | `sex`           | string | **Required.** Exactly `"M"`, `"F"`, `"O"`, or `"U"` - case-sensitive, so `"male"` and `"m"` are both rejected. For *C. elegans*, `"XO"` or `"XX"` instead.      |
 | `species`       | string | **Required.** Latin binomial, e.g. `"Mus musculus"` - capitalized genus, lowercase epithet, so `"Mus Musculus"` and `"mouse"` are rejected. An NCBI taxonomy IRI such as `"http://purl.obolibrary.org/obo/NCBITaxon_10090"` is also accepted. |
@@ -120,6 +124,47 @@ which DANDI treats as blocking. It is not a substitute for the real thing - run
 ```bash
 nwbinspector session_subject_1.nwb --config dandi
 ```
+
+### Naming identities
+
+A pose file with no external identities leaves its animals called `subject_1`,
+`subject_2`, … . That name is not cosmetic — it names the `PoseEstimation` container, the
+per-identity output file (`{stem}_{identity_name}.nwb`) and the bounding box series.
+`subject_id` does **not** change any of them; it only labels the `Subject`.
+
+The `name` field supplies the external identity such a pose file is missing. A pose file
+that already carries `external_identities` normally keeps them, and needs none of this.
+
+To name an identity, give its entry a `name`:
+
+```json
+{
+  "subject_1": {
+    "name": "NV1-B2A",
+    "subject_id": "M123",
+    "species": "Mus musculus",
+    "sex": "M",
+    "age": "P70D"
+  }
+}
+```
+
+That writes `session_NV1-B2A.nwb` holding an `NV1-B2A` container, whose `Subject` is
+`M123`. Use the same `name` and `subject_id` if you want them to agree.
+
+- The key still identifies *which* identity you mean, so it stays `subject_1` (or the
+  pose file's external ID) even though the entry renames it.
+- Renaming some identities and not others is fine; the rest keep the names they had.
+- Names must be unique, and are sanitized for use as container names — any character
+  that is not alphanumeric, `_` or `-` becomes `_`, so `NV1/B2A` is stored as `NV1_B2A`
+  and a warning says so.
+- Whatever it resolves to is recorded as that identity's `external_ids` entry in
+  `jabs_metadata`, which is the field the reader restores identity names from. Identities
+  you leave unnamed keep their `subject_N` placeholder, and that placeholder is what
+  lands in `external_ids` for them.
+- A pose file that already has external identities *can* be renamed the same way, keyed
+  by the existing external ID, but normally you would leave those names alone.
+
 
 ---
 
@@ -282,8 +327,9 @@ session_subject_3.nwb   ← identity 2 + all objects
 the subject field directly without knowing anything about JABS.
 
 Identity names in the filenames come from `external_ids` in the pose file (sanitized
-for filesystem compatibility), or fall back to `subject_1`, `subject_2`, … when no
-external IDs are present. Static and dynamic objects are written to every per-identity
+for filesystem compatibility), or from the `name` field in `--subjects` when the pose
+file has none — see [Naming identities](#naming-identities) — falling back to
+`subject_1`, `subject_2`, … when neither supplies one. Static and dynamic objects are written to every per-identity
 file identically, since they are session-level data.
 
 #### Reading per-identity files
@@ -510,7 +556,7 @@ here; the JABS reader restores it from the canonical keypoint index.)
 | `identity_names`        | `list[str]`               | Always                       | Ordered list of animal identity container names. Defines identity order on read.                                                                                                                                    |
 | `num_identities`        | `int`                     | Always                       | Total number of animal identities in the recording session.                                                                                                                                                         |
 | `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                                          |
-| `external_ids`          | `list[str] \| null`       | Always                       | Original external identity names from the pose file. `null` if the pose file had no external IDs.                                                                                                                   |
+| `external_ids`          | `list[str] \| null`       | Always                       | External identity names: from the pose file when it has them, otherwise the ones supplied with the `name` field in `--subjects`. `null` if neither. Identities left unnamed take their `subject_N` placeholder. |
 | `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity subject metadata keyed by identity name, for all identities. `null` if no subject metadata is available. Fields: `subject_id`, `sex`, `species`, `age`, `date_of_birth`, `genotype`, `strain`, `weight`, `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. |
 | `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                                                                                      |
 | `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                                             |
