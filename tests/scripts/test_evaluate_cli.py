@@ -16,6 +16,7 @@ import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.cli.evaluate as evaluate_module
+import jabs.scripts.cli.evaluate_report as evaluate_report
 from jabs.behavior.evaluation import IoUCriterion, OverlapCriterion
 from jabs.classifier import MultiClassClassifier
 from jabs.scripts.cli.cli import cli
@@ -605,6 +606,11 @@ def _fake_project(
     return project
 
 
+def _plan(stage_config, behavior: str = "Grooming", **kwargs):
+    """Build a PostprocessingPlan the way the command does."""
+    return evaluate_module.build_postprocessing_plan(stage_config, behavior, **kwargs)
+
+
 def _run(**kwargs):
     """Invoke run_evaluation with the standard arguments."""
     defaults = {
@@ -613,7 +619,7 @@ def _run(**kwargs):
         "classifier_path": Path("/m.pickle"),
         "behavior": "Grooming",
         "criteria": CRITERIA,
-        "pipeline": None,
+        "plan": None,
         "feature_dir": None,
         "fps_override": 30,
         "collect_bout_records": False,
@@ -654,17 +660,13 @@ def test_run_evaluation_records_the_classifier_metadata(monkeypatch: pytest.Monk
 
 def test_run_evaluation_adds_a_postprocessed_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     """With a pipeline, both stages are evaluated and the filter actually bites."""
-    from jabs.behavior.postprocessing import PostprocessingPipeline
-
     # a 2-frame prediction blip against an all-not-behavior ground truth
     _fake_project(
         monkeypatch,
         {"a.mp4": {"truth": {0: [0] * 10}, "predicted": {0: [0, 0, 1, 1, 0, 0, 0, 0, 0, 0]}}},
     )
-    pipeline = PostprocessingPipeline(
-        [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}]
-    )
-    result = _run(pipeline=pipeline)
+    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}])
+    result = _run(plan=plan)
 
     assert result.stages == (RAW_STAGE, POSTPROCESSED_STAGE)
     assert result.postprocess_stages == ("BoutDurationFilterStage",)
@@ -888,8 +890,6 @@ def test_save_predictions_includes_postprocessed_when_a_pipeline_ran(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A saved file carries both raw and postprocessed, like jabs-cli postprocess writes."""
-    from jabs.behavior.postprocessing import PostprocessingPipeline
-
     _fake_project(
         monkeypatch,
         {"a.mp4": {"truth": {0: [0] * 10}, "predicted": {0: [0, 0, 1, 1, 0, 0, 0, 0, 0, 0]}}},
@@ -904,11 +904,9 @@ def test_save_predictions_includes_postprocessed_when_a_pipeline_ran(
             )
         ),
     )
-    pipeline = PostprocessingPipeline(
-        [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}]
-    )
+    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}])
 
-    _run(pipeline=pipeline, save_predictions_dir=tmp_path)
+    _run(plan=plan, save_predictions_dir=tmp_path)
 
     assert captured["post"] is not None
     assert captured["raw"][0].tolist() == [0, 0, 1, 1, 0, 0, 0, 0, 0, 0]
@@ -1094,3 +1092,295 @@ def test_accumulator_reports_whether_anything_was_added() -> None:
 
     accumulator.add(0, np.zeros(3, dtype=np.int8), np.zeros(3, dtype=np.float32), None)
     assert accumulator.has_predictions is True
+
+
+# -----------------------------------------------------------------------------
+# postprocessing sweep
+# -----------------------------------------------------------------------------
+
+_SWEEP_CONFIG = [
+    {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": [3, 5, 9]}}
+]
+
+
+def test_plan_for_a_scalar_config_is_not_a_sweep() -> None:
+    """A config valid for the other tools yields one postprocessed stage."""
+    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}])
+    assert plan.is_sweep is False
+    assert plan.stage_keys == [POSTPROCESSED_STAGE]
+    assert plan.labels == {POSTPROCESSED_STAGE: "Postprocessed"}
+
+
+def test_plan_for_a_swept_config_has_one_stage_per_combination() -> None:
+    """Stage keys are distinct so results stay separable."""
+    plan = _plan(_SWEEP_CONFIG)
+    assert plan.is_sweep is True
+    assert len(plan.pipelines) == 3
+    assert plan.stage_keys == ["sweep_0", "sweep_1", "sweep_2"]
+    assert list(plan.labels.values()) == [
+        "min_duration=3",
+        "min_duration=5",
+        "min_duration=9",
+    ]
+
+
+def test_plan_selects_the_behavior_from_a_dict_config() -> None:
+    """The dict form is what the sample Seizure config uses."""
+    plan = _plan({"Grooming": _SWEEP_CONFIG, "Rearing": []}, behavior="Grooming")
+    assert len(plan.pipelines) == 3
+
+
+def test_plan_reports_a_grid_over_the_ceiling_as_a_click_error() -> None:
+    """A ValueError from expansion must not escape as a traceback."""
+    with pytest.raises(Exception, match="above the limit of 2"):
+        _plan(_SWEEP_CONFIG, max_combinations=2)
+
+
+def test_plan_reports_a_bad_parameter_value_with_its_combination() -> None:
+    """Knowing which combination failed is the difference between fixable and not."""
+    config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": [5, -1]}}]
+    with pytest.raises(Exception, match=r"min_duration=-1.*positive integer"):
+        _plan(config)
+
+
+def test_sweep_evaluates_every_combination_on_one_classification_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole point of building this into evaluate: classify once."""
+    _fake_project(
+        monkeypatch,
+        {
+            "a.mp4": {
+                "truth": {0: [0] * 12},
+                "predicted": {0: [1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0]},
+            }
+        },
+    )
+    calls = []
+    real = evaluate_module._predict_identity
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(evaluate_module, "_predict_identity", counting)
+
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    assert len(calls) == 1, "classified more than once for a 3-point sweep"
+    assert result.stages == (RAW_STAGE, "sweep_0", "sweep_1", "sweep_2")
+    assert len(result.identity_results) == 4  # raw + 3 combinations
+
+
+def test_sweep_combinations_actually_differ(monkeypatch: pytest.MonkeyPatch) -> None:
+    """min_duration 3/5/9 must filter a 3-frame and a 5-frame bout differently."""
+    # bouts of 3 and 5 frames, both against all-not-behavior ground truth
+    _fake_project(
+        monkeypatch,
+        {
+            "a.mp4": {
+                "truth": {0: [0] * 14},
+                "predicted": {0: [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0]},
+            }
+        },
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    counts = {
+        result.label_for(stage): aggregate_bout_metrics(
+            result.for_stage(stage), OVERLAP.label
+        ).predicted_bouts
+        for stage in result.sweep_stages
+    }
+    assert counts["min_duration=3"] == 2  # both survive
+    assert counts["min_duration=5"] == 1  # the 3-frame bout is dropped
+    assert counts["min_duration=9"] == 0  # both dropped
+
+
+def test_sweep_records_axes_labels_and_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The report builds its columns from these."""
+    _fake_project(monkeypatch, {"a.mp4": {"truth": {0: [1, 0]}, "predicted": {0: [1, 0]}}})
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    assert result.is_sweep is True
+    assert result.sweep_axis_names == ("min_duration",)
+    assert result.sweep_values == {"sweep_0": (3,), "sweep_1": (5,), "sweep_2": (9,)}
+    assert result.label_for("sweep_1") == "min_duration=5"
+    assert result.label_for(RAW_STAGE) == "Raw"
+
+
+def test_sweep_picks_a_best_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One combination recovers the labeled bout; the others destroy it."""
+    # a 6-frame labeled bout, predicted as two 3-frame fragments
+    truth = [0, 1, 1, 1, 1, 1, 1, 0, 0, 0]
+    pred = [0, 1, 1, 1, 0, 1, 1, 0, 0, 0]
+    _fake_project(monkeypatch, {"a.mp4": {"truth": {0: truth}, "predicted": {0: pred}}})
+
+    # min_duration=9 wipes everything out; 3 keeps both fragments
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+    assert result.best_stage in result.sweep_stages
+    assert result.best_stage != "sweep_2"  # the one that deletes every bout
+
+
+def test_best_stage_is_none_without_a_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing to choose between, so the detail views show both stages."""
+    _fake_project(monkeypatch, {"a.mp4": {"truth": {0: [1, 0]}, "predicted": {0: [1, 0]}}})
+    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}])
+    result = _run(plan=plan)
+    assert result.best_stage is None
+    assert result.detail_stages == (RAW_STAGE, POSTPROCESSED_STAGE)
+
+
+def test_detail_stages_narrow_to_raw_and_best_for_a_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A full detail table per combination would be unreadable."""
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+    assert result.detail_stages == (RAW_STAGE, result.best_stage)
+    assert len(result.stages) == 4  # but every combination is still in the result
+
+
+def test_sweep_saves_raw_predictions_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A sweep has no single postprocessed array, so none is written."""
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    captured = {}
+    monkeypatch.setattr(
+        evaluate_module.PredictionManager,
+        "write_predictions",
+        staticmethod(
+            lambda beh, path, pred, prob, poses, clf, postprocessed_predictions=None, **k: (
+                captured.update(post=postprocessed_predictions)
+            )
+        ),
+    )
+
+    _run(plan=_plan(_SWEEP_CONFIG), save_predictions_dir=tmp_path)
+    assert captured["post"] is None
+
+
+def test_sweep_report_renders_a_table_per_criterion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both criteria get their own ranking, as elsewhere in this command."""
+    from rich.console import Console
+
+    _fake_project(
+        monkeypatch,
+        {
+            "a.mp4": {
+                "truth": {0: [0] * 14},
+                "predicted": {0: [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0]},
+            }
+        },
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    console = Console(width=140, record=True)
+    evaluate_report.print_console_report(result, console, per_video=False)
+    text = console.export_text()
+
+    assert "Postprocessing sweep" in text
+    assert OVERLAP.label in text
+    assert IOU.label in text
+    assert "min_duration" in text
+    for value in ("3", "5", "9"):
+        assert value in text
+
+
+def test_sweep_appears_in_the_json_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Machine-readable output carries every combination, not just the winner."""
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    summary = build_summary(result, datetime(2026, 9, 22))
+    json.dumps(summary)  # would raise on a numpy scalar
+
+    assert summary["sweep"]["axes"] == ["min_duration"]
+    assert summary["sweep"]["best_stage"] == result.best_stage
+    assert [c["values"] for c in summary["sweep"]["combinations"]] == [[3], [5], [9]]
+    assert set(summary["stages"]) == {RAW_STAGE, "sweep_0", "sweep_1", "sweep_2"}
+
+
+def test_json_summary_has_no_sweep_block_without_a_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-sweep run reports sweep as null rather than an empty grid."""
+    _fake_project(monkeypatch, {"a.mp4": {"truth": {0: [1, 0]}, "predicted": {0: [1, 0]}}})
+    result = _run(plan=None)
+    assert build_summary(result, datetime(2026, 9, 22))["sweep"] is None
+
+
+def test_sweep_markdown_report_has_a_sweep_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shared report needs the grid too, one table per criterion."""
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+    text = render_markdown(result, datetime(2026, 9, 22))
+    assert "## Postprocessing sweep" in text
+    assert f"### Sweep - {OVERLAP.label}" in text
+    assert f"### Sweep - {IOU.label}" in text
+
+
+def test_command_passes_the_combination_ceiling(wired, tmp_path: Path) -> None:
+    """--max-sweep-combinations reaches the plan builder."""
+    spy, _ = wired
+    captured = {}
+    # capture the real function before patching, or the wrapper recurses
+    real_builder = evaluate_module.build_postprocessing_plan
+
+    def fake_plan(config, behavior, max_combinations):
+        captured["max"] = max_combinations
+        return real_builder(config, behavior, max_combinations=max_combinations)
+
+    cfg = tmp_path / "pp.json"
+    cfg.write_text(json.dumps(_SWEEP_CONFIG))
+    with mock.patch.object(evaluate_module, "build_postprocessing_plan", side_effect=fake_plan):
+        result = _invoke(
+            tmp_path,
+            "--postprocess-config",
+            str(cfg),
+            "--max-sweep-combinations",
+            "7",
+        )
+    assert result.exit_code == 0, result.output
+    assert captured["max"] == 7
+
+
+def test_command_announces_the_sweep_size(wired, tmp_path: Path) -> None:
+    """The user should know a grid is running before it runs."""
+    cfg = tmp_path / "pp.json"
+    cfg.write_text(json.dumps(_SWEEP_CONFIG))
+    result = _invoke(tmp_path, "--postprocess-config", str(cfg))
+    assert result.exit_code == 0, result.output
+    assert "Sweeping 3 parameter combination" in result.output
+    assert "classified once" in result.output
+
+
+def test_command_warns_that_a_sweep_saves_raw_predictions_only(wired, tmp_path: Path) -> None:
+    """Silently writing only half of what was asked for would be worse."""
+    cfg = tmp_path / "pp.json"
+    cfg.write_text(json.dumps(_SWEEP_CONFIG))
+    result = _invoke(
+        tmp_path,
+        "--postprocess-config",
+        str(cfg),
+        "--save-predictions",
+        str(tmp_path / "preds"),
+    )
+    assert result.exit_code == 0, result.output
+    assert "raw predictions only" in result.output
+
+
+def test_command_rejects_an_oversized_grid(wired, tmp_path: Path) -> None:
+    """The ceiling is enforced before any classification happens."""
+    cfg = tmp_path / "pp.json"
+    cfg.write_text(json.dumps(_SWEEP_CONFIG))
+    result = _invoke(tmp_path, "--postprocess-config", str(cfg), "--max-sweep-combinations", "2")
+    assert result.exit_code != 0
+    assert "above the limit of 2" in result.output

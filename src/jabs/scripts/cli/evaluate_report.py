@@ -26,7 +26,6 @@ from .evaluate_results import (
     aggregate_bout_metrics,
     aggregate_frame_metrics,
     format_rate,
-    stage_label,
 )
 
 
@@ -120,6 +119,92 @@ def _bout_table(title: str) -> Table:
     return table
 
 
+def _sweep_rows(result: EvaluationResult, criterion: str) -> list[list[str]]:
+    """Build the sweep table rows for one match criterion, best first.
+
+    Args:
+        result: Evaluation holding the sweep stages.
+        criterion: Match-criterion label to score by.
+
+    Returns:
+        One row per combination: the axis values, then that criterion's bout
+        metrics. Sorted by bout F1 descending, with undefined F1 last.
+    """
+    scored = []
+    for stage in result.sweep_stages:
+        rows = result.for_stage(stage)
+        bouts = aggregate_bout_metrics(rows, criterion)
+        frames = aggregate_frame_metrics(rows)
+        scored.append((bouts.f1 if bouts.f1 is not None else -1.0, stage, bouts, frames))
+    scored.sort(key=lambda entry: entry[0], reverse=True)
+
+    rows_out: list[list[str]] = []
+    for _score, stage, bouts, frames in scored:
+        marker = " *" if stage == result.best_stage else ""
+        rows_out.append(
+            [
+                *(str(v) for v in result.sweep_values.get(stage, ())),
+                format_rate(bouts.f1) + marker,
+                format_rate(bouts.detection_rate),
+                format_rate(bouts.precision),
+                f"{bouts.fragmented_truth_bouts:,}",
+                f"{bouts.merged_predicted_bouts:,}",
+                format_rate(frames.f1_behavior),
+            ]
+        )
+    return rows_out
+
+
+def _sweep_headers(result: EvaluationResult) -> list[str]:
+    """Column headings for the sweep table.
+
+    Args:
+        result: Evaluation holding the sweep axis names.
+
+    Returns:
+        The axis columns followed by the metric columns.
+    """
+    return [
+        *result.sweep_axis_names,
+        "bout F1",
+        "detect",
+        "precision",
+        "frag",
+        "merged",
+        "frame F1",
+    ]
+
+
+def print_sweep_tables(result: EvaluationResult, console: Console) -> None:
+    """Print one table per criterion covering every swept combination.
+
+    Args:
+        result: Evaluation holding the sweep stages.
+        console: Rich console to print to.
+    """
+    headers = _sweep_headers(result)
+    for criterion in result.criteria:
+        table = Table(
+            title=f"Postprocessing sweep - {criterion} (sorted by bout F1, * = best)",
+            title_justify="left",
+        )
+        for index, heading in enumerate(headers):
+            table.add_column(
+                heading, justify="left" if index < len(result.sweep_axis_names) else "right"
+            )
+        for row in _sweep_rows(result, criterion):
+            table.add_row(*row)
+        console.print(table)
+        console.print()
+
+    console.print(
+        "[dim]Ranked by bout F1 under "
+        f"{result.criteria[-1]}, the strictest criterion; frame F1 breaks ties. "
+        "The detailed tables below cover the raw predictions and the best combination.[/dim]"
+    )
+    console.print()
+
+
 def print_console_report(result: EvaluationResult, console: Console, per_video: bool) -> None:
     """Print the evaluation tables to the console.
 
@@ -140,11 +225,14 @@ def print_console_report(result: EvaluationResult, console: Console, per_video: 
         console.print(f"[bold]Postprocessing:[/bold] {', '.join(result.postprocess_stages)}")
     console.print()
 
+    if result.is_sweep:
+        print_sweep_tables(result, console)
+
     # --- frame-level ---------------------------------------------------------
     table = _frame_table("Frame-level agreement")
-    for stage in result.stages:
+    for stage in result.detail_stages:
         table.add_row(
-            *_frame_row(stage_label(stage), aggregate_frame_metrics(result.for_stage(stage)))
+            *_frame_row(result.label_for(stage), aggregate_frame_metrics(result.for_stage(stage)))
         )
     console.print(table)
 
@@ -159,8 +247,8 @@ def print_console_report(result: EvaluationResult, console: Console, per_video: 
     console.print()
 
     if per_video:
-        for stage in result.stages:
-            table = _frame_table(f"Frame-level agreement by video - {stage_label(stage)}")
+        for stage in result.detail_stages:
+            table = _frame_table(f"Frame-level agreement by video - {result.label_for(stage)}")
             for video in result.videos:
                 table.add_row(
                     *_frame_row(video, aggregate_frame_metrics(result.for_video(stage, video)))
@@ -171,10 +259,10 @@ def print_console_report(result: EvaluationResult, console: Console, per_video: 
     # --- bout-level ----------------------------------------------------------
     for criterion in result.criteria:
         table = _bout_table(f"Bout-level agreement - {criterion}")
-        for stage in result.stages:
+        for stage in result.detail_stages:
             table.add_row(
                 *_bout_row(
-                    stage_label(stage),
+                    result.label_for(stage),
                     aggregate_bout_metrics(result.for_stage(stage), criterion),
                 )
             )
@@ -182,8 +270,8 @@ def print_console_report(result: EvaluationResult, console: Console, per_video: 
         console.print()
 
         if per_video:
-            for stage in result.stages:
-                table = _bout_table(f"Bouts by video - {criterion} - {stage_label(stage)}")
+            for stage in result.detail_stages:
+                table = _bout_table(f"Bouts by video - {criterion} - {result.label_for(stage)}")
                 for video in result.videos:
                     table.add_row(
                         *_bout_row(
@@ -265,6 +353,23 @@ def build_summary(result: EvaluationResult, timestamp: datetime) -> dict:
         },
         "postprocessing_stages": list(result.postprocess_stages),
         "criteria": list(result.criteria),
+        "sweep": (
+            {
+                "axes": list(result.sweep_axis_names),
+                "best_stage": result.best_stage,
+                "combinations": [
+                    {
+                        "stage": stage,
+                        "label": result.label_for(stage),
+                        "values": list(result.sweep_values.get(stage, ())),
+                    }
+                    for stage in result.sweep_stages
+                ],
+            }
+            if result.is_sweep
+            else None
+        ),
+        "stage_labels": {s: result.label_for(s) for s in result.stages},
         "skipped_videos": [{"video": v, "reason": r} for v, r in result.skipped_videos],
         "unlabeled_identities": [
             {"video": v, "identity": i} for v, i in result.unlabeled_identities
@@ -276,6 +381,8 @@ def build_summary(result: EvaluationResult, timestamp: datetime) -> dict:
         "stages": {},
     }
 
+    # every stage, including every sweep combination: the JSON is the
+    # machine-readable record, so it must not narrow to the detail views
     for stage in result.stages:
         stage_results = result.for_stage(stage)
         videos: dict[str, dict] = {}
@@ -396,14 +503,28 @@ def render_markdown(result: EvaluationResult, timestamp: datetime) -> str:
         lines.append(f"- **Postprocessing:** {', '.join(result.postprocess_stages)}")
     lines.append("")
 
+    if result.is_sweep:
+        lines.append("## Postprocessing sweep")
+        lines.append("")
+        lines.append(
+            f"{len(result.sweep_stages)} parameter combination(s), all applied to a single "
+            "classification pass. Ranked by bout F1 under "
+            f"`{result.criteria[-1]}`, the strictest criterion, with `*` marking the best."
+        )
+        lines.append("")
+        for criterion in result.criteria:
+            lines.append(f"### Sweep - {criterion}")
+            lines.append("")
+            lines.extend(_markdown_table(_sweep_headers(result), _sweep_rows(result, criterion)))
+
     lines.append("## Frame-level agreement")
     lines.append("")
     lines.extend(
         _markdown_table(
             frame_headers,
             [
-                _frame_row(stage_label(s), aggregate_frame_metrics(result.for_stage(s)))
-                for s in result.stages
+                _frame_row(result.label_for(s), aggregate_frame_metrics(result.for_stage(s)))
+                for s in result.detail_stages
             ],
         )
     )
@@ -433,17 +554,17 @@ def render_markdown(result: EvaluationResult, timestamp: datetime) -> str:
                 bout_headers,
                 [
                     _bout_row(
-                        stage_label(s), aggregate_bout_metrics(result.for_stage(s), criterion)
+                        result.label_for(s), aggregate_bout_metrics(result.for_stage(s), criterion)
                     )
-                    for s in result.stages
+                    for s in result.detail_stages
                 ],
             )
         )
 
     lines.append("## Per-video breakdown")
     lines.append("")
-    for stage in result.stages:
-        lines.append(f"### {stage_label(stage)} - frames")
+    for stage in result.detail_stages:
+        lines.append(f"### {result.label_for(stage)} - frames")
         lines.append("")
         lines.extend(
             _markdown_table(
@@ -455,7 +576,7 @@ def render_markdown(result: EvaluationResult, timestamp: datetime) -> str:
             )
         )
         for criterion in result.criteria:
-            lines.append(f"### {stage_label(stage)} - bouts ({criterion})")
+            lines.append(f"### {result.label_for(stage)} - bouts ({criterion})")
             lines.append("")
             lines.extend(
                 _markdown_table(

@@ -40,6 +40,7 @@ Examples:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -87,6 +88,17 @@ from .evaluate_results import (
     BoutRecord,
     EvaluationResult,
     IdentityResult,
+    aggregate_bout_metrics,
+    aggregate_frame_metrics,
+    sweep_stage_key,
+)
+from .evaluate_sweep import (
+    DEFAULT_MAX_COMBINATIONS,
+    SweepAxis,
+    SweepPoint,
+    axis_column_names,
+    expand_sweep,
+    format_point_label,
 )
 from .postprocessing import load_config_file
 
@@ -293,6 +305,124 @@ class _PredictionAccumulator:
         self.has_predictions = True
 
 
+@dataclass(frozen=True)
+class PostprocessingPlan:
+    """The postprocessing pipelines to evaluate alongside the raw predictions.
+
+    A plan holds one pipeline per combination of swept parameter values. Because
+    a pipeline is a pure function of the predictions, every combination reuses a
+    single classification pass - the grid costs stage arithmetic, not features.
+
+    Attributes:
+        axes: Swept parameters, in column order. Empty for a single config.
+        points: One expanded combination per pipeline, parallel to ``pipelines``.
+        pipelines: Built pipelines, parallel to ``points``.
+        stage_keys: Result stage key per pipeline, parallel to ``points``.
+        labels: Display label per stage key.
+        stage_names: Class names of the stages in the pipelines, for reporting.
+    """
+
+    axes: list[SweepAxis]
+    points: list[SweepPoint]
+    pipelines: list[PostprocessingPipeline]
+    stage_keys: list[str]
+    labels: dict[str, str]
+    stage_names: tuple[str, ...]
+
+    @property
+    def is_sweep(self) -> bool:
+        """Whether more than one parameter combination is being evaluated."""
+        return bool(self.axes)
+
+
+def build_postprocessing_plan(
+    config: list[dict[str, Any]] | dict[str, list[dict[str, Any]]],
+    behavior: str,
+    max_combinations: int = DEFAULT_MAX_COMBINATIONS,
+) -> PostprocessingPlan:
+    """Expand a postprocessing config into the pipelines to evaluate.
+
+    A parameter holding a list is a sweep axis. That syntax is specific to this
+    command; the expansion produces single-valued configs before any of them
+    reaches a pipeline, which is what every other consumer requires.
+
+    Args:
+        config: Parsed config - a stage list, or a mapping of behavior name to
+            stage list.
+        behavior: Behavior being evaluated, used to select from a mapping.
+        max_combinations: Ceiling on the size of the expanded grid.
+
+    Returns:
+        The plan to hand to :func:`run_evaluation`.
+
+    Raises:
+        click.ClickException: If the config is malformed, names no pipeline for
+            this behavior, or expands past ``max_combinations``.
+    """
+    stage_config = _resolve_pipeline_config(config, behavior)
+    try:
+        axes, points = expand_sweep(stage_config, max_combinations=max_combinations)
+    except ValueError as exc:
+        raise click.ClickException(f"Invalid postprocessing config: {exc}") from exc
+
+    pipelines: list[PostprocessingPipeline] = []
+    for point in points:
+        try:
+            pipelines.append(PostprocessingPipeline(point.config))
+        except ValueError as exc:
+            detail = format_point_label(axes, point)
+            where = f" for {detail}" if axes else ""
+            raise click.ClickException(f"Invalid postprocessing config{where}: {exc}") from exc
+
+    sweeping = bool(axes)
+    stage_keys = [sweep_stage_key(p.index) if sweeping else POSTPROCESSED_STAGE for p in points]
+    labels = {
+        key: format_point_label(axes, point) if sweeping else "Postprocessed"
+        for key, point in zip(stage_keys, points, strict=True)
+    }
+    stage_names = tuple(type(s).__name__ for s in pipelines[0].stages) if pipelines else ()
+
+    return PostprocessingPlan(
+        axes=axes,
+        points=points,
+        pipelines=pipelines,
+        stage_keys=stage_keys,
+        labels=labels,
+        stage_names=stage_names,
+    )
+
+
+def select_best_stage(result: EvaluationResult, candidates: Sequence[str]) -> str | None:
+    """Pick the best-scoring stage among a set of candidates.
+
+    Ranked by bout F1 under the strictest criterion available - the last one,
+    which is the IoU criterion - because that is the measure that reflects
+    boundary quality rather than mere detection. Frame F1 breaks ties. A
+    candidate whose F1 is undefined ranks last rather than as zero.
+
+    Args:
+        result: Populated evaluation result.
+        candidates: Stage keys to choose between.
+
+    Returns:
+        The winning stage key, or None when ``candidates`` is empty.
+    """
+    if not candidates:
+        return None
+    criterion = result.criteria[-1]
+
+    def score(stage: str) -> tuple[float, float]:
+        rows = result.for_stage(stage)
+        bout_f1 = aggregate_bout_metrics(rows, criterion).f1
+        frame_f1 = aggregate_frame_metrics(rows).f1_behavior
+        return (
+            bout_f1 if bout_f1 is not None else -1.0,
+            frame_f1 if frame_f1 is not None else -1.0,
+        )
+
+    return max(candidates, key=score)
+
+
 def _predict_identity(
     classifier: Classifier,
     pose_path: Path,
@@ -456,7 +586,7 @@ def run_evaluation(
     classifier_path: Path,
     behavior: str,
     criteria: Sequence[MatchCriterion],
-    pipeline: PostprocessingPipeline | None,
+    plan: PostprocessingPlan | None,
     feature_dir: Path | None,
     fps_override: int | None,
     collect_bout_records: bool,
@@ -475,8 +605,10 @@ def run_evaluation(
         criteria: Bout match criteria, each reported separately. The first must
             be the frame-overlap criterion and the second the IoU criterion,
             which is the order the per-bout records assume.
-        pipeline: Postprocessing pipeline to evaluate alongside the raw
-            predictions, or None to evaluate raw predictions only.
+        plan: Postprocessing pipelines to evaluate alongside the raw
+            predictions, from :func:`build_postprocessing_plan`, or None to
+            evaluate raw predictions only. A plan with several combinations is
+            a sweep: all of them are applied to one classification pass.
         feature_dir: Feature cache directory. Defaults to the project's own.
         fps_override: Frames per second to use for every video, skipping the
             per-video lookup. None reads it from each video.
@@ -512,7 +644,7 @@ def run_evaluation(
             behavior,
         )
 
-    stages = (RAW_STAGE, POSTPROCESSED_STAGE) if pipeline is not None else (RAW_STAGE,)
+    stages = (RAW_STAGE, *(plan.stage_keys if plan is not None else ()))
     result = EvaluationResult(
         project_dir=project_dir,
         behavior=behavior,
@@ -521,8 +653,13 @@ def run_evaluation(
         window_size=classifier.project_settings["window_size"],
         stages=stages,
         criteria=tuple(c.label for c in criteria),
-        postprocess_stages=(
-            tuple(type(s).__name__ for s in pipeline.stages) if pipeline is not None else ()
+        postprocess_stages=plan.stage_names if plan is not None else (),
+        stage_labels={RAW_STAGE: "Raw", **(plan.labels if plan is not None else {})},
+        sweep_axis_names=tuple(axis_column_names(plan.axes)) if plan is not None else (),
+        sweep_values=(
+            {key: point.values for key, point in zip(plan.stage_keys, plan.points, strict=True)}
+            if plan is not None and plan.is_sweep
+            else {}
         ),
     )
 
@@ -562,9 +699,12 @@ def run_evaluation(
 
         # accumulated across identities so the saved file matches the shape
         # jabs-classify writes: one record per video, all identities in it
+        # a sweep has no single postprocessed array to save, so only the raw
+        # predictions are written; see the note in the command's help
+        save_postprocessed = plan is not None and not plan.is_sweep
         saved = (
             _PredictionAccumulator(
-                pose_est.num_identities, pose_est.num_frames, pipeline is not None
+                pose_est.num_identities, pose_est.num_frames, save_postprocessed
             )
             if save_predictions_dir is not None
             else None
@@ -601,11 +741,14 @@ def run_evaluation(
 
             stage_vectors = {RAW_STAGE: predicted_aligned}
             postprocessed = None
-            if pipeline is not None:
-                postprocessed = predicted.copy()
-                for stage in pipeline.stages:
-                    postprocessed = stage.apply(postprocessed, confidence)
-                stage_vectors[POSTPROCESSED_STAGE] = postprocessed[: len(truth)]
+            if plan is not None:
+                for key, pipeline in zip(plan.stage_keys, plan.pipelines, strict=True):
+                    vector = predicted.copy()
+                    for stage in pipeline.stages:
+                        vector = stage.apply(vector, confidence)
+                    stage_vectors[key] = vector[: len(truth)]
+                    if not plan.is_sweep:
+                        postprocessed = vector
 
             # the saved file records the full pose-length vectors, not the ones
             # truncated to the labels, so it stands on its own as a prediction file
@@ -658,6 +801,10 @@ def run_evaluation(
             else:
                 result.prediction_files.append(output_path)
                 logger.info("Wrote predictions for %s to %s", video, output_path)
+
+    if plan is not None and plan.is_sweep:
+        best = select_best_stage(result, plan.stage_keys)
+        result = dataclasses.replace(result, best_stage=best)
 
     if not result.identity_results:
         raise click.ClickException(
@@ -717,6 +864,17 @@ def run_evaluation(
     show_default=True,
     type=click.FloatRange(min=0.0, max=1.0, min_open=True),
     help="Intersection-over-union two bouts must reach to match under the IoU criterion.",
+)
+@click.option(
+    "--max-sweep-combinations",
+    default=DEFAULT_MAX_COMBINATIONS,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help=(
+        "Ceiling on the number of parameter combinations a swept config may expand to. Each "
+        "combination reuses the single classification pass, but still costs a full pass of "
+        "every stage over every identity."
+    ),
 )
 @click.option(
     "--feature-dir",
@@ -786,6 +944,7 @@ def evaluate_command(
     postprocess_config: Path | None,
     min_overlap: int,
     iou_threshold: float,
+    max_sweep_combinations: int,
     feature_dir: Path | None,
     fps: int | None,
     save_predictions: Path | None,
@@ -810,18 +969,31 @@ def evaluate_command(
     classifier = load_binary_classifier(classifier_path)
     behavior = resolve_behavior(classifier, behavior)
 
-    pipeline = None
+    plan = None
     if postprocess_config is not None:
-        stage_config = _resolve_pipeline_config(load_config_file(postprocess_config), behavior)
-        try:
-            pipeline = PostprocessingPipeline(stage_config)
-        except ValueError as exc:
-            raise click.ClickException(f"Invalid postprocessing config: {exc}") from exc
-        if not pipeline.stages:
+        plan = build_postprocessing_plan(
+            load_config_file(postprocess_config),
+            behavior,
+            max_combinations=max_sweep_combinations,
+        )
+        if not plan.stage_names:
             console.print(
                 "[yellow]Warning: every stage in the postprocessing config is disabled; "
                 "the postprocessed results will match the raw ones.[/yellow]"
             )
+        if plan.is_sweep:
+            console.print(
+                f"Sweeping {len(plan.points)} parameter combination(s) over "
+                f"{', '.join(axis_column_names(plan.axes))} - the project is classified once and "
+                "every combination is applied to those predictions."
+            )
+            if save_predictions is not None:
+                console.print(
+                    "[yellow]Note: a sweep has no single postprocessed result, so "
+                    "--save-predictions will write the raw predictions only. Re-run with scalar "
+                    "parameter values to save a postprocessed file for your chosen "
+                    "combination.[/yellow]"
+                )
 
     # resolve output paths before the expensive work, so a bad path fails fast
     timestamp = datetime.now()
@@ -870,7 +1042,7 @@ def evaluate_command(
             classifier_path=classifier_path,
             behavior=behavior,
             criteria=criteria,
-            pipeline=pipeline,
+            plan=plan,
             feature_dir=feature_dir,
             fps_override=fps,
             collect_bout_records=csv_out is not None,

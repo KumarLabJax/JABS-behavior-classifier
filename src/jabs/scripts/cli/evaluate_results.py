@@ -14,8 +14,22 @@ from pathlib import Path
 from jabs.behavior.evaluation import BoutMetrics, FrameMetrics
 
 #: Stage keys used to distinguish raw classifier output from postprocessed output.
+#: A single postprocessing config uses ``POSTPROCESSED_STAGE``; a sweep uses one
+#: ``sweep_<n>`` key per combination, named by :func:`sweep_stage_key`.
 RAW_STAGE = "raw"
 POSTPROCESSED_STAGE = "postprocessed"
+
+
+def sweep_stage_key(index: int) -> str:
+    """Return the stage key for one sweep combination.
+
+    Args:
+        index: Position of the combination in the expanded grid.
+
+    Returns:
+        A stage key distinct from ``RAW_STAGE`` and ``POSTPROCESSED_STAGE``.
+    """
+    return f"sweep_{index}"
 
 
 @dataclass(frozen=True)
@@ -100,6 +114,16 @@ class EvaluationResult:
         prediction_write_errors: ``(video, reason)`` for prediction files that
             could not be written. Recorded rather than raised so a failure to
             save does not cost the metrics the run just spent hours computing.
+        stage_labels: Display label per stage key. Sweep keys map to their
+            combination, e.g. ``"min_duration=60, max_stitch_gap=30"``.
+        sweep_axis_names: Column headings for the swept parameters, in column
+            order. Empty when this run was not a sweep.
+        sweep_values: Per sweep stage key, the value taken on each axis,
+            parallel to ``sweep_axis_names``.
+        best_stage: Stage key of the best-scoring sweep combination, or None
+            when this run was not a sweep. Chosen by bout F1 under the strictest
+            criterion, so the detailed tables have one postprocessed stage to
+            show rather than all of them.
     """
 
     project_dir: Path
@@ -116,6 +140,10 @@ class EvaluationResult:
     postprocess_stages: tuple[str, ...] = ()
     prediction_files: list[Path] = field(default_factory=list)
     prediction_write_errors: list[tuple[str, str]] = field(default_factory=list)
+    stage_labels: dict[str, str] = field(default_factory=dict)
+    sweep_axis_names: tuple[str, ...] = ()
+    sweep_values: dict[str, tuple[object, ...]] = field(default_factory=dict)
+    best_stage: str | None = None
 
     @property
     def videos(self) -> list[str]:
@@ -124,6 +152,39 @@ class EvaluationResult:
         for result in self.identity_results:
             seen.setdefault(result.video, None)
         return list(seen)
+
+    @property
+    def is_sweep(self) -> bool:
+        """Whether this run varied postprocessing parameters."""
+        return bool(self.sweep_axis_names)
+
+    @property
+    def sweep_stages(self) -> tuple[str, ...]:
+        """Sweep combination stage keys, in grid order."""
+        return tuple(s for s in self.stages if s in self.sweep_values)
+
+    @property
+    def detail_stages(self) -> tuple[str, ...]:
+        """Stages the detailed per-stage tables cover.
+
+        A sweep has too many combinations to tabulate in full detail, so the
+        detail views cover the raw predictions plus the best combination; the
+        sweep table carries every combination instead.
+        """
+        if not self.is_sweep:
+            return self.stages
+        return tuple(s for s in (RAW_STAGE, self.best_stage) if s is not None)
+
+    def label_for(self, stage: str) -> str:
+        """Return the display label for a stage key.
+
+        Args:
+            stage: Stage key.
+
+        Returns:
+            The configured label, falling back to a generic one.
+        """
+        return self.stage_labels.get(stage) or stage_label(stage)
 
     def for_stage(self, stage: str) -> list[IdentityResult]:
         """Return the results belonging to one stage.

@@ -848,6 +848,7 @@ jabs-cli evaluate DIRECTORY --classifier CLASSIFIER \
     [--behavior BEHAVIOR] \
     [--postprocess-config FILE] \
     [--min-overlap FRAMES] [--iou-threshold FLOAT] \
+    [--max-sweep-combinations N] \
     [--feature-dir DIR] [--fps FPS] \
     [--save-predictions DIR] \
     [--out-dir DIR] [--json-out FILE] [--csv-out FILE] [--report-out FILE] \
@@ -860,6 +861,7 @@ jabs-cli evaluate DIRECTORY --classifier CLASSIFIER \
 - `--postprocess-config FILE`: JSON or YAML postprocessing pipeline config. When given, the postprocessed predictions are compared against the ground truth alongside the raw ones, and both appear side by side in every table. Same format as [`jabs-cli postprocess --config`](#config-file-format).
 - `--min-overlap FRAMES`: Frames two bouts must share to match under the frame-overlap criterion. Defaults to `1`.
 - `--iou-threshold FLOAT`: Intersection-over-union two bouts must reach to match under the IoU criterion. Defaults to `0.5`. Must be greater than 0 and at most 1.
+- `--max-sweep-combinations N`: Ceiling on the number of parameter combinations a swept config may expand to (default 256). See [Sweeping postprocessing parameters](#sweeping-postprocessing-parameters).
 - `--feature-dir DIR`: Feature cache directory. Defaults to the project's own feature cache.
 - `--fps FPS`: Frames per second to assume for every video, skipping the per-video lookup. Defaults to reading it from each video file.
 - `--save-predictions DIR`: Write one prediction HDF5 file per video into this directory, in the same format [`jabs-classify classify`](#classify-command) produces (see [Saving predictions](#saving-predictions)).
@@ -926,6 +928,46 @@ jabs-cli evaluate /path/to/dense_project --classifier grooming.pickle \
 jabs-cli evaluate /path/to/dense_project --classifier grooming.pickle \
     --csv-out bouts.csv
 ```
+
+### Sweeping postprocessing parameters
+
+Tuning a postprocessing pipeline means trying several values for a parameter and comparing the results. In a config passed to **this command**, a parameter holding a *list* is a sweep axis:
+
+```yaml
+Seizure:
+  - stage_name: BoutStitchingStage
+    enabled: true
+    parameters:
+      max_stitch_gap: [15, 30, 45]
+  - stage_name: BoutDurationFilterStage
+    enabled: true
+    parameters:
+      min_duration: [5, 10, 15, 30]
+```
+
+That expands to 12 combinations. Because a pipeline is a pure function of the predictions it is given, **the project is classified once** and every combination is applied to those cached predictions - the grid costs stage arithmetic, not feature extraction. Sweeping is therefore far cheaper than invoking this command once per combination.
+
+> **The list syntax is specific to `jabs-cli evaluate`.** Everywhere else a postprocessing config is consumed - [`jabs-cli postprocess`](#jabs-cli-postprocess), the GUI - a parameter holds exactly one value, and a list is rejected. Keep a swept config separate from the single-valued one you run in production.
+
+Each swept parameter becomes a column in a sweep table, one table per match criterion, with every combination as a row sorted by that criterion's bout F1:
+
+```
+Postprocessing sweep - IoU >= 0.5 (sorted by bout F1, * = best)
+ max_stitch_gap  min_duration | bout F1  detect  precision  frag  merged  frame F1
+             30            10 |  0.612*   0.714      0.536     3       1     0.588
+             45            10 |  0.601    0.730      0.511     2       4     0.579
+             15            10 |  0.564    0.667      0.489     7       0     0.571
+             ...
+```
+
+Axes are taken only from **enabled** stages, so a list on a disabled stage adds no combinations. A grid larger than `--max-sweep-combinations` is refused before any classification happens, naming the axis sizes.
+
+Two things narrow when sweeping, because they have no single answer across a grid:
+
+- The detailed frame-level and bout-level tables cover the raw predictions plus the **best** combination, chosen by bout F1 under the strictest criterion. The sweep table carries every combination, and so does the JSON summary.
+- `--save-predictions` writes the raw predictions only, with no postprocessed dataset. Re-run with your chosen values as scalars to save a postprocessed file.
+
+Setting the value ranges is easier from evidence than from intuition. Run once with no postprocessing and `--csv-out`, then look at the ground-truth bout durations (the floor for `min_duration`) and the gaps between consecutive predicted bouts that overlap the same true bout (the range for `max_stitch_gap`). Note that the cost of `min_duration` is only interpretable *after* stitching: fragments that a duration filter would delete on their own survive once stitching has merged them into one bout, which is why the stage order in the config matters.
 
 ### Saving predictions
 
