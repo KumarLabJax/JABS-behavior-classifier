@@ -104,6 +104,27 @@ def test_get_pose_file_major_version_invalid(filename: str) -> None:
         jabs.pose_estimation.get_pose_file_major_version(Path(filename))
 
 
+@pytest.mark.parametrize(
+    "filename",
+    ["sample.h5", "sample_pose_est.h5", "samplev3.h5", "sample_pose_est_v6.h5.bak"],
+    ids=["no-suffix", "no-version", "no-underscore", "trailing-extension"],
+)
+def test_open_pose_file_rejects_invalid_name(filename: str) -> None:
+    """open_pose_file accepts exactly the names get_pose_file_major_version accepts
+
+    Both derive the version from the ``_v<major version>.h5`` suffix, so a name the
+    rest of JABS treats as unversioned is not opened here either.
+    """
+    with pytest.raises(ValueError, match="not a valid pose file name"):
+        jabs.pose_estimation.open_pose_file(Path(filename))
+
+
+def test_open_pose_file_rejects_unsupported_version() -> None:
+    """a well-formed name with a version JABS has no reader for names that version"""
+    with pytest.raises(ValueError, match="major version 99 is not supported"):
+        jabs.pose_estimation.open_pose_file(Path("sample_pose_est_v99.h5"))
+
+
 def test_get_points(pose_est_v4):
     """test getting pose points from PoseEstimation instance"""
     points, point_mask = pose_est_v4.get_identity_poses(0)
