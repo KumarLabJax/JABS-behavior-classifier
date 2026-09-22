@@ -331,8 +331,14 @@ class PostprocessingPlan:
 
     @property
     def is_sweep(self) -> bool:
-        """Whether more than one parameter combination is being evaluated."""
-        return bool(self.axes)
+        """Whether more than one parameter combination is being evaluated.
+
+        A config with a one-element list, e.g. ``max_stitch_gap: [30]``, has an
+        unambiguous answer and behaves like the scalar config it is equivalent
+        to, rather than taking the sweep path and quietly dropping the
+        postprocessed output.
+        """
+        return len(self.points) > 1
 
 
 def build_postprocessing_plan(
@@ -374,7 +380,7 @@ def build_postprocessing_plan(
             where = f" for {detail}" if axes else ""
             raise click.ClickException(f"Invalid postprocessing config{where}: {exc}") from exc
 
-    sweeping = bool(axes)
+    sweeping = len(points) > 1
     stage_keys = [sweep_stage_key(p.index) if sweeping else POSTPROCESSED_STAGE for p in points]
     labels = {
         key: format_point_label(axes, point) if sweeping else "Postprocessed"
@@ -580,6 +586,33 @@ def resolve_behavior(classifier: Classifier, behavior: str | None) -> str:
     return resolved
 
 
+def open_project(project_dir: Path) -> Project:
+    """Validate a directory and open it as a JABS project.
+
+    Validation comes first because constructing a ``Project`` calls
+    ``ProjectPaths.create_directories()``, which creates the ``jabs/`` tree
+    inside the target. Building one to test a directory would therefore convert
+    a raw video-and-pose directory into a project as a side effect of being
+    pointed at it, and the validity check afterwards would then pass.
+
+    Args:
+        project_dir: Directory to open.
+
+    Returns:
+        The opened project.
+
+    Raises:
+        click.ClickException: If the directory is not a JABS project, or cannot
+            be opened.
+    """
+    if not Project.is_valid_project_directory(project_dir):
+        raise click.ClickException(f"Not a valid JABS project directory: {project_dir}")
+    try:
+        return Project(project_dir, enable_session_tracker=False)
+    except Exception as exc:
+        raise click.ClickException(f"Cannot open project {project_dir}: {exc}") from exc
+
+
 def run_evaluation(
     project_dir: Path,
     classifier: Classifier,
@@ -592,6 +625,7 @@ def run_evaluation(
     collect_bout_records: bool,
     save_predictions_dir: Path | None = None,
     progress_callback: Any = None,
+    project: Project | None = None,
 ) -> EvaluationResult:
     """Classify every pose file in a project and compare against its labels.
 
@@ -618,13 +652,16 @@ def run_evaluation(
             skips saving. The directory must already exist.
         progress_callback: Called after each identity with the number of
             identities to advance by, defaulting to one.
+        project: An already-open project for ``project_dir``. Passing the one
+            the caller built avoids a second pose-file scan; when None the
+            directory is validated and opened here.
 
     Returns:
         The completed evaluation.
 
     Raises:
         ValueError: If fewer than two criteria are given.
-        click.ClickException: If the project is not a JABS project, or nothing
+        click.ClickException: If the directory is not a JABS project, or nothing
             in it could be evaluated.
     """
     # the per-bout records label their two match columns from criteria[0] and
@@ -634,10 +671,8 @@ def run_evaluation(
             f"run_evaluation expects at least two criteria (overlap, IoU), got {len(criteria)}"
         )
 
-    if not Project.is_valid_project_directory(project_dir):
-        raise click.ClickException(f"Not a valid JABS project directory: {project_dir}")
-
-    project = Project(project_dir, enable_session_tracker=False)
+    if project is None:
+        project = open_project(project_dir)
     if behavior not in project.settings_manager.behavior_names:
         logger.warning(
             "Behavior '%s' is not listed in the project settings; looking for labels anyway",
@@ -655,7 +690,9 @@ def run_evaluation(
         criteria=tuple(c.label for c in criteria),
         postprocess_stages=plan.stage_names if plan is not None else (),
         stage_labels={RAW_STAGE: "Raw", **(plan.labels if plan is not None else {})},
-        sweep_axis_names=tuple(axis_column_names(plan.axes)) if plan is not None else (),
+        sweep_axis_names=(
+            tuple(axis_column_names(plan.axes)) if plan is not None and plan.is_sweep else ()
+        ),
         sweep_values=(
             {key: point.values for key, point in zip(plan.stage_keys, plan.points, strict=True)}
             if plan is not None and plan.is_sweep
@@ -1021,7 +1058,9 @@ def evaluate_command(
         if save_predictions is not None:
             console.print(f"Predictions: {save_predictions}")
 
-    project = Project(project_dir, enable_session_tracker=False)
+    # opened once here, and handed to run_evaluation: constructing a Project
+    # creates directories, so it must not happen before validation or twice
+    project = open_project(project_dir)
     total = sum(
         project.video_manager.get_video_identity_count(v) for v in project.video_manager.videos
     )
@@ -1047,6 +1086,7 @@ def evaluate_command(
             fps_override=fps,
             collect_bout_records=csv_out is not None,
             save_predictions_dir=save_predictions,
+            project=project,
             progress_callback=lambda advance=1: progress.advance(task_id, advance),
         )
 

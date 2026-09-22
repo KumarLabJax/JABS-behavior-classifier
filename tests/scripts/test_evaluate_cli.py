@@ -422,7 +422,8 @@ def wired(
 
     project = mock.Mock()
     project.video_manager.videos = []
-    monkeypatch.setattr(evaluate_module, "Project", lambda *a, **k: project)
+    # a Mock, not a lambda: open_project calls Project.is_valid_project_directory
+    monkeypatch.setattr(evaluate_module, "Project", mock.Mock(return_value=project))
 
     spy = mock.Mock(return_value=sample_result)
     monkeypatch.setattr(evaluate_module, "run_evaluation", spy)
@@ -1384,3 +1385,127 @@ def test_command_rejects_an_oversized_grid(wired, tmp_path: Path) -> None:
     result = _invoke(tmp_path, "--postprocess-config", str(cfg), "--max-sweep-combinations", "2")
     assert result.exit_code != 0
     assert "above the limit of 2" in result.output
+
+
+# -----------------------------------------------------------------------------
+# review findings on this command (PR #484)
+# -----------------------------------------------------------------------------
+
+
+def test_open_project_validates_before_constructing(tmp_path: Path) -> None:
+    """Validation has to precede construction.
+
+    Constructing a Project creates the jabs/ tree, so an invalid directory must
+    be rejected first - otherwise pointing evaluate at a raw data directory
+    would silently convert it into a project.
+    """
+    raw = tmp_path / "raw_data"
+    raw.mkdir()
+    (raw / "v.mp4").write_bytes(b"")
+    (raw / "v_pose_est_v6.h5").write_bytes(b"")
+
+    with pytest.raises(Exception, match="Not a valid JABS project directory"):
+        evaluate_module.open_project(raw)
+
+    assert not (raw / "jabs").exists(), "validation must not create the project tree"
+
+
+def test_open_project_wraps_a_construction_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A bare ValueError from Project would reach the user as a traceback."""
+    fake = mock.Mock(side_effect=ValueError("no videos"))
+    fake.is_valid_project_directory.return_value = True
+    monkeypatch.setattr(evaluate_module, "Project", fake)
+
+    with pytest.raises(Exception, match="Cannot open project"):
+        evaluate_module.open_project(tmp_path)
+
+
+def test_command_opens_the_project_once(wired, tmp_path: Path) -> None:
+    """The pose-file scan is expensive; it must not run twice per invocation."""
+    spy, _ = wired
+    assert _invoke(tmp_path).exit_code == 0
+    assert evaluate_module.Project.call_count == 1
+    # and the open project is handed to run_evaluation rather than rebuilt
+    assert spy.call_args.kwargs["project"] is evaluate_module.Project.return_value
+
+
+def test_run_evaluation_reuses_a_passed_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Passing the already-open project skips the second construction."""
+    project = _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 0]}, "predicted": {0: [1, 0]}}}
+    )
+    evaluate_module.Project.reset_mock()
+    _run(project=project)
+    assert evaluate_module.Project.call_count == 0
+
+
+def test_a_one_element_list_is_not_treated_as_a_sweep() -> None:
+    """It has one unambiguous answer, so it must behave like the scalar config."""
+    plan = _plan([{"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": [30]}}])
+    assert plan.is_sweep is False
+    assert plan.stage_keys == [POSTPROCESSED_STAGE]
+    assert plan.labels == {POSTPROCESSED_STAGE: "Postprocessed"}
+
+
+def test_a_one_element_list_still_saves_postprocessed_predictions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The finding: a degenerate grid silently dropped the postprocessed output."""
+    _fake_project(
+        monkeypatch,
+        {"a.mp4": {"truth": {0: [0] * 10}, "predicted": {0: [0, 0, 1, 1, 0, 0, 0, 0, 0, 0]}}},
+    )
+    captured = {}
+    monkeypatch.setattr(
+        evaluate_module.PredictionManager,
+        "write_predictions",
+        staticmethod(
+            lambda beh, path, pred, prob, poses, clf, postprocessed_predictions=None, **k: (
+                captured.update(post=postprocessed_predictions)
+            )
+        ),
+    )
+    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": [5]}}])
+
+    _run(plan=plan, save_predictions_dir=tmp_path)
+    assert captured["post"] is not None, "a one-point grid must still write postprocessed"
+
+
+def test_a_one_element_list_keeps_both_detail_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No narrowing to raw + best, because there is nothing to choose between."""
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": [5]}}])
+    result = _run(plan=plan)
+    assert result.is_sweep is False
+    assert result.detail_stages == (RAW_STAGE, POSTPROCESSED_STAGE)
+    assert result.sweep_axis_names == ()
+
+
+def test_build_summary_buckets_rather_than_rescanning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-video blocks must stay correct now that rows are bucketed once."""
+    _fake_project(
+        monkeypatch,
+        {
+            "a.mp4": {
+                "truth": {0: [1, 1, 0, 0], 1: [1, 0, 0, 0]},
+                "predicted": {0: [1, 1, 0, 0], 1: [0, 0, 0, 0]},
+            },
+            "b.mp4": {"truth": {0: [0, 1, 1, 0]}, "predicted": {0: [0, 1, 1, 0]}},
+        },
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+    summary = build_summary(result, datetime(2026, 9, 22))
+
+    raw = summary["stages"][RAW_STAGE]
+    assert set(raw["videos"]) == {"a.mp4", "b.mp4"}
+    assert set(raw["videos"]["a.mp4"]["identities"]) == {"0", "1"}
+    assert set(raw["videos"]["b.mp4"]["identities"]) == {"0"}
+    # a.mp4 identity 0 agrees on all four frames; identity 1 misses its one bout
+    assert raw["videos"]["a.mp4"]["identities"]["0"]["frames"]["true_positive"] == 2
+    assert raw["videos"]["a.mp4"]["identities"]["1"]["frames"]["false_negative"] == 1
+    # the overall block is the sum of the per-video blocks
+    assert raw["overall"]["frames"]["true_positive"] == 2 + 2

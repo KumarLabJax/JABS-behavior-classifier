@@ -81,12 +81,14 @@ def test_frame_metrics_undefined_rates_are_none_not_zero() -> None:
     assert metrics.f1_behavior is None
 
 
-def test_frame_metrics_f1_is_none_when_precision_and_recall_are_both_zero() -> None:
-    """Frame metrics f1 is none when precision and recall are both zero."""
+def test_frame_metrics_f1_is_zero_not_none_when_precision_and_recall_are_zero() -> None:
+    """Scoring zero is a result; None is reserved for "could not be evaluated"."""
     metrics = compute_frame_metrics(np.array([1, 0]), np.array([0, 1]))
     assert metrics.precision_behavior == 0.0
     assert metrics.recall_behavior == 0.0
-    assert metrics.f1_behavior is None
+    assert metrics.f1_behavior == 0.0
+    # and the no-data case is still distinguishable
+    assert compute_frame_metrics(np.array([-1]), np.array([1])).f1_behavior is None
 
 
 def test_frame_metrics_rejects_mismatched_lengths() -> None:
@@ -106,9 +108,12 @@ def test_frame_metrics_add_sums_counts() -> None:
     assert total.evaluated_frames == 4
 
 
-def test_frame_metrics_sum_over_an_empty_iterable() -> None:
-    """__radd__ lets sum() start from 0, which aggregation relies on."""
+def test_frame_metrics_sum_works_without_an_explicit_start() -> None:
+    """sum() begins from the int 0, so __radd__ has to absorb it."""
+    total = sum([FrameMetrics(true_positive=1), FrameMetrics(true_positive=2)])
+    assert total.true_positive == 3
     assert sum([], FrameMetrics()).evaluated_frames == 0
+    assert sum([]) == 0
 
 
 def test_aggregated_rate_is_frame_weighted_not_video_averaged() -> None:
@@ -289,3 +294,18 @@ def test_compute_bout_metrics_rejects_mismatched_flag_lengths() -> None:
         compute_bout_metrics(result, [True, True], [True])
     with pytest.raises(ValueError, match="predicted_evaluable has"):
         compute_bout_metrics(result, [True], [])
+
+
+def test_bout_metrics_f1_is_zero_not_none_when_nothing_matched() -> None:
+    """A combination that scores zero must not look unevaluable in a sweep table."""
+    metrics = _bout_metrics([1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 1, 0], OverlapCriterion(1))
+    assert metrics.detection_rate == 0.0
+    assert metrics.precision == 0.0
+    assert metrics.f1 == 0.0
+
+
+def test_bout_metrics_f1_stays_none_with_no_bouts_at_all() -> None:
+    """Nothing to score is still distinct from scoring zero."""
+    metrics = _bout_metrics([0, 0, 0], [0, 0, 0], OverlapCriterion(1))
+    assert metrics.detection_rate is None
+    assert metrics.f1 is None

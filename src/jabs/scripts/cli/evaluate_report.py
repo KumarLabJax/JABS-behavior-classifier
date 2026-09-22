@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, fields
 from datetime import datetime
@@ -383,18 +384,27 @@ def build_summary(result: EvaluationResult, timestamp: datetime) -> dict:
 
     # every stage, including every sweep combination: the JSON is the
     # machine-readable record, so it must not narrow to the detail views
+    # bucket once rather than rescanning identity_results per (stage, video):
+    # a 256-combination sweep makes that list ~50k long, and the nested scan is
+    # quadratic in the number of stages
+    by_stage_video: dict[tuple[str, str], list[IdentityResult]] = defaultdict(list)
+    by_stage: dict[str, list[IdentityResult]] = defaultdict(list)
+    for row in result.identity_results:
+        by_stage_video[(row.stage, row.video)].append(row)
+        by_stage[row.stage].append(row)
+
+    videos_in_order = result.videos
     for stage in result.stages:
-        stage_results = result.for_stage(stage)
         videos: dict[str, dict] = {}
-        for video in result.videos:
-            video_results = result.for_video(stage, video)
+        for video in videos_in_order:
+            video_results = by_stage_video.get((stage, video), [])
             block = _metrics_block(video_results, result.criteria)
             block["identities"] = {
                 str(r.identity): _metrics_block([r], result.criteria) for r in video_results
             }
             videos[video] = block
         summary["stages"][stage] = {
-            "overall": _metrics_block(stage_results, result.criteria),
+            "overall": _metrics_block(by_stage.get(stage, []), result.criteria),
             "videos": videos,
         }
 

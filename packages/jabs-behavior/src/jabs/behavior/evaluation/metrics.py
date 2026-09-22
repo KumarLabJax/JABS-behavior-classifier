@@ -45,10 +45,15 @@ def _harmonic_mean(a: float | None, b: float | None) -> float | None:
         b: Second rate, or None if undefined.
 
     Returns:
-        The harmonic mean, or None when either input is None or both are zero.
+        The harmonic mean, or None when either input is None. Two rates that are
+        both genuinely zero give ``0.0``, not None: "scored zero" has to stay
+        distinguishable from "could not be evaluated", which is what None means
+        everywhere else here.
     """
-    if a is None or b is None or (a + b) == 0:
+    if a is None or b is None:
         return None
+    if (a + b) == 0:
+        return 0.0
     return 2 * a * b / (a + b)
 
 
@@ -130,7 +135,21 @@ class FrameMetrics:
             unpredicted_frames=self.unpredicted_frames + other.unpredicted_frames,
         )
 
-    __radd__ = __add__
+    def __radd__(self, other: object) -> FrameMetrics:
+        """Add from the right, so ``sum()`` works without an explicit start.
+
+        ``sum()`` begins from the int ``0``; treating any falsy left operand as
+        the identity lets a bare ``sum(metrics)`` work instead of raising.
+
+        Args:
+            other: The accumulated left operand.
+
+        Returns:
+            The sum, or this instance when ``other`` is the zero identity.
+        """
+        if not other:
+            return self
+        return self.__add__(other)  # type: ignore[arg-type]
 
     def as_dict(self) -> dict[str, int | float | None]:
         """Return counts and derived rates as a JSON-serializable mapping."""
