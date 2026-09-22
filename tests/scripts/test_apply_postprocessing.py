@@ -12,9 +12,9 @@ from jabs import io
 from jabs.core.types.prediction import BehaviorPrediction, ClassifierMetadata
 from jabs.scripts.cli.postprocessing import (
     _list_behaviors,
-    _load_config_file,
     _stage_template_list,
     generate_config,
+    load_config_file,
     run_apply_postprocessing,
 )
 
@@ -63,7 +63,7 @@ def _write_prediction_file(path: Path, *behaviors: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _load_config_file
+# load_config_file
 # ---------------------------------------------------------------------------
 
 
@@ -73,7 +73,7 @@ def test_load_config_file_json_list(tmp_path: Path) -> None:
     cfg_file = tmp_path / "pipeline.json"
     cfg_file.write_text(json.dumps(config))
 
-    result = _load_config_file(cfg_file)
+    result = load_config_file(cfg_file)
 
     assert result == config
 
@@ -86,7 +86,7 @@ def test_load_config_file_json_dict(tmp_path: Path) -> None:
     cfg_file = tmp_path / "pipeline.json"
     cfg_file.write_text(json.dumps(config))
 
-    result = _load_config_file(cfg_file)
+    result = load_config_file(cfg_file)
 
     assert result == config
 
@@ -99,7 +99,7 @@ def test_load_config_file_invalid_json(tmp_path: Path) -> None:
     cfg_file.write_text("{not valid json")
 
     with pytest.raises(click.ClickException, match="Invalid JSON"):
-        _load_config_file(cfg_file)
+        load_config_file(cfg_file)
 
 
 def test_load_config_file_unsupported_extension(tmp_path: Path) -> None:
@@ -110,7 +110,7 @@ def test_load_config_file_unsupported_extension(tmp_path: Path) -> None:
     cfg_file.write_text("")
 
     with pytest.raises(click.ClickException, match="Unsupported config file extension"):
-        _load_config_file(cfg_file)
+        load_config_file(cfg_file)
 
 
 # ---------------------------------------------------------------------------
