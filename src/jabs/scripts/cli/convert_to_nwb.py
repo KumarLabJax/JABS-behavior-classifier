@@ -111,6 +111,22 @@ def _collect_hdf5_attributes(path: Path) -> dict[str, dict[str, object]]:
 _IDENTITY_NAME_KEY = "name"
 
 
+def _carries_name(entry) -> bool:
+    """Whether this identity's subject entry has a ``name`` key at all, blank or not.
+
+    Metadata that is not a dict answers False: the CLI only checks that the top level of
+    the subjects JSON is an object, so a non-dict entry reaches here, and reporting it is
+    ``subject_metadata_problems``'s job. Touching it here would raise an AttributeError
+    in place of the message written for it.
+    """
+    return isinstance(entry.metadata, dict) and _IDENTITY_NAME_KEY in entry.metadata
+
+
+def _name_override(entry) -> object:
+    """The ``name`` this identity asks for, or None when its metadata is unusable."""
+    return entry.metadata.get(_IDENTITY_NAME_KEY) if isinstance(entry.metadata, dict) else None
+
+
 def _apply_identity_names(data: PoseData) -> PoseData:
     """Rename identities from the ``name`` field of their subject metadata.
 
@@ -128,22 +144,27 @@ def _apply_identity_names(data: PoseData) -> PoseData:
         data: Pose data whose ``subjects`` may carry ``name`` overrides.
 
     Returns:
-        ``data`` unchanged when no entry supplies a name, otherwise a copy with
-        ``external_ids`` and ``subjects`` updated.
+        ``data`` unchanged when no entry carries a name, otherwise a copy with
+        ``subjects`` stripped of the key and, if anything was actually renamed,
+        ``external_ids`` filled in.
 
     Raises:
-        ValueError: If the resulting identity names are not unique, or if a new name
-            collides with a ``subjects`` key belonging to something else.
+        ValueError: If a ``name`` is not a string, if the resulting identity names are
+            not unique, or if a new name collides with a ``subjects`` key belonging to
+            something else.
     """
     resolved = resolve_identity_subjects(data)
-    if not any(not subject_value_is_absent(e.metadata.get(_IDENTITY_NAME_KEY)) for e in resolved):
+    # Keyed on the key being present, not on it naming anything: a blank name renames
+    # nothing but still has to be stripped before it reaches the output metadata.
+    if not any(_carries_name(entry) for entry in resolved):
         return data
 
     # Resolve every name before touching subjects, so two identities renamed to the same
     # thing are reported as the duplicate they are rather than as a key collision.
     names: list[str] = []
+    renames: list[tuple] = []
     for entry in resolved:
-        override = entry.metadata.get(_IDENTITY_NAME_KEY)
+        override = _name_override(entry)
         if subject_value_is_absent(override):
             # Not every identity has to be renamed; the rest keep the id they had. That
             # is lookup_keys[0], the *raw* external ID, not the sanitized container name:
@@ -151,8 +172,16 @@ def _apply_identity_names(data: PoseData) -> PoseData:
             # form back would orphan metadata keyed by an ID that needed sanitizing.
             names.append(entry.lookup_keys[0])
             continue
-        name = sanitize_identity_name(str(override))
-        if name != str(override).strip():
+        if not isinstance(override, str):
+            # str() would turn a list or a number into a plausible-looking container
+            # name and write a real file under it, with only the sanitization warning
+            # to hint that anything was wrong.
+            raise ValueError(
+                f"The 'name' for --subjects key {entry.matched_key!r} must be a string, "
+                f"got {type(override).__name__}: {override!r}."
+            )
+        name = sanitize_identity_name(override)
+        if name != override.strip():
             logger.warning(
                 "Identity name %r is not usable as an NWB container name; using %r instead",
                 override,
@@ -160,6 +189,7 @@ def _apply_identity_names(data: PoseData) -> PoseData:
             )
         logger.info("Renaming identity %s to %s", entry.identity_name, name)
         names.append(name)
+        renames.append((entry, name))
 
     # Compare the container names the writer will derive, not the ids themselves: two
     # ids that differ only in characters sanitization strips would collide there.
@@ -178,21 +208,33 @@ def _apply_identity_names(data: PoseData) -> PoseData:
     # matches no identity has to survive, or validate_subjects can no longer report it
     # and a typo'd key becomes an unexplained "species is missing".
     subjects: dict[str, dict] = dict(data.subjects or {})
-    for entry, name in zip(resolved, names, strict=True):
-        # Keyed on whether a name was supplied, not on whether it differs: an override
-        # equal to the existing name still has to have the key stripped out of it.
-        if subject_value_is_absent(entry.metadata.get(_IDENTITY_NAME_KEY)):
-            continue
-        metadata = subjects.pop(entry.matched_key) if entry.matched_key is not None else {}
+    for entry in resolved:
+        if entry.matched_key is not None and _carries_name(entry):
+            subjects[entry.matched_key] = {
+                k: v for k, v in subjects[entry.matched_key].items() if k != _IDENTITY_NAME_KEY
+            }
+
+    # Pop every renamed entry before inserting any of them, so a collision is reported
+    # only against a key that survives the pops. Swapping two identities' names is a
+    # legitimate edit, and checking as we go would reject it on the first of the pair.
+    moved = [
+        (entry, name, subjects.pop(entry.matched_key) if entry.matched_key is not None else {})
+        for entry, name in renames
+    ]
+    for entry, name, _ in moved:
         if name in subjects:
             raise ValueError(
                 f"Renaming identity {entry.identity_name!r} to {name!r} collides with the "
                 f"--subjects key {name!r}, which would discard one of them. Rename the "
                 "identity to something else, or drop the conflicting key."
             )
-        subjects[name] = {k: v for k, v in metadata.items() if k != _IDENTITY_NAME_KEY}
+    for _, name, metadata in moved:
+        subjects[name] = metadata
 
-    return dataclasses.replace(data, external_ids=names, subjects=subjects or None)
+    # Only a real rename changes the identity names; a file whose only 'name' is blank
+    # keeps whatever external_ids it already had.
+    external_ids = names if renames else data.external_ids
+    return dataclasses.replace(data, external_ids=external_ids, subjects=subjects or None)
 
 
 def pose_to_pose_data(

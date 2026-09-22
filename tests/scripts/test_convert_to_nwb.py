@@ -20,6 +20,7 @@ from jabs.scripts.cli.convert_to_nwb import (
     pose_to_pose_data,
     run_conversion,
 )
+from jabs.scripts.cli.dandi_subject_metadata import validate_subjects
 
 
 def test_parse_utc_offset():
@@ -445,6 +446,91 @@ def test_rename_colliding_after_sanitization_raises(monkeypatch):
         pose_to_pose_data(
             _renaming_pose(num_identities=2, external_ids=["mouse/a", "z"]), subjects=subjects
         )
+
+
+def test_non_dict_subject_entry_is_left_for_validation(monkeypatch):
+    """A non-dict entry must reach subject_metadata_problems, not crash before it.
+
+    The CLI only checks that the top level of the subjects JSON is an object, so the
+    per-identity check lives in validation - which never runs if the rename raises an
+    AttributeError on the way past.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": "M123",  # a string where an object belongs
+        "subject_2": {"name": "mouse_b", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+    with pytest.raises(ValueError, match="metadata must be a JSON object, got str"):
+        validate_subjects(data)
+
+
+def test_two_identities_can_swap_names(monkeypatch):
+    """Swapping two names is legitimate; the collision check must not reject it.
+
+    Popping as we insert would test the second name against a key that is itself about
+    to move, making the outcome depend on the order the entries happen to be processed.
+    """
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "a": {"name": "b", "species": "Mus musculus", "sex": "M"},
+        "b": {"name": "a", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(
+        _renaming_pose(num_identities=2, external_ids=["a", "b"]), subjects=subjects
+    )
+
+    assert data.external_ids == ["b", "a"]
+    assert data.subjects["b"]["sex"] == "M"
+    assert data.subjects["a"]["sex"] == "F"
+
+
+@pytest.mark.parametrize("value", [["NV1-B2A"], 0, False, 3.5], ids=str)
+def test_non_string_name_is_rejected(monkeypatch, value):
+    """str() would coerce these into plausible container names and write real files."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": value, "species": "Mus musculus", "sex": "M"}}
+
+    with pytest.raises(ValueError, match="must be a string"):
+        pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+
+def test_blank_name_is_stripped_alongside_a_real_rename(monkeypatch):
+    """A blank name renames nothing, but must not survive into the output metadata."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {
+        "subject_1": {"name": "", "species": "Mus musculus", "sex": "M"},
+        "subject_2": {"name": "mouse_b", "species": "Mus musculus", "sex": "F"},
+    }
+
+    data = pose_to_pose_data(_renaming_pose(num_identities=2), subjects=subjects)
+
+    assert "name" not in data.subjects["subject_1"]
+    assert data.external_ids == ["subject_1", "mouse_b"]
+
+
+def test_blank_name_alone_is_stripped_and_renames_nothing(monkeypatch):
+    """The only 'name' being blank must still strip it, without inventing external_ids."""
+    monkeypatch.setattr(
+        "jabs.scripts.cli.convert_to_nwb._collect_hdf5_attributes", lambda path: {}
+    )
+    subjects = {"subject_1": {"name": "", "species": "Mus musculus", "sex": "M"}}
+
+    data = pose_to_pose_data(_renaming_pose(), subjects=subjects)
+
+    assert "name" not in data.subjects["subject_1"]
+    assert data.external_ids is None
 
 
 def test_rename_keeps_keys_that_match_no_identity(monkeypatch):
