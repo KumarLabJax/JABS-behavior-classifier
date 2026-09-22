@@ -37,6 +37,11 @@ convention = "google"
     # imports it guards, so those imports cannot sit at the top of the module
     "E402",
 ]
+"tests/scripts/test_dandi_subject_metadata_writer_agreement.py" = [
+    # pytest.importorskip() for the optional `nwb` extra has to run before the
+    # imports it guards
+    "E402",
+]
 "tests/scripts/test_convert_to_nwb_dandi_validation.py" = [
     # pytest.importorskip() for the optional `nwb` extra and for nwbinspector has
     # to run before the imports it guards
