@@ -9,9 +9,12 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
+from jabs.core.exceptions import (
+    DistanceScaleException,
+    FeatureVersionException,
+    PoseHashException,
+)
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
-from jabs.pose_estimation import PoseHashException
 
 logger = logging.getLogger(__name__)
 
