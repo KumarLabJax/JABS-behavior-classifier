@@ -1537,12 +1537,11 @@ def test_sweep_legend_explains_a_star_that_is_not_on_the_top_row(
     evaluate_report.print_console_report(result, console, per_video=False)
     text = console.export_text()
 
-    # every table says what it is sorted by, on one line (Rich wraps a long title
-    # to the table width, which is why the explanation lives in the note instead)
-    assert text.count("(sorted by bout F1)") == len(result.criteria)
-    for line in text.splitlines():
-        if "Postprocessing sweep -" in line:
-            assert line.rstrip().endswith("(sorted by bout F1)"), f"title wrapped: {line!r}"
+    # every table says what it is sorted by. Checked as a whole-title substring
+    # rather than by line position, so this does not depend on the table layout;
+    # test_sweep_titles_render_on_one_line owns the wrapping question.
+    for criterion in result.criteria:
+        assert evaluate_report.sweep_table_title(criterion) in text
     # and no table claims the star marks that table's best
     assert "* = best" not in text
     # the legend explains the star, names the deciding criterion, and warns about the row
@@ -1562,3 +1561,73 @@ def test_sweep_markdown_legend_matches_the_console(monkeypatch: pytest.MonkeyPat
     assert "sorted by bout F1 under its own" in text
     assert "not necessarily the top row" in text
     assert "marking the best" not in text
+
+
+def test_sweep_title_names_the_criterion_and_the_sort_order() -> None:
+    """Content of the title, independent of how any table renders."""
+    title = evaluate_report.sweep_table_title("IoU >= 0.5")
+    assert "IoU >= 0.5" in title
+    assert "sorted by bout F1" in title
+    # the star is explained once, in the note below the tables, not per title
+    assert "*" not in title
+    assert "best" not in title
+
+
+def test_sweep_titles_render_on_one_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The title must fit the table, which Rich sizes from its columns.
+
+    A title longer than the table wraps to two lines, which is what made the
+    first attempt at this legend unreadable. The fixture below is the narrowest
+    sweep table the command can produce - a single axis, the shortest parameter
+    name in the registry - so a title that fits here fits any real sweep.
+    """
+    from rich.console import Console
+
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    console = Console(width=200, record=True)
+    evaluate_report.print_sweep_tables(result, console)
+    lines = console.export_text().splitlines()
+
+    titles = [ln for ln in lines if ln.startswith("Postprocessing sweep -")]
+    assert len(titles) == len(result.criteria)
+    for criterion, line in zip(result.criteria, titles, strict=True):
+        expected = evaluate_report.sweep_table_title(criterion)
+        assert line.strip() == expected, (
+            f"sweep table title did not render on one line.\n"
+            f"  expected: {expected!r}\n"
+            f"  rendered: {line.strip()!r}\n"
+            f"Rich wraps a table title to the table's own width, which comes from the "
+            f"columns. If a column was renamed, removed, or narrowed, either shorten "
+            f"sweep_table_title() or move the wording into the note below the tables."
+        )
+
+
+def test_sweep_title_fits_the_narrowest_table_it_will_be_drawn_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compare title length against the rendered table width directly.
+
+    Stated as the actual invariant, so a failure says which of the two moved.
+    """
+    from rich.console import Console
+
+    _fake_project(
+        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
+    )
+    result = _run(plan=_plan(_SWEEP_CONFIG))
+
+    console = Console(width=200, record=True)
+    evaluate_report.print_sweep_tables(result, console)
+    border = next(ln for ln in console.export_text().splitlines() if ln.startswith("\u250f"))
+    table_width = len(border.rstrip())
+
+    for criterion in result.criteria:
+        title = evaluate_report.sweep_table_title(criterion)
+        assert len(title) <= table_width, (
+            f"title is {len(title)} chars but the table is only {table_width} wide, "
+            f"so Rich will wrap it: {title!r}"
+        )

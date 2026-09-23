@@ -156,6 +156,23 @@ def _sweep_rows(result: EvaluationResult, criterion: str) -> list[list[str]]:
     return rows_out
 
 
+def sweep_table_title(criterion: str) -> str:
+    """Build the title for one criterion's sweep table.
+
+    Deliberately short. Rich wraps a table title to the table's own width, which
+    is driven by the columns, so a long title breaks across two lines on a
+    narrow sweep table. What the star means is explained once in the note
+    printed below all the tables rather than repeated in each title.
+
+    Args:
+        criterion: Match-criterion label the table covers.
+
+    Returns:
+        The table title.
+    """
+    return f"Postprocessing sweep - {criterion} (sorted by bout F1)"
+
+
 def _sweep_headers(result: EvaluationResult) -> list[str]:
     """Column headings for the sweep table.
 
@@ -185,12 +202,7 @@ def print_sweep_tables(result: EvaluationResult, console: Console) -> None:
     """
     headers = _sweep_headers(result)
     for criterion in result.criteria:
-        table = Table(
-            # kept short so Rich does not wrap it to the table width; the note printed
-            # below both tables carries the rest
-            title=f"Postprocessing sweep - {criterion} (sorted by bout F1)",
-            title_justify="left",
-        )
+        table = Table(title=sweep_table_title(criterion), title_justify="left")
         for index, heading in enumerate(headers):
             table.add_column(
                 heading, justify="left" if index < len(result.sweep_axis_names) else "right"
