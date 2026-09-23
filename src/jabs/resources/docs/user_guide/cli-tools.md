@@ -952,19 +952,36 @@ That expands to 12 combinations. Because a pipeline is a pure function of the pr
 Each swept parameter becomes a column in a sweep table, one table per match criterion, with every combination as a row sorted by that criterion's bout F1:
 
 ```
-Postprocessing sweep - IoU >= 0.5 (sorted by bout F1, * = best)
+Postprocessing sweep - overlap >= 1 (sorted by bout F1)
+ max_stitch_gap  min_duration | bout F1  detect  precision  frag  merged  frame F1
+             45            10 |  0.734    0.841      0.651     2       4     0.579
+             30            10 |  0.721*   0.825      0.640     3       1     0.588
+             15            10 |  0.689    0.794      0.608     7       0     0.571
+             ...
+
+Postprocessing sweep - IoU >= 0.5 (sorted by bout F1)
  max_stitch_gap  min_duration | bout F1  detect  precision  frag  merged  frame F1
              30            10 |  0.612*   0.714      0.536     3       1     0.588
              45            10 |  0.601    0.730      0.511     2       4     0.579
              15            10 |  0.564    0.667      0.489     7       0     0.571
              ...
+
+Each table is sorted by bout F1 under its own criterion. * marks the one combination
+the detailed tables below describe, chosen by bout F1 under IoU >= 0.5 (the strictest
+criterion) with frame F1 breaking ties - so it is not necessarily the top row of every
+table.
 ```
+
+The `*` is a single global choice, not one per table. It lands on the top row of the
+strictest criterion's table by construction, but not necessarily anywhere else: above,
+`max_stitch_gap: 45` wins under `overlap >= 1`, while `30` is the combination the
+detailed sections go on to describe.
 
 Axes are taken only from **enabled** stages, so a list on a disabled stage adds no combinations. A grid larger than `--max-sweep-combinations` is refused before any classification happens, naming the axis sizes.
 
 Two things narrow when sweeping, because they have no single answer across a grid:
 
-- The detailed frame-level and bout-level tables cover the raw predictions plus the **best** combination, chosen by bout F1 under the strictest criterion. The sweep table carries every combination, and so does the JSON summary.
+- The detailed frame-level and bout-level tables cover the raw predictions plus the one combination marked `*`, chosen by bout F1 under the strictest criterion with frame F1 breaking ties. The sweep tables carry every combination, and so does the JSON summary.
 - `--save-predictions` writes the raw predictions only, with no postprocessed dataset. Re-run with your chosen values as scalars to save a postprocessed file.
 
 Setting the value ranges is easier from evidence than from intuition. Run once with no postprocessing and `--csv-out`, then look at the ground-truth bout durations (the floor for `min_duration`) and the gaps between consecutive predicted bouts that overlap the same true bout (the range for `max_stitch_gap`). Note that the cost of `min_duration` is only interpretable *after* stitching: fragments that a duration filter would delete on their own survive once stitching has merged them into one bout, which is why the stage order in the config matters.
