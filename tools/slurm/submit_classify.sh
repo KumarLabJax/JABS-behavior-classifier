@@ -103,7 +103,7 @@ fi
 if [[ -z $JABS_OUT_DIR ]]; then
     jabs_usage_error "--out-dir is required"
 fi
-if [[ -n $FPS && ! $FPS =~ ^[0-9]+$ ]]; then
+if [[ -n $FPS ]] && { [[ ! $FPS =~ ^[0-9]+$ ]] || (( FPS == 0 )); }; then
     jabs_usage_error "--fps must be a positive integer"
 fi
 
@@ -119,7 +119,7 @@ if [[ -n $FEATURE_DIR ]]; then
 fi
 
 jabs_build_manifest classify
-jabs_check_basename_collisions
+jabs_check_output_collisions pose-stem
 jabs_write_common_env
 jabs_env_var JABS_CLASSIFIER "$CLASSIFIER"
 jabs_env_var JABS_TRAINING "$TRAINING"

@@ -74,6 +74,14 @@ result is written there under the same file name. `--behavior` is required when 
 config file is a bare list of stages; it is optional (and acts as a filter) when the
 config maps behavior names to stages.
 
+## Output name collisions
+
+Output directories are flat, and each output file is named after its input, so the submit
+scripts refuse to start a run in which two inputs would produce the same output file.
+For classification that comparison is made on the pose stem, because `jabs-classify`
+strips the `_pose_est_vN` suffix: `video_pose_est_v4.h5` and `video_pose_est_v6.h5` both
+write `video_behavior.h5`, so keep one pose version per video in an input directory.
+
 ## Sizing a run
 
 `--files-per-task` times the worst case time for one file must fit inside `--time`. The

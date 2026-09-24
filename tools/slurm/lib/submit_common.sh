@@ -69,13 +69,29 @@ jabs_abspath() {
 # form. Result lands in JABS_ARGV.
 jabs_normalize_args() {
     JABS_ARGV=()
-    local arg
+    local arg verbatim=""
     for arg in "$@"; do
-        if [[ $arg == --*=* ]]; then
-            JABS_ARGV+=("${arg%%=*}" "${arg#*=}")
-        else
+        # The word after --extra-arg/--sbatch-arg is a value destined for
+        # another program (--gres=gpu:1, --window-size=5). Splitting it here
+        # would break the passthrough options that exist to forward it.
+        if [[ -n $verbatim ]]; then
             JABS_ARGV+=("$arg")
+            verbatim=""
+            continue
         fi
+        case $arg in
+            --extra-arg|--sbatch-arg)
+                JABS_ARGV+=("$arg")
+                verbatim=1
+                ;;
+            --*=*)
+                # Split once, so --extra-arg=--window-size=5 keeps its value whole.
+                JABS_ARGV+=("${arg%%=*}" "${arg#*=}")
+                ;;
+            *)
+                JABS_ARGV+=("$arg")
+                ;;
+        esac
     done
 }
 
@@ -140,6 +156,9 @@ jabs_validate_common() {
         || jabs_usage_error "--throttle must be a positive integer"
     [[ $JABS_CPUS =~ ^[0-9]+$ ]] && (( JABS_CPUS > 0 )) \
         || jabs_usage_error "--cpus must be a positive integer"
+    if [[ $JABS_MANIFEST_DIR == *,* ]]; then
+        jabs_usage_error "--manifest-dir must not contain a comma: ${JABS_MANIFEST_DIR}"
+    fi
     if [[ -n $JABS_VENV && ! -r "${JABS_VENV}/bin/activate" ]]; then
         jabs_fail "no virtualenv activate script at ${JABS_VENV}/bin/activate (use --venv or --no-venv)"
     fi
@@ -157,8 +176,33 @@ jabs_build_manifest() {
     local manifest_dir stamp
     manifest_dir=$(jabs_abspath "$JABS_MANIFEST_DIR")
     stamp=$(date +%Y%m%d_%H%M%S)
-    JABS_MANIFEST="${manifest_dir}/${label}_${stamp}.txt"
-    JABS_JOB_ENV="${manifest_dir}/${label}_${stamp}.env"
+
+    # Checked before anything is written, so a rejected path leaves nothing
+    # behind. `sbatch --export` splits on commas, so a comma anywhere in the
+    # resolved job env path would silently truncate it into a bogus variable.
+    if [[ $manifest_dir == *,* ]]; then
+        jabs_fail "manifest directory must not contain a comma: ${manifest_dir}"
+    fi
+
+    # The timestamp alone is only second-resolution, so a loop that submits
+    # several jobs of the same type in quick succession would reuse one
+    # manifest/env pair. The worker reads those files when the task *runs*, so
+    # a reused name silently hands an already-queued array the newer job's
+    # settings. Claim the name with a noclobber redirect, which is atomic, and
+    # count up until an unclaimed one is found.
+    local base="${manifest_dir}/${label}_${stamp}"
+    local candidate=$base
+    local attempt=1
+    until (set -o noclobber; : > "${candidate}.txt") 2>/dev/null; do
+        if (( attempt > 1000 )); then
+            jabs_fail "could not find an unused manifest name under ${manifest_dir}"
+        fi
+        candidate="${base}_${attempt}"
+        attempt=$(( attempt + 1 ))
+    done
+
+    JABS_MANIFEST="${candidate}.txt"
+    JABS_JOB_ENV="${candidate}.env"
 
     if [[ -n $JABS_FILE_LIST ]]; then
         # Copy rather than reference: the snapshot must not change under a
@@ -174,7 +218,7 @@ jabs_build_manifest() {
 
     JABS_NUM_FILES=$(wc -l < "$JABS_MANIFEST" | tr -d '[:space:]')
     if (( JABS_NUM_FILES == 0 )); then
-        rm -f -- "$JABS_MANIFEST"
+        jabs_discard_manifest
         if [[ -n $JABS_FILE_LIST ]]; then
             jabs_fail "file list is empty: ${JABS_FILE_LIST}"
         fi
@@ -182,18 +226,44 @@ jabs_build_manifest() {
     fi
 }
 
-# Refuse to run when two input files share a base name. Output files are named
-# after their input, so a collision would have tasks overwriting each other in
-# the output directory. Only reachable with --recursive or a --file-list that
-# spans directories.
-jabs_check_basename_collisions() {
-    local dupes
-    dupes=$(sed -e 's#.*/##' -- "$JABS_MANIFEST" | sort | uniq -d)
+# Remove the manifest and job env file claimed for a submission that is being
+# abandoned, so a rejected run leaves nothing behind in --manifest-dir.
+jabs_discard_manifest() {
+    rm -f -- "$JABS_MANIFEST" "$JABS_JOB_ENV"
+}
+
+# Refuse to run when two input files would produce the same output file name.
+# The output directory is flat, so a collision means tasks overwrite each
+# other's results.
+#
+# $1: how the JABS command derives the output name from the input path.
+#     "basename"  - the output keeps the input file name (jabs-cli postprocess
+#                   --output).
+#     "pose-stem" - the output is named from pose_file_stem(), which drops the
+#                   file extension and any _pose_est_vN suffix, so
+#                   video_pose_est_v4.h5 and video_pose_est_v6.h5 both become
+#                   video_behavior.h5 (see classify.py and
+#                   packages/jabs-core/src/jabs/core/utils/utilities.py).
+jabs_check_output_collisions() {
+    local mode=${1:-basename}
+    local names dupes
+
+    names=$(sed -e 's#.*/##' -- "$JABS_MANIFEST")
+    if [[ $mode == pose-stem ]]; then
+        names=$(printf '%s\n' "$names" | sed -E -e 's#\.[^.]*$##' -e 's#_pose_est_v[0-9]+$##')
+    fi
+
+    dupes=$(printf '%s\n' "$names" | sort | uniq -d)
     if [[ -n $dupes ]]; then
-        printf 'ERROR: input files share base names, so their output would collide in %s:\n' \
-            "$JABS_OUT_DIR" >&2
+        printf 'ERROR: input files map to the same output name in %s:\n' "$JABS_OUT_DIR" >&2
         printf '%s\n' "$dupes" | sed -e 's#^#  #' >&2
-        printf 'Submit each source directory separately, or drop --recursive.\n' >&2
+        if [[ $mode == pose-stem ]]; then
+            printf 'Output is named after the pose stem, so pose versions of one video collide.\n' >&2
+            printf 'Keep one pose version per video, or classify them into separate directories.\n' >&2
+        else
+            printf 'Submit each source directory separately, or drop --recursive.\n' >&2
+        fi
+        jabs_discard_manifest
         exit 1
     fi
 }
@@ -270,12 +340,6 @@ jabs_submit() {
     if [[ -n $JABS_QOS ]]; then sbatch_args+=(--qos "$JABS_QOS"); fi
     if [[ -n $JABS_ACCOUNT ]]; then sbatch_args+=(--account "$JABS_ACCOUNT"); fi
     sbatch_args+=(${JABS_SBATCH_ARGS[@]+"${JABS_SBATCH_ARGS[@]}"})
-
-    # `sbatch --export` splits on commas, so a comma in the job env path would
-    # silently truncate it into a bogus variable.
-    if [[ $JABS_JOB_ENV == *,* ]]; then
-        jabs_fail "--manifest-dir must not contain a comma: ${JABS_JOB_ENV}"
-    fi
 
     printf 'Manifest:  %s\n' "$JABS_MANIFEST"
     printf 'Job env:   %s\n' "$JABS_JOB_ENV"

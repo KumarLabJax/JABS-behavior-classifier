@@ -90,7 +90,7 @@ fi
 
 jabs_build_manifest postprocess
 if [[ -n $JABS_OUT_DIR ]]; then
-    jabs_check_basename_collisions
+    jabs_check_output_collisions basename
 fi
 jabs_write_common_env
 jabs_env_var JABS_CONFIG "$CONFIG"

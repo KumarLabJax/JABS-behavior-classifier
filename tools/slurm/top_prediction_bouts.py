@@ -7,9 +7,9 @@ file.
 
 Usage::
 
-    uv run python scratch/top_prediction_bouts.py /path/to/predictions -o top_bouts.csv
-    uv run python scratch/top_prediction_bouts.py /path/to/predictions --top-n 250
-    uv run python scratch/top_prediction_bouts.py /path/to/predictions --behavior Drinking
+    uv run python tools/slurm/top_prediction_bouts.py /path/to/predictions -o top_bouts.csv
+    uv run python tools/slurm/top_prediction_bouts.py /path/to/predictions --top-n 250
+    uv run python tools/slurm/top_prediction_bouts.py /path/to/predictions --behavior Drinking
 
 Prediction file layout (see jabs.io.internal.prediction.hdf5)::
 
@@ -215,9 +215,20 @@ def write_csv(bouts: list[Bout], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="") as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(["video", "identity", "bout_start_frame", "bout_end_frame", "bout_length"])
+        writer.writerow(
+            [
+                "video",
+                "behavior",
+                "identity",
+                "bout_start_frame",
+                "bout_end_frame",
+                "bout_length",
+            ]
+        )
         for bout in bouts:
-            writer.writerow([bout.video, bout.identity, bout.start, bout.end, bout.length])
+            writer.writerow(
+                [bout.video, bout.behavior, bout.identity, bout.start, bout.end, bout.length]
+            )
 
 
 def parse_args() -> argparse.Namespace:
