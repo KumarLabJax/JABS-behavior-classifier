@@ -21,16 +21,6 @@ class PoseEstimationV4(PoseEstimation):
         file_path (Path): Path to the pose HDF5 file.
         cache_dir (Path | None): Optional cache directory for intermediate data.
         fps (int): Frames per second for the video.
-
-    Properties:
-        identity_to_track: Always returns None for v4+ files.
-        format_major_version: Returns the major version of the pose file format (4).
-
-    Methods:
-        get_points(frame_index, identity, scale): Get points and mask for an identity in a frame.
-        get_identity_poses(identity, scale): Get all points and masks for an identity.
-        identity_mask(identity): Get the identity mask for a given identity.
-        get_identity_point_mask(identity): Get the point mask array for a given identity.
     """
 
     # super class handles validating cache file version and will delete
@@ -199,8 +189,7 @@ class PoseEstimationV4(PoseEstimation):
             frame_index: index of frame
             identity: identity that we want the points for
             scale: optional scale factor, set to cm_per_pixel to convert
-            fps: video frames per second
-        poses from pixel coordinates to cm coordinates
+                poses from pixel coordinates to cm coordinates
 
         Returns:
             points, mask if identity has data for this frame
@@ -223,15 +212,13 @@ class PoseEstimationV4(PoseEstimation):
         """return all points and point masks
 
         Args:
-            identity: included for compatibility with pose_est_v3.
-                Should
+            identity: identity that we want the points for
             scale: optional scale factor, set to cm_per_pixel to convert
-        always be zero.
-        poses from pixel coordinates to cm coordinates
+                poses from pixel coordinates to cm coordinates
 
         Returns:
-            numpy array of points (#frames, 12, 2), numpy array of point
-        masks (#frames, 12)
+            numpy array of points (#frames, 12, 2), numpy array of point masks
+            (#frames, 12)
         """
         if scale is not None:
             return (
