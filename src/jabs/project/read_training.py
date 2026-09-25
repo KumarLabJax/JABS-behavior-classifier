@@ -101,11 +101,9 @@ def read_project_settings(h5_file: h5py.Group) -> dict:
             name: root where node is located
             node: name of node currently visiting
 
-        Returns:
-            dictionary of walked setting (if valid node)
-
         meant to be used with h5py's visititems
-        this walk can't use return/yield, so we just mutate the dict each visit
+        this walk can't use return/yield, so we mutate the enclosing
+        ``all_settings`` dict on each visit instead of returning anything
         settings can only be a max of 1 deep
         """
         fullname = node.name[root_len:]
@@ -122,36 +120,38 @@ def read_project_settings(h5_file: h5py.Group) -> dict:
     return all_settings
 
 
-def load_training_data(training_file: Path):
-    """load training data from file
+def load_training_data(training_file: Path) -> tuple[dict[str, Any], dict[int, dict[str, Any]]]:
+    """Load binary training data from an exported HDF5 file.
 
     Args:
-        training_file: path to training h5 file
+        training_file: Path to a binary training HDF5 file produced by
+            ``export_training_data()``.
 
     Returns:
-        features, group_mapping features: dict containing training data
-        with the following format: {
-            'per_frame': {}
-            'window_features': {},
-            'labels': [int],
-            'groups': [int],
-            'behavior': str,
-            'settings': {},
-            'classifier':
-        }
+        Tuple of ``(features, group_mapping)`` where ``features`` contains:
+            - ``behavior``: name of the behavior the data was exported for
+            - ``labels``: ndarray of integer labels, one per feature row
+            - ``groups``: ndarray of group IDs, aligned to the feature rows
+            - ``per_frame``: DataFrame of per-frame features
+            - ``window``: DataFrame of window features
+            - ``classifier_type``: ClassifierType enum
+            - ``distance_unit``: ProjectDistanceUnit enum
+            - ``training_seed``: int
+            - ``settings``: dict of project settings
+            - ``min_pose_version``: int
+            - ``extended_features``: feature group name to its list of feature
+              names, read from the file's ``extended_features`` group. ``None``
+              when the file has no such group, which is the case for every file
+              the current ``export_training_data()`` writes.
 
-        group_mapping: dict containing group to identity/video mapping:
-        {
-            group_id: {
-                'identity': int | None,
-                'video': str
-            },
-        }
-
+        ``group_mapping`` maps group ID → ``{"identity": int | None, "video": str}``.
         ``identity`` is None for a group that is not tied to a single animal
         identity (``VIDEO`` and ``FILENAME_PATTERN`` grouping), in which case
         ``video`` is the video filename or the regex-extracted group label
         respectively.
+
+    Raises:
+        ValueError: If the file records a classifier type that is not recognized.
     """
     features: dict[str, Any] = {"per_frame": {}, "window": {}}
 
@@ -212,7 +212,9 @@ def load_training_data(training_file: Path):
     return features, group_mapping
 
 
-def load_multiclass_training_data(training_file: Path) -> tuple[dict[str, Any], dict]:
+def load_multiclass_training_data(
+    training_file: Path,
+) -> tuple[dict[str, Any], dict[int, dict[str, Any]]]:
     """Load multi-class training data from an exported HDF5 file.
 
     Args:
