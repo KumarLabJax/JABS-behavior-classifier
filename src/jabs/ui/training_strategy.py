@@ -103,6 +103,7 @@ class TrainingStrategy:
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        cv_warning: str | None = None,
     ) -> TrainingReportData:
         """Assemble the ``TrainingReportData`` for the trained model."""
         raise NotImplementedError
@@ -191,6 +192,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        cv_warning: str | None = None,
     ) -> TrainingReportData:
         """Build the binary-mode training report with frame and bout counts.
 
@@ -220,6 +222,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
             window_size=settings["window_size"],
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
+            cv_warning=cv_warning,
         )
 
     def cv_secondary_metric(self, cv_results: list[CrossValidationResult]) -> float | None:
@@ -315,6 +318,7 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        cv_warning: str | None = None,
     ) -> TrainingReportData:
         """Build the multi-class training report with per-class frame and bout counts.
 
@@ -360,6 +364,7 @@ class MultiClassTrainingStrategy(TrainingStrategy):
             window_size=settings.get("window_size", 0),
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
+            cv_warning=cv_warning,
             class_frame_counts=class_frame_counts,
             class_bout_counts=class_bout_counts,
         )

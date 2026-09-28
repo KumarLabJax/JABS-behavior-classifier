@@ -720,3 +720,47 @@ def test_behavior_change_replaces_predictions_left_over_from_the_other_mode():
     manager.load_multiclass_predictions.assert_called_once_with("clip.avi")
     manager.load_predictions.assert_not_called()
     assert stub._predictions == {}, "stale binary predictions were kept"
+
+
+def _training_completion_stub(cv_warning: str | None) -> SimpleNamespace:
+    """Stand-in exposing what _training_thread_complete() reads from self."""
+    return SimpleNamespace(
+        _cleanup_training_thread=MagicMock(),
+        _cleanup_progress_dialog=MagicMock(),
+        status_message=SimpleNamespace(emit=MagicMock()),
+        _set_classify_enabled=MagicMock(),
+        _training_cv_warning=cv_warning,
+        # no report markdown, so the report-dialog branch is skipped
+        _training_report_markdown=None,
+    )
+
+
+def test_training_completion_warns_when_cross_validation_was_skipped(monkeypatch):
+    """A skipped-CV warning reaches the user as a dialog, not just a status message."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    stub = _training_completion_stub("no group could serve as a test split")
+
+    CentralWidget._training_thread_complete(stub, 1234)
+
+    assert len(warnings) == 1
+    _args, kwargs = warnings[0]
+    assert kwargs["details"] == "no group could serve as a test split"
+    # cleared so a later run does not repeat a stale warning
+    assert stub._training_cv_warning is None
+
+
+def test_training_completion_is_quiet_when_cross_validation_ran(monkeypatch):
+    """No warning dialog when there was nothing to warn about."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+
+    CentralWidget._training_thread_complete(_training_completion_stub(None), 1234)
+
+    assert warnings == []

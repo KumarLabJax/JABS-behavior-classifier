@@ -198,6 +198,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_cache_targets: list[str] | None = None
         self._training_report_markdown: str | None = None
         self._training_report_dialog: TrainingReportDialog | None = None
+        self._training_cv_warning: str | None = None
 
         # information about current predictions
         self._predictions = {}
@@ -1064,6 +1065,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # reset training report
         self._training_report_markdown = None
+        self._training_cv_warning = None
 
         # setup training thread
         self._training_thread = TrainingThread(
@@ -1080,6 +1082,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread.update_progress.connect(self._update_training_progress)
         self._training_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
         self._training_thread.training_report.connect(self._on_training_report)
+        self._training_thread.cv_warning.connect(self._on_cv_warning)
 
         # setup progress dialog
         # use one task for reading features from each video, plus one for training, plus one each for cross validation iterations.
@@ -1264,6 +1267,18 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._training_report_markdown = markdown_content
 
+    def _on_cv_warning(self, message: str) -> None:
+        """Save a cross-validation warning for display after training completes.
+
+        Held until the run finishes rather than shown immediately: the training
+        thread is still working, and a modal dialog over the progress dialog would
+        interrupt it.
+
+        Args:
+            message: Why cross-validation could not run.
+        """
+        self._training_cv_warning = message
+
     def _training_thread_complete(self, elapsed_ms) -> None:
         """enable classify button once the training is complete
 
@@ -1276,6 +1291,17 @@ class CentralWidget(QtWidgets.QWidget):
             f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
         self._set_classify_enabled(True)
+
+        # Warn before the report opens: the report's cross-validation section is
+        # empty in this case, and this says why.
+        if self._training_cv_warning:
+            MessageDialog.warning(
+                self,
+                "Cross Validation Skipped",
+                "The classifier was trained, but cross-validation did not run.",
+                details=self._training_cv_warning,
+            )
+            self._training_cv_warning = None
 
         # Display training report if available
         if self._training_report_markdown:
