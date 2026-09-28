@@ -385,6 +385,25 @@ class Classifier(BaseClassifier):
         return group_count
 
     @staticmethod
+    def _label_totals(all_counts: dict) -> tuple[int, int]:
+        """Sum behavior and not-behavior labeled frames over every video and identity.
+
+        Args:
+            all_counts: Labeled frame and bout counts for the entire project.
+
+        Returns:
+            Tuple of (behavior frames, not-behavior frames), using the
+            "fragmented" counts that reflect labels usable for training.
+        """
+        behavior_total = 0
+        not_behavior_total = 0
+        for video_counts in all_counts.values():
+            for identity_counts in video_counts.values():
+                behavior_total += identity_counts["fragmented_frame_counts"][0]
+                not_behavior_total += identity_counts["fragmented_frame_counts"][1]
+        return behavior_total, not_behavior_total
+
+    @staticmethod
     def label_threshold_met(
         all_counts: dict,
         min_groups: int,
@@ -396,24 +415,39 @@ class Classifier(BaseClassifier):
         Args:
             all_counts: Labeled frame and bout counts for the entire project.
             min_groups: Number of cross-validation iterations requested. Zero (or
-                less) means cross-validation is disabled, in which case a single
-                group meeting the label threshold is enough to train.
+                less) means cross-validation is disabled, in which case grouping
+                does not matter and only the project-wide label totals are checked.
             cv_grouping_strategy: Cross-validation grouping strategy.
             cv_grouping_regex: Regex used for ``FILENAME_PATTERN`` grouping (see
                 :meth:`count_label_threshold`).
 
         Returns:
-            True if there are enough groups meeting the threshold.
+            True if there are enough groups meeting the threshold, or, when
+            cross-validation is disabled, if both classes have at least
+            ``LABEL_THRESHOLD`` labeled frames across the project.
         """
+        if min_groups <= 0:
+            # Feature collection assigns group ids whatever k is, so an unusable
+            # FILENAME_PATTERN regex still fails the run - keep gating on it here
+            # rather than letting training raise.
+            if cv_grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN:
+                try:
+                    compile_grouping_regex(cv_grouping_regex or "")
+                except ValueError:
+                    return False
+            # No cross-validation requested, so there is no test split to hold out
+            # and grouping does not matter: the final fit uses every labeled row,
+            # wherever the labels came from.
+            behavior_total, not_behavior_total = Classifier._label_totals(all_counts)
+            return (
+                behavior_total >= Classifier.LABEL_THRESHOLD
+                and not_behavior_total >= Classifier.LABEL_THRESHOLD
+            )
         group_count = Classifier.count_label_threshold(
             all_counts,
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
         )
-        if min_groups <= 0:
-            # No cross-validation requested, so no group has to be held out as a
-            # test split: one group with enough labels is enough to train.
-            return group_count >= 1
         # "Leave one group out" needs a test group plus at least one training
         # group, so k iterations require max(2, k) groups.
         return group_count >= max(2, min_groups)

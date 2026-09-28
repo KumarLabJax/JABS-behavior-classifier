@@ -881,14 +881,55 @@ class TestStaticMethods:
             counts, min_groups=1, cv_grouping_strategy=strategy
         )
 
-    def test_label_threshold_met_no_qualifying_group(self):
-        """k=0 does not lower the per-group label threshold itself."""
+    def test_label_threshold_met_no_cv_still_requires_both_classes(self):
+        """k=0 does not lower the label threshold itself, only where the labels may sit."""
         counts = {"video1.avi": {0: {"fragmented_frame_counts": (25, 5)}}}
         assert not Classifier.label_threshold_met(
             counts,
             min_groups=0,
             cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
         )
+
+    def test_label_threshold_met_no_cv_sums_labels_across_groups(self):
+        """Without cross-validation the labels may be spread over several groups.
+
+        No single identity here clears the threshold for both classes, but the
+        final fit uses every labeled row, so training would succeed.
+        """
+        counts = {
+            "video1.avi": {
+                0: {"fragmented_frame_counts": (25, 0)},
+                1: {"fragmented_frame_counts": (0, 25)},
+            }
+        }
+        assert Classifier.count_label_threshold(counts) == 0
+        assert Classifier.label_threshold_met(
+            counts,
+            min_groups=0,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+        # a cross-validation split still needs both classes on each side
+        assert not Classifier.label_threshold_met(
+            counts,
+            min_groups=1,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+
+    def test_label_threshold_met_no_cv_still_requires_a_usable_regex(self):
+        """k=0 does not waive the filename-pattern regex check.
+
+        Feature collection compiles the regex whatever k is, so an empty or invalid
+        pattern fails the training run; the button must stay disabled rather than
+        hand the user a training error.
+        """
+        counts = {"cage_1.avi": {0: {"fragmented_frame_counts": (25, 25)}}}
+        for bad_regex in ("", "cage_("):
+            assert not Classifier.label_threshold_met(
+                counts,
+                min_groups=0,
+                cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                cv_grouping_regex=bad_regex,
+            )
 
 
 class TestFromTrainingFile:
