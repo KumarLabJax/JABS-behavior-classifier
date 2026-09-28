@@ -852,6 +852,26 @@ class TestLabelThreshold:
             **kwargs,
         )
 
+    def test_label_threshold_met_no_cv_still_requires_a_usable_regex(self) -> None:
+        """k=0 does not waive the filename-pattern regex check.
+
+        Feature collection compiles the regex whatever k is, so an empty or invalid
+        pattern fails the training run; the button must stay disabled rather than
+        hand the user a training error.
+        """
+        counts_by_behavior = {
+            "None": {"cage_1.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+            "Walk": {"cage_1.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+        }
+        for bad_regex in ("", "cage_("):
+            assert not MultiClassClassifier.label_threshold_met(
+                counts_by_behavior=counts_by_behavior,
+                behavior_names=["None", "Walk"],
+                min_groups=0,
+                cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                cv_grouping_regex=bad_regex,
+            )
+
     def test_label_threshold_met_no_cv_still_requires_every_class(self) -> None:
         """k=0 does not waive the per-class label threshold."""
         counts_by_behavior = {

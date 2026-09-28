@@ -564,6 +564,14 @@ class MultiClassClassifier(BaseClassifier):
         if len(behavior_names) < 2:
             return False
         if min_groups <= 0:
+            # Feature collection assigns group ids whatever k is, so an unusable
+            # FILENAME_PATTERN regex still fails the run - keep gating on it here
+            # rather than letting training raise.
+            if cv_grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN:
+                try:
+                    compile_grouping_regex(cv_grouping_regex or "")
+                except ValueError:
+                    return False
             # No cross-validation requested, so no group has to be held out as a
             # test split. Training still needs every class represented, but the
             # labels may all come from a single group.
