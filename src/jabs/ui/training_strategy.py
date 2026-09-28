@@ -84,6 +84,10 @@ class TrainingStrategy:
         """Build the data dict passed to ``classifier.train`` for the final model."""
         raise NotImplementedError
 
+    def prepare_final_training(self) -> None:
+        """Put the classifier in the state the final fit needs."""
+        raise NotImplementedError
+
     def save_classifier(self) -> None:
         """Persist the trained classifier."""
         raise NotImplementedError
@@ -160,6 +164,17 @@ class BinaryTrainingStrategy(TrainingStrategy):
             "training_labels": training_labels,
             "feature_names": feature_names,
         }
+
+    def prepare_final_training(self) -> None:
+        """Apply the behavior name and project settings the final fit needs.
+
+        Cross-validation folds set these as a side effect of training each fold,
+        so a run that produces no folds (k=0, or no group that can serve as a
+        valid test split) would otherwise reach the final fit with the settings
+        still unset and fail with "Project settings for classifier unset".
+        """
+        self._classifier.behavior_name = self._behavior
+        self._classifier.set_project_settings(self._project, self._behavior)
 
     def save_classifier(self) -> None:
         """Persist the classifier under its behavior-scoped pickle name."""
@@ -274,6 +289,16 @@ class MultiClassTrainingStrategy(TrainingStrategy):
             "settings": self._settings,
             "feature_names": feature_names,
         }
+
+    def prepare_final_training(self) -> None:
+        """Apply the project settings the final fit needs.
+
+        Multi-class training reads its settings from the ``train`` payload (see
+        :meth:`final_train_data`), so the classifier needs no preparation here.
+        Setting them anyway keeps the classifier usable if the payload ever stops
+        carrying them.
+        """
+        self._classifier.set_dict_settings(self._settings)
 
     def save_classifier(self) -> None:
         """Persist the classifier under the shared multi-class pickle name."""

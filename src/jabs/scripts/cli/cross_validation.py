@@ -172,6 +172,10 @@ def run_cross_validation(
         features, _ = project.get_labeled_features(behavior)
         full_dataset = classifier.combine_data(features["per_frame"], features["window"])
         feature_names = full_dataset.columns.to_list()
+        # cross-validation folds set these as a side effect, but a run with no
+        # valid splits reaches the final fit without them
+        classifier.behavior_name = behavior
+        classifier.set_project_settings(project, behavior)
         classifier.train(
             {
                 "training_data": full_dataset,

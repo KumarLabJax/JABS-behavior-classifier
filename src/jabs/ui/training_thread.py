@@ -146,6 +146,9 @@ class TrainingThread(QThread):
             self.current_status.emit("Training Classifier")
             full_dataset = self._classifier.combine_data(features["per_frame"], features["window"])
             feature_names = full_dataset.columns.to_list()
+            # the final fit must not depend on cross-validation having run: a run
+            # with zero folds leaves the classifier unprepared otherwise
+            strategy.prepare_final_training()
             self._classifier.train(
                 strategy.final_train_data(features, full_dataset, feature_names),
                 random_seed=FINAL_TRAIN_SEED,
