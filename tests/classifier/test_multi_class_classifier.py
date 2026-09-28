@@ -816,6 +816,75 @@ class TestLabelThreshold:
             cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
         )
 
+    def test_label_threshold_met_single_group_without_cross_validation(self) -> None:
+        """One group is trainable when cross-validation is turned off (k=0).
+
+        A single group yields no valid LOGO split (the training folds would be
+        empty), but with no cross-validation requested only the per-class label
+        totals matter.
+        """
+        counts_by_behavior = {
+            "None": {"cage_1_day1.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+            "Walk": {"cage_1_day1.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+        }
+        kwargs = {
+            "cv_grouping_strategy": CrossValidationGroupingStrategy.FILENAME_PATTERN,
+            "cv_grouping_regex": r"cage_(\d+)",
+        }
+        assert (
+            MultiClassClassifier.count_label_threshold(
+                counts_by_behavior=counts_by_behavior,
+                behavior_names=["None", "Walk"],
+                **kwargs,
+            )
+            == 0
+        )
+        assert MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk"],
+            min_groups=0,
+            **kwargs,
+        )
+        assert not MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk"],
+            min_groups=1,
+            **kwargs,
+        )
+
+    def test_label_threshold_met_no_cv_still_requires_every_class(self) -> None:
+        """k=0 does not waive the per-class label threshold."""
+        counts_by_behavior = {
+            "None": {"video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+            "Walk": {"video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+            "Run": {"video_a.avi": {0: {"fragmented_frame_counts": (5, 0)}}},
+        }
+        assert not MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk", "Run"],
+            min_groups=0,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+
+    def test_label_threshold_met_no_cv_sums_labels_across_videos(self) -> None:
+        """Without cross-validation, class totals may come from several videos."""
+        counts_by_behavior = {
+            "None": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (10, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (10, 0)}},
+            },
+            "Walk": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (0, 0)}},
+            },
+        }
+        assert MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk"],
+            min_groups=0,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Protocol compliance

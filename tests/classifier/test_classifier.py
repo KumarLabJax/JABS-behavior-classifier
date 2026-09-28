@@ -844,6 +844,52 @@ class TestStaticMethods:
             cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
         )
 
+    def test_label_threshold_met_single_group_without_cross_validation(self):
+        """A single group is trainable when cross-validation is turned off (k=0).
+
+        Filename-pattern grouping easily collapses a project into one group (every
+        video from the same cage), and with no CV iterations requested there is no
+        test split to hold out, so training must still be allowed.
+        """
+        counts = {
+            "cage_1_day1.avi": {0: {"fragmented_frame_counts": (25, 25)}},
+            "cage_1_day2.avi": {0: {"fragmented_frame_counts": (25, 25)}},
+        }
+        kwargs = {
+            "cv_grouping_strategy": CrossValidationGroupingStrategy.FILENAME_PATTERN,
+            "cv_grouping_regex": r"cage_(\d+)",
+        }
+        assert Classifier.count_label_threshold(counts, **kwargs) == 1
+        assert Classifier.label_threshold_met(counts, min_groups=0, **kwargs)
+        # One group still cannot be split into train and test sets, so any
+        # requested cross-validation iteration needs a second group.
+        assert not Classifier.label_threshold_met(counts, min_groups=1, **kwargs)
+
+    @pytest.mark.parametrize(
+        "strategy",
+        [
+            CrossValidationGroupingStrategy.INDIVIDUAL,
+            CrossValidationGroupingStrategy.VIDEO,
+        ],
+        ids=["individual", "video"],
+    )
+    def test_label_threshold_met_single_group_no_cv_other_strategies(self, strategy):
+        """k=0 also enables training on one group for the other grouping strategies."""
+        counts = {"video1.avi": {0: {"fragmented_frame_counts": (25, 25)}}}
+        assert Classifier.label_threshold_met(counts, min_groups=0, cv_grouping_strategy=strategy)
+        assert not Classifier.label_threshold_met(
+            counts, min_groups=1, cv_grouping_strategy=strategy
+        )
+
+    def test_label_threshold_met_no_qualifying_group(self):
+        """k=0 does not lower the per-group label threshold itself."""
+        counts = {"video1.avi": {0: {"fragmented_frame_counts": (25, 5)}}}
+        assert not Classifier.label_threshold_met(
+            counts,
+            min_groups=0,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+
 
 class TestFromTrainingFile:
     """Test creating classifier from training file."""

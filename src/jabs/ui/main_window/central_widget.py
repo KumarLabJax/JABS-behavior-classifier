@@ -1967,6 +1967,10 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
+        # "All k-fold" cross-validates over every group, so it needs at least one
+        # valid split even though the (disabled) slider may still read zero.
+        min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
+
         # Videos excluded from training are not part of the training set, so they
         # must not count toward the label thresholds that enable the train button.
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
@@ -1974,7 +1978,6 @@ class CentralWidget(QtWidgets.QWidget):
             counts_by_behavior = {
                 name: self._included_counts(self._project.counts(name)) for name in behavior_names
             }
-            min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
             threshold_met = MultiClassClassifier.label_threshold_met(
                 counts_by_behavior=counts_by_behavior,
                 behavior_names=behavior_names,
@@ -1985,7 +1988,7 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             threshold_met = Classifier.label_threshold_met(
                 self._included_counts(self._counts),
-                self._controls.kfold_value,
+                min_groups,
                 self._project.settings_manager.cv_grouping_strategy,
                 cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
             )

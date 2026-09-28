@@ -7,7 +7,7 @@ import pytest
 
 from jabs.classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ProjectDistanceUnit
+from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
 
 try:
     from jabs.core.enums import ClassifierMode
@@ -58,6 +58,63 @@ def test_included_counts_no_exclusions_returns_all():
 def test_included_counts_none_returns_empty():
     """None counts (not yet computed) return an empty dict instead of raising."""
     assert CentralWidget._included_counts(_stub_widget(set()), None) == {}
+
+
+def _train_button_stub(all_kfold: bool, kfold_value: int) -> SimpleNamespace:
+    """Stand-in for a binary project whose videos all fall in one filename-pattern group."""
+    return SimpleNamespace(
+        _project=SimpleNamespace(
+            settings_manager=SimpleNamespace(
+                classifier_mode=ClassifierMode.BINARY,
+                cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                cv_grouping_regex=r"cage_(\d+)",
+                is_video_excluded=lambda video: False,
+            )
+        ),
+        _counts={
+            "cage_1_day1.avi": {0: {"fragmented_frame_counts": (30, 30)}},
+            "cage_1_day2.avi": {0: {"fragmented_frame_counts": (30, 30)}},
+        },
+        _controls=SimpleNamespace(
+            all_kfold=all_kfold,
+            kfold_value=kfold_value,
+            train_button_enabled=None,
+        ),
+        _included_counts=lambda counts: counts,
+        export_training_status_change=SimpleNamespace(emit=MagicMock()),
+    )
+
+
+def test_train_enabled_for_one_group_when_cross_validation_is_off():
+    """k=0 trains without a held-out group, so one filename-pattern group is enough."""
+    stub = _train_button_stub(all_kfold=False, kfold_value=0)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is True
+    stub.export_training_status_change.emit.assert_called_once_with(True)
+
+
+def test_train_disabled_for_one_group_when_cross_validation_is_requested():
+    """One group cannot be split into train and test sets, so k=1 still blocks training."""
+    stub = _train_button_stub(all_kfold=False, kfold_value=1)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is False
+
+
+def test_train_disabled_for_one_group_when_all_kfold_is_checked():
+    """The all-k-fold checkbox cross-validates over every group, so it needs two.
+
+    The k slider is disabled (and may read zero) while the checkbox is checked, so
+    the checkbox, not the slider, decides whether a CV split is required.
+    """
+    stub = _train_button_stub(all_kfold=True, kfold_value=0)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is False
 
 
 def _bout_stub_widget(counts: dict, excluded: set[str]) -> SimpleNamespace:

@@ -511,6 +511,29 @@ class MultiClassClassifier(BaseClassifier):
         return valid_groups
 
     @staticmethod
+    def _class_label_totals(
+        counts_by_behavior: dict[str, dict], behavior_names: list[str]
+    ) -> dict[str, int]:
+        """Sum each class's labeled frames over every video and identity.
+
+        Args:
+            counts_by_behavior: Maps each class name to its labeled-frame count
+                dict (see :meth:`count_label_threshold`).
+            behavior_names: Class names to total.
+
+        Returns:
+            Maps each class name to its total "fragmented" labeled frame count.
+        """
+        return {
+            behavior_name: sum(
+                identity_counts["fragmented_frame_counts"][0]
+                for video_counts in counts_by_behavior.get(behavior_name, {}).values()
+                for identity_counts in video_counts.values()
+            )
+            for behavior_name in behavior_names
+        }
+
+    @staticmethod
     def label_threshold_met(
         counts_by_behavior: dict[str, dict],
         behavior_names: list[str],
@@ -526,22 +549,30 @@ class MultiClassClassifier(BaseClassifier):
             behavior_names: Ordered class names whose counts appear in
                 ``counts_by_behavior``. Returns ``False`` when fewer than two
                 class names are supplied.
-            min_groups: Minimum number of valid LOGO splits required. Floored
-                at 1, since multi-class training requires at least one valid
-                split.
+            min_groups: Number of cross-validation iterations requested. Zero (or
+                less) means cross-validation is disabled, in which case no LOGO
+                split is needed and only the per-class label totals are checked.
             cv_grouping_strategy: Cross-validation grouping strategy.
             cv_grouping_regex: Regex used for ``FILENAME_PATTERN`` grouping (see
                 :meth:`count_label_threshold`).
 
         Returns:
-            True if the count of valid splits meets ``max(1, min_groups)``.
+            True if the count of valid splits meets ``min_groups``, or, when
+            cross-validation is disabled, if every class has at least
+            ``LABEL_THRESHOLD`` labeled frames.
         """
         if len(behavior_names) < 2:
             return False
+        if min_groups <= 0:
+            # No cross-validation requested, so no group has to be held out as a
+            # test split. Training still needs every class represented, but the
+            # labels may all come from a single group.
+            totals = MultiClassClassifier._class_label_totals(counts_by_behavior, behavior_names)
+            return all(total >= MultiClassClassifier.LABEL_THRESHOLD for total in totals.values())
         valid_splits = MultiClassClassifier.count_label_threshold(
             counts_by_behavior=counts_by_behavior,
             behavior_names=behavior_names,
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
         )
-        return valid_splits >= max(1, min_groups)
+        return valid_splits >= min_groups

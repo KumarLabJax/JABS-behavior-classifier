@@ -395,7 +395,9 @@ class Classifier(BaseClassifier):
 
         Args:
             all_counts: Labeled frame and bout counts for the entire project.
-            min_groups: Minimum number of groups required.
+            min_groups: Number of cross-validation iterations requested. Zero (or
+                less) means cross-validation is disabled, in which case a single
+                group meeting the label threshold is enough to train.
             cv_grouping_strategy: Cross-validation grouping strategy.
             cv_grouping_regex: Regex used for ``FILENAME_PATTERN`` grouping (see
                 :meth:`count_label_threshold`).
@@ -408,4 +410,10 @@ class Classifier(BaseClassifier):
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
         )
-        return 1 < group_count >= min_groups
+        if min_groups <= 0:
+            # No cross-validation requested, so no group has to be held out as a
+            # test split: one group with enough labels is enough to train.
+            return group_count >= 1
+        # "Leave one group out" needs a test group plus at least one training
+        # group, so k iterations require max(2, k) groups.
+        return group_count >= max(2, min_groups)
