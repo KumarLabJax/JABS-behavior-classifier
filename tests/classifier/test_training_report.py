@@ -269,6 +269,29 @@ class TestGenerateMarkdownReport:
         assert "### Performance Summary" not in report
         assert "### Iteration Details" not in report
 
+    def test_report_without_cv_results_states_why_when_known(self, sample_training_data):
+        """A CV warning replaces the neutral note, so the report says why metrics are missing."""
+        data_no_cv = TrainingReportData(
+            behavior_name="Grooming",
+            classifier_type="Random Forest",
+            window_size=5,
+            balance_training_labels=True,
+            symmetric_behavior=False,
+            distance_unit="cm",
+            cv_results=[],
+            final_top_features=[("feature1", 0.5)],
+            training_time_ms=1000,
+            timestamp=datetime.now(),
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+            cv_warning="No cross-validation group could serve as a test split.",
+        )
+
+        report = generate_markdown_report(data_no_cv)
+
+        assert "## Cross-Validation" in report
+        assert "> **Warning:** No cross-validation group could serve as a test split." in report
+        assert "*No cross-validation was performed for this training.*" not in report
+
     def test_markdown_escaping_in_video_names(self, sample_training_data):
         """Test that special characters in video names are escaped."""
         sample_training_data.cv_results[0].test_label = "test_video_with_underscores.mp4 [0]"

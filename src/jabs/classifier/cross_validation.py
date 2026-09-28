@@ -18,6 +18,15 @@ if TYPE_CHECKING:
     from jabs.project import Project
 
 
+NO_VALID_SPLITS_WARNING = (
+    "No cross-validation group could serve as a test split, so cross-validation was "
+    "skipped. A split needs every class labeled in both the held-out group and the "
+    "groups left to train on. The classifier was trained on all labeled data, but the "
+    "training report has no cross-validation metrics for it. Add labels, or choose a "
+    "cross-validation grouping strategy that produces larger groups."
+)
+
+
 class CVFeatures(TypedDict):
     """Feature payload used by cross-validation helper."""
 
@@ -67,17 +76,22 @@ def _resolve_k(
     k: int | float,
     emit_status: Callable[[str], None],
     excluded_groups: set[int] | None = None,
+    emit_warning: Callable[[str], None] | None = None,
 ) -> int:
     """Resolve the requested CV iteration count against available valid splits.
 
     Returns 0 when no valid splits exist or the caller asked for none, signaling
-    that cross-validation should be skipped.
+    that cross-validation should be skipped. Cross-validation the caller asked
+    for but could not get is reported through ``emit_warning``; a caller that
+    asked for none is not warned, having chosen that.
     """
     if k <= 0:
         return 0
     max_splits = classifier.get_leave_one_group_out_max(labels, groups, excluded_groups)
     if max_splits == 0:
         emit_status("No valid cross-validation splits found; skipping CV")
+        if emit_warning is not None:
+            emit_warning(NO_VALID_SPLITS_WARNING)
         return 0
     if k == np.inf:
         return max_splits
@@ -225,6 +239,7 @@ def run_leave_one_group_out_cv(
     status_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[], None] | None = None,
     terminate_callback: Callable[[], None] | None = None,
+    warning_callback: Callable[[str], None] | None = None,
 ) -> list[CrossValidationResult]:
     """Run leave-one-group-out cross-validation for a classifier.
 
@@ -239,6 +254,9 @@ def run_leave_one_group_out_cv(
         progress_callback: Optional callback for progress updates (no arguments).
         terminate_callback: Optional callback to check for early termination
             (no arguments, should raise if termination is requested).
+        warning_callback: Optional callback (str argument) invoked when cross-validation
+            was requested but cannot run, so callers can surface it rather than leaving
+            the user with a report that is silently missing its CV metrics.
 
     Returns:
         List of cross-validation iteration results.
@@ -247,6 +265,10 @@ def run_leave_one_group_out_cv(
     def emit_status(msg: str) -> None:
         if status_callback:
             status_callback(msg)
+
+    def emit_warning(msg: str) -> None:
+        if warning_callback:
+            warning_callback(msg)
 
     def emit_progress() -> None:
         if progress_callback:
@@ -262,7 +284,15 @@ def run_leave_one_group_out_cv(
     excluded_groups = features.get("excluded_groups") or set()
 
     cv_results: list[CrossValidationResult] = []
-    k = _resolve_k(classifier, labels, features["groups"], k, emit_status, excluded_groups)
+    k = _resolve_k(
+        classifier,
+        labels,
+        features["groups"],
+        k,
+        emit_status,
+        excluded_groups,
+        emit_warning=emit_warning,
+    )
     if k == 0:
         return cv_results
 
