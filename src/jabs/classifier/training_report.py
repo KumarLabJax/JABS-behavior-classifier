@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 from tabulate import tabulate
 
 from jabs.core.enums import CrossValidationGroupingStrategy
@@ -58,7 +59,7 @@ class PostprocessedMetrics:
     """
 
     accuracy: float = 0.0
-    confusion_matrix: np.ndarray | None = None
+    confusion_matrix: npt.NDArray[np.int64] | None = None
     precision_behavior: float = 0.0
     precision_not_behavior: float = 0.0
     recall_behavior: float = 0.0

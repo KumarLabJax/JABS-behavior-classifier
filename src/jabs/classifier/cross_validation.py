@@ -252,7 +252,7 @@ class _PostprocessingEvaluationContext(TypedDict):
     """Everything needed to evaluate the postprocessing pipeline for a fold."""
 
     pipeline: PostprocessingPipeline
-    behavior_settings: dict
+    behavior_settings: dict[str, object]
     window_size: int
 
 
@@ -359,7 +359,7 @@ def _evaluate_fold_postprocessing(
     classifier: "Classifier | MultiClassClassifier",
     project: "Project",
     behavior: str,
-    group_info: dict,
+    group_info: dict[str, object],
     context: _PostprocessingEvaluationContext,
     raw_accuracy: float,
     emit_status: Callable[[str], None],

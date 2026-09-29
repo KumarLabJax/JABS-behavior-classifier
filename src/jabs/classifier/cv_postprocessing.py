@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from jabs.behavior.postprocessing import PostprocessingPipeline
     from jabs.pose_estimation import PoseEstimation
     from jabs.project import Project
+    from jabs.project.video_labels import VideoLabels
 
     from .protocols import ClassifierProtocol
 
@@ -78,26 +79,27 @@ class FoldPostprocessingEvaluation:
 
 
 def _identity_labels(
-    project: Project,
-    video: str,
+    labels_obj: VideoLabels,
     identity: int,
     behavior: str,
     pose_est: PoseEstimation,
-) -> npt.NDArray[np.int8] | None:
-    """Load one identity's ground-truth label vector for a behavior.
+) -> npt.NDArray[np.int8]:
+    """Extract one identity's ground-truth label vector for a behavior.
 
     Frames where the identity does not exist are forced to
     ``TrackLabels.Label.NONE``, mirroring
     :func:`~jabs.project.parallel_workers.collect_binary_labeled_features` so
     the frames scored here are exactly the fold's test rows.
 
+    Args:
+        labels_obj: The video's already-loaded annotations.
+        identity: Identity to extract labels for.
+        behavior: Behavior being evaluated.
+        pose_est: Pose estimation for the video, used for the identity mask.
+
     Returns:
-        The per-frame label vector, or ``None`` when the video has no
-        annotations at all.
+        The per-frame label vector.
     """
-    labels_obj = project.video_manager.load_video_labels(video, pose_est)
-    if labels_obj is None:
-        return None
     labels = labels_obj.get_track_labels(str(identity), behavior).get_labels()
     identity_mask = pose_est.identity_mask(identity).astype(bool)
     labels[~identity_mask] = TrackLabels.Label.NONE
@@ -151,18 +153,18 @@ def evaluate_group_with_postprocessing(
             terminate_callback()
         pose_est = project.load_pose_est(project.video_manager.video_path(video))
 
+        labels_obj = project.video_manager.load_video_labels(video, pose_est)
+        if labels_obj is None:
+            logger.warning("No annotations found for %s while evaluating postprocessing", video)
+            continue
+
         for identity in identities:
             if terminate_callback:
                 terminate_callback()
             if status_callback:
                 status_callback(f"Postprocessing evaluation: {video} [{identity}]")
 
-            labels = _identity_labels(project, video, identity, behavior, pose_est)
-            if labels is None:
-                logger.warning(
-                    "No annotations found for %s while evaluating postprocessing", video
-                )
-                continue
+            labels = _identity_labels(labels_obj, identity, behavior, pose_est)
             labeled = labels != TrackLabels.Label.NONE
             if not labeled.any():
                 continue
