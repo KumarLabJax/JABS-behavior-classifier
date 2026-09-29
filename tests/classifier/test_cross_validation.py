@@ -439,7 +439,12 @@ def test_postprocessed_metrics_use_explicit_binary_labels() -> None:
 
 
 def test_postprocessed_metrics_warn_on_raw_accuracy_mismatch(caplog) -> None:
-    """A raw-accuracy disagreement between the two paths is surfaced, not hidden."""
+    """A raw-accuracy disagreement between the two paths is surfaced, not hidden.
+
+    The warning has to reach the saved report as well as the log: a GUI user
+    never sees the log, and the report puts raw and postprocessed metrics side
+    by side as though they were comparable.
+    """
     evaluation = cross_validation.FoldPostprocessingEvaluation(
         truth=np.array([0, 1], dtype=np.int8),
         raw=np.array([1, 0], dtype=np.int8),
@@ -447,6 +452,23 @@ def test_postprocessed_metrics_warn_on_raw_accuracy_mismatch(caplog) -> None:
     )
 
     with caplog.at_level(logging.WARNING, logger="jabs.classifier.cross_validation"):
-        cross_validation._build_postprocessed_metrics(evaluation, raw_accuracy=1.0)
+        metrics = cross_validation._build_postprocessed_metrics(evaluation, raw_accuracy=1.0)
 
     assert "does not match" in caplog.text
+    assert metrics.consistency_warning is not None
+    # the message must carry both numbers so the report is readable on its own
+    assert "0.0000" in metrics.consistency_warning
+    assert "1.0000" in metrics.consistency_warning
+
+
+def test_postprocessed_metrics_have_no_warning_when_the_passes_agree() -> None:
+    """Matching raw accuracies leave the metrics unannotated."""
+    evaluation = cross_validation.FoldPostprocessingEvaluation(
+        truth=np.array([0, 1], dtype=np.int8),
+        raw=np.array([0, 1], dtype=np.int8),
+        postprocessed=np.array([0, 1], dtype=np.int8),
+    )
+
+    metrics = cross_validation._build_postprocessed_metrics(evaluation, raw_accuracy=1.0)
+
+    assert metrics.consistency_warning is None

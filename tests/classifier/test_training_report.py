@@ -596,6 +596,47 @@ class TestPostprocessedReporting:
         assert postprocessed["f1_behavior"] == pytest.approx(0.9605)
         assert postprocessed["confusion_matrix"] == [[190, 10], [8, 142]]
 
+    def test_markdown_reports_a_consistency_warning(self, sample_training_data):
+        """A fold whose two prediction passes disagreed says so above the table."""
+        data = self._postprocessed_data(sample_training_data)
+        data.cv_results[0].postprocessed.consistency_warning = (
+            "Raw accuracy from the full-sequence postprocessing pass (0.8000) does not "
+            "match this iteration's raw accuracy (0.9000), so the postprocessed metrics "
+            "may not be comparable with the raw ones."
+        )
+
+        report = generate_markdown_report(data)
+
+        assert f"Iteration {data.cv_results[0].iteration}:" in report
+        # flagged in the summary, where the headline means are, and again beside
+        # the table - a reader who stops at the summary still sees the caveat
+        summary, _, details = report.partition("### Iteration Details (Postprocessed)")
+        assert "may not be comparable" in summary
+        assert f"1 of {len(data.cv_results)} iterations" in summary
+        assert "may not be comparable" in details
+        # and beside the table, the caveat precedes the numbers it applies to
+        assert details.index("may not be comparable") < details.index("0.9605")
+
+    def test_markdown_has_no_warning_block_when_the_passes_agree(self, sample_training_data):
+        """A clean run does not clutter the report with an empty warning."""
+        data = self._postprocessed_data(sample_training_data)
+
+        report = generate_markdown_report(data)
+
+        assert "may not be comparable" not in report
+
+    def test_json_contains_the_consistency_warning(self, sample_training_data):
+        """The saved JSON carries the warning so the report is self-describing."""
+        data = self._postprocessed_data(sample_training_data)
+        data.cv_results[0].postprocessed.consistency_warning = "passes disagreed"
+
+        report = generate_json_report(data)
+
+        assert report["cv_results"][0]["postprocessed"]["consistency_warning"] == (
+            "passes disagreed"
+        )
+        assert report["cv_results"][1]["postprocessed"]["consistency_warning"] is None
+
     def test_json_omits_postprocessed_when_not_evaluated(self, sample_training_data):
         """Iterations without postprocessed metrics carry no postprocessed key."""
         report = generate_json_report(sample_training_data)

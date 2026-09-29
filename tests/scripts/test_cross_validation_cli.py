@@ -8,6 +8,7 @@ fast and do not require a real JABS project on disk.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -17,6 +18,7 @@ import jabs.scripts.cli.cli as cli_module
 from jabs.classifier import MlflowLoggingError
 from jabs.core.enums import CrossValidationGroupingStrategy
 from jabs.scripts.cli.cli import cli
+from jabs.scripts.cli.cross_validation import _print_consistency_warnings
 
 
 @pytest.fixture
@@ -298,3 +300,23 @@ def test_mlflow_unavailable_fails_fast(
     assert "not installed" in result.stderr
     # cross-validation must not run when an explicitly requested feature is unavailable
     run_cv_spy.assert_not_called()
+
+
+def test_print_consistency_warnings_reports_each_inconsistent_iteration() -> None:
+    """The console names every iteration whose two prediction passes disagreed."""
+    console = mock.Mock()
+    results = [
+        SimpleNamespace(
+            iteration=1,
+            postprocessed=SimpleNamespace(consistency_warning="pass one disagreed"),
+        ),
+        SimpleNamespace(iteration=2, postprocessed=SimpleNamespace(consistency_warning=None)),
+        SimpleNamespace(iteration=3, postprocessed=None),
+    ]
+
+    _print_consistency_warnings(console, results)
+
+    console.print.assert_called_once()
+    printed = console.print.call_args.args[0]
+    assert "iteration 1" in printed
+    assert "pass one disagreed" in printed

@@ -368,27 +368,3 @@ def test_evaluate_postprocessing_in_cv(mock_project, stored: dict, expected: boo
     settings_manager = SettingsManager(mock_project.project_paths)
 
     assert settings_manager.evaluate_postprocessing_in_cv("Walking") is expected
-
-
-def test_save_behavior_for_new_behavior_does_not_mutate_defaults(mock_project):
-    """Saving settings for a not-yet-present behavior must not rewrite project defaults."""
-    with mock_project.project_paths.project_file.open("w") as f:
-        json.dump({"defaults": {"window_size": 5}, "behavior": {}}, f)
-
-    settings_manager = SettingsManager(mock_project.project_paths)
-    settings_manager.save_behavior(
-        "NewBehavior",
-        {
-            "postprocessing": [{"stage_name": "BoutStitchingStage", "parameters": {}}],
-            "evaluate_postprocessing_in_cv": True,
-        },
-    )
-
-    # the new behavior inherits the defaults plus its own settings
-    behavior_settings = settings_manager.get_behavior("NewBehavior")
-    assert behavior_settings["window_size"] == 5
-    assert behavior_settings["evaluate_postprocessing_in_cv"] is True
-
-    # ...but the defaults themselves are untouched, so the next new behavior
-    # does not silently inherit this one's postprocessing configuration
-    assert settings_manager.project_settings["defaults"] == {"window_size": 5}

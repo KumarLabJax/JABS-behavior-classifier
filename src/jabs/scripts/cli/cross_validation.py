@@ -24,6 +24,22 @@ from jabs.project import Project
 N_JOBS = 4
 
 
+def _print_consistency_warnings(console: Console, cv_results: list) -> None:
+    """Print any iteration whose two prediction passes disagreed.
+
+    The results table puts raw and postprocessed metrics side by side, so it
+    has to say when that comparison is not meaningful.
+
+    Args:
+        console: Rich console to print to.
+        cv_results: Cross-validation iteration results.
+    """
+    for cv in cv_results:
+        warning = getattr(getattr(cv, "postprocessed", None), "consistency_warning", None)
+        if warning:
+            console.print(f"[yellow]Warning (iteration {cv.iteration}):[/yellow] {warning}")
+
+
 def run_cross_validation(
     project_dir: Path,
     behavior: str,
@@ -202,6 +218,7 @@ def run_cross_validation(
             row.append(str(cv.test_label))
             table.add_row(*row)
         console.print(table)
+        _print_consistency_warnings(console, cv_results)
 
         if not show_postprocessed and evaluate_postprocessing:
             console.print(

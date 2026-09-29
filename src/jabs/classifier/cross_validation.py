@@ -315,9 +315,19 @@ def _build_postprocessed_metrics(
     """
     # The full-sequence pass predicts the same rows the fold's raw metrics used,
     # so its raw accuracy should match. A mismatch means the two paths disagree
-    # about features or settings, which is worth surfacing.
+    # about features or settings, which is worth surfacing. The message is
+    # carried on the metrics rather than only logged: a saved report that shows
+    # raw and postprocessed numbers side by side has to say when the comparison
+    # is not meaningful, and a GUI user never sees the log.
     full_sequence_raw_accuracy = classifier_utils.accuracy_score(evaluation.truth, evaluation.raw)
+    consistency_warning: str | None = None
     if not np.isclose(full_sequence_raw_accuracy, raw_accuracy, atol=1e-6):
+        consistency_warning = (
+            f"Raw accuracy from the full-sequence postprocessing pass "
+            f"({full_sequence_raw_accuracy:.4f}) does not match this iteration's raw accuracy "
+            f"({raw_accuracy:.4f}), so the postprocessed metrics may not be comparable with "
+            f"the raw ones."
+        )
         logger.warning(
             "Raw accuracy from the full-sequence postprocessing pass (%.6f) does not match "
             "the fold's raw accuracy (%.6f); postprocessed metrics may not be comparable",
@@ -341,6 +351,7 @@ def _build_postprocessed_metrics(
         recall_not_behavior=float(recall[0]),
         recall_behavior=float(recall[1]),
         f1_behavior=float(f1[1]),
+        consistency_warning=consistency_warning,
     )
 
 

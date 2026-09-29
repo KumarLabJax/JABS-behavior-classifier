@@ -49,6 +49,12 @@ class PostprocessedMetrics:
         recall_behavior: Recall for the behavior class.
         recall_not_behavior: Recall for the not-behavior class.
         f1_behavior: F1 score for the behavior class.
+        consistency_warning: Why these metrics may not be comparable with the
+            iteration's raw metrics, or ``None`` when the two paths agreed. The
+            postprocessed numbers come from a second, full-sequence prediction
+            pass; if that pass does not reproduce the fold's own raw accuracy
+            then the two are measuring different things and the comparison is
+            not meaningful.
     """
 
     accuracy: float = 0.0
@@ -58,6 +64,7 @@ class PostprocessedMetrics:
     recall_behavior: float = 0.0
     recall_not_behavior: float = 0.0
     f1_behavior: float = 0.0
+    consistency_warning: str | None = None
 
 
 @dataclass
@@ -250,6 +257,16 @@ def _format_performance_summary(cv_results: list[CrossValidationResult]) -> list
                 f"- **Mean F1 Score (Behavior, Postprocessed):** {np.mean(pp_f1):.4f} "
                 f"(± {np.std(pp_f1):.4f})"
             )
+            # flagged here as well as beside the table: these means are the
+            # numbers a reader takes away, and they must not look trustworthy
+            # when the pass that produced them disagreed with the raw pass
+            warned = [r for r in postprocessed if r.postprocessed.consistency_warning]
+            if warned:
+                lines.append(
+                    f"- **Warning:** {len(warned)} of {len(postprocessed)} iterations "
+                    f"produced postprocessed metrics that may not be comparable with "
+                    f"their raw metrics; see Iteration Details (Postprocessed)."
+                )
     return lines
 
 
@@ -323,6 +340,27 @@ def _format_postprocessed_iteration_table(cv_results: list[CrossValidationResult
     """Return the markdown iteration table for postprocessed metrics."""
     rows = [_postprocessed_iteration_row(r) for r in _postprocessed_results(cv_results)]
     return tabulate(rows, headers=_BINARY_HEADERS, tablefmt="github")
+
+
+def _format_postprocessing_consistency_warnings(
+    cv_results: list[CrossValidationResult],
+) -> list[str]:
+    """Return markdown lines for iterations whose two prediction passes disagreed.
+
+    Rendered before the postprocessed table so the caveat is read before the
+    numbers it applies to.
+    """
+    warned = [
+        (r.iteration, r.postprocessed.consistency_warning)
+        for r in _postprocessed_results(cv_results)
+        if r.postprocessed.consistency_warning
+    ]
+    if not warned:
+        return []
+    lines = ["> **Warning:** the postprocessed metrics below may not be comparable.", ">"]
+    lines.extend(f"> - Iteration {iteration}: {message}" for iteration, message in warned)
+    lines.append("")
+    return lines
 
 
 def _format_iteration_table(cv_results: list[CrossValidationResult]) -> str:
@@ -400,6 +438,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
                 "labeled frames only."
             )
             lines.append("")
+            lines.extend(_format_postprocessing_consistency_warnings(data.cv_results))
             lines.append(_format_postprocessed_iteration_table(data.cv_results))
             lines.append("")
     else:
@@ -479,6 +518,7 @@ def _binary_cv_to_dict(result: BinaryCVResult) -> dict:
             "recall_behavior": float(result.postprocessed.recall_behavior),
             "recall_not_behavior": float(result.postprocessed.recall_not_behavior),
             "f1_behavior": float(result.postprocessed.f1_behavior),
+            "consistency_warning": result.postprocessed.consistency_warning,
         }
     return payload
 
