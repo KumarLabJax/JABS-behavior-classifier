@@ -1,9 +1,11 @@
 import sys
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import numpy.typing as npt
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog
@@ -20,6 +22,7 @@ from jabs.core.enums import (
 )
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
+from jabs.video_export import LabelMarkerOverlay
 
 from ..behavior_timeline import (
     BehaviorTimelineWidget,
@@ -38,6 +41,85 @@ from . import central_widget_mode
 
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
+
+# Why a label marker cannot be exported, shown as the tooltip on the disabled checkbox
+# in the export options dialog. The two prediction cases need different things from the
+# user: one video has never been classified, the other was classified against a behavior
+# list the project no longer has.
+_NO_LABELS_REASON = "No labels available to draw for this video"
+_NO_PREDICTIONS_REASON = "No predictions for this video: classify it first"
+_STALE_PREDICTIONS_REASON = (
+    "These predictions were generated for a different behavior list: classify this video again"
+)
+
+
+@dataclass(frozen=True)
+class ExportLabelMarkers:
+    """The label markers a video export can draw for the loaded video.
+
+    Gathered once and then asked for the overlay the user chose: the caption burned
+    into the frames names whichever markers were chosen, so the overlay cannot be built
+    until the choice is made, while gathering the values again to build it would repeat
+    work proportional to the length of the video.
+
+    Attributes:
+        manual_labels: Per-identity manual label arrays, or ``None`` when there are
+            none to draw.
+        predicted_labels: Per-identity prediction arrays, or ``None`` when there are
+            none to draw.
+        labels_unavailable: Why the manual labels cannot be drawn, or ``None`` when they
+            can. UI copy for the disabled checkbox's tooltip.
+        predictions_unavailable: The same, for the predictions.
+        color_lut: The multi-class color table both sources index, or ``None`` in a
+            binary project, where it doubles as the discriminator between the two.
+        behavior: Name of the behavior a binary project's markers are for.
+        class_names: A multi-class project's class names, in color table order from
+            index 1 on.
+        postprocessed: Whether the predictions are the post-processed ones.
+    """
+
+    manual_labels: list[np.ndarray] | None = None
+    predicted_labels: list[np.ndarray] | None = None
+    labels_unavailable: str | None = None
+    predictions_unavailable: str | None = None
+    color_lut: npt.NDArray[np.uint8] | None = None
+    behavior: str = ""
+    class_names: tuple[str, ...] = ()
+    postprocessed: bool = False
+
+    def overlay(self, *, labels: bool, predictions: bool) -> LabelMarkerOverlay | None:
+        """Build the overlay for the markers the user chose.
+
+        Args:
+            labels: Whether to draw the manual labels.
+            predictions: Whether to draw the predictions.
+
+        Returns:
+            The overlay, or ``None`` when neither of the chosen sources has anything to
+            draw. An unavailable source is left out whether or not it was chosen.
+        """
+        manual_labels = self.manual_labels if labels else None
+        predicted_labels = self.predicted_labels if predictions else None
+        # An empty list means a pose file with no identities, which draws nothing: the
+        # overlay itself refuses one, so it must not get that far.
+        if not manual_labels and not predicted_labels:
+            return None
+
+        if self.color_lut is not None:
+            return LabelMarkerOverlay.for_multiclass(
+                color_lut=self.color_lut,
+                class_names=self.class_names,
+                manual_labels=manual_labels,
+                predicted_labels=predicted_labels,
+                postprocessed=self.postprocessed,
+            )
+
+        return LabelMarkerOverlay.for_binary(
+            behavior=self.behavior,
+            manual_labels=manual_labels,
+            predicted_labels=predicted_labels,
+            postprocessed=self.postprocessed,
+        )
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -97,6 +179,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._probability_list = None
         self._pose_est: PoseEstimation | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
+        # whether the player widget currently has label overlay values, so an overlay
+        # that is already empty is not cleared again every time labels or predictions
+        # change while it is switched off
+        self._label_overlay_populated = False
         self._suppress_label_track_update = False
         self._prediction_type = PredictionType.RAW
 
@@ -112,6 +198,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_cache_targets: list[str] | None = None
         self._training_report_markdown: str | None = None
         self._training_report_dialog: TrainingReportDialog | None = None
+        self._training_cv_warning: str | None = None
 
         # information about current predictions
         self._predictions = {}
@@ -286,56 +373,15 @@ class CentralWidget(QtWidgets.QWidget):
     def label_overlay_mode(self, mode: PlayerWidget.LabelOverlayMode) -> None:
         """set the label overlay mode of the player widget
 
-        If the mode is changed, update the player widget labels with
-        either the current labels or predictions based on the mode.
+        If the mode is changed, update the player widget with the current labels, the
+        current predictions, or both, based on the mode.
 
         Args:
             mode (PlayerWidget.LabelOverlayMode): The new label overlay mode to set.
         """
         if mode != self._label_overlay_mode:
             self._label_overlay_mode = mode
-            if mode == PlayerWidget.LabelOverlayMode.LABEL:
-                if (
-                    self._project is not None
-                    and self._labels is not None
-                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
-                ):
-                    behavior_names = self._controls.behaviors
-                    multiclass_arrays = [
-                        self._labels.build_multiclass_label_array(str(i), behavior_names)
-                        for i in range(self._pose_est.num_identities)
-                    ]
-                    lut = self._jabs_timeline.multiclass_color_lut
-                    if lut is not None:
-                        self._player_widget.set_label_color_lut(lut)
-                        self._player_widget.set_labels(multiclass_arrays)
-                    else:
-                        self._player_widget.set_label_color_lut(None)
-                        self._player_widget.set_labels(None)
-                else:
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels(
-                        [labels.get_labels() for labels in self._get_label_list()]
-                    )
-            elif mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                if (
-                    self._project is not None
-                    and self._loaded_video is not None
-                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
-                ):
-                    lut = self._jabs_timeline.multiclass_color_lut
-                    if lut is not None:
-                        self._player_widget.set_label_color_lut(lut)
-                        self._player_widget.set_labels(self._build_multiclass_overlay_labels())
-                    else:
-                        self._player_widget.set_label_color_lut(None)
-                        self._player_widget.set_labels(None)
-                else:
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels(self._prediction_list)
-            else:
-                self._player_widget.set_label_color_lut(None)
-                self._player_widget.set_labels(None)
+            self._refresh_label_overlay()
 
     @property
     def id_overlay_mode(self) -> PlayerWidget.IdentityOverlayMode:
@@ -678,15 +724,23 @@ class CentralWidget(QtWidgets.QWidget):
         self._counts = self._project.counts(self.behavior)
         self._update_label_counts()
 
-        # load saved predictions
-        if (
-            self._loaded_video
-            and self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS
-        ):
-            self._predictions, self._probabilities, self._predictions_postprocessed = (
-                self._project.prediction_manager.load_predictions(
-                    self._loaded_video.name, self.behavior
-                )
+        # Load saved predictions. Dispatching by mode rather than skipping the load in
+        # multi-class mode: switching an already-open project from binary to
+        # multi-class comes through here, and leaving the binary predictions in place
+        # would have the timeline, the label overlay and the video export all read
+        # 0/1 values as multi-class indices. The multi-class load returns nothing when
+        # the video has no multi-class record, which is the honest answer.
+        if self._loaded_video:
+            (
+                self._predictions,
+                self._probabilities,
+                self._predictions_postprocessed,
+                self._multiclass_class_names,
+            ) = central_widget_mode.load_video_predictions(
+                self._project.prediction_manager,
+                self._project.settings_manager.classifier_mode,
+                self._loaded_video.name,
+                self.behavior,
             )
 
         # display labels and predictions for new behavior
@@ -883,13 +937,18 @@ class CentralWidget(QtWidgets.QWidget):
         functionality shared between _label_behavior(), _label_not_behavior(),
         and _clear_behavior_label(). To be called after the labels are changed
         for the current selection.
+
+        Does not repaint the video frame. The only thing drawn on it that comes from
+        the labels is the label overlay, which repaints itself when
+        :meth:`_refresh_label_overlay` pushes the new values, and which has nothing to
+        update while it is switched off. Callers that change something else the frame
+        does show, such as a timeline annotation, repaint it themselves.
         """
         self._project.save_annotations(self._labels, self._pose_est)
         self._controls.disable_label_buttons()
         self._jabs_timeline.clear_selection()
         self._update_label_counts()
         self.set_train_button_enabled_state()
-        self._player_widget.reload_frame()
         self._set_label_track()
 
     def _set_identities(self, identities: list[str]) -> None:
@@ -915,7 +974,12 @@ class CentralWidget(QtWidgets.QWidget):
             )
 
     def _set_label_track(self) -> None:
-        """loads new set of labels in self.manual_labels when the selected behavior or identity is changed"""
+        """loads new set of labels in self.manual_labels when the selected behavior or identity is changed
+
+        The label overlay is refreshed by the trailing :meth:`_set_prediction_vis` call,
+        which pushes whichever of the labels and predictions the current overlay mode
+        displays.
+        """
         if self._suppress_label_track_update:
             return
 
@@ -935,19 +999,6 @@ class CentralWidget(QtWidgets.QWidget):
                 behaviors=self._controls.behaviors,
             )
             self._jabs_timeline.set_labels(timeline_labels, mask_list)
-            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                if mode == ClassifierMode.MULTICLASS:
-                    lut = self._jabs_timeline.multiclass_color_lut
-                    if lut is not None:
-                        self._player_widget.set_label_color_lut(lut)
-                        self._player_widget.set_labels(timeline_labels)
-                    else:
-                        self._player_widget.set_label_color_lut(None)
-                        self._player_widget.set_labels(None)
-                else:
-                    label_list = self._get_label_list()
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
         self._set_prediction_vis()
 
@@ -1014,6 +1065,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # reset training report
         self._training_report_markdown = None
+        self._training_cv_warning = None
 
         # setup training thread
         self._training_thread = TrainingThread(
@@ -1030,6 +1082,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread.update_progress.connect(self._update_training_progress)
         self._training_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
         self._training_thread.training_report.connect(self._on_training_report)
+        self._training_thread.cv_warning.connect(self._on_cv_warning)
 
         # setup progress dialog
         # use one task for reading features from each video, plus one for training, plus one each for cross validation iterations.
@@ -1214,6 +1267,18 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._training_report_markdown = markdown_content
 
+    def _on_cv_warning(self, message: str) -> None:
+        """Save a cross-validation warning for display after training completes.
+
+        Held until the run finishes rather than shown immediately: the training
+        thread is still working, and a modal dialog over the progress dialog would
+        interrupt it.
+
+        Args:
+            message: Why cross-validation could not run.
+        """
+        self._training_cv_warning = message
+
     def _training_thread_complete(self, elapsed_ms) -> None:
         """enable classify button once the training is complete
 
@@ -1226,6 +1291,17 @@ class CentralWidget(QtWidgets.QWidget):
             f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
         self._set_classify_enabled(True)
+
+        # Warn before the report opens: the report's cross-validation section is
+        # empty in this case, and this says why.
+        if self._training_cv_warning:
+            MessageDialog.warning(
+                self,
+                "Cross Validation Skipped",
+                "The classifier was trained, but cross-validation did not run.",
+                details=self._training_cv_warning,
+            )
+            self._training_cv_warning = None
 
         # Display training report if available
         if self._training_report_markdown:
@@ -1496,48 +1572,256 @@ class CentralWidget(QtWidgets.QWidget):
             overlay_labels.append(np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1))
         return overlay_labels
 
+    def _manual_overlay_labels(self, multiclass: bool) -> list[np.ndarray] | None:
+        """Build the per-identity manual label arrays for the label overlay.
+
+        Args:
+            multiclass: True if the project is in multi-class mode, in which case the
+                values are LUT indices covering every behavior rather than the selected
+                behavior's binary label values.
+
+        Returns:
+            One array per identity, or None if there are no labels to display.
+        """
+        if self._labels is None or self._pose_est is None:
+            return None
+
+        if multiclass:
+            behaviors = self._controls.behaviors
+            return [
+                self._labels.build_multiclass_label_array(str(i), behaviors)
+                for i in range(self._pose_est.num_identities)
+            ]
+
+        # empty when no behavior or identity is selected yet, which the overlay treats
+        # the same as having no labels at all
+        return [labels.get_labels() for labels in self._get_label_list()] or None
+
+    def _prediction_overlay_labels(self, multiclass: bool) -> list[np.ndarray] | None:
+        """Build the per-identity prediction arrays for the label overlay.
+
+        Args:
+            multiclass: True if the project is in multi-class mode, in which case the
+                values are LUT indices rather than binary prediction values.
+
+        Returns:
+            One array per identity, or None if there are no predictions to display.
+        """
+        if self._pose_est is None:
+            return None
+
+        if multiclass:
+            return self._build_multiclass_overlay_labels() or None
+
+        return self._prediction_list or None
+
+    def _refresh_label_overlay(self) -> None:
+        """Push whatever the current label overlay mode displays to the player widget.
+
+        The overlay draws a marker for the manual label, one for the prediction, or one of
+        each side by side, depending on the mode. In multi-class mode both are LUT indices
+        into the timeline's color table, so the overlay is left empty when that table is
+        not available.
+        """
+        modes = PlayerWidget.LabelOverlayMode
+
+        if self._label_overlay_mode == modes.NONE:
+            self._clear_label_overlay()
+            return
+
+        multiclass = (
+            self._project is not None
+            and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        )
+        color_lut = self._jabs_timeline.multiclass_color_lut if multiclass else None
+        if multiclass and color_lut is None:
+            # a multi-class label value is an index into the color table: without the
+            # table there is nothing to color the markers with
+            self._clear_label_overlay()
+            return
+
+        show_labels = self._label_overlay_mode in (modes.LABEL, modes.BOTH)
+        show_predictions = self._label_overlay_mode in (modes.PREDICTION, modes.BOTH)
+        manual_labels = self._manual_overlay_labels(multiclass) if show_labels else None
+        predicted_labels = (
+            self._prediction_overlay_labels(multiclass) if show_predictions else None
+        )
+
+        if manual_labels is None and predicted_labels is None:
+            self._clear_label_overlay()
+            return
+
+        self._player_widget.set_label_color_lut(color_lut)
+        self._player_widget.set_labels(manual_labels, predicted_labels)
+        self._label_overlay_populated = True
+
+    def _clear_label_overlay(self) -> None:
+        """Remove any values the label overlay is drawing.
+
+        Does nothing if the overlay has nothing to draw already, so that labeling with
+        the overlay switched off does not reload the displayed frame at all.
+        """
+        if not self._label_overlay_populated:
+            return
+
+        self._player_widget.set_label_color_lut(None)
+        self._player_widget.set_labels(None, None)
+        self._label_overlay_populated = False
+
     def _set_prediction_vis(self) -> None:
-        """update data being displayed by the prediction visualization widget"""
+        """update data being displayed by the prediction visualization widget
+
+        Also refreshes the label overlay, which shares the predictions with the timeline.
+        """
         if self._project is None or self._loaded_video is None:
             return
 
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             predictions_rows, probabilities_rows = self._get_multiclass_prediction_rows()
             self._jabs_timeline.set_predictions(predictions_rows, probabilities_rows)
-            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                lut = self._jabs_timeline.multiclass_color_lut
-                if lut is not None:
-                    self._player_widget.set_label_color_lut(lut)
-                    self._player_widget.set_labels(self._build_multiclass_overlay_labels())
-                else:
-                    self._player_widget.set_label_color_lut(None)
-                    self._player_widget.set_labels(None)
-            return
+        else:
+            self._prediction_list, self._probability_list = self._get_prediction_list()
+            self._jabs_timeline.set_predictions(
+                [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
+                [[prob] for prob in self._probability_list],
+            )
 
-        self._prediction_list, self._probability_list = self._get_prediction_list()
-        self._jabs_timeline.set_predictions(
-            [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
-            [[prob] for prob in self._probability_list],
+        self._refresh_label_overlay()
+
+    @property
+    def _showing_postprocessed_predictions(self) -> bool:
+        """Whether the displayed binary predictions are the post-processed ones.
+
+        The user asking for post-processed predictions is not enough on its own:
+        they also have to exist for every identity, which the matching keys check.
+        Without them the display falls back to the raw predictions.
+        """
+        return (
+            self.prediction_type == PredictionType.POSTPROCESSED
+            and self._predictions_postprocessed.keys() == self._predictions.keys()
         )
-        if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-            self._player_widget.set_label_color_lut(None)
-            self._player_widget.set_labels(self._prediction_list)
+
+    def export_label_markers(self) -> ExportLabelMarkers:
+        """Gather the label markers the video export can draw for the loaded video.
+
+        Mirrors what "View > Label Overlay" paints in the player - the same
+        per-identity values, colors, and raw/post-processed choice - so an exported
+        video matches the live view, whether or not the overlay is currently switched
+        on.
+
+        Gathered in one pass, including the reasons a source cannot be drawn, so that
+        the options dialog's tooltips and the overlay it goes on to build come from the
+        same look at the project. The reasons are UI copy from here rather than
+        inferred by the caller, so that they cannot disagree with the decision they
+        explain.
+
+        Returns:
+            What each marker source can draw, or why it cannot.
+            :meth:`ExportLabelMarkers.overlay` then builds the overlay for whichever
+            markers the user chose.
+        """
+        manual_labels, labels_unavailable = self._export_manual_labels()
+        predicted_labels, predictions_unavailable = self._export_predicted_labels()
+        color_lut = self._multiclass_export_lut
+        return ExportLabelMarkers(
+            manual_labels=manual_labels,
+            predicted_labels=predicted_labels,
+            labels_unavailable=labels_unavailable,
+            predictions_unavailable=predictions_unavailable,
+            color_lut=color_lut,
+            behavior=self.behavior,
+            class_names=(MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors),
+            # The player draws raw predictions in multi-class mode: the post-processed
+            # view is binary-only. The export says the same.
+            postprocessed=color_lut is None and self._showing_postprocessed_predictions,
+        )
+
+    @property
+    def _multiclass_export_lut(self) -> npt.NDArray[np.uint8] | None:
+        """The multi-class color table the export would draw with, or None in binary mode.
+
+        Doubles as the multi-class discriminator for the export: every multi-class
+        source is an index into this table, so without it there is nothing to draw and
+        both sources report themselves unavailable.
+        """
+        if self._project is None:
+            return None
+        if self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS:
+            return None
+        return self._jabs_timeline.multiclass_color_lut
+
+    def _export_manual_labels(self) -> tuple[list[np.ndarray] | None, str | None]:
+        """The manual label arrays the export would draw, or why there are none.
+
+        Returns:
+            ``(labels, unavailable_reason)``, exactly one of which is set.
+        """
+        if self._project is None or self._loaded_video is None or self._pose_est is None:
+            return None, _NO_LABELS_REASON
+
+        multiclass = self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        if multiclass and self._multiclass_export_lut is None:
+            return None, _NO_LABELS_REASON
+
+        # Offered whatever the video's labels say, including none at all: unlike a
+        # prediction record, labels are always there to be drawn, and an export of a
+        # partly labeled video is a legitimate thing to want. An empty list is still
+        # nothing to draw, though - that is a pose file with no identities in it.
+        labels = self._manual_overlay_labels(multiclass)
+        if not labels:
+            return None, _NO_LABELS_REASON
+
+        return labels, None
+
+    def _export_predicted_labels(self) -> tuple[list[np.ndarray] | None, str | None]:
+        """The prediction arrays the export would draw, or why there are none.
+
+        Returns:
+            ``(predictions, unavailable_reason)``, exactly one of which is set.
+        """
+        if self._project is None or self._loaded_video is None or self._pose_est is None:
+            return None, _NO_PREDICTIONS_REASON
+        if not self._predictions:
+            return None, _NO_PREDICTIONS_REASON
+
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            if self._multiclass_export_lut is None:
+                return None, _NO_PREDICTIONS_REASON
+
+            class_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+            if self._multiclass_class_names != class_names:
+                # The color table and the legend are built from the project's current
+                # behavior list, but the label values are class indices from the saved
+                # prediction record. If the project has gained, lost or reordered a
+                # behavior since the video was classified, index 1 no longer means what
+                # the table's entry 1 says, and the export would burn in a marker under
+                # another behavior's name and color. The timeline already falls back to
+                # empty rows when the class count disagrees; refusing here is the same
+                # answer for a file that outlives the session. Re-classifying the video
+                # writes a record that matches and makes the export available again.
+                return None, _STALE_PREDICTIONS_REASON
+
+            multiclass_predictions = self._build_multiclass_overlay_labels()
+            if not multiclass_predictions:
+                return None, _NO_PREDICTIONS_REASON
+            return multiclass_predictions, None
+
+        predictions, _ = self._get_prediction_list()
+        if not predictions:
+            # a pose file with no identities in it: nothing to draw a marker beside
+            return None, _NO_PREDICTIONS_REASON
+        return predictions, None
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """get the prediction and probability list for each identity in the current video"""
         prediction_list = []
         probability_list = []
 
-        # does the user want to see raw or post-processed predictions?
-        # if they do, also make sure we have post-processed predictions to show
-        # to check, just make sure the keys match up -- that means we have post-processed data for all identities
-        if (
-            self.prediction_type == PredictionType.POSTPROCESSED
-            and self._predictions_postprocessed.keys() == self._predictions.keys()
-        ):
-            predictions = self._predictions_postprocessed
-        else:
-            predictions = self._predictions
+        predictions = (
+            self._predictions_postprocessed
+            if self._showing_postprocessed_predictions
+            else self._predictions
+        )
 
         for i in range(self._pose_est.num_identities):
             # if there are no predictions we will pass an array of no-predictions and zero probabilities to
@@ -1709,6 +1993,10 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
+        # "All k-fold" cross-validates over every group, so it needs at least one
+        # valid split even though the (disabled) slider may still read zero.
+        min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
+
         # Videos excluded from training are not part of the training set, so they
         # must not count toward the label thresholds that enable the train button.
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
@@ -1716,7 +2004,6 @@ class CentralWidget(QtWidgets.QWidget):
             counts_by_behavior = {
                 name: self._included_counts(self._project.counts(name)) for name in behavior_names
             }
-            min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
             threshold_met = MultiClassClassifier.label_threshold_met(
                 counts_by_behavior=counts_by_behavior,
                 behavior_names=behavior_names,
@@ -1727,7 +2014,7 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             threshold_met = Classifier.label_threshold_met(
                 self._included_counts(self._counts),
-                self._controls.kfold_value,
+                min_groups,
                 self._project.settings_manager.cv_grouping_strategy,
                 cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
             )

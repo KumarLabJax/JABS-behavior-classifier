@@ -1,5 +1,4 @@
 import enum
-import math
 from itertools import groupby
 
 import numpy as np
@@ -12,8 +11,8 @@ class TrackLabels:
     Stores and manages frame-level labels for a single identity and behavior.
 
     Each frame can be labeled as NONE, BEHAVIOR, or NOT_BEHAVIOR. The class provides methods to set, clear,
-    and query labels over frame ranges, as well as utilities for counting labeled frames and bouts, exporting
-    label blocks, and downsampling label arrays for visualization or analysis.
+    and query labels over frame ranges, as well as utilities for counting labeled bouts and exporting label
+    blocks.
 
     Args:
         num_frames (int): Number of frames to allocate for label storage.
@@ -25,11 +24,6 @@ class TrackLabels:
         NONE = -1
         NOT_BEHAVIOR = 0
         BEHAVIOR = 1
-
-        # the following only used in down sampling label array
-        # they have special meaning
-        MIX = 2
-        PAD = 3
 
     def __init__(self, num_frames):
         self._labels = np.full(num_frames, self.Label.NONE, dtype=np.byte)
@@ -114,63 +108,6 @@ class TrackLabels:
         block start and end frame numbers will be relative to the slice start
         """
         return self._array_to_blocks(self._labels[start : end + 1])
-
-    @classmethod
-    def downsample(cls, labels: np.ndarray, size: int):
-        """Downsample a label array to a specified size using custom binning rules.
-
-        Each output element summarizes a bin of input frames:
-            - Label.NONE: All frames in the bin are NONE.
-            - Label.BEHAVIOR: All frames are BEHAVIOR or NONE.
-            - Label.NOT_BEHAVIOR: All frames are NOT_BEHAVIOR or NONE.
-            - Label.MIX: Bin contains both BEHAVIOR and NOT_BEHAVIOR.
-            - Label.PAD: Bin consists entirely of padding added to fit the output size.
-
-        Args:
-            labels (np.ndarray): Input label array.
-            size (int): Desired output array size.
-
-        Returns:
-            np.ndarray: Downsampled label array of length `size`.
-        """
-
-        def bincount(array):
-            return {
-                cls.Label.NONE: np.count_nonzero(array == cls.Label.NONE.value),
-                cls.Label.BEHAVIOR: np.count_nonzero(array == cls.Label.BEHAVIOR.value),
-                cls.Label.NOT_BEHAVIOR: np.count_nonzero(array == cls.Label.NOT_BEHAVIOR.value),
-            }
-
-        # we may need to pad the label array if it is not evenly divisible by
-        # the new size
-        pad_size = math.ceil(labels.size / size) * size - labels.size
-
-        # create the padded array
-        padded = np.append(labels, np.full(pad_size, cls.Label.PAD.value))
-
-        # split the padded array into 'size' bins each with 'bin_size' values
-        bin_size = padded.size // size
-        binned = padded.reshape(-1, bin_size)
-
-        # create output array
-        downsampled = np.empty(size, dtype=np.byte)
-
-        # fill output array
-        for i in range(size):
-            counts = bincount(binned[i])
-
-            if counts[cls.Label.NONE] == len(binned[i]):
-                downsampled[i] = cls.Label.NONE.value
-            elif counts[cls.Label.BEHAVIOR] != 0 and counts[cls.Label.NOT_BEHAVIOR] == 0:
-                downsampled[i] = cls.Label.BEHAVIOR.value
-            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] == 0:
-                downsampled[i] = cls.Label.NOT_BEHAVIOR.value
-            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] != 0:
-                downsampled[i] = cls.Label.MIX.value
-            else:
-                downsampled[i] = cls.Label.PAD.value
-
-        return downsampled
 
     @classmethod
     def load(cls, num_frames: int, blocks: list[dict]) -> "TrackLabels":

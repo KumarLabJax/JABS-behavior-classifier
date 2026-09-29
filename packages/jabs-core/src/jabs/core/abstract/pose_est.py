@@ -173,7 +173,7 @@ class PoseEstimation(ABC):
         return self._cm_per_pixel
 
     @property
-    def fps(self):
+    def fps(self) -> int:
         """get frames per second"""
         return self._fps
 

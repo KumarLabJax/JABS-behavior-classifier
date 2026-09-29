@@ -150,3 +150,22 @@ def test_first_label_quit_does_not_exit_when_the_close_is_declined(monkeypatch) 
     MainControlWidget._get_first_label(stub)
 
     assert stub.closed == [True]
+
+
+def test_all_kfold_checkbox_reports_the_cross_validation_change() -> None:
+    """Toggling "All k-fold" emits kfold_changed so the train button is re-evaluated.
+
+    The checkbox overrides the k slider, so the number of cross-validation groups
+    the labels must support changes even though the slider value does not.
+    """
+    widget = MainControlWidget()
+    emitted = []
+    widget.kfold_changed.connect(lambda: emitted.append(widget.all_kfold))
+
+    widget._all_kfold_checkbox.setChecked(True)
+    assert not widget._kslider.isEnabled()
+
+    widget._all_kfold_checkbox.setChecked(False)
+    assert widget._kslider.isEnabled()
+
+    assert emitted == [True, False]

@@ -2,18 +2,20 @@ import distinctipy
 import numpy as np
 from PySide6.QtGui import QColor
 
-from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.utils import validate_behavior_names
+
+# The three label colors are defined in jabs.overlay_drawing, not here: the frame and
+# video exports color their label markers with them and must not import anything under
+# jabs.ui, which pulls in MainWindow. Re-exported so the rest of the GUI keeps reading
+# them from this module.
+from jabs.overlay_drawing import BACKGROUND_COLOR, BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 
 POSITION_MARKER_COLOR = QColor(231, 66, 126, 255)
 SELECTION_COLOR = QColor(255, 255, 0, 255)
 
-BACKGROUND_COLOR = QColor(128, 128, 128, 255)
-
-NOT_BEHAVIOR_COLOR = QColor(0, 86, 229, 255)
 NOT_BEHAVIOR_COLOR_BRIGHT = QColor(50, 119, 234)
 NOT_BEHAVIOR_BUTTON_DISABLED_COLOR = QColor(0, 77, 206)
 
-BEHAVIOR_COLOR = QColor(255, 165, 0, 255)
 BEHAVIOR_BUTTON_COLOR_BRIGHT = QColor(255, 195, 77, 255)
 BEHAVIOR_BUTTON_DISABLED_COLOR = QColor(229, 143, 0, 255)
 
@@ -73,12 +75,7 @@ def make_behavior_color_map(behavior_names: list[str]) -> dict[str, QColor]:
         ValueError: If ``behavior_names`` contains the reserved
             ``MULTICLASS_NONE_BEHAVIOR`` name or any duplicate entries.
     """
-    if MULTICLASS_NONE_BEHAVIOR in behavior_names:
-        raise ValueError(
-            f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
-        )
-    if len(behavior_names) != len(set(behavior_names)):
-        raise ValueError("behavior_names must not contain duplicates")
+    validate_behavior_names(behavior_names)
     if not behavior_names:
         return {}
     rgb_floats = distinctipy.get_colors(
@@ -121,12 +118,7 @@ def build_multiclass_color_lut(
             ``MULTICLASS_NONE_BEHAVIOR`` name, any duplicates, or names missing
             from ``color_map``.
     """
-    if MULTICLASS_NONE_BEHAVIOR in behavior_names:
-        raise ValueError(
-            f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
-        )
-    if len(behavior_names) != len(set(behavior_names)):
-        raise ValueError("behavior_names must not contain duplicates")
+    validate_behavior_names(behavior_names)
     missing = [n for n in behavior_names if n not in color_map]
     if missing:
         raise ValueError(f"behavior_names contains names missing from color_map: {missing}")

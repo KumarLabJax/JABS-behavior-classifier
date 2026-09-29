@@ -7,7 +7,7 @@ import pytest
 
 from jabs.classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ProjectDistanceUnit
+from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
 
 try:
     from jabs.core.enums import ClassifierMode
@@ -58,6 +58,63 @@ def test_included_counts_no_exclusions_returns_all():
 def test_included_counts_none_returns_empty():
     """None counts (not yet computed) return an empty dict instead of raising."""
     assert CentralWidget._included_counts(_stub_widget(set()), None) == {}
+
+
+def _train_button_stub(all_kfold: bool, kfold_value: int) -> SimpleNamespace:
+    """Stand-in for a binary project whose videos all fall in one filename-pattern group."""
+    return SimpleNamespace(
+        _project=SimpleNamespace(
+            settings_manager=SimpleNamespace(
+                classifier_mode=ClassifierMode.BINARY,
+                cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                cv_grouping_regex=r"cage_(\d+)",
+                is_video_excluded=lambda video: False,
+            )
+        ),
+        _counts={
+            "cage_1_day1.avi": {0: {"fragmented_frame_counts": (30, 30)}},
+            "cage_1_day2.avi": {0: {"fragmented_frame_counts": (30, 30)}},
+        },
+        _controls=SimpleNamespace(
+            all_kfold=all_kfold,
+            kfold_value=kfold_value,
+            train_button_enabled=None,
+        ),
+        _included_counts=lambda counts: counts,
+        export_training_status_change=SimpleNamespace(emit=MagicMock()),
+    )
+
+
+def test_train_enabled_for_one_group_when_cross_validation_is_off():
+    """k=0 trains without a held-out group, so one filename-pattern group is enough."""
+    stub = _train_button_stub(all_kfold=False, kfold_value=0)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is True
+    stub.export_training_status_change.emit.assert_called_once_with(True)
+
+
+def test_train_disabled_for_one_group_when_cross_validation_is_requested():
+    """One group cannot be split into train and test sets, so k=1 still blocks training."""
+    stub = _train_button_stub(all_kfold=False, kfold_value=1)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is False
+
+
+def test_train_disabled_for_one_group_when_all_kfold_is_checked():
+    """The all-k-fold checkbox cross-validates over every group, so it needs two.
+
+    The k slider is disabled (and may read zero) while the checkbox is checked, so
+    the checkbox, not the slider, decides whether a CV split is required.
+    """
+    stub = _train_button_stub(all_kfold=True, kfold_value=0)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is False
 
 
 def _bout_stub_widget(counts: dict, excluded: set[str]) -> SimpleNamespace:
@@ -606,3 +663,104 @@ def test_training_feature_check_passes_the_unit_setting(monkeypatch):
 
     for call in stub._project.videos_missing_window_features.call_args_list:
         assert call.kwargs["cm_units"] is True
+
+
+def _behavior_change_stub(mode, prediction_manager) -> SimpleNamespace:
+    """Stand-in exposing what _on_behavior_changed() reads from self."""
+    return SimpleNamespace(
+        _project=SimpleNamespace(
+            session_tracker=SimpleNamespace(behavior_selected=MagicMock()),
+            settings_manager=SimpleNamespace(classifier_mode=mode, save_project_file=MagicMock()),
+            prediction_manager=prediction_manager,
+            counts=MagicMock(return_value={}),
+        ),
+        behavior="Grooming",
+        _loaded_video=SimpleNamespace(name="clip.avi"),
+        # Predictions left over from before a classifier-mode change.
+        _predictions={0: "stale"},
+        _probabilities={0: "stale"},
+        _predictions_postprocessed={},
+        _multiclass_class_names=None,
+        _counts={},
+        _update_controls_from_project_settings=MagicMock(),
+        _load_cached_classifier=MagicMock(),
+        _update_label_counts=MagicMock(),
+        _set_label_track=MagicMock(),
+        _update_label_button_color=MagicMock(),
+        set_train_button_enabled_state=MagicMock(),
+    )
+
+
+def test_behavior_change_loads_binary_predictions_for_the_behavior():
+    """Binary mode reloads the newly selected behavior's saved predictions."""
+    manager = MagicMock()
+    manager.load_predictions.return_value = ({0: "binary"}, {0: "prob"}, {})
+    stub = _behavior_change_stub(ClassifierMode.BINARY, manager)
+
+    CentralWidget._on_behavior_changed(stub)
+
+    manager.load_predictions.assert_called_once_with("clip.avi", "Grooming")
+    manager.load_multiclass_predictions.assert_not_called()
+    assert stub._predictions == {0: "binary"}
+
+
+def test_behavior_change_replaces_predictions_left_over_from_the_other_mode():
+    """Switching an open project to multi-class must not keep the binary predictions.
+
+    The mode change reaches this method, and stale binary 0/1 values read as
+    multi-class color indices would mis-color the timeline, the label overlay and an
+    exported video.
+    """
+    manager = MagicMock()
+    manager.load_multiclass_predictions.return_value = ({}, {}, {}, None)
+    stub = _behavior_change_stub(ClassifierMode.MULTICLASS, manager)
+
+    CentralWidget._on_behavior_changed(stub)
+
+    manager.load_multiclass_predictions.assert_called_once_with("clip.avi")
+    manager.load_predictions.assert_not_called()
+    assert stub._predictions == {}, "stale binary predictions were kept"
+
+
+def _training_completion_stub(cv_warning: str | None) -> SimpleNamespace:
+    """Stand-in exposing what _training_thread_complete() reads from self."""
+    return SimpleNamespace(
+        _cleanup_training_thread=MagicMock(),
+        _cleanup_progress_dialog=MagicMock(),
+        status_message=SimpleNamespace(emit=MagicMock()),
+        _set_classify_enabled=MagicMock(),
+        _training_cv_warning=cv_warning,
+        # no report markdown, so the report-dialog branch is skipped
+        _training_report_markdown=None,
+    )
+
+
+def test_training_completion_warns_when_cross_validation_was_skipped(monkeypatch):
+    """A skipped-CV warning reaches the user as a dialog, not just a status message."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    stub = _training_completion_stub("no group could serve as a test split")
+
+    CentralWidget._training_thread_complete(stub, 1234)
+
+    assert len(warnings) == 1
+    _args, kwargs = warnings[0]
+    assert kwargs["details"] == "no group could serve as a test split"
+    # cleared so a later run does not repeat a stale warning
+    assert stub._training_cv_warning is None
+
+
+def test_training_completion_is_quiet_when_cross_validation_ran(monkeypatch):
+    """No warning dialog when there was nothing to warn about."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+
+    CentralWidget._training_thread_complete(_training_completion_stub(None), 1234)
+
+    assert warnings == []

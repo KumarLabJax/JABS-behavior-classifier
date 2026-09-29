@@ -258,9 +258,10 @@ Common static objects:
 | `lixit`       | `(1, 2)` or `(3, 2)` | Water spout — single tip, or tip + left + right  |
 | `food_hopper` | `(4, 2)`             | Four corners of the food hopper opening          |
 
-Each static object is a `PoseEstimation` container with a **single timestamp
-(`t = 0.0 s`)**, one `PoseEstimationSeries` per keypoint, and a dedicated `Skeleton`.
-Nodes are named `{object_name}_{i}` (zero-indexed). Confidence is always `1.0` for
+Each static object is a `PoseEstimation` container with one `PoseEstimationSeries`
+per keypoint and a dedicated `Skeleton`. Nodes are named `{object_name}_{i}`
+(zero-indexed). The constant value is written at two timestamps spanning the session
+(the first and last frame), so each series has data shape `(2, 2)`. Confidence is always `1.0` for
 static objects and should be ignored by consumers.
 
 #### Example — `corners` (4 keypoints)
@@ -273,9 +274,9 @@ Skeletons/
 processing/behavior/
   corners/                         PoseEstimation
     corners_0/                     PoseEstimationSeries
-      data:       [[10.0, 20.0]]   shape (1, 2)
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[10.0, 20.0], [10.0, 20.0]]   shape (2, 2)
+      timestamps: [0.0, 119.97]                 first and last frame
+      confidence: [1.0, 1.0]
     corners_1/
       data:       [[300.0, 20.0]]
       ...
@@ -291,9 +292,9 @@ Skeletons/
 processing/behavior/
   lixit/                           PoseEstimation
     lixit_0/                       tip
-      data:       [[62.0, 166.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[62.0, 166.0], [62.0, 166.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     lixit_1/                       left side
       data:       [[65.0, 160.0]]
       ...
@@ -428,7 +429,7 @@ keypoint index.)
 | `identity_names`        | `list[str]`               | Always                       | Ordered list of animal identity container names. Defines identity order on read.                                                                                                                    |
 | `num_identities`        | `int`                     | Always                       | Total number of animal identities in the recording session.                                                                                                                                         |
 | `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                          |
-| `external_ids`          | `list[str] \| null`       | Always                       | Original external identity names from the pose file (e.g. cage IDs). `null` if the pose file had no external IDs.                                                                                   |
+| `external_ids`          | `list[str] \| null`       | Always                       | External identity names (e.g. cage IDs): from the pose file when it has them, otherwise the ones supplied with the `name` field in `--subjects`. `null` if neither. Identities left unnamed take their `subject_N` placeholder. |
 | `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity biological metadata keyed by identity name, for all identities. Fields: `subject_id`, `sex`, `genotype`, `strain`, `age`, `weight`, `species`, `description`. `null` if none provided. |
 | `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                                                                      |
 | `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                             |

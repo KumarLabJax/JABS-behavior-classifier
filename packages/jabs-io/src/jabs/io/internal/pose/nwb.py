@@ -8,6 +8,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -84,6 +85,27 @@ _DYNAMIC_CONFIDENCE_DEFINITION = (
 def _bounding_box_key(identity_name: str) -> str:
     """Return the TimeSeries name for bounding boxes of a given identity."""
     return f"{_BOUNDING_BOXES_PREFIX}_{identity_name}"
+
+
+def _bounding_box_description(identity_name: str) -> str:
+    """Return the TimeSeries description for bounding boxes of a given identity.
+
+    The description does not promise a single missing-value sentinel, because the
+    writer cannot guarantee one. Missing boxes are usually NaN - PoseEstimationV8
+    initializes its regrouped array with NaN and fills only the slots id_mask marks
+    valid - but ``jabs-cli convert-parquet`` rewrites every NaN coordinate to -1,
+    including rows it marks valid in id_mask, and an integer-typed ``poseest/bbox``
+    dataset cannot hold NaN at all (the NaN fill casts to 0). Normalizing the value
+    here would change the exported coordinates and break the lossless roundtrip, so
+    the ambiguity is documented instead.
+    """
+    return (
+        f"Per-frame bounding box for identity '{identity_name}': "
+        "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; frames without a "
+        "box carry a source-dependent fill value (NaN for float pose data, or a sentinel "
+        "such as -1 or 0 from some converters) rather than one guaranteed sentinel, so "
+        "treat non-finite or negative coordinates as absent"
+    )
 
 
 @register_adapter(StorageFormat.NWB, PoseData, priority=10)
@@ -316,7 +338,11 @@ class PoseNWBAdapter(Adapter):
         for obj_name, obj_skeleton in static_skeletons.items():
             behavior.add(
                 self._build_static_object_pose_estimation(
-                    obj_name, data.static_objects[obj_name], obj_skeleton
+                    obj_name,
+                    data.static_objects[obj_name],
+                    obj_skeleton,
+                    fps=data.fps,
+                    num_frames=data.points.shape[1],
                 )
             )
 
@@ -332,6 +358,11 @@ class PoseNWBAdapter(Adapter):
                 name=_IDENTITY_MASK_KEY,
                 data=data.identity_mask.T.astype(np.uint8),  # (num_frames, num_identities)
                 unit="bool",
+                description=(
+                    "Per-frame identity presence mask, one column per identity "
+                    "(in the order of identity_names in jabs_metadata); "
+                    "1=identity present in frame, 0=absent"
+                ),
                 rate=float(data.fps),
             )
         )
@@ -343,6 +374,7 @@ class PoseNWBAdapter(Adapter):
                         name=_bounding_box_key(name),
                         data=data.bounding_boxes[i],  # (num_frames, 2, 2)
                         unit="pixels",
+                        description=_bounding_box_description(name),
                         rate=float(data.fps),
                     )
                 )
@@ -370,7 +402,11 @@ class PoseNWBAdapter(Adapter):
             identity_path = self._identity_file_path(path, identity_name)
 
             raw_key, raw_meta = self._resolve_subject(data, i, identity_name)
-            subject_meta = {**raw_meta, "subject_id": raw_meta.get("subject_id", raw_key)}
+            supplied_id = raw_meta.get("subject_id")
+            subject_meta = {
+                **raw_meta,
+                "subject_id": raw_key if subject_value_is_absent(supplied_id) else supplied_id,
+            }
             nwbfile = self._make_nwb_file(subject=self._make_subject(subject_meta), **kwargs)
             skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
             # Rebuild static/dynamic skeletons each iteration: HDMF objects can
@@ -400,7 +436,11 @@ class PoseNWBAdapter(Adapter):
             for obj_name, obj_skeleton in static_skeletons.items():
                 behavior.add(
                     self._build_static_object_pose_estimation(
-                        obj_name, data.static_objects[obj_name], obj_skeleton
+                        obj_name,
+                        data.static_objects[obj_name],
+                        obj_skeleton,
+                        fps=data.fps,
+                        num_frames=data.points.shape[1],
                     )
                 )
 
@@ -416,6 +456,10 @@ class PoseNWBAdapter(Adapter):
                     name=_IDENTITY_MASK_KEY,
                     data=data.identity_mask[i].astype(np.uint8),
                     unit="bool",
+                    description=(
+                        f"Per-frame presence mask for identity '{identity_name}'; "
+                        "1=present in frame, 0=absent"
+                    ),
                     rate=float(data.fps),
                 )
             )
@@ -426,6 +470,7 @@ class PoseNWBAdapter(Adapter):
                         name=_bounding_box_key(identity_name),
                         data=data.bounding_boxes[i],  # (num_frames, 2, 2)
                         unit="pixels",
+                        description=_bounding_box_description(identity_name),
                         rate=float(data.fps),
                     )
                 )
@@ -733,6 +778,7 @@ class PoseNWBAdapter(Adapter):
             "institution",
             "experiment_description",
             "session_id",
+            "keywords",
         ):
             if kwargs.get(_field) is not None:
                 nwb_kwargs[_field] = kwargs[_field]
@@ -757,7 +803,11 @@ class PoseNWBAdapter(Adapter):
         Args:
             subject_meta: Dict with optional keys subject_id, sex, species,
                 age, date_of_birth, genotype, strain, weight, description.
-                None values are omitted so pynwb uses its own defaults.
+                Absent values - ``None`` or a blank string, per
+                :func:`subject_value_is_absent` - are omitted so pynwb uses its own
+                defaults, rather than written through as an empty field that the
+                DANDI validator then rejects.  ``date_of_birth`` accepts either an
+                ISO 8601 string or a :class:`datetime.datetime`.
 
         Returns:
             A pynwb Subject object populated from the non-None fields.
@@ -773,11 +823,19 @@ class PoseNWBAdapter(Adapter):
             "description",
         )
         kwargs: dict = {
-            k: v for k, v in subject_meta.items() if k in _SUBJECT_FIELDS and v is not None
+            k: v
+            for k, v in subject_meta.items()
+            if k in _SUBJECT_FIELDS and not subject_value_is_absent(v)
         }
         dob_raw = subject_meta.get("date_of_birth")
-        if dob_raw is not None:
-            dob = datetime.datetime.fromisoformat(dob_raw)
+        if not subject_value_is_absent(dob_raw):
+            # Accept an already-parsed datetime as well as an ISO 8601 string, so a
+            # programmatic caller passing a datetime is not punished for it.
+            dob = (
+                dob_raw
+                if isinstance(dob_raw, datetime.datetime)
+                else datetime.datetime.fromisoformat(dob_raw)
+            )
             if dob.tzinfo is None:
                 dob = dob.replace(tzinfo=datetime.timezone.utc)
             kwargs["date_of_birth"] = dob
@@ -905,6 +963,7 @@ class PoseNWBAdapter(Adapter):
                 data=points[:, j, :],
                 confidence=point_mask[:, j].astype(np.float64),
                 confidence_definition=_CONFIDENCE_DEFINITION,
+                description=f"(x, y) position of the {bp_name} keypoint for {name}",
                 reference_frame=_REFERENCE_FRAME,
                 rate=float(fps),
                 unit="pixels",
@@ -952,24 +1011,52 @@ class PoseNWBAdapter(Adapter):
         name: str,
         points: npt.NDArray,
         skeleton: Skeleton,  # type: ignore[valid-type]
+        fps: float,
+        num_frames: int,
     ) -> PoseEstimation:
-        """Build a single-timestamp PoseEstimation for a static spatial object.
+        """Build a PoseEstimation for a static (unchanging) spatial object.
 
         Each node in the skeleton corresponds to one row of ``points`` and is
-        stored as a ``PoseEstimationSeries`` with a single timestamp at t=0.
+        stored as a ``PoseEstimationSeries`` holding that same (x, y) value at
+        two timestamps spanning the session (the first and last frame) rather
+        than a single timestamp at t=0. A lone-timestamp series has shape (1, 2) —
+        its non-time axis (2) is longer than its time axis (1), which
+        nwbinspector's data-orientation check always flags regardless of the
+        data being genuinely static. Repeating the constant value at both ends
+        of the session keeps the value unchanged while satisfying that check.
 
         Args:
             name: Name for this PoseEstimation (matches the static object key).
             points: Shape (N, 2) array of x, y coordinates.
             skeleton: Skeleton with N nodes, one per point.
+            fps: Frames per second of the source video, used to compute the
+                last frame's timestamp.
+            num_frames: Total number of frames in the session, used to compute
+                the last frame's timestamp.
+
+        Returns:
+            PoseEstimation holding one two-timestamp series per point in ``points``.
+
+        Raises:
+            ValueError: If ``fps`` or ``num_frames`` is not positive.
         """
+        if fps <= 0:
+            raise ValueError(f"fps must be positive, got {fps}")
+        if num_frames <= 0:
+            raise ValueError(f"num_frames must be positive, got {num_frames}")
+        # The last frame is at (num_frames - 1) / fps, matching the rate-based timing of
+        # every other series. Clamp to one frame period so a single-frame session still
+        # yields two strictly ascending timestamps.
+        end_time = max(num_frames - 1, 1) / fps
+        timestamps = [0.0, end_time]
         series_list = [
             PoseEstimationSeries(
                 name=f"{name}_{i}",
-                data=points[i : i + 1, :].astype(np.float64),  # shape (1, 2)
-                confidence=np.ones(1, dtype=np.float64),
+                data=np.tile(points[i].astype(np.float64), (2, 1)),  # shape (2, 2)
+                confidence=np.ones(2, dtype=np.float64),
                 confidence_definition="Static landmark; confidence is always 1.0",
-                timestamps=[0.0],
+                description=f"Static landmark '{name}' point {i}; constant for the session",
+                timestamps=timestamps,
                 unit="pixels",
                 reference_frame=_REFERENCE_FRAME,
             )
@@ -1040,12 +1127,16 @@ class PoseNWBAdapter(Adapter):
             slot_confidence = (dyn_obj.counts > slot).astype(np.float64)
             for kp in range(n_keypoints):
                 series_name = f"{name}_{slot}" if n_keypoints == 1 else f"{name}_{slot}_{kp}"
+                description = f"Dynamic object '{name}' detection slot {slot}"
+                if n_keypoints > 1:
+                    description += f", keypoint {kp}"
                 series_list.append(
                     PoseEstimationSeries(
                         name=series_name,
                         data=dyn_obj.points[:, slot, kp, :].astype(np.float64),
                         confidence=slot_confidence,
                         confidence_definition=_DYNAMIC_CONFIDENCE_DEFINITION,
+                        description=description,
                         timestamps=timestamps,
                         unit="pixels",
                         reference_frame=_REFERENCE_FRAME,
@@ -1162,26 +1253,104 @@ class PoseNWBAdapter(Adapter):
         return meta
 
     @staticmethod
-    def _sanitize_identity_name(name: str) -> str:
-        """Sanitize an external ID for use as an NWB/HDF5 container name.
-
-        Strips leading/trailing whitespace and replaces any character that is
-        not alphanumeric, underscore, or hyphen with an underscore.
-        """
-        name = name.strip()
-        if not name:
-            raise ValueError("Identity name cannot be empty or whitespace-only")
-        return re.sub(r"[^A-Za-z0-9_\-]", "_", name)
-
-    @staticmethod
     def _identity_name(data: PoseData, index: int) -> str:
         if data.external_ids is not None:
-            return PoseNWBAdapter._sanitize_identity_name(data.external_ids[index])
+            return sanitize_identity_name(data.external_ids[index])
         return f"subject_{index + 1}"
 
     @staticmethod
     def _identity_file_path(base_path: Path, identity_name: str) -> Path:
         return base_path.with_stem(f"{base_path.stem}_{identity_name}")
+
+
+def sanitize_identity_name(name: str) -> str:
+    """Sanitize an external ID for use as an NWB/HDF5 container name.
+
+    Strips leading/trailing whitespace and replaces any character that is not
+    alphanumeric, underscore, or hyphen with an underscore. Public so a caller
+    choosing identity names can predict the name the writer will give a container,
+    rather than reimplementing this and drifting from it.
+
+    Args:
+        name: The external ID to sanitize.
+
+    Returns:
+        The sanitized name.
+
+    Raises:
+        ValueError: If the name is empty or whitespace-only.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("Identity name cannot be empty or whitespace-only")
+    return re.sub(r"[^A-Za-z0-9_\-]", "_", name)
+
+
+def subject_value_is_absent(value: object) -> bool:
+    """Return whether a subject metadata value counts as not supplied.
+
+    ``None`` and a blank or whitespace-only string both mean "not supplied". This
+    is the single definition shared by the writer and by pre-flight validation:
+    when the two disagree, a value can pass validation and still be written as an
+    empty field that a downstream validator rejects, or crash the write outright.
+
+    Args:
+        value: A raw value from a subject metadata dict.
+
+    Returns:
+        True when the value should be treated as though the key were absent.
+    """
+    if value is None:
+        return True
+    return isinstance(value, str) and not value.strip()
+
+
+class IdentitySubject(NamedTuple):
+    """One identity's NWB container name and the subject metadata resolved for it.
+
+    Attributes:
+        identity_name: Sanitized NWB container name for the identity.
+        lookup_keys: The keys of ``PoseData.subjects`` that resolve to this
+            identity, in the order the writer tries them.
+        matched_key: The one key the writer actually reads metadata from, or None
+            when ``PoseData.subjects`` has no entry for this identity. A supplied
+            key that is no identity's ``matched_key`` contributes nothing to the
+            output - including a key shadowed by a higher-precedence one.
+        metadata: The metadata the writer will use, or an empty dict when
+            ``PoseData.subjects`` has no entry for this identity.
+    """
+
+    identity_name: str
+    lookup_keys: tuple[str, ...]
+    matched_key: str | None
+    metadata: dict
+
+
+def resolve_identity_subjects(data: PoseData) -> list[IdentitySubject]:
+    """Resolve each identity's container name and subject metadata, in identity order.
+
+    Shares :class:`PoseNWBAdapter`'s name-sanitizing and metadata-lookup logic so
+    callers can inspect what the writer *will* resolve without writing a file -
+    for example to validate subject metadata against an archive's requirements
+    before any output is produced. Requires no NWB dependencies.
+
+    Args:
+        data: The pose data whose identities and ``subjects`` are resolved.
+
+    Returns:
+        One :class:`IdentitySubject` per identity, ordered by identity index.
+    """
+    subjects = data.subjects or {}
+    resolved: list[IdentitySubject] = []
+    for index in range(data.points.shape[0]):
+        identity_name = PoseNWBAdapter._identity_name(data, index)
+        raw_key, metadata = PoseNWBAdapter._resolve_subject(data, index, identity_name)
+        keys = (raw_key,) if raw_key == identity_name else (raw_key, identity_name)
+        # Same precedence _resolve_subject applies: the raw external ID, then the
+        # sanitized name. Only the first hit is read, so the other is shadowed.
+        matched_key = next((key for key in keys if key in subjects), None)
+        resolved.append(IdentitySubject(identity_name, keys, matched_key, metadata))
+    return resolved
 
 
 def _json_default(obj):

@@ -191,20 +191,28 @@ Common static objects:
 
 ### NWB representation
 
-Each static object is a `PoseEstimation` container with a **single timestamp
-(`t = 0.0 s`)**, one `PoseEstimationSeries` per keypoint, and a dedicated `Skeleton`
-in the `Skeletons` container. Nodes are named `{object_name}_{i}` (zero-indexed).
+Each static object is a `PoseEstimation` container with one `PoseEstimationSeries`
+per keypoint and a dedicated `Skeleton` in the `Skeletons` container. Nodes are named
+`{object_name}_{i}` (zero-indexed).
+
+The constant value is written at **two timestamps spanning the session** (the first
+and last frame) rather than a single timestamp at `t = 0.0`. A lone-timestamp series
+has shape `(1, 2)`, whose non-time axis is longer than its time axis, which
+`nwbinspector`'s `check_data_orientation` flags regardless of the data being
+genuinely static. Repeating the constant value at both ends of the session leaves the
+value unchanged while satisfying that check - see
+`_build_static_object_pose_estimation` in `packages/jabs-io/.../pose/nwb.py`.
 
 **PoseEstimationSeries fields:**
 
 | Field                   | Value                                                                             |
 |-------------------------|-----------------------------------------------------------------------------------|
 | `name`                  | `{object_name}_{i}`                                                               |
-| `data`                  | shape `(1, 2)` — the `(x, y)` coordinate                                         |
-| `timestamps`            | `[0.0]`                                                                           |
+| `data`                  | shape `(2, 2)` — the `(x, y)` coordinate, repeated                              |
+| `timestamps`            | `[0.0, (num_frames - 1) / fps]` — first and last frame                          |
 | `unit`                  | `"pixels"`                                                                        |
 | `reference_frame`       | `"Top-left corner of video frame, x increases rightward, y increases downward"`  |
-| `confidence`            | `[1.0]`                                                                           |
+| `confidence`            | `[1.0, 1.0]`                                                                      |
 | `confidence_definition` | `"Static landmark; confidence is always 1.0"`                                    |
 
 *JABS pose files carry no confidence values for static objects; `1.0` is a placeholder.
@@ -229,21 +237,21 @@ Skeletons/
 processing/behavior/
   corners/                         PoseEstimation
     corners_0/                     PoseEstimationSeries
-      data:       [[10.0, 20.0]]   shape (1, 2)
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[10.0, 20.0], [10.0, 20.0]]   shape (2, 2)
+      timestamps: [0.0, 119.97]                 first and last frame
+      confidence: [1.0, 1.0]
     corners_1/
-      data:       [[300.0, 20.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[300.0, 20.0], [300.0, 20.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     corners_2/
-      data:       [[10.0, 300.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[10.0, 300.0], [10.0, 300.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     corners_3/
-      data:       [[300.0, 300.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[300.0, 300.0], [300.0, 300.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
 ```
 
 ### Example — `lixit` (3-keypoint variant)
@@ -256,17 +264,17 @@ Skeletons/
 processing/behavior/
   lixit/                           PoseEstimation
     lixit_0/                       tip
-      data:       [[62.0, 166.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[62.0, 166.0], [62.0, 166.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     lixit_1/                       left side
-      data:       [[65.0, 160.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[65.0, 160.0], [65.0, 160.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     lixit_2/                       right side
-      data:       [[60.0, 172.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[60.0, 172.0], [60.0, 172.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
 ```
 
 ---

@@ -60,6 +60,15 @@ class FakeTrainingClassifier:
         call["random_seed"] = random_seed
         self.train_calls.append(call)
 
+    def set_project_settings(self, project, behavior: str | None = None) -> None:
+        """Adopt the project's behavior-scoped settings, as the real classifier does."""
+        self.behavior_name = behavior
+        self.project_settings = dict(project.settings_manager.get_behavior(behavior))
+
+    def set_dict_settings(self, settings: dict) -> None:
+        """Adopt settings supplied directly as a dict."""
+        self.project_settings = dict(settings)
+
     @staticmethod
     def get_feature_importance(limit: int = 20) -> list[tuple[str, float]]:
         """Return a placeholder feature-importance list capped at ``limit``."""

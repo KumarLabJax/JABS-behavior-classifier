@@ -84,6 +84,10 @@ class TrainingStrategy:
         """Build the data dict passed to ``classifier.train`` for the final model."""
         raise NotImplementedError
 
+    def prepare_final_training(self) -> None:
+        """Put the classifier in the state the final fit needs."""
+        raise NotImplementedError
+
     def save_classifier(self) -> None:
         """Persist the trained classifier."""
         raise NotImplementedError
@@ -99,6 +103,7 @@ class TrainingStrategy:
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        cv_warning: str | None = None,
         postprocessing_stages: list[dict] | None = None,
     ) -> TrainingReportData:
         """Assemble the ``TrainingReportData`` for the trained model."""
@@ -162,6 +167,17 @@ class BinaryTrainingStrategy(TrainingStrategy):
             "feature_names": feature_names,
         }
 
+    def prepare_final_training(self) -> None:
+        """Apply the behavior name and project settings the final fit needs.
+
+        Cross-validation folds set these as a side effect of training each fold,
+        so a run that produces no folds (k=0, or no group that can serve as a
+        valid test split) would otherwise reach the final fit with the settings
+        still unset and fail with "Project settings for classifier unset".
+        """
+        self._classifier.behavior_name = self._behavior
+        self._classifier.set_project_settings(self._project, self._behavior)
+
     def save_classifier(self) -> None:
         """Persist the classifier under its behavior-scoped pickle name."""
         self._project.save_classifier(self._classifier, self._behavior)
@@ -177,6 +193,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        cv_warning: str | None = None,
         postprocessing_stages: list[dict] | None = None,
     ) -> TrainingReportData:
         """Build the binary-mode training report with frame and bout counts.
@@ -207,6 +224,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
             window_size=settings["window_size"],
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
+            cv_warning=cv_warning,
             postprocessing_stages=postprocessing_stages,
         )
 
@@ -278,6 +296,16 @@ class MultiClassTrainingStrategy(TrainingStrategy):
             "feature_names": feature_names,
         }
 
+    def prepare_final_training(self) -> None:
+        """Apply the project settings the final fit needs.
+
+        Multi-class training reads its settings from the ``train`` payload (see
+        :meth:`final_train_data`), so the classifier needs no preparation here.
+        Setting them anyway keeps the classifier usable if the payload ever stops
+        carrying them.
+        """
+        self._classifier.set_dict_settings(self._settings)
+
     def save_classifier(self) -> None:
         """Persist the classifier under the shared multi-class pickle name."""
         self._project.save_classifier(self._classifier)
@@ -293,6 +321,7 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        cv_warning: str | None = None,
         postprocessing_stages: list[dict] | None = None,
     ) -> TrainingReportData:
         """Build the multi-class training report with per-class frame and bout counts.
@@ -341,6 +370,7 @@ class MultiClassTrainingStrategy(TrainingStrategy):
             window_size=settings.get("window_size", 0),
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
+            cv_warning=cv_warning,
             class_frame_counts=class_frame_counts,
             class_bout_counts=class_bout_counts,
         )

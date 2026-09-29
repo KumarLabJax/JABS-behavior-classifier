@@ -7,12 +7,10 @@ from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.core.exceptions import PoseHashException, PoseIdEmbeddingException
 
-
-class _CacheFileVersion(Exception):
-    pass
+from .identity_indexed_pose import IdentityIndexedPoseMixin
 
 
-class PoseEstimationV4(PoseEstimation):
+class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
     """
     Handler for version 4 pose estimation HDF5 files.
 
@@ -25,18 +23,10 @@ class PoseEstimationV4(PoseEstimation):
         file_path (Path): Path to the pose HDF5 file.
         cache_dir (Path | None): Optional cache directory for intermediate data.
         fps (int): Frames per second for the video.
-
-    Properties:
-        identity_to_track: Always returns None for v4+ files.
-        format_major_version: Returns the major version of the pose file format (4).
-
-    Methods:
-        get_points(frame_index, identity, scale): Get points and mask for an identity in a frame.
-        get_identity_poses(identity, scale): Get all points and masks for an identity.
-        identity_mask(identity): Get the identity mask for a given identity.
-        get_identity_point_mask(identity): Get the point mask array for a given identity.
     """
 
+    # super class handles validating cache file version and will delete
+    # if it doesn't match expected version so it will get regenerated
     # bump to force regeneration of pose cache files for v4 or any subclass
     _CACHE_FILE_VERSION = 4
 
@@ -194,86 +184,19 @@ class PoseEstimationV4(PoseEstimation):
         """return the major version of the pose file format"""
         return 4
 
-    def get_points(self, frame_index: int, identity: int, scale: float | None = None):
-        """get points and mask for an identity for a given frame
-
-        Args:
-            frame_index: index of frame
-            identity: identity that we want the points for
-            scale: optional scale factor, set to cm_per_pixel to convert
-            fps: video frames per second
-        poses from pixel coordinates to cm coordinates
-
-        Returns:
-            points, mask if identity has data for this frame
-        """
-        if not self._identity_mask[identity, frame_index]:
-            return None, None
-
-        if scale is not None:
-            return (
-                self._points[identity, frame_index, ...] * scale,
-                self._point_mask[identity, frame_index, :],
-            )
-        else:
-            return (
-                self._points[identity, frame_index, ...],
-                self._point_mask[identity, frame_index, :],
-            )
-
-    def get_identity_poses(self, identity: int, scale: float | None = None):
-        """return all points and point masks
-
-        Args:
-            identity: included for compatibility with pose_est_v3.
-                Should
-            scale: optional scale factor, set to cm_per_pixel to convert
-        always be zero.
-        poses from pixel coordinates to cm coordinates
-
-        Returns:
-            numpy array of points (#frames, 12, 2), numpy array of point
-        masks (#frames, 12)
-        """
-        if scale is not None:
-            return (
-                self._points[identity, ...] * scale,
-                self._point_mask[identity, ...],
-            )
-        else:
-            return self._points[identity, ...], self._point_mask[identity, ...]
-
-    def identity_mask(self, identity):
-        """get the identity mask for a given identity"""
-        return self._identity_mask[identity, :]
-
-    def get_identity_point_mask(self, identity):
-        """get the point mask array for a given identity
-
-        Args:
-            identity: identity to return point mask for
-
-        Returns:
-            array of point masks (#frames, 12)
-        """
-        return self._point_mask[identity, :]
-
-    def get_reduced_point_mask(self):
-        """Returns a boolean array of length 12 indicating which keypoints are valid.
-
-        Determines which keypoints are valid for any identity across all frames.
-
-        Returns:
-            numpy array of shape (12,) with boolean values indicating validity
-            of each keypoint.
-        """
-        return np.any(self._point_mask, axis=(0, 1))
-
     def _load_from_cache(self):
         """Load data from a cached pose file.
 
         We do some transformation of the pose files so that, for example, we can index them by identity. The
         cache file allows us to avoid doing this every time the pose file is loaded.
+
+        This does not check the cache file version: ``PoseEstimation.__init__``
+        has already deleted a cache written by a different ``_CACHE_FILE_VERSION``,
+        so a stale cache surfaces here as a missing file (``OSError``), which the
+        caller handles by reading the source pose file.
+
+        Raises:
+            PoseHashException: If the cache was written for a different pose file.
 
         Returns:
             None

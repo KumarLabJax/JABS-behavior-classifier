@@ -7,7 +7,10 @@ import pandas as pd
 import pytest
 
 from jabs.classifier import cross_validation
-from jabs.classifier.cross_validation import run_leave_one_group_out_cv
+from jabs.classifier.cross_validation import (
+    NO_VALID_SPLITS_WARNING,
+    run_leave_one_group_out_cv,
+)
 
 
 class _NoSplitClassifier:
@@ -136,6 +139,55 @@ def test_run_leave_one_group_out_cv_returns_empty_when_no_valid_splits() -> None
 
     assert results == []
     assert any("skipping CV" in msg for msg in status_messages)
+
+
+def test_no_valid_splits_reports_a_warning() -> None:
+    """Requested-but-impossible CV is reported through warning_callback.
+
+    The status message scrolls past in the status bar; the warning is what the GUI
+    and CLI surface so the user knows why the report has no CV metrics.
+    """
+    features = {
+        "per_frame": pd.DataFrame({"a": [1.0, 2.0]}),
+        "window": pd.DataFrame({"b": [3.0, 4.0]}),
+        "labels": np.array([0, 1], dtype=np.int8),
+        "groups": np.array([0, 1], dtype=np.int32),
+    }
+    warnings: list[str] = []
+    run_leave_one_group_out_cv(
+        classifier=_NoSplitClassifier(),
+        project=object(),
+        features=features,
+        group_mapping={},
+        behavior="Walk",
+        k=1,
+        warning_callback=warnings.append,
+    )
+
+    assert warnings == [NO_VALID_SPLITS_WARNING]
+
+
+def test_no_warning_when_cross_validation_was_not_requested() -> None:
+    """k=0 means the user turned cross-validation off, which is not a problem to report."""
+    features = {
+        "per_frame": pd.DataFrame({"a": [1.0, 2.0]}),
+        "window": pd.DataFrame({"b": [3.0, 4.0]}),
+        "labels": np.array([0, 1], dtype=np.int8),
+        "groups": np.array([0, 1], dtype=np.int32),
+    }
+    warnings: list[str] = []
+    results = run_leave_one_group_out_cv(
+        classifier=_NoSplitClassifier(),
+        project=object(),
+        features=features,
+        group_mapping={},
+        behavior="Walk",
+        k=0,
+        warning_callback=warnings.append,
+    )
+
+    assert results == []
+    assert warnings == []
 
 
 def test_multiclass_cv_reuses_classifier_settings_without_resetting() -> None:

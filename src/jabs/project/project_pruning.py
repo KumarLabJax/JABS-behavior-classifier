@@ -33,7 +33,7 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
     for video in project.video_manager.videos:
         video_path = project.video_manager.video_path(video)
         pose_path = project.video_manager.get_cached_pose_path(video)
-        annotation_path = project.project_paths.annotations_dir / Path(video).with_suffix(".json")
+        annotation_path = project.annotation_store.document_path(video)
 
         has_labels = False
         if behavior:

@@ -21,13 +21,13 @@ import jabs.pose_estimation
 import jabs.project
 from jabs.core.constants import CACHE_FORMAT_KEY
 from jabs.core.enums import CacheFormat, ProjectDistanceUnit
+from jabs.feature_extraction import DEFAULT_WINDOW_SIZE
 from jabs.project.video_manager import VideoManager
 from jabs.schema.metadata import validate_metadata
 from jabs.video_reader import VideoReader
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_WINDOW_SIZE = 5
 DEFAULT_PROCESSES = os.cpu_count() or 1
 
 

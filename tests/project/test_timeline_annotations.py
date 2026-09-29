@@ -1,7 +1,11 @@
 import pytest
 from intervaltree import Interval
 
-from jabs.project.timeline_annotations import MAX_TAG_LEN, TimelineAnnotations
+from jabs.project.timeline_annotations import (
+    MAX_TAG_LEN,
+    TimelineAnnotations,
+    is_valid_tag,
+)
 
 
 def identity_index_to_display(idx: int) -> str:
@@ -214,3 +218,42 @@ def test_tag_length(tag, ok):
     data = [{"start": 0, "end": 0, "tag": tag, "color": "#000"}]
     rebuilt = TimelineAnnotations.load(data)
     assert len(rebuilt) == 1 if ok else len(rebuilt) == 0
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    [
+        ("a", True),
+        ("good_tag-1", True),
+        ("a" * MAX_TAG_LEN, True),
+        ("", False),
+        ("a" * (MAX_TAG_LEN + 1), False),
+        ("bad tag!", False),
+        ("tab\there", False),
+    ],
+    ids=[
+        "single-char",
+        "underscore-and-hyphen",
+        "max-length",
+        "empty",
+        "too-long",
+        "space-and-punctuation",
+        "whitespace",
+    ],
+)
+def test_is_valid_tag(tag: str, expected: bool) -> None:
+    """is_valid_tag() accepts exactly the tags the rule allows."""
+    assert is_valid_tag(tag) is expected
+
+
+@pytest.mark.parametrize(
+    "tag",
+    ["", "a" * (MAX_TAG_LEN + 1), "bad tag!"],
+    ids=["empty", "too-long", "space-and-punctuation"],
+)
+def test_load_skips_tags_is_valid_tag_rejects(tag: str) -> None:
+    """Every tag is_valid_tag() rejects is also dropped by load()."""
+    assert not is_valid_tag(tag)
+    assert (
+        len(TimelineAnnotations.load([{"start": 0, "end": 0, "tag": tag, "color": "#000"}])) == 0
+    )

@@ -26,6 +26,7 @@ from .compute_features import compute_features_command
 from .convert_parquet import convert_parquet_command
 from .convert_to_nwb import run_conversion
 from .cross_validation import run_cross_validation
+from .evaluate import evaluate_command
 from .export_video import export_video_command
 from .merge_projects import merge_projects_command
 from .postprocessing import apply_postprocessing_command
@@ -54,6 +55,7 @@ def cli(ctx: click.Context, verbose):
 
 cli.add_command(apply_postprocessing_command)
 cli.add_command(compute_features_command)
+cli.add_command(evaluate_command)
 cli.add_command(convert_parquet_command)
 cli.add_command(merge_projects_command)
 cli.add_command(update_pose_command)
@@ -538,12 +540,15 @@ def cross_validation(
     default=None,
     help=(
         "Path to a JSON file containing per-animal biological metadata. "
+        "Required: the DANDI archive rejects output without it. "
         "Keys are identity names: use the external IDs from the pose file "
-        "if present (e.g. 'mouse_a'), or 'subject_0', 'subject_1', … if the "
-        "pose file has no external IDs. "
-        "DANDI requires species, sex, and age (ISO 8601 duration, e.g. 'P70D') "
-        "or date_of_birth (ISO 8601 datetime) on every subject. "
-        "Additional fields: subject_id, genotype, strain, weight, description."
+        "if present (e.g. 'mouse_a'), or 'subject_1', 'subject_2', … (1-based) if "
+        "the pose file has no external IDs. "
+        "Every identity needs species (Latin binomial, e.g. 'Mus musculus'), "
+        "sex ('M', 'F', 'O' or 'U'), and age (ISO 8601 duration, e.g. 'P70D') "
+        "or date_of_birth (ISO 8601 datetime). "
+        "Optional fields: subject_id (defaults to the identity name), genotype, "
+        "strain, weight ('[numeric] [unit]', e.g. '25 g'), description."
     ),
 )
 @click.option(
@@ -555,7 +560,8 @@ def cross_validation(
         "Path to a JSON file containing NWB session-level metadata. "
         "Supported keys: session_start_time (ISO 8601 string), "
         "experimenter (string or list of strings), "
-        "lab, institution, experiment_description, session_id (strings)."
+        "lab, institution, experiment_description, session_id (strings), "
+        "keywords (list of strings)."
     ),
 )
 @click.pass_context
@@ -579,23 +585,24 @@ def convert_to_nwb(
     same directory. With --multisubject, a single combined file is written
     directly to OUTPUT.
 
+    --subjects is required: the conversion fails without the biological metadata
+    the DANDI archive demands, so it appears in every example below.
+
     Examples:
 
     \b
         # One NWB file per identity (default)
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
-
-    \b
-        # A single multi-subject file (ndx-multisubjects)
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --multisubject
-
-    \b
-        # Include per-animal metadata
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
 
     \b
-        # Specify session start time and other session metadata
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata session.json
+        # A single multi-subject file (ndx-multisubjects)
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json \
+            --multisubject
+
+    \b
+        # Also set session start time and other session metadata
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json \
+            --session-metadata session.json
     """
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")

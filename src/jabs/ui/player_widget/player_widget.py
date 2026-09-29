@@ -38,7 +38,6 @@ class PlayerWidget(QtWidgets.QWidget):
 
     Signals:
         update_frame_number (int): Emitted when the current frame number changes.
-        update_identities (list): Emitted when the list of identities is updated.
         playback_finished (): Emitted when playback of a range finishes.
         eof_reached (): Emitted when the end of the video file is reached.
 
@@ -53,9 +52,9 @@ class PlayerWidget(QtWidgets.QWidget):
         NONE = 0
         LABEL = 1
         PREDICTION = 2
+        BOTH = 3  # manual label and prediction, side by side
 
     update_frame_number = QtCore.Signal(int)
-    update_identities = QtCore.Signal(list)
     playback_finished = QtCore.Signal()
     eof_reached = QtCore.Signal()
     id_label_clicked = QtCore.Signal(int)
@@ -77,13 +76,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_path: Path | None = None
         self._pose_est = None
         self._playback_range: PlaybackRange | None = None
-
-        # properties to control video overlays managed by PlayerThread
-        self._label_closest = False
-        self._show_track = False
-        self._overlay_segmentation = False
-        self._overlay_landmarks = False
-        self._identities = []
 
         # currently selected identity
         self._active_identity = 0
@@ -243,7 +235,6 @@ class PlayerWidget(QtWidgets.QWidget):
         """reset video player before loading a new video"""
         self._video_stream = None
         self._video_path = None
-        self._identities = None
         self._pose_est = None
         self._active_identity = None
         self._position_slider.setValue(0)
@@ -276,19 +267,11 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = VideoReader(path)
         self._video_path = path
         self._pose_est = pose_est
-        self._identities = pose_est.identities
         self._frame_widget.set_pose(pose_est)
         self._frame_widget.annotations = video_labels.timeline_annotations
 
         self._player_thread = PlayerThread(
-            self._video_stream,
-            self._pose_est,
-            self._active_identity,
-            self._show_track,
-            self._identities,
-            self._overlay_landmarks,
-            self._overlay_segmentation,
-            playback_speed=self._frame_widget.playback_speed,
+            self._video_stream, playback_speed=self._frame_widget.playback_speed
         )
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._on_frame_number_changed)
@@ -467,58 +450,34 @@ class PlayerWidget(QtWidgets.QWidget):
             )
         )
 
-    def _set_overlay_attr(
-        self, attr: str, signal: QtCore.Signal | None, enabled: bool | None
-    ) -> None:
-        """Toggle or set an overlay attribute and emit the corresponding signal.
+    def _toggle_overlay(self, attr: str, enabled: bool | None) -> None:
+        """Toggle or set one of the frame widget's overlay flags.
+
+        Every overlay is painted over the frame already on screen, so changing one
+        repaints rather than needing the frame decoded again.
 
         Args:
-            attr: Name of the attribute to toggle or set.
-            signal: Signal to emit with the new value.
-            enabled: If provided, sets the attribute to this value; if None, toggles the current value.
-
-        This method also forces a redraw of the current frame with updated overlay settings if playback is paused in
-        order to force the current frame to be redrawn with the new overlay settings.
+            attr: Name of the frame widget property to toggle or set.
+            enabled: If provided, sets the property to this value; if None, toggles it.
         """
-        current = getattr(self, attr)
-        new_value = not current if enabled is None else enabled
-        setattr(self, attr, new_value)
-        if signal:
-            # noinspection PyUnresolvedReferences
-            signal.emit(new_value)
-            self.reload_frame()
+        current = getattr(self._frame_widget, attr)
+        setattr(self._frame_widget, attr, not current if enabled is None else enabled)
 
     def show_closest(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show closest' overlay state."""
-        self._set_overlay_attr(
-            "_label_closest",
-            self._player_thread.setLabelClosest if self._player_thread else None,
-            enabled,
-        )
+        self._toggle_overlay("closest_identity_overlay_enabled", enabled)
 
     def show_track(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show track' overlay state."""
-        self._set_overlay_attr(
-            "_show_track",
-            self._player_thread.setShowTrack if self._player_thread else None,
-            enabled,
-        )
+        self._toggle_overlay("track_overlay_enabled", enabled)
 
     def overlay_segmentation(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay segmentation' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_segmentation",
-            self._player_thread.setOverlaySegmentation if self._player_thread else None,
-            enabled,
-        )
+        self._toggle_overlay("segmentation_overlay_enabled", enabled)
 
     def overlay_landmarks(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay segmentation' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_landmarks",
-            self._player_thread.setOverlayLandmarks if self._player_thread else None,
-            enabled,
-        )
+        """Toggle or set the 'overlay landmarks' overlay state."""
+        self._toggle_overlay("landmark_overlay_enabled", enabled)
 
     def reload_frame(self) -> None:
         """reload the current frame in the player thread.
@@ -633,9 +592,9 @@ class PlayerWidget(QtWidgets.QWidget):
             return
 
         self._active_identity = identity
+        # The frame widget repaints its overlays; nothing the decoder produces depends
+        # on which identity is selected, so the frame itself does not need re-reading.
         self._frame_widget.set_active_identity(identity)
-        self._player_thread.setActiveIdentity.emit(identity)
-        self.reload_frame()
 
     def set_label_color_lut(self, lut: np.ndarray | None) -> None:
         """Set the color LUT for the label overlay.
@@ -648,14 +607,25 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         self._frame_widget.set_label_color_lut(lut)
 
-    def set_labels(self, labels: list[np.ndarray] | None) -> None:
+    def set_labels(
+        self,
+        manual_labels: list[np.ndarray] | None = None,
+        predicted_labels: list[np.ndarray] | None = None,
+    ) -> None:
         """set labels used for overlay in the frame widget
 
+        Passing both draws the manual label and the prediction side by side.
+
         Args:
-            labels: list of numpy arrays with behavior/not behavior/no label for each identity.
-              Must match the sorted order of identities or be None.
+            manual_labels: list of numpy arrays with the manual behavior/not behavior/no
+              label value for each identity, or None to hide the manual label marker.
+            predicted_labels: list of numpy arrays with the predicted value for each
+              identity, or None to hide the prediction marker.
+
+        Notes:
+            Each list must match the sorted order of identities.
         """
-        self._frame_widget.set_label_overlay(labels)
+        self._frame_widget.set_label_overlay(manual_labels, predicted_labels)
         self.reload_frame()
 
     @property
@@ -682,14 +652,20 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_label.setText(f"{frame_number}:{self._video_stream.num_frames - 1}")
         self._time_label.setText(self._video_stream.get_frame_time(frame_number))
 
-    @QtCore.Slot(QtGui.QImage)
-    def _display_image(self, image: QtGui.QImage) -> None:
+    @QtCore.Slot(QtGui.QImage, int)
+    def _display_image(self, image: QtGui.QImage, frame_number: int) -> None:
         """display a new frame sent from the player thread
 
         Args:
             image (QImage): frame ready for display as emitted by player thread
+            frame_number (int): index of the frame the image was decoded from
+
+        The frame number comes from the player thread with the image, not from
+        ``current_frame``: the position slider it reads is updated by a separate signal
+        that arrives after this one during playback, so the overlays would be drawn
+        against the previous frame.
         """
-        self._frame_widget.update_frame(image, self.current_frame)
+        self._frame_widget.update_frame(image, frame_number)
 
     @QtCore.Slot(int)
     def _on_frame_number_changed(self, frame_number: int) -> None:

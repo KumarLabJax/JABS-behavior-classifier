@@ -137,6 +137,9 @@ class TrainingReportData:
         cv_grouping_strategy: Strategy used for cross-validation grouping.
         cv_grouping_regex: Filename-pattern regex used for grouping. Only set when
             the grouping strategy is "Filename Pattern".
+        cv_warning: Why cross-validation did not run as requested, when it did not.
+            Reported in place of the neutral "no cross-validation" note so the
+            report says whether the metrics are missing by choice or by necessity.
         postprocessing_stages: Enabled postprocessing stage configurations that
             were evaluated during cross-validation, or ``None`` when
             postprocessing was not evaluated.
@@ -160,6 +163,7 @@ class TrainingReportData:
     class_frame_counts: dict[str, int] | None = None
     class_bout_counts: dict[str, int] | None = None
     cv_grouping_regex: str | None = None
+    cv_warning: str | None = None
     postprocessing_stages: list[dict] | None = None
 
 
@@ -401,7 +405,10 @@ def generate_markdown_report(data: TrainingReportData) -> str:
     else:
         lines.append("## Cross-Validation")
         lines.append("")
-        lines.append("*No cross-validation was performed for this training.*")
+        if data.cv_warning:
+            lines.append(f"> **Warning:** {data.cv_warning}")
+        else:
+            lines.append("*No cross-validation was performed for this training.*")
         lines.append("")
 
     lines.append("## Feature Importance")
@@ -529,6 +536,7 @@ def generate_json_report(data: TrainingReportData) -> dict:
         "timestamp": timestamp_str,
         "cv_grouping_strategy": data.cv_grouping_strategy.value,
         "cv_grouping_regex": data.cv_grouping_regex,
+        "cv_warning": data.cv_warning,
         "postprocessing_stages": _to_python_type(data.postprocessing_stages),
         "frames_behavior": int(data.frames_behavior),
         "frames_not_behavior": int(data.frames_not_behavior),

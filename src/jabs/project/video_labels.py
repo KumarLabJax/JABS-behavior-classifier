@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.utils import validate_behavior_names
 from jabs.pose_estimation import PoseEstimation
 
 from .timeline_annotations import TimelineAnnotations
@@ -122,12 +123,7 @@ class VideoLabels:
             ValueError: If ``behavior_names`` contains the reserved
                 ``MULTICLASS_NONE_BEHAVIOR`` name or any duplicate entries.
         """
-        if MULTICLASS_NONE_BEHAVIOR in behavior_names:
-            raise ValueError(
-                f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
-            )
-        if len(behavior_names) != len(set(behavior_names)):
-            raise ValueError("behavior_names must not contain duplicates")
+        validate_behavior_names(behavior_names)
 
         result = np.zeros(self._num_frames, dtype=np.int16)
         identity_tracks = self._identity_labels.get(identity, {})
