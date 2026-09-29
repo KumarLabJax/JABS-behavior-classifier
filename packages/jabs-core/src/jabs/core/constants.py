@@ -18,5 +18,9 @@ CV_GROUPING_REGEX_KEY = "cv_grouping_regex"
 CLASSIFIER_MODE_KEY = "classifier_mode"
 CACHE_FORMAT_KEY = "cache_format"
 
+# behavior-scoped settings keys stored under the "behavior" section of project.json
+# ordered list of prediction postprocessing stage configurations
+POSTPROCESSING_KEY = "postprocessing"
+
 # reserved behavior name used in multi-class mode to store explicit negative labels
 MULTICLASS_NONE_BEHAVIOR = "None"
