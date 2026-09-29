@@ -115,3 +115,21 @@ def test_assign_cv_group_ids_individual_grouping_unchanged() -> None:
         "identity": 1,
         "members": [("video_a.mp4", 1)],
     }
+
+
+def test_assign_cv_group_ids_video_grouping_unlabeled_video_has_no_members() -> None:
+    """A VIDEO group for a project video with no labeled identities is empty.
+
+    Group ids come from the canonical video list, not from the labeled pairs,
+    so a video nobody has labeled still gets a group. Callers that re-predict a
+    held-out group must cope with that group naming no identities.
+    """
+    videos = ["labeled.mp4", "unlabeled.mp4"]
+    all_group_keys = [("labeled.mp4", 0)]
+
+    _key_to_gid, group_mapping = Project._assign_cv_group_ids(
+        all_group_keys, videos, CrossValidationGroupingStrategy.VIDEO
+    )
+
+    unlabeled = next(g for g in group_mapping.values() if g["video"] == "unlabeled.mp4")
+    assert unlabeled["members"] == []

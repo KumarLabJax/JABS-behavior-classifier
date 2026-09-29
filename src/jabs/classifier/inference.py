@@ -1,14 +1,13 @@
 """Full-sequence inference for a single identity.
 
-This is the inference step shared by prediction and by cross-validation's
-postprocessing evaluation. Both need predictions over *every* frame of a
-video for one identity - not just the labeled frames - because the
-postprocessing pipeline reasons about contiguous bouts and about runs of
-frames that have no prediction at all.
+This is the inference step shared by the classify path and by cross-validation's
+prediction-postprocessing evaluation: predictions over *every* frame of a video
+for one identity, not just the labeled frames.
 
-Keeping it in one place means the metrics cross-validation reports for the
-postprocessing pipeline are computed from the same predictions the classify
-path would produce for the same identity and model.
+Both need the full-length vectors, because the postprocessing pipeline reasons
+about contiguous bouts and about runs of frames that have no prediction at all.
+Sharing one implementation keeps the metrics cross-validation reports consistent
+with what classification actually produces for the same identity and model.
 """
 
 from __future__ import annotations
