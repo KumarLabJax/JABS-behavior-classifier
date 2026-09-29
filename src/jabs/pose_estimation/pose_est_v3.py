@@ -7,8 +7,10 @@ import numpy as np
 from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.exceptions import PoseHashException
 
+from .identity_indexed_pose import IdentityIndexedPoseMixin
 
-class PoseEstimationV3(PoseEstimation):
+
+class PoseEstimationV3(IdentityIndexedPoseMixin, PoseEstimation):
     """Handler for version 3 pose estimation HDF5 files.
 
     This class parses and manages pose data from v3 pose files, including mapping tracks to identities,
@@ -176,81 +178,6 @@ class PoseEstimationV3(PoseEstimation):
     def format_major_version(self):
         """get the major version of the pose file format"""
         return 3
-
-    def get_points(self, frame_index: int, identity: int, scale: float | None = None):
-        """get points and mask for an identity for a given frame
-
-        Args:
-            frame_index: index of frame
-            identity: identity that we want the points for
-            scale: optional scale factor, set to cm_per_pixel to convert
-                poses from pixel coordinates to cm coordinates
-
-        Returns:
-            points, mask if identity has data for this frame
-        """
-        if not self._identity_mask[identity, frame_index]:
-            return None, None
-
-        if scale is not None:
-            return (
-                self._points[identity, frame_index, ...] * scale,
-                self._point_mask[identity, frame_index, :],
-            )
-        else:
-            return (
-                self._points[identity, frame_index, ...],
-                self._point_mask[identity, frame_index, :],
-            )
-
-    def get_identity_poses(self, identity: int, scale: float | None = None):
-        """return all points and point masks
-
-        Args:
-            identity: identity that we want the points for
-            scale: optional scale factor, set to cm_per_pixel to convert
-                poses from pixel coordinates to cm coordinates
-
-        Returns:
-            numpy array of points (#frames, 12, 2), numpy array of point masks (#frames, 12)
-        """
-        if scale is not None:
-            return (
-                self._points[identity, ...] * scale,
-                self._point_mask[identity, ...],
-            )
-        else:
-            return self._points[identity, ...], self._point_mask[identity, ...]
-
-    def identity_mask(self, identity):
-        """get the identity mask for a given identity
-
-        The idenitity mask is a 1D array of length num_frames, where each
-        element is 1 if the identity exists in that frame, and 0 if it does
-        """
-        return self._identity_mask[identity, :]
-
-    def get_identity_point_mask(self, identity):
-        """get the point mask array for a given identity
-
-        Args:
-            identity: identity to return point mask for
-
-        Returns:
-            array of point masks (#frames, 12)
-        """
-        return self._point_mask[identity, :]
-
-    def get_reduced_point_mask(self):
-        """Returns a boolean array of length 12 indicating which keypoints are valid.
-
-        Determines which keypoints are valid for any identity across all frames.
-
-        Returns:
-            numpy array of shape (12,) with boolean values indicating validity
-            of each keypoint.
-        """
-        return np.any(self._point_mask, axis=(0, 1))
 
     def _build_track_dict(self, all_points, all_confidence, all_instance_count, all_track_id):
         """iterate through frames and build track dict"""
