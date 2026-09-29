@@ -1,6 +1,7 @@
 import pytest
 from click.testing import CliRunner
 
+import jabs.feature_extraction
 import jabs.scripts.initialize_project as initialize_project
 from jabs.core.enums import CacheFormat
 
@@ -182,3 +183,14 @@ def test_run_initialize_project_enables_video_frame_check(tmp_path, monkeypatch)
         )
 
     assert captured.get("enable_video_check") is True
+
+
+def test_jabs_init_uses_the_canonical_default_window_size():
+    """jabs-init must not carry its own copy of the default window size.
+
+    Every other consumer reads ``jabs.feature_extraction.DEFAULT_WINDOW_SIZE``,
+    so a second literal here would let the ``--window-size`` default (and the
+    value quoted in its help text) drift away from the default new projects are
+    created with.
+    """
+    assert initialize_project.DEFAULT_WINDOW_SIZE == jabs.feature_extraction.DEFAULT_WINDOW_SIZE
