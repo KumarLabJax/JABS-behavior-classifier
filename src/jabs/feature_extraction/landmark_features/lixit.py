@@ -3,6 +3,7 @@ import typing
 import numpy as np
 
 from jabs.core.utils import signed_angle_degrees
+from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -162,29 +163,8 @@ class LixitDistanceInfo:
             are NaN for frames where no centroid is available
         """
         if identity not in self._cached_centroids:
-            self._cached_centroids[identity] = self._compute_centroids(identity)
+            self._cached_centroids[identity] = identity_centroids(self._poses, identity)
         return self._cached_centroids[identity]
-
-    def _compute_centroids(self, identity: int) -> np.ndarray:
-        """compute the per-frame mouse centroid (convex hull center) in pixel units
-
-        Args:
-            identity: integer identity to compute centroids for
-
-        Returns:
-            np.ndarray of shape (#frames, 2) of centroid coordinates in pixel units; rows
-            are NaN for frames where the identity is absent or has too few valid keypoints
-            to form a convex hull
-        """
-        centroids = np.full((self._poses.num_frames, 2), np.nan, dtype=np.float32)
-        frame_valid = self._poses.identity_mask(identity)
-        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
-        convex_hulls = self._poses.get_identity_convex_hulls(identity)
-        for i in indexes:
-            hull = convex_hulls[i]
-            if hull is not None:
-                centroids[i, :] = np.asarray(hull.centroid.xy).squeeze()
-        return centroids
 
     @staticmethod
     def _closest_lixit_per_frame(alignment_distances: np.ndarray) -> np.ndarray:

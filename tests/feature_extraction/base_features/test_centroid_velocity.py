@@ -186,3 +186,48 @@ def test_centroid_velocity_handles_missing_frames(pose_est_v5):
         # Should produce output with correct shape
         assert dir_values["centroid_velocity_dir"].shape == (pose_est_v5.num_frames,)
         assert mag_values["centroid_velocity_mag"].shape == (pose_est_v5.num_frames,)
+
+
+def test_centroid_velocity_handles_missing_convex_hull(pose_est_v5):
+    """A present frame with no convex hull yields NaN instead of raising.
+
+    ``identity_mask()`` requires only one valid body keypoint on pose v3 while
+    ``get_identity_convex_hulls()`` needs three, so a frame can be masked present and
+    still have no hull. Stubbing a None hull into an otherwise valid frame reproduces
+    that combination without needing a v3 pose file.
+    """
+    pixel_scale = pose_est_v5.cm_per_pixel
+    identity = 0
+
+    hulls = list(pose_est_v5.get_identity_convex_hulls(identity))
+    present = np.flatnonzero(pose_est_v5.identity_mask(identity) == 1)
+    assert present.size > 0, "fixture has no frames where identity 0 is present"
+    hole = int(present[present.size // 2])
+    assert hulls[hole - 1] is not None and hulls[hole + 1] is not None, (
+        "the frames flanking the hole must have hulls for the NaN assertions below"
+    )
+    hulls[hole] = None
+
+    class _PoseWithMissingHull:
+        """Delegates to the real pose object, but reports one hull as None."""
+
+        def __getattr__(self, name):
+            return getattr(pose_est_v5, name)
+
+        def get_identity_convex_hulls(self, ident):
+            return hulls if ident == identity else pose_est_v5.get_identity_convex_hulls(ident)
+
+    poses = _PoseWithMissingHull()
+
+    dir_values = CentroidVelocityDir(poses, pixel_scale).per_frame(identity)
+    mag_values = CentroidVelocityMag(poses, pixel_scale).per_frame(identity)
+
+    assert dir_values["centroid_velocity_dir"].shape == (pose_est_v5.num_frames,)
+    assert mag_values["centroid_velocity_mag"].shape == (pose_est_v5.num_frames,)
+
+    # np.gradient uses a central difference, so the missing centroid propagates to the
+    # frames on either side of the hole rather than to the hole itself
+    assert np.isnan(dir_values["centroid_velocity_dir"][hole - 1])
+    assert np.isnan(dir_values["centroid_velocity_dir"][hole + 1])
+    assert np.isnan(mag_values["centroid_velocity_mag"][hole - 1])
+    assert np.isnan(mag_values["centroid_velocity_mag"][hole + 1])
