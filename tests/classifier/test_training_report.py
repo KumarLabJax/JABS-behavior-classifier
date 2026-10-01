@@ -574,8 +574,51 @@ class TestPostprocessedReporting:
 
         report = generate_markdown_report(sample_training_data)
 
-        assert "**Postprocessing Evaluated in Cross-Validation:** Yes" in report
-        assert "*No stages enabled*" in report
+        assert "**Postprocessing Evaluated in Cross-Validation:** No" in report
+        assert "no stages are enabled" in report
+
+    def test_markdown_does_not_claim_evaluation_without_metrics(self, sample_training_data):
+        """Requesting evaluation that produced nothing must not report "Yes".
+
+        The stage list is set from the saved configuration as soon as the
+        evaluation is requested, so a run that found no valid cross-validation
+        splits used to print "Yes" directly above a section saying no
+        cross-validation was performed.
+        """
+        sample_training_data.postprocessing_stages = [
+            {"stage_name": "BoutStitchingStage", "enabled": True, "parameters": {}}
+        ]
+        sample_training_data.cv_results = []
+
+        report = generate_markdown_report(sample_training_data)
+
+        assert "**Postprocessing Evaluated in Cross-Validation:** No" in report
+        assert "produced no postprocessed metrics" in report
+        # and the stages are not listed under a heading claiming they ran
+        assert "BoutStitchingStage" not in report
+
+    def test_markdown_does_not_claim_evaluation_when_every_fold_skipped(
+        self, sample_training_data
+    ):
+        """Folds that each returned no postprocessed metrics do not count as evaluated."""
+        sample_training_data.postprocessing_stages = [
+            {"stage_name": "BoutStitchingStage", "enabled": True, "parameters": {}}
+        ]
+        for result in sample_training_data.cv_results:
+            result.postprocessed = None
+
+        report = generate_markdown_report(sample_training_data)
+
+        assert "**Postprocessing Evaluated in Cross-Validation:** No" in report
+
+    def test_json_records_whether_postprocessing_was_evaluated(self, sample_training_data):
+        """The JSON separates what was requested from what actually happened."""
+        requested_only = generate_json_report(sample_training_data)
+        assert requested_only["postprocessing_evaluated"] is False
+
+        evaluated = generate_json_report(self._postprocessed_data(sample_training_data))
+        assert evaluated["postprocessing_evaluated"] is True
+        assert evaluated["postprocessing_stages"][0]["stage_name"] == "BoutStitchingStage"
 
     def test_markdown_omits_postprocessing_when_not_evaluated(self, sample_training_data):
         """A report for a run without postprocessing evaluation says nothing about it."""

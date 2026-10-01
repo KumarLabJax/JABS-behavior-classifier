@@ -10,6 +10,7 @@ from rich.table import Table
 from jabs.classifier import (
     NO_VALID_SPLITS_WARNING,
     Classifier,
+    CrossValidationResult,
     MlflowLoggingError,
     TrainingReportData,
     enabled_stage_configs,
@@ -24,7 +25,7 @@ from jabs.project import Project
 N_JOBS = 4
 
 
-def _print_consistency_warnings(console: Console, cv_results: list) -> None:
+def _print_consistency_warnings(console: Console, cv_results: list[CrossValidationResult]) -> None:
     """Print any iteration whose two prediction passes disagreed.
 
     The results table puts raw and postprocessed metrics side by side, so it

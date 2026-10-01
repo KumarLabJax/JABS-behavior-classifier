@@ -188,12 +188,35 @@ def _is_multiclass_cv(cv_results: list[CrossValidationResult]) -> bool:
     return bool(cv_results) and isinstance(cv_results[0], MultiClassCVResult)
 
 
-def _format_postprocessing_stages(stages: list[dict]) -> list[str]:
-    """Return markdown lines describing the evaluated postprocessing stages."""
-    lines = ["- **Postprocessing Evaluated in Cross-Validation:** Yes"]
+def _format_postprocessing_stages(stages: list[dict], evaluated: bool) -> list[str]:
+    """Return markdown lines describing the postprocessing evaluation.
+
+    The stage list is set from the behavior's saved configuration as soon as the
+    evaluation is *requested*, before anything is known about the outcome, so
+    this has to be told whether the evaluation actually happened. Reporting
+    "Yes" off the request alone contradicts the report itself when, say, no
+    valid cross-validation splits were found.
+
+    Args:
+        stages: Enabled postprocessing stage configurations that were requested.
+        evaluated: Whether any iteration produced postprocessed metrics.
+
+    Returns:
+        Markdown lines for the training summary.
+    """
     if not stages:
-        lines.append("  - *No stages enabled*")
-        return lines
+        # evaluation is skipped outright when the pipeline would be a no-op
+        return [
+            "- **Postprocessing Evaluated in Cross-Validation:** No "
+            "(requested, but no stages are enabled)"
+        ]
+    if not evaluated:
+        # no cross-validation folds ran, or no fold had scorable held-out frames
+        return [
+            "- **Postprocessing Evaluated in Cross-Validation:** No "
+            "(requested, but cross-validation produced no postprocessed metrics)"
+        ]
+    lines = ["- **Postprocessing Evaluated in Cross-Validation:** Yes"]
     for stage in stages:
         params = stage.get("parameters") or {}
         rendered = _escape_markdown(", ".join(f"{name}={value}" for name, value in params.items()))
@@ -405,7 +428,12 @@ def generate_markdown_report(data: TrainingReportData) -> str:
     lines.append(f"- **Distance Unit:** {data.distance_unit}")
     lines.append(f"- **Training Time:** {data.training_time_ms / 1000:.2f} seconds")
     if data.postprocessing_stages is not None:
-        lines.extend(_format_postprocessing_stages(data.postprocessing_stages))
+        lines.extend(
+            _format_postprocessing_stages(
+                data.postprocessing_stages,
+                evaluated=bool(_postprocessed_results(data.cv_results)),
+            )
+        )
     lines.append("")
 
     lines.append("### Label Counts")
@@ -579,6 +607,8 @@ def generate_json_report(data: TrainingReportData) -> dict:
         "cv_grouping_regex": data.cv_grouping_regex,
         "cv_warning": data.cv_warning,
         "postprocessing_stages": _to_python_type(data.postprocessing_stages),
+        # the stage list records what was requested; this records what happened
+        "postprocessing_evaluated": bool(_postprocessed_results(data.cv_results)),
         "frames_behavior": int(data.frames_behavior),
         "frames_not_behavior": int(data.frames_not_behavior),
         "bouts_behavior": int(data.bouts_behavior),
