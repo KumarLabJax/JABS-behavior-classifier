@@ -33,7 +33,7 @@ from jabs.io.internal.dataclass.type_hints import is_datetime_type, unwrap_optio
         "none-type",
     ],
 )
-def test_unwrap_optional(annotation, expected):
+def test_unwrap_optional(annotation: object, expected: object) -> None:
     """unwrap_optional strips None from an optional of exactly one type."""
     assert unwrap_optional(annotation) == expected
 
@@ -55,11 +55,11 @@ def test_unwrap_optional(annotation, expected):
     ],
     ids=["datetime", "optional-datetime", "str", "optional-int", "union-with-datetime", "float"],
 )
-def test_is_datetime_type(annotation, expected):
+def test_is_datetime_type(annotation: object, expected: bool) -> None:
     """is_datetime_type detects datetime and Optional[datetime] annotations."""
     assert is_datetime_type(annotation) is expected
 
 
-def test_is_datetime_type_rejects_string_annotation():
+def test_is_datetime_type_rejects_string_annotation() -> None:
     """A PEP 563 string annotation is not recognized, as documented."""
     assert is_datetime_type("datetime") is False
