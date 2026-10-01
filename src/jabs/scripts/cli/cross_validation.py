@@ -9,12 +9,14 @@ from rich.table import Table
 
 from jabs.classifier import (
     NO_VALID_SPLITS_WARNING,
+    BinaryCVResult,
     Classifier,
     CrossValidationResult,
     MlflowLoggingError,
     TrainingReportData,
     enabled_stage_configs,
     log_cross_validation_to_mlflow,
+    postprocessed_results,
     run_leave_one_group_out_cv,
     save_training_report,
 )
@@ -35,10 +37,12 @@ def _print_consistency_warnings(console: Console, cv_results: list[CrossValidati
         console: Rich console to print to.
         cv_results: Cross-validation iteration results.
     """
-    for cv in cv_results:
-        warning = getattr(getattr(cv, "postprocessed", None), "consistency_warning", None)
-        if warning:
-            console.print(f"[yellow]Warning (iteration {cv.iteration}):[/yellow] {warning}")
+    for cv in postprocessed_results(cv_results):
+        if cv.postprocessed.consistency_warning:
+            console.print(
+                f"[yellow]Warning (iteration {cv.iteration}):[/yellow] "
+                f"{cv.postprocessed.consistency_warning}"
+            )
 
 
 def run_cross_validation(
@@ -186,9 +190,9 @@ def run_cross_validation(
 
     # Print Rich table of results
     if cv_results:
-        show_postprocessed = any(
-            getattr(cv, "postprocessed", None) is not None for cv in cv_results
-        )
+        # same predicate the markdown and JSON reports use, so the three
+        # surfaces cannot disagree about which iterations have these metrics
+        show_postprocessed = bool(postprocessed_results(cv_results))
         table = Table(title="Cross-Validation Results")
         table.add_column("Iter", justify="center")
         table.add_column("Accuracy", justify="right")
@@ -213,7 +217,7 @@ def run_cross_validation(
                 f"{cv.f1_behavior:.3f}",
             ]
             if show_postprocessed:
-                postprocessed = getattr(cv, "postprocessed", None)
+                postprocessed = cv.postprocessed if isinstance(cv, BinaryCVResult) else None
                 row.append(f"{postprocessed.accuracy:.3f}" if postprocessed else "-")
                 row.append(f"{postprocessed.f1_behavior:.3f}" if postprocessed else "-")
             row.append(str(cv.test_label))

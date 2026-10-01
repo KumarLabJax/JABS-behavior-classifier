@@ -12,7 +12,6 @@ from jabs.classifier import (
     save_training_report,
 )
 from jabs.classifier.cross_validation import run_leave_one_group_out_cv
-from jabs.classifier.cv_postprocessing import enabled_stage_configs
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import ClassifierMode, ProjectDistanceUnit
 from jabs.project import Project
@@ -138,18 +137,6 @@ class TrainingThread(QThread):
             settings = strategy.effective_settings()
             settings_manager = self._project.settings_manager
 
-            # Postprocessing evaluation is binary-only; the pipeline has no
-            # multi-class semantics yet.
-            evaluate_postprocessing = (
-                settings_manager.classifier_mode != ClassifierMode.MULTICLASS
-                and settings_manager.evaluate_postprocessing_in_cv(self._behavior)
-            )
-            postprocessing_stages = (
-                enabled_stage_configs(settings_manager.postprocessing_config(self._behavior))
-                if evaluate_postprocessing
-                else None
-            )
-
             self.current_status.emit("Extracting Features")
             features, group_mapping = strategy.collect_features(
                 progress_callable=id_processed,
@@ -168,7 +155,7 @@ class TrainingThread(QThread):
                 progress_callback=id_processed,
                 terminate_callback=check_termination_requested,
                 warning_callback=record_cv_warning,
-                evaluate_postprocessing=evaluate_postprocessing,
+                evaluate_postprocessing=strategy.evaluate_postprocessing,
             )
 
             self.current_status.emit("Training Classifier")
@@ -201,7 +188,6 @@ class TrainingThread(QThread):
                 cv_warning=self._cv_warning,
                 distance_unit=unit,
                 settings=settings,
-                postprocessing_stages=postprocessing_stages,
             )
 
             timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")

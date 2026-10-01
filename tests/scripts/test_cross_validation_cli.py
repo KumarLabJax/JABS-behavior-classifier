@@ -8,14 +8,19 @@ fast and do not require a real JABS project on disk.
 """
 
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
 import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.cli.cli as cli_module
-from jabs.classifier import MlflowLoggingError
+from jabs.classifier import (
+    BinaryCVResult,
+    MlflowLoggingError,
+    MultiClassCVResult,
+    PostprocessedMetrics,
+)
 from jabs.core.enums import CrossValidationGroupingStrategy
 from jabs.scripts.cli.cli import cli
 from jabs.scripts.cli.cross_validation import _print_consistency_warnings
@@ -302,16 +307,26 @@ def test_mlflow_unavailable_fails_fast(
     run_cv_spy.assert_not_called()
 
 
+def _cv_result(iteration: int, warning: str | None, postprocessed: bool = True):
+    """Build a binary CV result, optionally carrying postprocessed metrics."""
+    result = BinaryCVResult(
+        iteration=iteration,
+        test_label=f"video_{iteration}.mp4",
+        accuracy=0.9,
+        confusion_matrix=np.array([[1, 0], [0, 1]]),
+    )
+    if postprocessed:
+        result.postprocessed = PostprocessedMetrics(consistency_warning=warning)
+    return result
+
+
 def test_print_consistency_warnings_reports_each_inconsistent_iteration() -> None:
     """The console names every iteration whose two prediction passes disagreed."""
     console = mock.Mock()
     results = [
-        SimpleNamespace(
-            iteration=1,
-            postprocessed=SimpleNamespace(consistency_warning="pass one disagreed"),
-        ),
-        SimpleNamespace(iteration=2, postprocessed=SimpleNamespace(consistency_warning=None)),
-        SimpleNamespace(iteration=3, postprocessed=None),
+        _cv_result(1, "pass one disagreed"),
+        _cv_result(2, None),
+        _cv_result(3, None, postprocessed=False),
     ]
 
     _print_consistency_warnings(console, results)
@@ -320,3 +335,25 @@ def test_print_consistency_warnings_reports_each_inconsistent_iteration() -> Non
     printed = console.print.call_args.args[0]
     assert "iteration 1" in printed
     assert "pass one disagreed" in printed
+
+
+def test_print_consistency_warnings_ignores_multiclass_results() -> None:
+    """Multi-class iterations are not binary results, so they are skipped.
+
+    Guards the shared ``postprocessed_results`` predicate: a looser check would
+    pick up any object that happens to carry a ``postprocessed`` attribute.
+    """
+    console = mock.Mock()
+    multiclass = MultiClassCVResult(
+        iteration=1,
+        test_label="video_1.mp4",
+        accuracy=0.9,
+        confusion_matrix=np.array([[1, 0], [0, 1]]),
+        class_names=["None", "Walk"],
+    )
+    # an unrelated attribute of the same name must not be mistaken for metrics
+    multiclass.postprocessed = PostprocessedMetrics(consistency_warning="should be ignored")
+
+    _print_consistency_warnings(console, [multiclass])
+
+    console.print.assert_not_called()

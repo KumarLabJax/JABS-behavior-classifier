@@ -28,6 +28,7 @@ from .training_report import (
     PostprocessedMetrics,
     TrainingReportData,
     generate_markdown_report,
+    postprocessed_results,
     save_training_report,
 )
 
@@ -50,6 +51,7 @@ __all__ = [
     "log_cross_validation_to_mlflow",
     "mlflow_available",
     "parse_kv_tags",
+    "postprocessed_results",
     "predict_identity",
     "run_leave_one_group_out_cv",
     "save_training_report",

@@ -225,8 +225,21 @@ def _format_postprocessing_stages(stages: list[dict], evaluated: bool) -> list[s
     return lines
 
 
-def _postprocessed_results(cv_results: list[CrossValidationResult]) -> list[BinaryCVResult]:
-    """Return the binary CV results that carry postprocessed metrics."""
+def postprocessed_results(cv_results: list[CrossValidationResult]) -> list[BinaryCVResult]:
+    """Return the binary CV results that carry postprocessed metrics.
+
+    Public because every surface that reports raw and postprocessed metrics
+    side by side has to agree on which iterations have them - the markdown
+    report, the JSON report and the ``jabs-cli`` console table. A second,
+    looser predicate (such as a ``getattr`` probe) could silently disagree
+    with this one for the same input.
+
+    Args:
+        cv_results: Cross-validation iteration results, either mode.
+
+    Returns:
+        The binary results whose postprocessed metrics are populated, in order.
+    """
     return [r for r in cv_results if isinstance(r, BinaryCVResult) and r.postprocessed is not None]
 
 
@@ -269,7 +282,7 @@ def _format_performance_summary(cv_results: list[CrossValidationResult]) -> list
                 f"- **Mean F1 Score (Behavior):** {np.mean(f1_behavior):.4f} "
                 f"(± {np.std(f1_behavior):.4f})"
             )
-        postprocessed = _postprocessed_results(cv_results)
+        postprocessed = postprocessed_results(cv_results)
         if postprocessed:
             pp_accuracies = [r.postprocessed.accuracy for r in postprocessed]
             pp_f1 = [r.postprocessed.f1_behavior for r in postprocessed]
@@ -362,7 +375,7 @@ def _postprocessed_iteration_row(result: BinaryCVResult) -> list[str | int]:
 
 def _format_postprocessed_iteration_table(cv_results: list[CrossValidationResult]) -> str:
     """Return the markdown iteration table for postprocessed metrics."""
-    rows = [_postprocessed_iteration_row(r) for r in _postprocessed_results(cv_results)]
+    rows = [_postprocessed_iteration_row(r) for r in postprocessed_results(cv_results)]
     return tabulate(rows, headers=_BINARY_HEADERS, tablefmt="github")
 
 
@@ -376,7 +389,7 @@ def _format_postprocessing_consistency_warnings(
     """
     warned = [
         (r.iteration, r.postprocessed.consistency_warning)
-        for r in _postprocessed_results(cv_results)
+        for r in postprocessed_results(cv_results)
         if r.postprocessed.consistency_warning
     ]
     if not warned:
@@ -431,7 +444,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
         lines.extend(
             _format_postprocessing_stages(
                 data.postprocessing_stages,
-                evaluated=bool(_postprocessed_results(data.cv_results)),
+                evaluated=bool(postprocessed_results(data.cv_results)),
             )
         )
     lines.append("")
@@ -457,7 +470,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
         lines.append(_format_iteration_table(data.cv_results))
         lines.append("")
 
-        if _postprocessed_results(data.cv_results):
+        if postprocessed_results(data.cv_results):
             lines.append("### Iteration Details (Postprocessed)")
             lines.append("")
             lines.append(
@@ -608,7 +621,7 @@ def generate_json_report(data: TrainingReportData) -> dict:
         "cv_warning": data.cv_warning,
         "postprocessing_stages": _to_python_type(data.postprocessing_stages),
         # the stage list records what was requested; this records what happened
-        "postprocessing_evaluated": bool(_postprocessed_results(data.cv_results)),
+        "postprocessing_evaluated": bool(postprocessed_results(data.cv_results)),
         "frames_behavior": int(data.frames_behavior),
         "frames_not_behavior": int(data.frames_not_behavior),
         "bouts_behavior": int(data.bouts_behavior),
