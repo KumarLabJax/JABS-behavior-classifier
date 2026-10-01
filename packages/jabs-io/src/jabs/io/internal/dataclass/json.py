@@ -1,11 +1,11 @@
-import types
 from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime
-from typing import Union, get_args, get_origin
 
 from jabs.core.enums import StorageFormat
 from jabs.io.base import JSONAdapter
 from jabs.io.registry import register_adapter
+
+from .type_hints import is_datetime_type
 
 
 @register_adapter(StorageFormat.JSON)
@@ -23,16 +23,6 @@ class DataclassJSONAdapter(JSONAdapter):
     def can_handle(cls, data_type):  # noqa: D102
         return is_dataclass(data_type)
 
-    @staticmethod
-    def _is_datetime_type(field_type) -> bool:
-        """Check if a type annotation represents datetime or Optional[datetime]."""
-        if field_type is datetime:
-            return True
-        origin = get_origin(field_type)
-        if origin is Union or origin is types.UnionType:
-            return datetime in get_args(field_type)
-        return False
-
     def _encode_one(self, data) -> dict:
         return asdict(data)
 
@@ -41,6 +31,6 @@ class DataclassJSONAdapter(JSONAdapter):
             return data
         for f in fields(data_type):
             val = data.get(f.name)
-            if self._is_datetime_type(f.type) and isinstance(val, str):
+            if is_datetime_type(f.type) and isinstance(val, str):
                 data[f.name] = datetime.fromisoformat(val)
         return data_type(**data)
