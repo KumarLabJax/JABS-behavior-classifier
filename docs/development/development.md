@@ -264,19 +264,22 @@ JABS-behavior-classifier/
 │   │   ├── segmentation_features/  # Spatial segmentation features
 │   │   ├── social_features/    # Multi-animal social features
 │   │   └── window_operations/  # Temporal window operations
+│   ├── overlay_drawing/    # Pose/segmentation overlay rendering
 │   ├── pose_estimation/    # Pose file handling and validation
 │   ├── project/            # Project management and data organization
 │   ├── resources/          # Static resources (icons, docs, etc.)
 │   ├── schema/             # JSON schemas for validation
 │   ├── scripts/            # Command-line interface scripts
 │   ├── ui/                 # PySide6-based GUI components
-│   ├── utils/              # Utility functions and helpers
+│   ├── utils/              # Re-exports of jabs-core helpers (shim)
 │   ├── version/            # Version information
+│   ├── video_export/       # Video clip export
 │   └── video_reader/       # Video file reading and processing
 ├── packages/               # Sub-packages
-│   ├── jabs-core/          # Infrastructure & Utilities
-│   ├── jabs-io/            # Canonical Models & File I/O
-│   └── jabs-vision/        # DL Inference & Identity Tracking
+│   ├── jabs-core/          # Shared types, enums, abstract base classes
+│   ├── jabs-io/            # File I/O (HDF5, JSON, Parquet, NWB)
+│   ├── jabs-behavior/      # Event processing & postprocessing filters
+│   └── jabs-vision/        # Deep-learning inference (PyTorch, HRNet, timm)
 ├── tests/                  # Root project tests
 ├── dev/                    # Development utilities and scripts
 ├── build/                  # Build artifacts (generated)
@@ -291,15 +294,24 @@ JABS-behavior-classifier/
 We are in the process of refactoring the original monolithic codebase by migrating core
 logic into independent, headless-capable packages in the `packages/` directory.
 
-- **`jabs-core`**: Minimal shared infrastructure (Registries, Constants).
-- **`jabs-io`**: Defines the canonical data models (`PoseData`, `FeatureData`) and handles all HDF5/Parquet/JSON reading/writing.
-- **`jabs-vision`**: Handles heavy ML tasks (Pose estimation inference, Tracking).
+- **`jabs-core`**: Lightweight shared infrastructure - constants, enums, exceptions, the
+  canonical data models (e.g. `PoseData`), abstract base classes and small pure helpers.
+  Depends on no other JABS package.
+- **`jabs-io`**: All file I/O - HDF5, JSON, Parquet and NWB - plus the adapter registry
+  that maps a storage format and data model to a reader/writer. Depends on `jabs-core`.
+- **`jabs-behavior`**: Behavior event processing (run-length encoded bouts), the
+  postprocessing filter pipeline and bout-level evaluation metrics. Depends on no other
+  JABS package.
+- **`jabs-vision`**: Heavy deep-learning work (pose estimation inference with PyTorch,
+  HRNet and timm). Depends on `jabs-core` and `jabs-io`.
 
 **Developers should prefer adding new reusable logic to the appropriate sub-package rather than the root `src/` tree.** 
 
 ### Key Directories Explained
 
-- **`src/jabs/`**: All production code lives here. This is a "src layout" which keeps source separate from tests and build artifacts.
+- **`src/jabs/`**: The GUI application, project management, feature extraction, classifiers
+  and CLI entry points. This is a "src layout" which keeps source separate from tests and
+  build artifacts. Reusable, headless library code lives in `packages/` instead.
 
 - **`feature_extraction/`**: The heart of JABS - extracts behavioral features from pose estimation data. Features are modular and extensible.
 
@@ -311,7 +323,7 @@ logic into independent, headless-capable packages in the `packages/` directory.
 
 - **`ui/`**: PySide6-based GUI components.
 
-- **`classifier/`**: Implements machine learning classifiers (currently supports scikit-learn RandomForest as well as XGBoost).
+- **`classifier/`**: Implements machine learning classifiers (currently scikit-learn Random Forest, XGBoost and CatBoost).
 
 - **`scripts/`**: Entry points for command-line tools (installed as console scripts).
 
@@ -802,7 +814,7 @@ backend does — keeps caches consistent and easier to debug.
 
 ##### Testing New Features
 
-Add tests in `tests/feature_tests/`. See existing feature tests for examples of how to:
+Add tests in `tests/feature_extraction/`. See existing feature tests for examples of how to:
 - Test per-frame feature computation
 - Verify feature output shapes and data types
 - Test with sample pose estimation data
@@ -810,9 +822,9 @@ Add tests in `tests/feature_tests/`. See existing feature tests for examples of 
 
 #### Classifiers
 
-Classifiers wrap scikit-learn or XGBoost models:
+Classifiers wrap scikit-learn, XGBoost or CatBoost models:
 
-- Support for multiple classifier types (LogisticRegression, RandomForest, XGBoost, etc.)
+- Support for the classifier types in `ClassifierType` (Random Forest, XGBoost, CatBoost)
 - K-fold cross-validation
 - Model persistence and versioning
 
