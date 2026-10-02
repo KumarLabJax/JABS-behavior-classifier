@@ -297,8 +297,10 @@ logic into independent, headless-capable packages in the `packages/` directory.
 - **`jabs-core`**: Lightweight shared infrastructure - constants, enums, exceptions, the
   canonical data models (e.g. `PoseData`), abstract base classes and small pure helpers.
   Depends on no other JABS package.
-- **`jabs-io`**: All file I/O - HDF5, JSON, Parquet and NWB - plus the adapter registry
-  that maps a storage format and data model to a reader/writer. Depends on `jabs-core`.
+- **`jabs-io`**: The reusable file I/O layer - HDF5, JSON, Parquet and NWB - plus the
+  adapter registry that maps a storage format and data model to a reader/writer. It is not
+  yet the only I/O in the repo: parts of `src/jabs/` still read and write HDF5 and JSON
+  directly, and migrating those is part of the transition. Depends on `jabs-core`.
 - **`jabs-behavior`**: Behavior event processing (run-length encoded bouts), the
   postprocessing filter pipeline and bout-level evaluation metrics. Depends on no other
   JABS package.
