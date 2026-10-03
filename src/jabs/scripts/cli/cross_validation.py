@@ -8,6 +8,7 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from jabs.classifier import (
+    NO_VALID_SPLITS_WARNING,
     Classifier,
     MlflowLoggingError,
     TrainingReportData,
@@ -105,11 +106,16 @@ def run_cross_validation(
         transient=True,
     )
     task_id = None
+    cv_warning: str | None = None
 
     def status_callback(msg: str):
         nonlocal status_message
         status_message = msg
         console.status(msg)
+
+    def warning_callback(msg: str):
+        nonlocal cv_warning
+        cv_warning = msg
 
     def progress_callback():
         if progress.tasks:
@@ -126,7 +132,12 @@ def run_cross_validation(
 
     with progress:
         if k == 0:
+            # k=0 means "as many splits as the data supports" here, so a maximum of
+            # zero is not a request for no cross-validation - it is a failure to find
+            # any, which run_leave_one_group_out_cv would not warn about.
             k = classifier.get_leave_one_group_out_max(features["labels"], features["groups"])
+            if k == 0:
+                warning_callback(NO_VALID_SPLITS_WARNING)
 
         task_id = progress.add_task(f"Cross-validation ({behavior})", total=k)
         cv_results = run_leave_one_group_out_cv(
@@ -138,8 +149,11 @@ def run_cross_validation(
             k=k,
             status_callback=status_callback,
             progress_callback=progress_callback,
+            warning_callback=warning_callback,
         )
     console.print(f"Cross-validation complete. {len(cv_results)} iterations performed.")
+    if cv_warning:
+        console.print(f"[yellow]Warning:[/yellow] {cv_warning}")
 
     # Print Rich table of results
     if cv_results:
@@ -172,6 +186,10 @@ def run_cross_validation(
         features, _ = project.get_labeled_features(behavior)
         full_dataset = classifier.combine_data(features["per_frame"], features["window"])
         feature_names = full_dataset.columns.to_list()
+        # cross-validation folds set these as a side effect, but a run with no
+        # valid splits reaches the final fit without them
+        classifier.behavior_name = behavior
+        classifier.set_project_settings(project, behavior)
         classifier.train(
             {
                 "training_data": full_dataset,
@@ -230,6 +248,7 @@ def run_cross_validation(
         symmetric_behavior=behavior_settings.get("symmetric_behavior", False),
         distance_unit=unit,
         cv_results=cv_results,
+        cv_warning=cv_warning,
         final_top_features=final_top_features,
         frames_behavior=behavior_count,
         frames_not_behavior=not_behavior_count,

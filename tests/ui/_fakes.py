@@ -60,6 +60,15 @@ class FakeTrainingClassifier:
         call["random_seed"] = random_seed
         self.train_calls.append(call)
 
+    def set_project_settings(self, project, behavior: str | None = None) -> None:
+        """Adopt the project's behavior-scoped settings, as the real classifier does."""
+        self.behavior_name = behavior
+        self.project_settings = dict(project.settings_manager.get_behavior(behavior))
+
+    def set_dict_settings(self, settings: dict) -> None:
+        """Adopt settings supplied directly as a dict."""
+        self.project_settings = dict(settings)
+
     @staticmethod
     def get_feature_importance(limit: int = 20) -> list[tuple[str, float]]:
         """Return a placeholder feature-importance list capped at ``limit``."""
@@ -159,6 +168,7 @@ class FakeTrainingProject:
             cv_grouping_regex="",
             get_behavior=lambda _behavior: dict(self._DEFAULT_BEHAVIOR_SETTINGS),
             is_video_excluded=lambda _video: False,
+            postprocessing_config=lambda _behavior: [],
         )
         self._binary_features = binary_features
         self._multiclass_features = multiclass_features
@@ -216,6 +226,7 @@ class FakeClassifyingProject:
         self.settings_manager = SimpleNamespace(
             classifier_mode=mode,
             get_behavior=lambda _behavior: {"window_size": 5, "postprocessing": []},
+            postprocessing_config=lambda _behavior: [],
         )
         self.feature_manager = SimpleNamespace(distance_unit=ProjectDistanceUnit.PIXEL)
         self.video_manager = SimpleNamespace(

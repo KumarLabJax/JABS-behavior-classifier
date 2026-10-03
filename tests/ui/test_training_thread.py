@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from jabs.classifier import NO_VALID_SPLITS_WARNING, Classifier
 from jabs.core.enums import ClassifierMode
 
 from ._fakes import FakeTrainingClassifier, FakeTrainingProject
@@ -123,3 +124,87 @@ def test_training_thread_multiclass_path(monkeypatch, tmp_path) -> None:
     assert reports == ["report"]
     assert len(completions) == 1
     project.session_tracker.classifier_trained.assert_called_once_with("Walk", "catboost", 0)
+
+
+@pytest.mark.parametrize("k", [0, 1], ids=["cv_off", "cv_requested"])
+def test_training_thread_trains_when_no_cross_validation_folds_run(
+    monkeypatch, tmp_path, k
+) -> None:
+    """A run that produces no CV folds still trains the final classifier.
+
+    Cross-validation folds are what set the binary classifier's behavior name and
+    project settings, so a zero-fold run (k=0, or a single group that cannot serve
+    as a valid test split) used to reach the final fit unprepared and fail with
+    "Project settings for classifier unset, cannot train classifier."
+
+    Uses a real Classifier rather than the fake so the guard in Classifier.train()
+    is actually exercised.
+    """
+    rng = np.random.default_rng(0)
+    n = 60
+    features = {
+        "per_frame": pd.DataFrame({"feat_a": rng.standard_normal(n)}),
+        "window": pd.DataFrame({"feat_b": rng.standard_normal(n)}),
+        "labels": np.array([1] * (n // 2) + [0] * (n // 2), dtype=np.int8),
+        # every row in one group: no group can be held out as a test split
+        "groups": np.zeros(n, dtype=np.int32),
+    }
+    project = FakeTrainingProject(tmp_path, ClassifierMode.BINARY, binary_features=features)
+    classifier = Classifier()
+
+    monkeypatch.setattr(
+        "jabs.ui.training_thread.save_training_report", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "jabs.ui.training_thread.generate_markdown_report", lambda *_args, **_kwargs: "report"
+    )
+
+    thread = TrainingThread(classifier, project, "Walk", (3, 4), k=k)
+    errors: list[Exception] = []
+    completions: list[int] = []
+    warnings: list[str] = []
+    thread.error_callback.connect(errors.append)
+    thread.training_complete.connect(completions.append)
+    thread.cv_warning.connect(warnings.append)
+
+    thread.run()
+
+    assert errors == []
+    assert len(completions) == 1
+    assert classifier.behavior_name == "Walk"
+    assert classifier.project_settings == project.get_project_defaults()
+    project.save_classifier.assert_called_once_with(classifier, "Walk")
+    # k=0 turned cross-validation off (nothing to report); k=1 asked for it and
+    # could not get it, which the user needs to be told about
+    assert warnings == ([] if k == 0 else [NO_VALID_SPLITS_WARNING])
+
+
+def test_training_thread_records_cv_warning_in_the_report(monkeypatch, tmp_path) -> None:
+    """The saved report carries the reason cross-validation did not run."""
+    rng = np.random.default_rng(0)
+    n = 40
+    features = {
+        "per_frame": pd.DataFrame({"feat_a": rng.standard_normal(n)}),
+        "window": pd.DataFrame({"feat_b": rng.standard_normal(n)}),
+        "labels": np.array([1] * (n // 2) + [0] * (n // 2), dtype=np.int8),
+        "groups": np.zeros(n, dtype=np.int32),
+    }
+    project = FakeTrainingProject(tmp_path, ClassifierMode.BINARY, binary_features=features)
+    reported: list = []
+
+    monkeypatch.setattr(
+        "jabs.ui.training_thread.save_training_report",
+        lambda data, _path: reported.append(data),
+    )
+    monkeypatch.setattr(
+        "jabs.ui.training_thread.generate_markdown_report", lambda *_args, **_kwargs: "report"
+    )
+
+    thread = TrainingThread(Classifier(), project, "Walk", (3, 4), k=1)
+    errors: list[Exception] = []
+    thread.error_callback.connect(errors.append)
+    thread.run()
+
+    assert errors == []
+    assert len(reported) == 1
+    assert reported[0].cv_warning == NO_VALID_SPLITS_WARNING

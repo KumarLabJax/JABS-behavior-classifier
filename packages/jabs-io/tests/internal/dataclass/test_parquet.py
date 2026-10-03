@@ -43,28 +43,6 @@ def test_can_handle(data_type, expected):
 
 
 # ---------------------------------------------------------------------------
-# _is_datetime_type
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "annotation, expected",
-    [
-        (datetime, True),
-        (datetime | None, True),
-        (str, False),
-        (int | None, False),
-        (str | datetime, True),
-        (float, False),
-    ],
-    ids=["datetime", "optional-datetime", "str", "optional-int", "union-with-datetime", "float"],
-)
-def test_is_datetime_type(annotation, expected):
-    """_is_datetime_type detects datetime and Optional[datetime] annotations."""
-    assert DataclassParquetAdapter._is_datetime_type(annotation) is expected
-
-
-# ---------------------------------------------------------------------------
 # _normalize_value
 # ---------------------------------------------------------------------------
 

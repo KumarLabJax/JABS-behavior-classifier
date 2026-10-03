@@ -5,6 +5,7 @@ from jabs.io.internal.pose.nwb import (
     IdentitySubject,
     PoseNWBAdapter,
     resolve_identity_subjects,
+    sanitize_identity_name,
     subject_value_is_absent,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "PoseHDF5Adapter",
     "PoseNWBAdapter",
     "resolve_identity_subjects",
+    "sanitize_identity_name",
     "subject_value_is_absent",
 ]

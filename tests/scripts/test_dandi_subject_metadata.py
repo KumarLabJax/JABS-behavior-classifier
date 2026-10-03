@@ -1,6 +1,5 @@
 """Tests for DANDI subject-metadata pre-flight validation."""
 
-import datetime
 import logging
 
 import numpy as np
@@ -8,7 +7,6 @@ import pytest
 
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
-from jabs.io.internal.pose import PoseNWBAdapter
 from jabs.scripts.cli.dandi_subject_metadata import (
     subject_metadata_problems,
     validate_subjects,
@@ -317,11 +315,13 @@ def test_no_warning_when_every_key_matches(caplog) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Validator/writer agreement (PR #479 review)
+# Blank values count as absent (PR #479 review)
 #
-# Each case below passed validation and then either crashed the write or reached
-# the archive as the CRITICAL finding this module exists to prevent, because the
-# validator treated a falsy value as absent while the writer only filtered None.
+# The validator treated a falsy value as absent while the writer only filtered
+# None, so a blank passed validation and then either crashed the write or reached
+# the archive as the CRITICAL finding this module exists to prevent. Both halves
+# now share subject_value_is_absent(). The writer half of that agreement needs
+# pynwb, so it lives in test_dandi_subject_metadata_writer_agreement.py.
 # ---------------------------------------------------------------------------
 
 
@@ -330,65 +330,38 @@ def test_no_warning_when_every_key_matches(caplog) -> None:
     ["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
     ids=["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
 )
-def test_blank_agrees_with_the_writer(field: str) -> None:
-    """A blank value is absent to the validator and omitted by the writer alike."""
-    meta = {**VALID, field: ""}
-    problems = subject_metadata_problems(meta, default_subject_id="subject_1")
-    written = PoseNWBAdapter._make_subject(meta)
+def test_blank_is_treated_as_absent(field: str) -> None:
+    """A blank value is reported exactly as an absent one would be."""
+    problems = subject_metadata_problems({**VALID, field: ""}, default_subject_id="subject_1")
 
     if field in ("species", "sex"):
         assert problems == [f"{field} is missing"]
+    elif field == "age":
+        # date_of_birth is absent too, so the requirement is unmet.
+        assert problems == ["age or date_of_birth is missing"]
     else:
-        # age is covered by date_of_birth being absent only when both are; here the
-        # remaining required fields are present, so a blank optional/alternative
-        # field is simply dropped.
-        assert problems == ([] if field != "age" else ["age or date_of_birth is missing"])
-    assert getattr(written, field, None) in (None, "M123", "Mus musculus", "M")
+        # subject_id falls back to the default; date_of_birth and weight are optional.
+        assert problems == []
 
 
-def test_blank_date_of_birth_does_not_crash_the_writer() -> None:
-    """A blank date_of_birth used to raise ValueError inside the write loop."""
-    meta = {**VALID, "date_of_birth": ""}
-
-    assert subject_metadata_problems(meta) == []
-    assert PoseNWBAdapter._make_subject(meta).date_of_birth is None
+def test_blank_date_of_birth_is_not_a_problem() -> None:
+    """A blank date_of_birth is absent, not a malformed datetime."""
+    assert subject_metadata_problems({**VALID, "date_of_birth": ""}) == []
 
 
-def test_blank_age_is_not_written_as_an_empty_age() -> None:
-    """Subject(age="") tripped check_subject_age at the archive."""
+def test_blank_age_is_covered_by_date_of_birth() -> None:
+    """A blank age is absent, and date_of_birth satisfies the requirement."""
     meta = {**VALID, "age": "", "date_of_birth": "2024-01-15T00:00:00+00:00"}
 
     assert subject_metadata_problems(meta) == []
-    assert PoseNWBAdapter._make_subject(meta).age is None
 
 
 @pytest.mark.parametrize("value", ["", None], ids=["blank", "null"])
-def test_blank_subject_id_falls_back_like_the_writer(value: str | None) -> None:
-    """Both halves fall back to the identity name, so no empty id is written."""
+def test_blank_subject_id_falls_back_to_the_default(value: str | None) -> None:
+    """A blank id is replaced by the identity name, as the writer also does."""
     meta = {**VALID, "subject_id": value}
 
     assert subject_metadata_problems(meta, default_subject_id="subject_1") == []
-    assert PoseNWBAdapter._make_subject({**meta, "subject_id": "subject_1"}).subject_id == (
-        "subject_1"
-    )
-
-
-def test_datetime_date_of_birth_survives_the_writer() -> None:
-    """The validator accepts a datetime, so the writer has to take one too."""
-    dob = datetime.datetime(2024, 1, 15, tzinfo=datetime.timezone.utc)
-    meta = {**VALID, "date_of_birth": dob}
-
-    assert subject_metadata_problems(meta) == []
-    assert PoseNWBAdapter._make_subject(meta).date_of_birth == dob
-
-
-def test_naive_datetime_date_of_birth_gets_utc() -> None:
-    """A naive datetime is made timezone-aware, matching the string path."""
-    meta = {**VALID, "date_of_birth": datetime.datetime(2024, 1, 15)}
-
-    written = PoseNWBAdapter._make_subject(meta)
-
-    assert written.date_of_birth.tzinfo is not None
 
 
 # ---------------------------------------------------------------------------

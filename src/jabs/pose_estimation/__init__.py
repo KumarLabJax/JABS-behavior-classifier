@@ -16,57 +16,23 @@ from .pose_est_v6 import PoseEstimationV6
 from .pose_est_v7 import PoseEstimationV7
 from .pose_est_v8 import PoseEstimationV8
 
-
-def open_pose_file(path: Path, cache_dir: Path | None = None):
-    """open a pose file using the correct PoseEstimation subclass based on the version implied by the filename"""
-    if path.name.endswith("v2.h5"):
-        return PoseEstimationV2(path, cache_dir)
-    elif path.name.endswith("v3.h5"):
-        return PoseEstimationV3(path, cache_dir)
-    elif path.name.endswith("v4.h5"):
-        return PoseEstimationV4(path, cache_dir)
-    elif path.name.endswith("v5.h5"):
-        return PoseEstimationV5(path, cache_dir)
-    elif path.name.endswith("v6.h5"):
-        return PoseEstimationV6(path, cache_dir)
-    elif path.name.endswith("v7.h5"):
-        return PoseEstimationV7(path, cache_dir)
-    elif path.name.endswith("v8.h5"):
-        return PoseEstimationV8(path, cache_dir)
-    else:
-        raise ValueError("not a valid pose estimate filename")
-
-
-def get_pose_path(video_path: Path, pose_dir: Path | None = None):
-    """take a path to a video file and return the path to the corresponding pose_est h5 file
-
-    Args:
-        video_path: Path to video file in project
-        pose_dir: Optional directory to search for pose files. If omitted,
-            search beside ``video_path``.
-
-    Returns:
-        Path object representing location of corresponding pose_est h5 file
-
-    Raises:
-        ValueError: if video_path does not have corresponding pose_est file
-    """
-    file_base = video_path.with_suffix("")
-    search_dir = pose_dir if pose_dir is not None else video_path.parent
-
-    # default to the highest version pose file for a video
-    supported_versions = [8, 7, 6, 5, 4, 3, 2]
-    for version in supported_versions:
-        pose_file = search_dir / f"{file_base.name}_pose_est_v{version}.h5"
-        if pose_file.exists():
-            return pose_file
-    raise ValueError("Video does not have pose file")
-
-
 # matches the version suffix of a pose file name, e.g. "_v6.h5" in
 # "video_pose_est_v6.h5". Anchored at the end so only the filename's suffix can
 # supply the version.
 _POSE_VERSION_RE = re.compile(r"_v(\d+)\.h5$")
+
+# reader class for each pose file major version JABS can open. This is the single
+# source of truth for the supported versions: open_pose_file() dispatches on it and
+# get_pose_path() searches for these versions, newest first.
+_POSE_READERS: dict[int, type[PoseEstimation]] = {
+    2: PoseEstimationV2,
+    3: PoseEstimationV3,
+    4: PoseEstimationV4,
+    5: PoseEstimationV5,
+    6: PoseEstimationV6,
+    7: PoseEstimationV7,
+    8: PoseEstimationV8,
+}
 
 
 def get_pose_file_major_version(path: Path) -> int:
@@ -89,6 +55,60 @@ def get_pose_file_major_version(path: Path) -> int:
     if match is None:
         raise ValueError(f"'{path.name}' is not a valid pose file name")
     return int(match.group(1))
+
+
+def open_pose_file(path: Path, cache_dir: Path | None = None) -> PoseEstimation:
+    """open a pose file using the reader for the version declared by its filename
+
+    The version comes from :func:`get_pose_file_major_version`, so a file name
+    this function accepts is one the rest of JABS also recognizes.
+
+    Args:
+        path: path of pose file, named following the JABS convention
+            ``<video name>_pose_est_v<major version>.h5``
+        cache_dir: optional directory the reader may use to cache the converted
+            pose data
+
+    Returns:
+        PoseEstimation subclass instance for the file's format version
+
+    Raises:
+        ValueError: if the file name does not declare a major version, or declares
+            a version JABS is unable to open
+    """
+    version = get_pose_file_major_version(path)
+    try:
+        reader = _POSE_READERS[version]
+    except KeyError:
+        raise ValueError(
+            f"'{path.name}': pose file major version {version} is not supported"
+        ) from None
+    return reader(path, cache_dir)
+
+
+def get_pose_path(video_path: Path, pose_dir: Path | None = None) -> Path:
+    """take a path to a video file and return the path to the corresponding pose_est h5 file
+
+    Args:
+        video_path: Path to video file in project
+        pose_dir: Optional directory to search for pose files. If omitted,
+            search beside ``video_path``.
+
+    Returns:
+        Path object representing location of corresponding pose_est h5 file
+
+    Raises:
+        ValueError: if video_path does not have corresponding pose_est file
+    """
+    file_base = video_path.with_suffix("")
+    search_dir = pose_dir if pose_dir is not None else video_path.parent
+
+    # default to the highest version pose file for a video
+    for version in sorted(_POSE_READERS, reverse=True):
+        pose_file = search_dir / f"{file_base.name}_pose_est_v{version}.h5"
+        if pose_file.exists():
+            return pose_file
+    raise ValueError("Video does not have pose file")
 
 
 def get_frames_from_file(path: Path):
