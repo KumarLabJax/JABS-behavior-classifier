@@ -111,7 +111,9 @@ NdxMultiSubjectsNWBFile
 │       │
 │       ├── jabs_identity_mask             [TimeSeries] uint8 identity presence mask
 │       ├── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
-│       └── jabs_bounding_boxes_subject_2  [TimeSeries] optional, one per identity
+│       ├── jabs_bounding_boxes_subject_2  [TimeSeries] optional, one per identity
+│       ├── jabs_segmentation_contours_subject_1  [ContourSeries] optional, one per identity (ndx-jabs)
+│       └── jabs_segmentation_contours_subject_2  [ContourSeries] optional, one per identity (ndx-jabs)
 │
 └── scratch/
     └── jabs_metadata/                     [ScratchData] JSON string (see below)
@@ -173,6 +175,29 @@ Format: `[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]` in pixe
 The reader looks for keys `jabs_bounding_boxes_{name}` for each name in `identity_names`
 (from `jabs_metadata`). If all are present, they are stacked in identity order to form
 the returned array. If any are missing, `bounding_boxes` is `None`.
+
+### Segmentation contours (optional)
+
+When the pose file contains instance segmentation (`poseest/seg_data`), one `ContourSeries`
+per identity is written to the `behavior` module as `jabs_segmentation_contours_{identity_name}`.
+The type comes from the [ndx-jabs](https://github.com/KumarLabJax/ndx-jabs) extension: contours
+are an intermediate step of JABS's shape features rather than something other pose tools
+consume, so they are kept out of ndx-pose. `PoseEstimation` cannot hold an ndx-jabs type, which
+is why the series sits beside it in the module, following the same per-identity naming as the
+bounding boxes.
+
+| Field             | Description                                                                 |
+|-------------------|-----------------------------------------------------------------------------|
+| `data`            | `(num_frames, num_contours, num_vertices, 2)` `(x, y)` vertices, dtype as stored in the pose file (`int16`) |
+| `vertex_count`    | `(num_frames, num_contours)` `uint32`, valid vertices per slot (authoritative; `0` = empty) |
+| `is_external`     | `(num_frames, num_contours)` `bool`, `True` for an outer boundary, `False` for a hole |
+| `reference_frame` | Same description the keypoint series carry                                  |
+
+`data` is chunked along the frame axis and gzip compressed. The reader looks up
+`jabs_segmentation_contours_{name}` for each name in `identity_names` and stacks them in identity
+order; if any identity is missing its series, `segmentation_data` is `None`.
+`jabs_metadata.has_segmentation` records whether contours were written, so a file that claims
+segmentation but holds none can be told apart from one that never had any.
 
 ---
 
@@ -610,5 +635,6 @@ defaults the required columns (`subject_id` to the identity name, `sex` to `"U"`
 **Reading requires the extension.** A multisubject file is an `NdxMultiSubjectsNWBFile`,
 so pynwb must load the embedded namespace to reconstruct it; the reader opens the file
 with `load_namespaces=True`. This is why multisubject mode is opt-in: the default
-per-identity output stays a plain `NWBFile` + ndx-pose, readable by the broader NWB
-ecosystem without any extra extension installed.
+per-identity output stays a plain `NWBFile` + ndx-pose (plus ndx-jabs `ContourSeries` when the
+pose file has segmentation), readable by the broader NWB ecosystem without any extra extension
+installed, because each file embeds the specs of the extensions it uses.

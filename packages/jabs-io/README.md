@@ -25,7 +25,7 @@ save(data_instance, 'frames.parquet')
 
 | Extra     | Installs            | Enables                   |
 |-----------|---------------------|---------------------------|
-| `nwb`     | `pynwb`, `ndx-pose` | NWB pose file read/write  |
+| `nwb`     | `pynwb`, `ndx-pose`, `ndx-jabs` | NWB pose file read/write  |
 | `parquet` | `pyarrow`           | Parquet feature cache I/O |
 
 HDF5 is not an extra: `h5py` is a required dependency, since pose files, prediction

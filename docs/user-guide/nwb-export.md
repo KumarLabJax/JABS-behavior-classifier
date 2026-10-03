@@ -2,7 +2,8 @@
 
 The `jabs-cli convert-to-nwb` command converts a JABS pose estimation HDF5 file to
 [NWB (Neurodata Without Borders)](https://www.nwb.org/) format using the
-[ndx-pose](https://github.com/rly/ndx-pose) extension.
+[ndx-pose](https://github.com/rly/ndx-pose) extension (plus
+[ndx-jabs](https://github.com/KumarLabJax/ndx-jabs) for segmentation contours).
 
 !!! note "Optional dependency"
     NWB support is not installed by default. Install the `nwb` extra before use:
@@ -11,7 +12,7 @@ The `jabs-cli convert-to-nwb` command converts a JABS pose estimation HDF5 file 
 pip install "jabs-behavior-classifier[nwb]"
 ```
 
-The extra adds `pynwb`, `ndx-pose`, and `ndx-multisubjects` as dependencies.
+The extra adds `pynwb`, `ndx-pose`, `ndx-jabs`, and `ndx-multisubjects` as dependencies.
 
 Two output modes are available. **Choose the mode based on how the files will be used:**
 
@@ -447,21 +448,26 @@ Format: `[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]` in pixe
 ### Segmentation contours (optional)
 
 When the pose file contains instance segmentation (v6 and later, and only when the file
-was generated with segmentation), each identity's `PoseEstimation` container also holds
-a `ContourSeries` named `segmentation_contours`. It sits next to that identity's
-`PoseEstimationSeries` objects, so the contours, the keypoints, and the subject all
-describe the same animal.
+was generated with segmentation), one `ContourSeries` per identity is written to the
+`behavior` processing module, named `jabs_segmentation_contours_{identity_name}`. It sits
+next to that identity's `PoseEstimation`, so the contours, the keypoints, and the subject
+all describe the same animal.
 
-`ContourSeries` comes from the [ndx-pose](https://github.com/rly/ndx-pose) extension.
+`ContourSeries` comes from the [ndx-jabs](https://github.com/KumarLabJax/ndx-jabs)
+extension rather than ndx-pose, because contours are an intermediate product of JABS's own
+shape features, not a representation other pose tools consume. The extension's spec is
+embedded in every file that uses it, so readers without `ndx-jabs` installed can still open
+the file.
 
-| Field          | Value                                                                              |
-|----------------|------------------------------------------------------------------------------------|
-| `name`         | `segmentation_contours`                                                            |
-| `data`         | shape `(num_frames, num_contours, num_vertices, 2)` — `(x, y)` vertices in pixels  |
-| `vertex_count` | shape `(num_frames, num_contours)` — valid vertices in each contour slot           |
-| `is_external`  | shape `(num_frames, num_contours)` — `True` = outer boundary, `False` = hole       |
-| `rate`         | Frames per second (float)                                                          |
-| `unit`         | `"pixels"`                                                                         |
+| Field             | Value                                                                              |
+|-------------------|------------------------------------------------------------------------------------|
+| `name`            | `jabs_segmentation_contours_{identity_name}` (one per identity)                    |
+| `data`            | shape `(num_frames, num_contours, num_vertices, 2)` — `(x, y)` vertices in pixels  |
+| `vertex_count`    | shape `(num_frames, num_contours)` — valid vertices in each contour slot           |
+| `is_external`     | shape `(num_frames, num_contours)` — `True` = outer boundary, `False` = hole       |
+| `reference_frame` | Top-left corner of video frame, x increases rightward, y increases downward        |
+| `rate`            | Frames per second (float)                                                          |
+| `unit`            | `"pixels"`                                                                         |
 
 An animal needs more than one contour on a frame when its outline has a hole (it curls
 around a gap) or when an occluder splits it into disjoint parts. Because different

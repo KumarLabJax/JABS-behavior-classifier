@@ -17,8 +17,10 @@ import pytest
 # these.
 pytest.importorskip("pynwb")
 pytest.importorskip("ndx_pose")
+pytest.importorskip("ndx_jabs")
 pytest.importorskip("ndx_multisubjects")
 
+from ndx_jabs import ContourSeries
 from ndx_multisubjects import NdxMultiSubjectsNWBFile
 from ndx_pose import PoseEstimation
 from pynwb import NWBHDF5IO
@@ -1232,7 +1234,9 @@ def test_narrow_contour_dtype_survives_the_roundtrip(tmp_path, adapter):
 
     adapter.write(data, path, multisubject=True)
     with h5py.File(path, "r") as h5:
-        assert h5["processing/behavior/subject_1/segmentation_contours/data"].dtype == np.int16
+        assert (
+            h5["processing/behavior/jabs_segmentation_contours_subject_1/data"].dtype == np.int16
+        )
 
     result = adapter.read(path)
     _assert_pose_data_equal(data, result)
@@ -1251,8 +1255,8 @@ def test_segmentation_absent_roundtrips_as_none(tmp_path, adapter):
     assert result.segmentation_data is None
 
 
-def test_contour_series_stored_in_pose_estimation(tmp_path, adapter):
-    """Contours live inside the identity's PoseEstimation, next to its keypoints."""
+def test_contour_series_stored_beside_pose_estimation(tmp_path, adapter):
+    """Contours are one ContourSeries per identity in the behavior module, beside its keypoints."""
     path = tmp_path / "pose_seg_layout.nwb"
     data = _make_pose_data(
         num_identities=2, num_frames=6, with_segmentation=True, external_ids=["m1", "m2"]
@@ -1263,9 +1267,11 @@ def test_contour_series_stored_in_pose_estimation(tmp_path, adapter):
     with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         for i, name in enumerate(["m1", "m2"]):
-            pe = nwb.processing["behavior"].data_interfaces[name]
+            behavior = nwb.processing["behavior"]
+            pe = behavior.data_interfaces[name]
             assert isinstance(pe, PoseEstimation)
-            series = pe.contour_series["segmentation_contours"]
+            series = behavior.data_interfaces[f"jabs_segmentation_contours_{name}"]
+            assert isinstance(series, ContourSeries)
 
             np.testing.assert_array_equal(series.data[:], data.segmentation_data.contours[i])
             np.testing.assert_array_equal(
@@ -1294,7 +1300,7 @@ def test_segmentation_contours_are_compressed(tmp_path, adapter):
     adapter.write(data, path, multisubject=True)
 
     with h5py.File(path, "r") as h5:
-        dset = h5["processing/behavior/subject_1/segmentation_contours/data"]
+        dset = h5["processing/behavior/jabs_segmentation_contours_subject_1/data"]
         assert dset.compression == "gzip"
         assert dset.chunks is not None
         # the chunk covers whole frames so a frame-range read need not decompress it all
@@ -1329,7 +1335,7 @@ def test_read_tolerates_missing_contours_despite_metadata_flag(tmp_path, adapter
     adapter.write(data, path, multisubject=True)
 
     with h5py.File(path, "r+") as h5:
-        del h5["processing/behavior/subject_1/segmentation_contours"]
+        del h5["processing/behavior/jabs_segmentation_contours_subject_1"]
 
     with caplog.at_level(logging.WARNING):
         result = adapter.read(path)

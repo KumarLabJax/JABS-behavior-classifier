@@ -554,9 +554,8 @@ output:
 | Instance segmentation IDs  | v6+          | `poseest/instance_seg_id` | Frame-level instance assignments      |
 
 These two datasets are how JABS assigns each raw segmentation to an identity. The NWB
-export applies that assignment and writes one identity's contours per `PoseEstimation`
-container, so the mapping is already resolved and the raw IDs would add nothing.
+export applies that assignment and writes one identity's contours per `ContourSeries`, so the mapping is already resolved and the raw IDs would add nothing.
 
 Instance segmentation contours (`poseest/seg_data`) and their internal/external flags
-(`poseest/seg_external_flag`) **are** exported, as an ndx-pose `ContourSeries`. See
+(`poseest/seg_external_flag`) **are** exported, as an [ndx-jabs](https://github.com/KumarLabJax/ndx-jabs) `ContourSeries`. See
 [NWB Export — Segmentation contours](nwb-export.md#segmentation-contours-optional).

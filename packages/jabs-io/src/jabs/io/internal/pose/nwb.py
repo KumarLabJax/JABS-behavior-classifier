@@ -1,4 +1,4 @@
-"""NWB adapter for PoseData using ndx-pose."""
+"""NWB adapter for PoseData using ndx-pose and ndx-jabs."""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ import numpy.typing as npt
 
 try:
     from hdmf.backends.hdf5 import H5DataIO
-    from ndx_pose import ContourSeries, PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
+    from ndx_jabs import ContourSeries
+    from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
     from pynwb import NWBHDF5IO, NWBFile, TimeSeries
     from pynwb.core import ScratchData
     from pynwb.file import Subject
@@ -77,7 +78,7 @@ _BOUNDING_BOXES_PREFIX = "jabs_bounding_boxes"
 _PROCESSING_MODULE_NAME = "behavior"
 _PROCESSING_MODULE_DESC = "JABS pose estimation data"
 _SKELETON_NAME = "subject"
-_CONTOUR_SERIES_NAME = "segmentation_contours"
+_CONTOUR_SERIES_PREFIX = "jabs_segmentation_contours"
 # Padding value for unused contour vertices and unused contour slots, matching what
 # JABS pose files use.
 _SEG_PADDING = -1
@@ -86,6 +87,11 @@ _CONFIDENCE_DEFINITION = "0.0=invalid/missing keypoint, >0.0=valid keypoint"
 _DYNAMIC_CONFIDENCE_DEFINITION = (
     "1.0=valid object instance in this slot, 0.0=slot unoccupied at this prediction"
 )
+
+
+def _contour_series_key(identity_name: str) -> str:
+    """Return the data interface name for the segmentation contours of a given identity."""
+    return f"{_CONTOUR_SERIES_PREFIX}_{identity_name}"
 
 
 def _bounding_box_key(identity_name: str) -> str:
@@ -200,10 +206,10 @@ class PoseNWBAdapter(Adapter):
 
     @staticmethod
     def _require_nwb() -> None:
-        """Raise a clear ImportError if pynwb / ndx-pose are not installed."""
+        """Raise a clear ImportError if pynwb / ndx-pose / ndx-jabs are not installed."""
         if not _NWB_AVAILABLE:
             raise ImportError(
-                "pynwb and ndx-pose are required for NWB format support. "
+                "pynwb, ndx-pose and ndx-jabs are required for NWB format support. "
                 "Install with: pip install 'jabs-io[nwb]'"
             )
 
@@ -254,7 +260,7 @@ class PoseNWBAdapter(Adapter):
             save(pose_data, "session.nwb", multisubject=True)
             # → session.nwb  (all identities + SubjectsTable)
 
-        The NWB layout written by this adapter (ndx-pose 0.2)::
+        The NWB layout written by this adapter (ndx-pose 0.2, ndx-jabs 0.1)::
 
             acquisition/
               SubjectsTable           ← multisubject mode only: one row per subject
@@ -268,6 +274,7 @@ class PoseNWBAdapter(Adapter):
                 <obj_name>_0/         ← one PoseEstimationSeries per point
               jabs_identity_mask              ← TimeSeries, uint8 presence mask
               jabs_bounding_boxes_<identity>  ← TimeSeries per identity, optional (num_frames, 2, 2)
+              jabs_segmentation_contours_<identity>  ← ndx-jabs ContourSeries per identity, optional
             scratch/
               jabs_metadata           ← JSON: format_version, cm_per_pixel,
                                         identity_names, metadata, …
@@ -415,11 +422,9 @@ class PoseNWBAdapter(Adapter):
                 fps=data.fps,
                 skeleton=skeleton,
             )
-            if data.segmentation_data is not None:
-                pe.add_contour_series(
-                    self._build_contour_series(name, data.segmentation_data, i, data.fps)
-                )
             behavior.add(pe)
+            if data.segmentation_data is not None:
+                behavior.add(self._build_contour_series(name, data.segmentation_data, i, data.fps))
 
         for obj_name, obj_skeleton in static_skeletons.items():
             behavior.add(
@@ -517,11 +522,11 @@ class PoseNWBAdapter(Adapter):
                 fps=data.fps,
                 skeleton=skeleton,
             )
+            behavior.add(pe)
             if data.segmentation_data is not None:
-                pe.add_contour_series(
+                behavior.add(
                     self._build_contour_series(identity_name, data.segmentation_data, i, data.fps)
                 )
-            behavior.add(pe)
 
             for obj_name, obj_skeleton in static_skeletons.items():
                 behavior.add(
@@ -763,14 +768,13 @@ class PoseNWBAdapter(Adapter):
             static_object_names = jabs_meta.get("static_object_names", [])
             static_objects = self._read_static_objects(pe_containers, static_object_names)
 
-            # Read segmentation contours from the same PoseEstimation containers that
-            # hold the keypoints. Files written before this field existed have no
-            # 'has_segmentation' key, and none of them carry contours either.
+            # Read segmentation contours from the behavior module, where one ContourSeries
+            # per identity sits beside that identity's PoseEstimation. Files written before
+            # this field existed have no 'has_segmentation' key, and none of them carry
+            # contours either.
             segmentation_data = None
             if jabs_meta.get("has_segmentation", False):
-                segmentation_data = self._read_contour_series(
-                    identity_pe_containers, ordered_names
-                )
+                segmentation_data = self._read_contour_series(behavior, ordered_names)
                 if segmentation_data is None:
                     logger.warning(
                         "NWB file %s claims segmentation but no ContourSeries was found; "
@@ -1117,7 +1121,7 @@ class PoseNWBAdapter(Adapter):
         frames_per_chunk = max(1, min(contours.shape[0], (1 << 20) // bytes_per_frame))
 
         return ContourSeries(
-            name=_CONTOUR_SERIES_NAME,
+            name=_contour_series_key(identity_name),
             data=H5DataIO(
                 data=contours,
                 chunks=(frames_per_chunk, *contours.shape[1:]),
@@ -1139,13 +1143,14 @@ class PoseNWBAdapter(Adapter):
 
     @staticmethod
     def _read_contour_series(
-        pe_containers: dict,
+        behavior: Any,
         ordered_names: list[str],
     ) -> SegmentationData | None:
         """Rebuild SegmentationData from the ContourSeries of each identity.
 
         Args:
-            pe_containers: PoseEstimation containers keyed by identity name.
+            behavior: The ``behavior`` processing module holding one ContourSeries per
+                identity, named by :func:`_contour_series_key`.
             ordered_names: Identity names in PoseData order.
 
         Returns:
@@ -1159,10 +1164,10 @@ class PoseNWBAdapter(Adapter):
         """
         series = []
         for name in ordered_names:
-            pe = pe_containers.get(name)
-            if pe is None or _CONTOUR_SERIES_NAME not in pe.contour_series:
+            key = _contour_series_key(name)
+            if key not in behavior.data_interfaces:
                 return None
-            series.append(pe.contour_series[_CONTOUR_SERIES_NAME])
+            series.append(behavior[key])
 
         shapes = {tuple(s.data.shape) for s in series}
         if len(shapes) != 1:
