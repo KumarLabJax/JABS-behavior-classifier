@@ -21,6 +21,8 @@ CACHE_FORMAT_KEY = "cache_format"
 # behavior-scoped settings keys stored under the "behavior" section of project.json
 # ordered list of prediction postprocessing stage configurations
 POSTPROCESSING_KEY = "postprocessing"
+# when true, cross-validation also reports metrics with the postprocessing pipeline applied
+EVALUATE_POSTPROCESSING_IN_CV_KEY = "evaluate_postprocessing_in_cv"
 
 # reserved behavior name used in multi-class mode to store explicit negative labels
 MULTICLASS_NONE_BEHAVIOR = "None"

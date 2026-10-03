@@ -135,6 +135,7 @@ class TrainingThread(QThread):
         try:
             strategy = self._build_strategy()
             settings = strategy.effective_settings()
+            settings_manager = self._project.settings_manager
 
             self.current_status.emit("Extracting Features")
             features, group_mapping = strategy.collect_features(
@@ -154,6 +155,7 @@ class TrainingThread(QThread):
                 progress_callback=id_processed,
                 terminate_callback=check_termination_requested,
                 warning_callback=record_cv_warning,
+                evaluate_postprocessing=strategy.evaluate_postprocessing,
             )
 
             self.current_status.emit("Training Classifier")
@@ -181,8 +183,8 @@ class TrainingThread(QThread):
                 final_top_features=final_top_features,
                 elapsed_ms=elapsed_ms,
                 timestamp=datetime.now(),
-                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
-                cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
+                cv_grouping_strategy=settings_manager.cv_grouping_strategy,
+                cv_grouping_regex=settings_manager.cv_grouping_regex,
                 cv_warning=self._cv_warning,
                 distance_unit=unit,
                 settings=settings,

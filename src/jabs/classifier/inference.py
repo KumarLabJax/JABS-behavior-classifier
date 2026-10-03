@@ -1,15 +1,13 @@
 """Full-sequence inference for a single identity.
 
-This is the inference step the classify path uses: predictions over *every*
-frame of a video for one identity, not just the labeled frames.
+This is the inference step shared by the classify path and by cross-validation's
+prediction-postprocessing evaluation: predictions over *every* frame of a video
+for one identity, not just the labeled frames.
 
-It lives here rather than inside ``ClassifyThread`` so that cross-validation's
-prediction-postprocessing evaluation (KLAUS-588) can reuse it. That evaluation
-needs full-length prediction vectors, because the postprocessing pipeline
-reasons about contiguous bouts and about runs of frames that have no
-prediction at all. Sharing one implementation keeps the metrics it reports
-consistent with what classification actually produces for the same identity
-and model.
+Both need the full-length vectors, because the postprocessing pipeline reasons
+about contiguous bouts and about runs of frames that have no prediction at all.
+Sharing one implementation keeps the metrics cross-validation reports consistent
+with what classification actually produces for the same identity and model.
 """
 
 from __future__ import annotations

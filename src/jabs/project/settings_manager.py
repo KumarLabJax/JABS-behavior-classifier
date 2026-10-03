@@ -8,6 +8,7 @@ from jabs.core.constants import (
     CLASSIFIER_MODE_KEY,
     CV_GROUPING_KEY,
     CV_GROUPING_REGEX_KEY,
+    EVALUATE_POSTPROCESSING_IN_CV_KEY,
     POSTPROCESSING_KEY,
 )
 from jabs.core.enums.classifier_mode import DEFAULT_CLASSIFIER_MODE, ClassifierMode
@@ -302,6 +303,18 @@ class SettingsManager:
             when the behavior has no postprocessing configured.
         """
         return self.get_behavior(behavior).get(POSTPROCESSING_KEY, [])
+
+    def evaluate_postprocessing_in_cv(self, behavior: str) -> bool:
+        """Return whether cross-validation should also report postprocessed metrics.
+
+        Args:
+            behavior: Behavior key to read.
+
+        Returns:
+            True if the behavior is configured to evaluate its postprocessing
+            pipeline during cross-validation. Defaults to False.
+        """
+        return bool(self.get_behavior(behavior).get(EVALUATE_POSTPROCESSING_IN_CV_KEY, False))
 
     def remove_behavior(self, behavior: str) -> None:
         """remove behavior from project settings"""

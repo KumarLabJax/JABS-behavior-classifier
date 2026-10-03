@@ -354,3 +354,17 @@ def test_postprocessing_config_defaults_to_empty(mock_project):
 
     assert settings_manager.postprocessing_config("Walking") == []
     assert settings_manager.postprocessing_config("Unknown") == []
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [({"evaluate_postprocessing_in_cv": True}, True), ({}, False)],
+    ids=["enabled", "default"],
+)
+def test_evaluate_postprocessing_in_cv(mock_project, stored: dict, expected: bool):
+    """The cross-validation evaluation flag reads back, defaulting to off."""
+    _write_behavior_settings(mock_project, "Walking", stored)
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+
+    assert settings_manager.evaluate_postprocessing_in_cv("Walking") is expected
