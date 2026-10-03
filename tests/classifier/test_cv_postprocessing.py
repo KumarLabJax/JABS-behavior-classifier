@@ -1,5 +1,8 @@
 """Tests for postprocessed evaluation of cross-validation folds."""
 
+import gc
+import weakref
+
 import numpy as np
 import pytest
 
@@ -243,6 +246,66 @@ def test_evaluation_spans_all_group_members_and_opens_each_pose_once(monkeypatch
     assert evaluation is not None
     assert len(evaluation.truth) == 6
     assert project.opened_poses == ["a.avi", "b.avi"]
+
+
+def test_features_released_before_next_identity(monkeypatch) -> None:
+    """One identity's features object is freed before the next one is built.
+
+    The function's docstring claims a one-identity-at-a-time memory bound; a
+    full-video feature matrix is large enough that holding the previous
+    identity's reference past the point inference is done with it would let
+    two coexist at the loop boundary, defeating that bound.
+    """
+    labels = np.array([BEHAVIOR, BEHAVIOR], dtype=np.int8)
+    valid = np.ones(2, dtype=bool)
+    project = _FakeProject(
+        labels_by_video={"video.avi": {"0": labels, "1": labels}},
+        poses={"video.avi": _FakePose(2, {0: valid, 1: valid})},
+    )
+
+    class _FakeFeatures:
+        """Stand-in whose instances can be weakly referenced."""
+
+    created_refs: list[weakref.ReferenceType] = []
+
+    def _make_features(_video, _identity, *_args, **_kwargs):
+        obj = _FakeFeatures()
+        created_refs.append(weakref.ref(obj))
+        return obj
+
+    monkeypatch.setattr(cv_postprocessing, "IdentityFeatures", _make_features)
+
+    def _fake_predict(_classifier, _features, _window_size) -> IdentityPrediction:
+        predictions = np.array([BEHAVIOR, BEHAVIOR], dtype=np.int8)
+        return IdentityPrediction(
+            probabilities=np.zeros((2, 2), dtype=np.float32),
+            predictions=predictions,
+            confidence=np.array([0.9, 0.9], dtype=np.float32),
+        )
+
+    monkeypatch.setattr(cv_postprocessing, "predict_identity", _fake_predict)
+
+    first_identity_alive_at_second: list[bool] = []
+
+    def _status_callback(msg: str) -> None:
+        if "[1]" in msg:
+            gc.collect()
+            first_identity_alive_at_second.append(created_refs[0]() is not None)
+
+    evaluation = evaluate_group_with_postprocessing(
+        classifier=object(),
+        project=project,
+        behavior="Walk",
+        members=[("video.avi", 0), ("video.avi", 1)],
+        pipeline=_stitching_pipeline(),
+        behavior_settings={"window_size": 5},
+        window_size=5,
+        status_callback=_status_callback,
+    )
+
+    assert evaluation is not None
+    assert len(created_refs) == 2
+    assert first_identity_alive_at_second == [False]
 
 
 def test_evaluation_returns_none_when_no_labeled_frames(monkeypatch) -> None:

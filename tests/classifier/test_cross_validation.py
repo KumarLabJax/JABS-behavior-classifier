@@ -436,6 +436,24 @@ def test_postprocessed_metrics_use_explicit_binary_labels() -> None:
     assert metrics.recall_behavior == pytest.approx(0.5)
     assert metrics.accuracy == pytest.approx(0.75)
     assert metrics.confusion_matrix.shape == (2, 2)
+    # the -1 frame is excluded from the matrix (restricted to [0, 1]), so it
+    # sums to fewer than the 4 scored frames - no_prediction_count says why
+    assert metrics.confusion_matrix.sum() == 3
+    assert metrics.no_prediction_count == 1
+
+
+def test_postprocessed_metrics_no_prediction_count_is_zero_when_fully_predicted() -> None:
+    """A fold where postprocessing never leaves a frame unpredicted reports zero."""
+    evaluation = cross_validation.FoldPostprocessingEvaluation(
+        truth=np.array([0, 0, 1, 1], dtype=np.int8),
+        raw=np.array([0, 0, 1, 1], dtype=np.int8),
+        postprocessed=np.array([0, 0, 1, 1], dtype=np.int8),
+    )
+
+    metrics = cross_validation._build_postprocessed_metrics(evaluation, raw_accuracy=1.0)
+
+    assert metrics.no_prediction_count == 0
+    assert metrics.confusion_matrix.sum() == 4
 
 
 def test_postprocessed_metrics_warn_on_raw_accuracy_mismatch(caplog) -> None:
@@ -459,6 +477,33 @@ def test_postprocessed_metrics_warn_on_raw_accuracy_mismatch(caplog) -> None:
     # the message must carry both numbers so the report is readable on its own
     assert "0.0000" in metrics.consistency_warning
     assert "1.0000" in metrics.consistency_warning
+
+
+def test_postprocessed_metrics_warn_on_tiny_raw_accuracy_mismatch() -> None:
+    """A one-frame disagreement out of many must not be tolerated as "close".
+
+    The two accuracies are computed over frames required to align exactly, so
+    the comparison has to be exact. ``np.isclose``'s default relative
+    tolerance scales with the accuracy's magnitude - large enough that, on a
+    near-perfect fold with tens of thousands of frames, a single real
+    disagreement could otherwise be waved away as floating-point noise.
+    """
+    num_frames = 100_000
+    truth = np.zeros(num_frames, dtype=np.int8)
+    raw = np.zeros(num_frames, dtype=np.int8)
+    raw[0] = 1  # one frame disagrees with ground truth
+    full_sequence_raw_accuracy = (num_frames - 1) / num_frames
+
+    evaluation = cross_validation.FoldPostprocessingEvaluation(
+        truth=truth,
+        raw=raw,
+        postprocessed=raw.copy(),
+    )
+
+    metrics = cross_validation._build_postprocessed_metrics(evaluation, raw_accuracy=1.0)
+
+    assert full_sequence_raw_accuracy != 1.0
+    assert metrics.consistency_warning is not None
 
 
 def test_postprocessed_metrics_have_no_warning_when_the_passes_agree() -> None:

@@ -321,7 +321,7 @@ def _build_postprocessed_metrics(
     # is not meaningful, and a GUI user never sees the log.
     full_sequence_raw_accuracy = classifier_utils.accuracy_score(evaluation.truth, evaluation.raw)
     consistency_warning: str | None = None
-    if not np.isclose(full_sequence_raw_accuracy, raw_accuracy, atol=1e-6):
+    if full_sequence_raw_accuracy != raw_accuracy:
         consistency_warning = (
             f"Raw accuracy from the full-sequence postprocessing pass "
             f"({full_sequence_raw_accuracy:.4f}) does not match this iteration's raw accuracy "
@@ -341,6 +341,7 @@ def _build_postprocessed_metrics(
         labels=_BINARY_LABELS,
         zero_division=0,
     )
+    no_prediction_count = int(np.count_nonzero(evaluation.postprocessed == TrackLabels.Label.NONE))
     return PostprocessedMetrics(
         accuracy=classifier_utils.accuracy_score(evaluation.truth, evaluation.postprocessed),
         confusion_matrix=sk_confusion_matrix(
@@ -351,6 +352,7 @@ def _build_postprocessed_metrics(
         recall_not_behavior=float(recall[0]),
         recall_behavior=float(recall[1]),
         f1_behavior=float(f1[1]),
+        no_prediction_count=no_prediction_count,
         consistency_warning=consistency_warning,
     )
 

@@ -179,6 +179,7 @@ def evaluate_group_with_postprocessing(
                 cache_format=project.cache_format,
             )
             prediction = predict_identity(classifier, features, window_size)
+            del features  # release before the next identity's features are built
             if prediction is None:
                 logger.warning(
                     "No features for %s identity %d while evaluating postprocessing",

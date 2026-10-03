@@ -668,6 +668,37 @@ class TestPostprocessedReporting:
 
         assert "may not be comparable" not in report
 
+    def test_markdown_notes_frames_with_no_prediction(self, sample_training_data):
+        """A fold with unpredicted frames says so, since the confusion matrix hides it."""
+        data = self._postprocessed_data(sample_training_data)
+        data.cv_results[0].postprocessed.no_prediction_count = 3
+
+        report = generate_markdown_report(data)
+
+        _, _, details = report.partition("### Iteration Details (Postprocessed)")
+        assert "excludes them" in details
+        assert f"Iteration {data.cv_results[0].iteration}: 3 frame(s)" in details
+        # the unaffected iteration is not listed
+        assert f"Iteration {data.cv_results[1].iteration}: " not in details
+
+    def test_markdown_has_no_no_prediction_note_when_fully_predicted(self, sample_training_data):
+        """A clean run does not clutter the report with an empty note."""
+        data = self._postprocessed_data(sample_training_data)
+
+        report = generate_markdown_report(data)
+
+        assert "excludes them" not in report
+
+    def test_json_contains_the_no_prediction_count(self, sample_training_data):
+        """The saved JSON carries the count so a reader can tell the matrix is partial."""
+        data = self._postprocessed_data(sample_training_data)
+        data.cv_results[0].postprocessed.no_prediction_count = 3
+
+        report = generate_json_report(data)
+
+        assert report["cv_results"][0]["postprocessed"]["no_prediction_count"] == 3
+        assert report["cv_results"][1]["postprocessed"]["no_prediction_count"] == 0
+
     def test_json_contains_the_consistency_warning(self, sample_training_data):
         """The saved JSON carries the warning so the report is self-describing."""
         data = self._postprocessed_data(sample_training_data)

@@ -44,12 +44,19 @@ class PostprocessedMetrics:
 
     Attributes:
         accuracy: Classification accuracy (0.0 to 1.0).
-        confusion_matrix: Confusion matrix, shape ``(2, 2)``.
+        confusion_matrix: Confusion matrix, shape ``(2, 2)``, restricted to the
+            behavior/not-behavior labels. Frames postprocessing left with no
+            prediction are not counted in it; see ``no_prediction_count``.
         precision_behavior: Precision for the behavior class.
         precision_not_behavior: Precision for the not-behavior class.
         recall_behavior: Recall for the behavior class.
         recall_not_behavior: Recall for the not-behavior class.
         f1_behavior: F1 score for the behavior class.
+        no_prediction_count: Number of scored frames where postprocessing left
+            no prediction (label ``TrackLabels.Label.NONE``). These frames are
+            counted as incorrect in ``accuracy`` but excluded from
+            ``confusion_matrix``, so the matrix's counts can sum to fewer than
+            the total scored frames when this is nonzero.
         consistency_warning: Why these metrics may not be comparable with the
             iteration's raw metrics, or ``None`` when the two paths agreed. The
             postprocessed numbers come from a second, full-sequence prediction
@@ -65,6 +72,7 @@ class PostprocessedMetrics:
     recall_behavior: float = 0.0
     recall_not_behavior: float = 0.0
     f1_behavior: float = 0.0
+    no_prediction_count: int = 0
     consistency_warning: str | None = None
 
 
@@ -400,6 +408,33 @@ def _format_postprocessing_consistency_warnings(
     return lines
 
 
+def _format_no_prediction_notes(cv_results: list[CrossValidationResult]) -> list[str]:
+    """Return markdown lines noting iterations with unpredicted frames.
+
+    Postprocessing can leave a frame with no prediction. Those frames count
+    against accuracy but are excluded from the confusion matrix, so the
+    matrix's counts can otherwise look complete while actually summing to
+    fewer than the frames accuracy was scored over.
+    """
+    affected = [
+        (r.iteration, r.postprocessed.no_prediction_count)
+        for r in postprocessed_results(cv_results)
+        if r.postprocessed.no_prediction_count
+    ]
+    if not affected:
+        return []
+    lines = [
+        "> **Note:** some iterations had frames with no prediction after "
+        "postprocessing. Accuracy below counts them as incorrect, but the "
+        "confusion matrix in the JSON report excludes them, so its counts "
+        "sum to fewer than the scored frames.",
+        ">",
+    ]
+    lines.extend(f"> - Iteration {iteration}: {count} frame(s)" for iteration, count in affected)
+    lines.append("")
+    return lines
+
+
 def _format_iteration_table(cv_results: list[CrossValidationResult]) -> str:
     """Return the markdown iteration-details table."""
     if _is_multiclass_cv(cv_results):
@@ -481,6 +516,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
             )
             lines.append("")
             lines.extend(_format_postprocessing_consistency_warnings(data.cv_results))
+            lines.extend(_format_no_prediction_notes(data.cv_results))
             lines.append(_format_postprocessed_iteration_table(data.cv_results))
             lines.append("")
     else:
@@ -560,6 +596,7 @@ def _binary_cv_to_dict(result: BinaryCVResult) -> dict:
             "recall_behavior": float(result.postprocessed.recall_behavior),
             "recall_not_behavior": float(result.postprocessed.recall_not_behavior),
             "f1_behavior": float(result.postprocessed.f1_behavior),
+            "no_prediction_count": int(result.postprocessed.no_prediction_count),
             "consistency_warning": result.postprocessed.consistency_warning,
         }
     return payload
