@@ -111,5 +111,64 @@ class TestTrackLabels(unittest.TestCase):
         self.assertListEqual(list(expected_val), list(labels.get_labels()))
 
 
+def _labelled_track(num_frames: int = 6) -> TrackLabels:
+    """Return a track with the first half behavior and the second half not-behavior."""
+    track = TrackLabels(num_frames)
+    track.label_behavior(0, num_frames // 2 - 1)
+    track.label_not_behavior(num_frames // 2, num_frames - 1)
+    return track
+
+
+def test_labels_masked_to_identity_clears_absent_frames() -> None:
+    """Frames the identity is missing from cannot carry a label."""
+    track = _labelled_track(6)
+    identity_mask = np.array([1, 1, 0, 0, 1, 1])
+
+    masked = track.labels_masked_to_identity(identity_mask)
+
+    assert masked.tolist() == [
+        TrackLabels.Label.BEHAVIOR,
+        TrackLabels.Label.BEHAVIOR,
+        TrackLabels.Label.NONE,
+        TrackLabels.Label.NONE,
+        TrackLabels.Label.NOT_BEHAVIOR,
+        TrackLabels.Label.NOT_BEHAVIOR,
+    ]
+
+
+def test_labels_masked_to_identity_does_not_mutate_the_stored_labels() -> None:
+    """The result is a copy, so callers cannot clear the stored labels by accident.
+
+    ``get_labels()`` returns the underlying array by reference, so masking in
+    place through it used to rewrite the annotations the caller was reading.
+    """
+    track = _labelled_track(6)
+    before = track.get_labels().copy()
+
+    masked = track.labels_masked_to_identity(np.zeros(6, dtype=bool))
+
+    assert masked.tolist() == [TrackLabels.Label.NONE] * 6
+    assert track.get_labels().tolist() == before.tolist()
+    assert masked is not track.get_labels()
+
+
+def test_labels_masked_to_identity_accepts_an_integer_mask() -> None:
+    """``PoseEstimation.identity_mask`` yields integers, not booleans."""
+    track = _labelled_track(4)
+    as_int = track.labels_masked_to_identity(np.array([1, 0, 1, 0], dtype=np.int64))
+    as_bool = track.labels_masked_to_identity(np.array([True, False, True, False]))
+
+    assert as_int.tolist() == as_bool.tolist()
+
+
+def test_labels_masked_to_identity_leaves_a_fully_present_identity_alone() -> None:
+    """An identity present in every frame keeps all of its labels."""
+    track = _labelled_track(6)
+
+    masked = track.labels_masked_to_identity(np.ones(6, dtype=bool))
+
+    assert masked.tolist() == track.get_labels().tolist()
+
+
 if __name__ == "__main__":
     unittest.main()
