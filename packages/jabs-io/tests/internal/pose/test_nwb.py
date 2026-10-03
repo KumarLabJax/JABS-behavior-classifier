@@ -1342,6 +1342,79 @@ def test_read_tolerates_missing_contours_despite_metadata_flag(tmp_path, adapter
 
     assert result.segmentation_data is None
     assert "claims segmentation" in caplog.text
+    assert "one or more identities have no ContourSeries" in caplog.text
+
+
+def test_read_tolerates_a_partial_set_of_contour_series(tmp_path, adapter, caplog):
+    """If only some identities lost their contours the file reads without any, and warns.
+
+    Segmentation is all-or-nothing in PoseData, so a partial set cannot be represented.
+    """
+    path = tmp_path / "pose_seg_partial.nwb"
+    data = _make_pose_data(num_identities=2, num_frames=6, with_segmentation=True)
+    adapter.write(data, path, multisubject=True)
+
+    with h5py.File(path, "r+") as h5:
+        del h5["processing/behavior/jabs_segmentation_contours_subject_2"]
+
+    with caplog.at_level(logging.WARNING):
+        result = adapter.read(path)
+
+    assert result.segmentation_data is None
+    assert "one or more identities have no ContourSeries" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Name collisions in the behavior module
+# ---------------------------------------------------------------------------
+
+
+def test_identity_named_like_a_contour_series_is_rejected(tmp_path, adapter):
+    """An identity named after another identity's contour series would overwrite it."""
+    path = tmp_path / "pose_collision.nwb"
+    data = _make_pose_data(
+        num_identities=2,
+        with_segmentation=True,
+        external_ids=["mouse", "jabs_segmentation_contours_mouse"],
+    )
+
+    with pytest.raises(ValueError, match="more than once"):
+        adapter.write(data, path, multisubject=True)
+    assert not path.exists()
+
+
+def test_identity_named_like_the_identity_mask_is_rejected(tmp_path, adapter):
+    """The identity mask has a fixed name, so an identity cannot be called that."""
+    path = tmp_path / "pose_collision.nwb"
+    data = _make_pose_data(num_identities=2, external_ids=["jabs_identity_mask", "other"])
+
+    with pytest.raises(ValueError, match="more than once"):
+        adapter.write(data, path, multisubject=True)
+
+
+def test_name_collision_is_caught_before_any_per_identity_file_is_written(tmp_path, adapter):
+    """A bad name in per-identity mode fails up front instead of leaving partial output."""
+    path = tmp_path / "pose_collision.nwb"
+    data = _make_pose_data(num_identities=2, external_ids=["ok", "jabs_identity_mask"])
+
+    with pytest.raises(ValueError, match="more than once"):
+        adapter.write(data, path)
+    assert list(tmp_path.glob("*.nwb")) == []
+
+
+def test_contour_like_identity_names_are_fine_when_nothing_clashes(tmp_path, adapter):
+    """Only real clashes are rejected: in per-identity mode the two names never share a file."""
+    path = tmp_path / "pose_no_clash.nwb"
+    data = _make_pose_data(
+        num_identities=2,
+        num_frames=6,
+        with_segmentation=True,
+        external_ids=["mouse", "jabs_segmentation_contours_mouse"],
+    )
+
+    adapter.write(data, path)
+
+    assert len(list(tmp_path.glob("*.nwb"))) == 2
 
 
 def _one_identity_segmentation(num_frames, num_contours, num_vertices, fill):

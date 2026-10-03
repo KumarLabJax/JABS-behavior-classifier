@@ -540,6 +540,16 @@ contours from `longterm_seg_id` and keypoints from `instance_embed_id`. Use
 Pass `--no-segmentation` to leave the contours out of a pose file that has them.
 `jabs_metadata.has_segmentation` records whether they were written.
 
+A pose file that has contours but no `seg_external_flag` dataset is exported without them, and
+a warning is logged. `is_external` is required and cannot say "unknown", so exporting such a
+file would mean guessing which contours are holes. JABS-pose writes the two datasets together,
+so this should only affect files produced some other way.
+
+Identity names must not collide with names JABS generates in the same container: an identity
+cannot be called `jabs_identity_mask`, and in a `--multisubject` file one identity cannot be
+named `jabs_segmentation_contours_<another identity>` or `jabs_bounding_boxes_<another identity>`.
+The export fails before writing anything if they do.
+
 ---
 
 ### Static objects

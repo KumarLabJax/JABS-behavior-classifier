@@ -427,6 +427,55 @@ def test_unused_contour_slots_are_not_marked_external():
     assert not seg.is_external[raw_flags == -1].any()
 
 
+def test_contours_are_a_view_of_the_pose_file_array():
+    """The exported contours share memory with the pose file's array instead of copying it.
+
+    seg_data can be gigabytes for a long video and the pose object already holds it, so
+    stacking per-identity slices would double the peak memory of every export.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    for i in pose.identities:
+        assert np.shares_memory(seg.contours[i], pose.get_segmentation_data(i))
+
+
+def test_contours_fall_back_to_stacking_without_the_bulk_accessor():
+    """A pose object lacking get_segmentation_data_by_identity still exports, by stacking."""
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    expected = pose_to_pose_data(pose).segmentation_data
+
+    class _WithoutBulkAccessor:
+        def __getattr__(self, name):
+            if name == "get_segmentation_data_by_identity":
+                raise AttributeError(name)
+            return getattr(pose, name)
+
+    seg = pose_to_pose_data(_WithoutBulkAccessor()).segmentation_data
+
+    np.testing.assert_array_equal(seg.contours, expected.contours)
+    np.testing.assert_array_equal(seg.vertex_counts, expected.vertex_counts)
+    assert not np.shares_memory(seg.contours[0], pose.get_segmentation_data(0))
+
+
+def test_segmentation_is_skipped_without_external_flags(monkeypatch, caplog):
+    """Contours without seg_external_flag are not exported, rather than guessing hole vs outer.
+
+    ContourSeries requires is_external and cannot say "unknown", so filling it in would
+    write a boundary type the pose file never asserted.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    monkeypatch.setattr(pose, "get_segmentation_flags", lambda identity: None)
+
+    with caplog.at_level(logging.WARNING):
+        data = pose_to_pose_data(pose)
+
+    assert data.segmentation_data is None
+    assert "no seg_external_flag" in caplog.text
+    # the rest of the pose still converts
+    assert data.points.shape[0] == len(list(pose.identities))
+
+
 # --- identity renaming via the subjects file ------------------------------------------
 
 

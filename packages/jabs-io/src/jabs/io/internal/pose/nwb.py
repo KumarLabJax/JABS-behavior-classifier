@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import datetime
 import json
 import logging
@@ -92,6 +93,43 @@ _DYNAMIC_CONFIDENCE_DEFINITION = (
 def _contour_series_key(identity_name: str) -> str:
     """Return the data interface name for the segmentation contours of a given identity."""
     return f"{_CONTOUR_SERIES_PREFIX}_{identity_name}"
+
+
+def _check_container_names(identity_names: Sequence[str], data: PoseData) -> None:
+    """Raise if two things written to the behavior module would share a name.
+
+    Identity containers, the identity mask, the per-identity bounding box and contour
+    series, and the object containers all live in one namespace. The derived names embed
+    the identity name, so an identity named ``jabs_segmentation_contours_mouse`` collides
+    with the contour series of the identity ``mouse``, and one named ``jabs_identity_mask``
+    collides with the mask. Only names that actually clash are rejected.
+
+    Args:
+        identity_names: Sanitized names of the identities written to this file.
+        data: The PoseData being written.
+
+    Raises:
+        ValueError: If any name would be used more than once in the behavior module.
+    """
+    names: list[str] = [
+        "Skeletons",
+        _IDENTITY_MASK_KEY,
+        *identity_names,
+        *(name for name, pts in data.static_objects.items() if pts.ndim == 2),
+        *data.dynamic_objects,
+    ]
+    if data.bounding_boxes is not None:
+        names.extend(_bounding_box_key(name) for name in identity_names)
+    if data.segmentation_data is not None:
+        names.extend(_contour_series_key(name) for name in identity_names)
+    duplicates = sorted(n for n, count in collections.Counter(names).items() if count > 1)
+    if duplicates:
+        raise ValueError(
+            f"These names would be used more than once in the NWB behavior module: "
+            f"{duplicates}. An identity or object name collides with a name JABS generates "
+            f"(for example '{_IDENTITY_MASK_KEY}' or "
+            f"'{_CONTOUR_SERIES_PREFIX}_<identity>'); rename it."
+        )
 
 
 def _bounding_box_key(identity_name: str) -> str:
@@ -397,6 +435,7 @@ class PoseNWBAdapter(Adapter):
         identity_names = [self._identity_name(data, i) for i in range(num_identities)]
         if len(set(identity_names)) != len(identity_names):
             raise ValueError(f"Identity names are not unique after sanitization: {identity_names}")
+        _check_container_names(identity_names, data)
 
         nwbfile = self._make_nwb_file(**kwargs)
         nwbfile.add_acquisition(self._build_subjects_table(data, identity_names))
@@ -487,6 +526,10 @@ class PoseNWBAdapter(Adapter):
         all_names = [self._identity_name(data, i) for i in range(num_identities)]
         if len(set(all_names)) != len(all_names):
             raise ValueError(f"Identity names are not unique after sanitization: {all_names}")
+        # Check every file before writing the first, so a bad name cannot leave a
+        # partial set of per-identity files behind.
+        for name in all_names:
+            _check_container_names([name], data)
 
         for i in range(num_identities):
             identity_name = self._identity_name(data, i)
@@ -777,8 +820,8 @@ class PoseNWBAdapter(Adapter):
                 segmentation_data = self._read_contour_series(behavior, ordered_names)
                 if segmentation_data is None:
                     logger.warning(
-                        "NWB file %s claims segmentation but no ContourSeries was found; "
-                        "reading without it",
+                        "NWB file %s claims segmentation but one or more identities have no "
+                        "ContourSeries; reading without it",
                         path,
                     )
 

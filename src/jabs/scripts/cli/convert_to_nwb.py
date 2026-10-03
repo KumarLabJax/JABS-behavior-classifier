@@ -8,6 +8,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData, SegmentationData
@@ -110,6 +111,40 @@ def _collect_hdf5_attributes(path: Path) -> dict[str, dict[str, object]]:
 _SEG_PADDING = -1
 
 
+def _identity_first_contours(pose: PoseEstimation) -> npt.NDArray[np.signedinteger] | None:
+    """Return every identity's contours as one identity-first array, avoiding a copy.
+
+    ``seg_data`` can be gigabytes for a long video and the pose object already holds it, so
+    stacking per-identity slices would double the peak. A pose object that can hand out
+    the whole array identity-first does so as a view; anything else falls back to stacking.
+
+    Args:
+        pose: A loaded PoseEstimation object with segmentation.
+
+    Returns:
+        Array of shape (num_identities, num_frames, num_contours, num_vertices, 2) in
+        ``pose.identities`` order, or None when any identity has no segmentation.
+    """
+    identities = list(pose.identities)
+    by_identity = getattr(pose, "get_segmentation_data_by_identity", None)
+    if by_identity is not None and identities == list(range(len(identities))):
+        # The view is indexed by identity, so it only lines up when the identities are
+        # 0..n-1 in order, which is what a pose file carries. The stored array can have
+        # more identity slots than the file has identities, so take the leading ones;
+        # a basic slice is still a view.
+        all_contours = by_identity()
+        if all_contours is not None and all_contours.shape[0] >= len(identities):
+            return all_contours[: len(identities)]
+
+    per_identity = [pose.get_segmentation_data(identity) for identity in identities]
+    if any(contours is None for contours in per_identity):
+        logger.warning(
+            "Pose file reports segmentation but an identity has none; skipping segmentation export"
+        )
+        return None
+    return np.stack(per_identity, axis=0)
+
+
 def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
     """Collect an identity-ordered SegmentationData from a pose file, if it has one.
 
@@ -124,44 +159,31 @@ def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
 
     Returns:
         A SegmentationData covering every identity, or None when the pose file carries
-        no segmentation.
+        no segmentation, or carries contours without ``seg_external_flag``. The NWB type
+        requires ``is_external`` and has no way to say "unknown", so exporting contours
+        without it would mean asserting a boundary type the file never made.
     """
     if not getattr(pose, "has_segmentation", False):
         return None
 
-    per_identity_contours = []
-    per_identity_flags = []
-    for identity in pose.identities:
-        contours = pose.get_segmentation_data(identity)
-        flags = pose.get_segmentation_flags(identity)
-        if contours is None:
-            logger.warning(
-                "Pose file reports segmentation but identity %s has none; "
-                "skipping segmentation export",
-                identity,
-            )
-            return None
-        per_identity_contours.append(contours)
-        # seg_external_flag is optional even in files that have seg_data, and ndx-jabs
-        # requires is_external, so a missing flag has to be filled rather than omitted.
-        # Treat every contour as an outer edge, and say so: that is a claim the file did
-        # not make, and it is wrong for any contour that is really a hole. JABS-pose
-        # writes seg_data and seg_external_flag together, so this should not fire.
-        if flags is None:
-            logger.warning(
-                "Pose file has segmentation but no seg_external_flag; exporting every "
-                "contour of identity %s as an external boundary, which is wrong for any "
-                "that are holes",
-                identity,
-            )
-            flags = np.ones(contours.shape[:2], dtype=bool)
-        per_identity_flags.append(flags)
-
     # (num_identities, num_frames, num_contours, num_vertices, 2). Keep the pose file's
     # own integer width: seg_data is int16, and this is the largest array JABS holds for a
-    # video, so widening it here would double both the peak during the stack and what the
-    # writer then holds for the length of the export.
-    contour_array = np.stack(per_identity_contours, axis=0)
+    # video, so widening it here would double both the peak and what the writer holds for
+    # the length of the export.
+    contour_array = _identity_first_contours(pose)
+    if contour_array is None:
+        return None
+
+    per_identity_flags = [pose.get_segmentation_flags(identity) for identity in pose.identities]
+    if any(flags is None for flags in per_identity_flags):
+        # seg_external_flag is optional even in files that have seg_data. JABS-pose
+        # writes the two together, so this should not fire for files it produced.
+        logger.warning(
+            "Pose file has segmentation but no seg_external_flag; skipping segmentation "
+            "export rather than guessing which contours are holes"
+        )
+        return None
+
     # PoseEstimationV6 sorts the flags into identity order with an array it fills with
     # -1, so an identity's unused slots come back as -1 rather than False. Compare
     # against 0 instead of casting: a bool cast would read that -1 as True and mark an
@@ -170,8 +192,15 @@ def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
 
     # A vertex is real when neither of its coordinates is the padding sentinel. Padding
     # always trails the real vertices, so counting them gives the length of each contour.
-    valid_vertices = np.all(contour_array != _SEG_PADDING, axis=-1)
-    vertex_counts = valid_vertices.sum(axis=-1).astype(np.uint32)
+    # One identity at a time: the comparison allocates a boolean array the size of its
+    # input, which for every identity at once is half the contour array again.
+    vertex_counts = np.stack(
+        [
+            np.all(identity_contours != _SEG_PADDING, axis=-1).sum(axis=-1).astype(np.uint32)
+            for identity_contours in contour_array
+        ],
+        axis=0,
+    )
 
     return SegmentationData(
         contours=contour_array,

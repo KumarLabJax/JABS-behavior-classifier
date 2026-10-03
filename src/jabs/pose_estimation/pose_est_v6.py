@@ -145,6 +145,20 @@ class PoseEstimationV6(PoseEstimationV5):
         else:
             return self._segmentation_dict["seg_data"][:, identity, ...]
 
+    def get_segmentation_data_by_identity(self) -> np.ndarray | None:
+        """Return the segmentation data for every identity, identity axis first.
+
+        The result is a view of the array this object already holds, not a copy:
+        ``seg_data`` can be gigabytes for a long video, and stacking
+        :meth:`get_segmentation_data` over the identities would duplicate it.
+
+        Returns:
+            Array of shape (num_identities, num_frames, num_contours, num_vertices, 2)
+            sharing memory with the stored data, or None if the file has no segmentation.
+        """
+        seg_data = self._segmentation_dict["seg_data"]
+        return None if seg_data is None else np.moveaxis(seg_data, 1, 0)
+
     def get_segmentation_flags(self, identity: int) -> np.ndarray | None:
         """Given a particular identity, return the appropriate segmentation internal/external flags.
 
