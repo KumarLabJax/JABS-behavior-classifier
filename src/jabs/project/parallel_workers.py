@@ -346,13 +346,9 @@ def collect_binary_labeled_features(job: BinaryFeatureLoadJobSpec) -> BinaryFeat
     group_keys: list[tuple[str, int]] = []
 
     for identity in pose_est.identities:
-        identity_mask = pose_est.identity_mask(identity).astype(bool)
-        labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
-        # Exclude frames where the identity does not exist.
-        # NOTE: in the future we might want to handle this differently, since we
-        # can still predict behavior even when the identity is not detected in
-        # a frame (e.g., occluded) thanks to window features.
-        labels[~identity_mask] = TrackLabels.Label.NONE
+        labels = labels_obj.get_track_labels(
+            str(identity), behavior_name
+        ).labels_masked_to_identity(pose_est.identity_mask(identity))
 
         if (labels != TrackLabels.Label.NONE).sum() == 0:
             continue
@@ -419,10 +415,9 @@ def collect_multiclass_labeled_features(
         labels_by_behavior: dict[str, np.ndarray] = {}
         include_mask = np.zeros(identity_mask.shape, dtype=bool)
         for behavior_key in behavior_tracks:
-            behavior_labels = (
-                labels_obj.get_track_labels(str(identity), behavior_key).get_labels().copy()
-            )
-            behavior_labels[~identity_mask] = TrackLabels.Label.NONE
+            behavior_labels = labels_obj.get_track_labels(
+                str(identity), behavior_key
+            ).labels_masked_to_identity(identity_mask)
             labels_by_behavior[behavior_key] = behavior_labels
             include_mask |= behavior_labels == TrackLabels.Label.BEHAVIOR
 
