@@ -3,6 +3,7 @@
 import datetime
 import json
 import logging
+from pathlib import Path
 from unittest import mock
 
 import h5py
@@ -13,6 +14,7 @@ from click.testing import CliRunner
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
 from jabs.io.internal.pose import resolve_identity_subjects
+from jabs.pose_estimation import open_pose_file
 from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
@@ -306,6 +308,174 @@ def test_collect_hdf5_attributes_is_json_serializable(tmp_path):
     assert json.loads(json.dumps(collected)) == collected
 
 
+# ---------------------------------------------------------------------------
+# segmentation contours
+# ---------------------------------------------------------------------------
+
+SAMPLE_POSE_V6 = Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
+
+
+def test_pose_to_pose_data_builds_segmentation():
+    """A v6 pose file's contours reach PoseData, identity-ordered and unflipped.
+
+    seg_data is stored (x, y) in the pose file, unlike poseest/points which is (y, x),
+    so the contours must come through with no axis flip.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    data = pose_to_pose_data(pose)
+
+    seg = data.segmentation_data
+    assert seg is not None
+    num_identities = len(list(pose.identities))
+    assert seg.contours.shape[0] == num_identities
+    assert seg.contours.shape[1] == pose.num_frames
+
+    for i in pose.identities:
+        np.testing.assert_array_equal(seg.contours[i], pose.get_segmentation_data(i))
+        np.testing.assert_array_equal(seg.is_external[i], pose.get_segmentation_flags(i) > 0)
+
+
+def test_pose_to_pose_data_keeps_pose_file_contour_width():
+    """Contours keep seg_data's own integer width instead of being widened.
+
+    The contour array is the largest thing JABS holds for a video - int16 over a
+    full-length recording is already gigabytes - so widening it would double both the
+    peak during the stack and what the writer holds for the length of the export.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    source_dtype = pose.get_segmentation_data(0).dtype
+    assert source_dtype == np.int16, "fixture must be narrower than int32 to test anything"
+    assert seg.contours.dtype == source_dtype
+
+
+def test_pose_to_pose_data_vertex_counts_match_padding():
+    """vertex_counts counts exactly the vertices that are not the -1 padding sentinel."""
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    expected = np.all(seg.contours != -1, axis=-1).sum(axis=-1)
+    np.testing.assert_array_equal(seg.vertex_counts, expected)
+    # the fixture must actually exercise padding, or this asserts nothing
+    assert seg.vertex_counts.min() == 0
+    assert 0 < seg.vertex_counts.max() <= seg.contours.shape[3]
+
+
+def test_pose_to_pose_data_segmentation_disabled():
+    """segmentation=False drops the contours even when the pose file has them."""
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    assert pose.has_segmentation
+    assert pose_to_pose_data(pose, segmentation=False).segmentation_data is None
+
+
+def test_pose_to_pose_data_no_segmentation_in_older_pose():
+    """A v5 pose file has no contours, so segmentation_data stays None."""
+    pose = open_pose_file(SAMPLE_POSE_V6.with_name("sample_pose_est_v5.h5"))
+    assert pose_to_pose_data(pose).segmentation_data is None
+
+
+def test_run_conversion_forwards_segmentation(monkeypatch, tmp_path):
+    """run_conversion passes its segmentation flag down to pose_to_pose_data."""
+    pose = mock.Mock(num_identities=2, num_frames=10, fps=30)
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", lambda *a, **k: pose)
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.save", mock.Mock())
+    # run_conversion validates subject metadata before writing, so this needs real
+    # PoseData rather than a sentinel.
+    to_pose_data = mock.Mock(return_value=_valid_pose_data())
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.pose_to_pose_data", to_pose_data)
+
+    run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb", segmentation=False)
+
+    assert to_pose_data.call_args.kwargs["segmentation"] is False
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [([], True), (["--segmentation"], True), (["--no-segmentation"], False)],
+    ids=["default", "explicit_on", "off"],
+)
+def test_cli_segmentation_flag_forwarded(monkeypatch, tmp_path, flag, expected):
+    """--segmentation/--no-segmentation reaches run_conversion, defaulting to on."""
+    from jabs.scripts.cli.cli import cli
+
+    run_mock = mock.Mock()
+    monkeypatch.setattr("jabs.scripts.cli.cli.run_conversion", run_mock)
+    input_path = tmp_path / "session_pose_est_v6.h5"
+    input_path.write_bytes(b"")
+    output = tmp_path / "session.nwb"
+
+    result = CliRunner().invoke(cli, ["convert-to-nwb", str(input_path), str(output), *flag])
+
+    assert result.exit_code == 0, result.output
+    assert run_mock.call_args.kwargs["segmentation"] is expected
+
+
+def test_unused_contour_slots_are_not_marked_external():
+    """The -1 that identity-sorting leaves in unused flag slots must not read as True.
+
+    PoseEstimationV6._segmentation_sort fills its output with -1 before scattering the
+    per-identity flags into it, so an identity's unused contour slots come back as -1
+    rather than False. A plain bool cast would turn those into True and claim an unused
+    slot is an external boundary.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    raw_flags = np.stack([pose.get_segmentation_flags(i) for i in pose.identities], axis=0)
+    assert (raw_flags == -1).any(), "fixture no longer exercises the -1 sentinel"
+    assert not seg.is_external[raw_flags == -1].any()
+
+
+def test_contours_are_a_view_of_the_pose_file_array():
+    """The exported contours share memory with the pose file's array instead of copying it.
+
+    seg_data can be gigabytes for a long video and the pose object already holds it, so
+    stacking per-identity slices would double the peak memory of every export.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    for i in pose.identities:
+        assert np.shares_memory(seg.contours[i], pose.get_segmentation_data(i))
+
+
+def test_contours_fall_back_to_stacking_without_the_bulk_accessor():
+    """A pose object lacking get_segmentation_data_by_identity still exports, by stacking."""
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    expected = pose_to_pose_data(pose).segmentation_data
+
+    class _WithoutBulkAccessor:
+        def __getattr__(self, name):
+            if name == "get_segmentation_data_by_identity":
+                raise AttributeError(name)
+            return getattr(pose, name)
+
+    seg = pose_to_pose_data(_WithoutBulkAccessor()).segmentation_data
+
+    np.testing.assert_array_equal(seg.contours, expected.contours)
+    np.testing.assert_array_equal(seg.vertex_counts, expected.vertex_counts)
+    assert not np.shares_memory(seg.contours[0], pose.get_segmentation_data(0))
+
+
+def test_segmentation_is_skipped_without_external_flags(monkeypatch, caplog):
+    """Contours without seg_external_flag are not exported, rather than guessing hole vs outer.
+
+    ContourSeries requires is_external and cannot say "unknown", so filling it in would
+    write a boundary type the pose file never asserted.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    monkeypatch.setattr(pose, "get_segmentation_flags", lambda identity: None)
+
+    with caplog.at_level(logging.WARNING):
+        data = pose_to_pose_data(pose)
+
+    assert data.segmentation_data is None
+    assert "no seg_external_flag" in caplog.text
+    # the rest of the pose still converts
+    assert data.points.shape[0] == len(list(pose.identities))
+
+
 # --- identity renaming via the subjects file ------------------------------------------
 
 
@@ -316,6 +486,7 @@ def _renaming_pose(num_identities=1, external_ids=None):
         fps=30,
         identities=list(range(num_identities)),
         cm_per_pixel=None,
+        has_segmentation=False,
         static_objects={},
         external_identities=external_ids,
         pose_file="/tmp/sample_pose_est_v6.h5",

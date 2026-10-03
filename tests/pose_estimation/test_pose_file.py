@@ -267,3 +267,29 @@ def test_stale_cache_file_version_is_regenerated(
 
     assert pose_from_regenerated_cache.identities == pose.identities
     assert pose_from_regenerated_cache.num_frames == pose.num_frames
+
+
+def test_segmentation_data_by_identity_is_an_identity_first_view():
+    """get_segmentation_data_by_identity returns every identity's contours without copying."""
+    pose = jabs.pose_estimation.open_pose_file(
+        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
+    )
+
+    all_contours = pose.get_segmentation_data_by_identity()
+
+    # the stored array can have more identity slots than the file has identities
+    assert all_contours.shape[0] >= len(pose.identities)
+    assert all_contours.shape[1] == pose.num_frames
+    for identity in pose.identities:
+        np.testing.assert_array_equal(all_contours[identity], pose.get_segmentation_data(identity))
+        assert np.shares_memory(all_contours[identity], pose.get_segmentation_data(identity))
+
+
+def test_segmentation_data_by_identity_is_none_without_segmentation(monkeypatch):
+    """A pose file with no seg_data has nothing to hand out."""
+    pose = jabs.pose_estimation.open_pose_file(
+        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
+    )
+    monkeypatch.setitem(pose._segmentation_dict, "seg_data", None)
+
+    assert pose.get_segmentation_data_by_identity() is None

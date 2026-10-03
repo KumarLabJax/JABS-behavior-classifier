@@ -6,7 +6,7 @@ pre-flight check in :mod:`jabs.scripts.cli.dandi_subject_metadata` mirrors
 ``nwbinspector``, and a mirror can drift. If nwbinspector adds or re-weights a
 subject check, this test fails and the pre-flight rules get updated to match.
 
-Requires the ``nwb`` extra (pynwb, ndx-pose) and the ``test`` group's
+Requires the ``nwb`` extra (pynwb, ndx-pose, ndx-jabs) and the ``test`` group's
 ``nwbinspector``; skipped when either is unavailable.
 """
 
@@ -16,6 +16,7 @@ import pytest
 
 pytest.importorskip("pynwb")
 pytest.importorskip("ndx_pose")
+pytest.importorskip("ndx_jabs")
 pytest.importorskip("nwbinspector")
 
 from nwbinspector import inspect_nwbfile, load_config

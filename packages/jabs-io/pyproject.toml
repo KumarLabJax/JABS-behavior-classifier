@@ -50,6 +50,7 @@ Issues = "https://github.com/KumarLabJax/JABS-behavior-classifier/issues"
 [project.optional-dependencies]
 nwb = [
     "ndx-pose>=0.2.2",
+    "ndx-jabs>=0.1.0",  # ContourSeries (segmentation contours)
     "ndx-multisubjects>=0.1.1",
     "pynwb>=3.1.3",
 ]
