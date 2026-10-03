@@ -5,5 +5,6 @@ from jabs.io.internal import (
     inference,
     keypoints,
     pose,
+    pose_file,
     prediction,
 )

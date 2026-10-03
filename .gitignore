@@ -19,6 +19,9 @@ venv
 
 temp
 data
+# ...but the pose format conformance corpus is committed on purpose: the bare
+# `data` rule above matches any directory of that name at any depth.
+!packages/jabs-io/tests/data/
 
 tests/testing_notebook.ipynb
 docs/notes.txt
