@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import dataclasses
 import datetime
 import json
 import logging
@@ -188,15 +189,138 @@ def _stack_identity_datasets(
     return stacked
 
 
-def _merge_segmentation(parts: list[SegmentationData | None]) -> SegmentationData | None:
-    """Concatenate per-identity segmentation along the identity axis.
+class _SegmentationMerger:
+    """Assembles per-identity segmentation into one array, one identity at a time.
+
+    Contours can be gigabytes, so collecting every identity's array and then concatenating
+    them would peak at twice the final size. This writes each identity straight into a
+    destination allocated once, letting the caller release the identity's own array
+    afterward, so the peak is the final array plus one identity.
 
     The producer sizes a pose file's contour array to the maxima it observed over that
     whole video (see ``contour_capacity``/``point_capacity`` in JABS-pose's
     ``video_pose.py``), so two files can legitimately pad to different numbers of contour
-    slots and vertices. Pad every part up to the largest of each before concatenating
-    rather than assuming they line up. ``vertex_counts`` stays authoritative, so slots
-    added here read as unused.
+    slots and vertices. The destination is sized from the first identity added and grown
+    (a one-off copy) if a later identity needs more, rather than assuming they line up.
+    ``vertex_counts`` stays authoritative, so slots added by padding read as unused.
+
+    Attributes:
+        complete: False once an identity without segmentation has been added.
+    """
+
+    def __init__(self, num_identities: int) -> None:
+        """Initialize an empty merger.
+
+        Args:
+            num_identities: Number of identities in the merged result.
+        """
+        self._num_identities = num_identities
+        self._contours: npt.NDArray[np.signedinteger] | None = None
+        self._vertex_counts: npt.NDArray[np.uint32] | None = None
+        self._is_external: npt.NDArray[np.bool_] | None = None
+        self.complete = True
+
+    def add(self, slot: int, part: SegmentationData | None) -> None:
+        """Copy one identity's segmentation into its slot of the merged result.
+
+        Args:
+            slot: Position of the identity along the merged identity axis.
+            part: The identity's segmentation, with a leading identity axis of length 1,
+                or None if that identity has none. Segmentation is all-or-nothing in
+                PoseData, so one missing part discards the whole result.
+
+        Raises:
+            ValueError: If the part does not hold exactly one identity, or its frame
+                count differs from the identities already added.
+        """
+        if part is None:
+            self.complete = False
+            self._contours = self._vertex_counts = self._is_external = None
+            return
+        if not self.complete:
+            return
+        if part.contours.shape[0] != 1:
+            raise ValueError(
+                f"expected one identity per file, got {part.contours.shape[0]} in segmentation"
+            )
+
+        _, n_frames, n_contours, n_vertices, _ = part.contours.shape
+        self._reserve(n_frames, n_contours, n_vertices, part.contours.dtype)
+        assert self._contours is not None
+        assert self._vertex_counts is not None
+        assert self._is_external is not None
+        self._contours[slot, :, :n_contours, :n_vertices] = part.contours[0]
+        self._vertex_counts[slot, :, :n_contours] = part.vertex_counts[0]
+        self._is_external[slot, :, :n_contours] = part.is_external[0]
+
+    def _reserve(
+        self, n_frames: int, n_contours: int, n_vertices: int, dtype: np.dtype[Any]
+    ) -> None:
+        """Make the destination large enough for an identity of the given shape."""
+        if self._contours is None:
+            self._contours = np.full(
+                (self._num_identities, n_frames, n_contours, n_vertices, 2),
+                _SEG_PADDING,
+                dtype=dtype,
+            )
+            self._vertex_counts = np.zeros(
+                (self._num_identities, n_frames, n_contours), dtype=np.uint32
+            )
+            self._is_external = np.zeros(
+                (self._num_identities, n_frames, n_contours), dtype=np.bool_
+            )
+            return
+
+        assert self._vertex_counts is not None
+        assert self._is_external is not None
+        _, cur_frames, cur_contours, cur_vertices, _ = self._contours.shape
+        if n_frames != cur_frames:
+            raise ValueError(
+                f"segmentation frame count mismatch between identity files: "
+                f"{n_frames} vs {cur_frames}"
+            )
+        new_dtype = np.promote_types(self._contours.dtype, dtype)
+        new_contours = max(cur_contours, n_contours)
+        new_vertices = max(cur_vertices, n_vertices)
+        if (new_contours, new_vertices, new_dtype) == (
+            cur_contours,
+            cur_vertices,
+            self._contours.dtype,
+        ):
+            return
+
+        grown = np.full(
+            (self._num_identities, cur_frames, new_contours, new_vertices, 2),
+            _SEG_PADDING,
+            dtype=new_dtype,
+        )
+        grown[:, :, :cur_contours, :cur_vertices] = self._contours
+        counts = np.zeros((self._num_identities, cur_frames, new_contours), dtype=np.uint32)
+        counts[:, :, :cur_contours] = self._vertex_counts
+        external = np.zeros((self._num_identities, cur_frames, new_contours), dtype=np.bool_)
+        external[:, :, :cur_contours] = self._is_external
+        self._contours, self._vertex_counts, self._is_external = grown, counts, external
+
+    def result(self) -> SegmentationData | None:
+        """Return the merged segmentation.
+
+        Returns:
+            The combined SegmentationData, or None if no identity was added or any
+            identity had none.
+        """
+        if not self.complete or self._contours is None:
+            return None
+        assert self._vertex_counts is not None
+        assert self._is_external is not None
+        return SegmentationData(
+            contours=self._contours,
+            vertex_counts=self._vertex_counts,
+            is_external=self._is_external,
+        )
+
+
+def _merge_segmentation(parts: list[SegmentationData | None]) -> SegmentationData | None:
+    """Concatenate per-identity segmentation along the identity axis.
 
     Args:
         parts: One SegmentationData per identity file, in identity order.
@@ -205,33 +329,10 @@ def _merge_segmentation(parts: list[SegmentationData | None]) -> SegmentationDat
         The combined SegmentationData, or None if any part is missing. Segmentation is
         all-or-nothing in PoseData, so a partial set cannot be represented.
     """
-    if not parts or any(p is None for p in parts):
-        return None
-
-    max_contours = max(p.contours.shape[2] for p in parts)
-    max_vertices = max(p.contours.shape[3] for p in parts)
-
-    contours, counts, external = [], [], []
-    for part in parts:
-        pad_c = max_contours - part.contours.shape[2]
-        pad_v = max_vertices - part.contours.shape[3]
-        contours.append(
-            np.pad(
-                part.contours,
-                ((0, 0), (0, 0), (0, pad_c), (0, pad_v), (0, 0)),
-                constant_values=_SEG_PADDING,
-            )
-            if pad_c or pad_v
-            else part.contours
-        )
-        counts.append(np.pad(part.vertex_counts, ((0, 0), (0, 0), (0, pad_c))))
-        external.append(np.pad(part.is_external, ((0, 0), (0, 0), (0, pad_c))))
-
-    return SegmentationData(
-        contours=np.concatenate(contours, axis=0),
-        vertex_counts=np.concatenate(counts, axis=0),
-        is_external=np.concatenate(external, axis=0),
-    )
+    merger = _SegmentationMerger(len(parts))
+    for slot, part in enumerate(parts):
+        merger.add(slot, part)
+    return merger.result()
 
 
 @register_adapter(StorageFormat.NWB, PoseData, priority=10)
@@ -399,7 +500,7 @@ class PoseNWBAdapter(Adapter):
             return pose_data
 
         if jabs_meta.get("per_identity_files", False):
-            return self._read_merged(path, jabs_meta)
+            return self._read_merged(path, jabs_meta, pose_data)
 
         raise ValueError(
             f"{path} uses the legacy combined single-file NWB layout, which is no "
@@ -843,8 +944,18 @@ class PoseNWBAdapter(Adapter):
         )
         return pose_data, jabs_meta
 
-    def _read_merged(self, path: Path, jabs_meta: dict) -> PoseData:
-        """Auto-detect and merge sibling per-identity NWB files."""
+    def _read_merged(self, path: Path, jabs_meta: dict, first_read: PoseData) -> PoseData:
+        """Auto-detect and merge sibling per-identity NWB files.
+
+        Args:
+            path: The sibling file the caller opened.
+            jabs_meta: That file's ``jabs_metadata``.
+            first_read: The PoseData already read from ``path``, reused so the file is
+                not read a second time.
+
+        Returns:
+            PoseData with all identities merged in their original order.
+        """
         total = jabs_meta["split_subject_count"]
         stem = path.stem
 
@@ -857,13 +968,28 @@ class PoseNWBAdapter(Adapter):
         # jabs_metadata identifies them as belonging to this specific file set
         # (same base_stem and split_subject_count). This prevents stale files from
         # prior runs matching the glob pattern and producing extra identities.
+        #
+        # Segmentation is the one large payload, so each sibling's is copied into the
+        # merged array as soon as it is read and dropped from the sibling's PoseData,
+        # instead of every sibling's being held until the end.
         candidates = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
+        segmentation = _SegmentationMerger(total)
         parts: list[tuple[int, PoseData, dict]] = []
         for sibling_path in candidates:
-            pd, meta = self._read_single(sibling_path)
+            if sibling_path == path:
+                pd, meta = first_read, jabs_meta
+            else:
+                pd, meta = self._read_single(sibling_path)
             if meta.get("per_identity_files") and meta.get("split_subject_count") == total:
                 idx = meta.get("source_identity_index", 0)
-                parts.append((idx, pd, meta))
+                if not 0 <= idx < total:
+                    raise ValueError(
+                        f"source_identity_index {idx} in {sibling_path} is outside 0..{total - 1}"
+                    )
+                if any(idx == seen for seen, _, _ in parts):
+                    raise ValueError(f"duplicate source_identity_index {idx} in {sibling_path}")
+                segmentation.add(idx, pd.segmentation_data)
+                parts.append((idx, dataclasses.replace(pd, segmentation_data=None), meta))
 
         if len(parts) != total:
             raise ValueError(
@@ -893,7 +1019,7 @@ class PoseNWBAdapter(Adapter):
         if all(pd.bounding_boxes is not None for pd in pose_datas):
             bounding_boxes = np.concatenate([pd.bounding_boxes for pd in pose_datas], axis=0)
 
-        segmentation_data = _merge_segmentation([pd.segmentation_data for pd in pose_datas])
+        segmentation_data = segmentation.result()
 
         # Recover external_ids and subjects from jabs_meta of the first file;
         # each per-identity file stores the full original values, so any file's meta will do.
