@@ -1624,3 +1624,43 @@ def test_per_identity_read_ignores_stale_siblings_with_the_same_identity_count(t
     result = adapter.read(tmp_path / "pose_reexport_a.nwb")
 
     _assert_pose_data_equal(new, result)
+
+
+def test_per_identity_read_skips_an_unreadable_stale_candidate(tmp_path, adapter):
+    """A glob match that is not a readable NWB file is ignored, not fatal."""
+    path = tmp_path / "pose_trunc.nwb"
+    data = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(data, path)
+    (tmp_path / "pose_trunc_zz.nwb").write_bytes(b"not an hdf5 file")
+
+    result = adapter.read(tmp_path / "pose_trunc_a.nwb")
+
+    _assert_pose_data_equal(data, result)
+
+
+def test_per_identity_read_does_not_parse_stale_candidates(tmp_path, adapter, monkeypatch):
+    """Stale matches are rejected on their metadata alone, without a full read."""
+    path = tmp_path / "pose_nofull.nwb"
+    old = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["x", "y"]
+    )
+    adapter.write(old, path)
+    stale = {p.name for p in tmp_path.glob("pose_nofull_*.nwb")}
+    new = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(new, path)
+
+    fully_read: list[str] = []
+    original = PoseNWBAdapter._read_single
+
+    def spying(self, p):
+        fully_read.append(p.name)
+        return original(self, p)
+
+    monkeypatch.setattr(PoseNWBAdapter, "_read_single", spying)
+    adapter.read(tmp_path / "pose_nofull_a.nwb")
+
+    assert not stale & set(fully_read)

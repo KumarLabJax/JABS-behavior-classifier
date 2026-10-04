@@ -118,20 +118,20 @@ def test_pose_data_segmentation_shape_mismatch_raises(seg_idents, seg_frames):
         PoseData(**kw)
 
 
-@pytest.mark.parametrize(
-    ("counts", "match"),
-    [
-        (np.full((1, 3, 2), 6, dtype=np.uint32), "within 0..5"),
-        (np.full((1, 3, 2), -1, dtype=np.int32), "within 0..5"),
-        (np.full((1, 3, 2), 1.5, dtype=np.float64), "integer array"),
-    ],
-    ids=["above_capacity", "negative", "fractional"],
-)
-def test_vertex_counts_must_be_integral_and_within_capacity(counts, match):
-    """A count that no contour slot could hold is rejected rather than exported."""
+def test_vertex_counts_may_not_exceed_the_vertex_capacity():
+    """A count past the slot's capacity describes a contour that cannot exist."""
     kw = _seg_kwargs(num_vertices=5)
-    kw["vertex_counts"] = counts
-    with pytest.raises(ValueError, match=match):
+    kw["vertex_counts"] = np.full((1, 3, 2), 6, dtype=np.uint32)
+    with pytest.raises(ValueError, match="must not exceed 5"):
+        SegmentationData(**kw)
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.int64, np.uint16, np.float64])
+def test_vertex_counts_must_be_uint32(dtype):
+    """vertex_counts is documented and typed as uint32, so other dtypes are rejected."""
+    kw = _seg_kwargs(num_vertices=5)
+    kw["vertex_counts"] = np.ones((1, 3, 2), dtype=dtype)
+    with pytest.raises(ValueError, match="uint32"):
         SegmentationData(**kw)
 
 

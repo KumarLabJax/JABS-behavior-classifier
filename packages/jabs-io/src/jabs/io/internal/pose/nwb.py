@@ -966,6 +966,34 @@ class PoseNWBAdapter(Adapter):
         )
         return pose_data, jabs_meta
 
+    @staticmethod
+    def _is_sibling(meta: dict, total: int, write_set_id: str | None) -> bool:
+        """Return whether a file's metadata says it belongs to the given per-identity set."""
+        return bool(
+            meta.get("per_identity_files")
+            and meta.get("split_subject_count") == total
+            and meta.get("write_set_id") == write_set_id
+        )
+
+    @staticmethod
+    def _read_jabs_metadata(path: Path) -> dict | None:
+        """Read only the ``jabs_metadata`` of an NWB file, leaving its datasets unread.
+
+        Args:
+            path: NWB file to inspect.
+
+        Returns:
+            The decoded metadata, or None if the file is unreadable or has none, which is
+            how a truncated or foreign file that merely matched a glob presents.
+        """
+        try:
+            with NWBHDF5IO(str(path), mode="r", load_namespaces=True) as io:
+                nwbfile = io.read()
+                return json.loads(str(nwbfile.scratch[_JABS_METADATA_KEY].data))
+        except (OSError, KeyError, ValueError) as exc:
+            logger.warning("Ignoring %s: cannot read jabs_metadata (%s)", path, exc)
+            return None
+
     def _read_merged(
         self,
         path: Path,
@@ -1011,21 +1039,15 @@ class PoseNWBAdapter(Adapter):
             if sibling_path == path:
                 pd, meta = first_read, jabs_meta
             else:
-                pd, meta = self._read_single(sibling_path)
-            if (
-                meta.get("per_identity_files")
-                and meta.get("split_subject_count") == total
-                and meta.get("write_set_id") == write_set_id
-            ):
-                idx = meta.get("source_identity_index", 0)
-                if sibling_path != path:
-                    segmentation.add(idx, pd.segmentation_data)
-                    pd = dataclasses.replace(pd, segmentation_data=None)
-                parts.append((idx, pd, meta))
-            else:
-                # A stale match is expected and may hold gigabytes of contours; release it
-                # now so it is not still alive while the next sibling is read.
-                del pd
+                # Check the metadata alone first: a stale match must be skipped without
+                # decompressing its contours, and without failing if it is unreadable.
+                meta = self._read_jabs_metadata(sibling_path)
+                if meta is None or not self._is_sibling(meta, total, write_set_id):
+                    continue
+                pd, _ = self._read_single(sibling_path)
+                segmentation.add(meta.get("source_identity_index", 0), pd.segmentation_data)
+                pd = dataclasses.replace(pd, segmentation_data=None)
+            parts.append((meta.get("source_identity_index", 0), pd, meta))
 
         if len(parts) != total:
             raise ValueError(
