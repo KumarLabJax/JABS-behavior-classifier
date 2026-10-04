@@ -73,7 +73,7 @@ Available extras:
 
 | Extra | Description                              |
 |-------|------------------------------------------|
-| `nwb` | NWB export support (`pynwb`, `ndx-pose`, `ndx-jabs`) |
+| `nwb` | NWB export support (`pynwb`, `ndx-pose`, `ndx-multisubjects`, `ndx-jabs`) |
 
 </details>
 

@@ -277,8 +277,8 @@ def test_segmentation_data_by_identity_is_an_identity_first_view():
 
     all_contours = pose.get_segmentation_data_by_identity()
 
-    # the stored array can have more identity slots than the file has identities
-    assert all_contours.shape[0] >= len(pose.identities)
+    # spare storage slots beyond the file's identities are not exposed
+    assert all_contours.shape[0] == len(pose.identities)
     assert all_contours.shape[1] == pose.num_frames
     for identity in pose.identities:
         np.testing.assert_array_equal(all_contours[identity], pose.get_segmentation_data(identity))

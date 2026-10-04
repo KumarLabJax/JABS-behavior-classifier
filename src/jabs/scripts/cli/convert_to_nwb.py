@@ -129,12 +129,10 @@ def _identity_first_contours(pose: PoseEstimation) -> npt.NDArray[np.signedinteg
     by_identity = getattr(pose, "get_segmentation_data_by_identity", None)
     if by_identity is not None and identities == list(range(len(identities))):
         # The view is indexed by identity, so it only lines up when the identities are
-        # 0..n-1 in order, which is what a pose file carries. The stored array can have
-        # more identity slots than the file has identities, so take the leading ones;
-        # a basic slice is still a view.
+        # 0..n-1 in order, which is what a pose file carries.
         all_contours = by_identity()
-        if all_contours is not None and all_contours.shape[0] >= len(identities):
-            return all_contours[: len(identities)]
+        if all_contours is not None and all_contours.shape[0] == len(identities):
+            return all_contours
 
     per_identity = [pose.get_segmentation_data(identity) for identity in identities]
     if any(contours is None for contours in per_identity):

@@ -4,6 +4,7 @@ from typing import Any
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from .pose_est_v5 import PoseEstimationV5
 
@@ -145,10 +146,14 @@ class PoseEstimationV6(PoseEstimationV5):
         else:
             return self._segmentation_dict["seg_data"][:, identity, ...]
 
-    def get_segmentation_data_by_identity(self) -> np.ndarray | None:
+    def get_segmentation_data_by_identity(
+        self,
+    ) -> npt.NDArray[np.signedinteger[Any]] | None:
         """Return the segmentation data for every identity, identity axis first.
 
-        The result is a view of the array this object already holds, not a copy:
+        Only the file's real identities are included: the stored array can have spare
+        identity slots beyond ``len(self.identities)``, which are dropped here. The result
+        is a view of the array this object already holds, not a copy:
         ``seg_data`` can be gigabytes for a long video, and stacking
         :meth:`get_segmentation_data` over the identities would duplicate it.
 
@@ -157,7 +162,9 @@ class PoseEstimationV6(PoseEstimationV5):
             sharing memory with the stored data, or None if the file has no segmentation.
         """
         seg_data = self._segmentation_dict["seg_data"]
-        return None if seg_data is None else np.moveaxis(seg_data, 1, 0)
+        if seg_data is None:
+            return None
+        return np.moveaxis(seg_data[:, : len(self.identities), ...], 1, 0)
 
     def get_segmentation_flags(self, identity: int) -> np.ndarray | None:
         """Given a particular identity, return the appropriate segmentation internal/external flags.
