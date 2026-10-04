@@ -480,6 +480,7 @@ otherwise scramble the keypoint ordering.
 | `per_identity_files`    | `bool`                  | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files. |
 | `source_identity_index` | `int`                   | Per-identity mode only       | Zero-based index of the identity in this file within the original multi-identity dataset. Used to restore original identity order when merging siblings. |
 | `split_subject_count`      | `int`                   | Per-identity mode only       | Total number of subjects in the session across all split files. Used to validate that all sibling files are present before merging. |
+| `write_set_id`          | `str`                   | Per-identity mode only       | Random identifier shared by every file written together. The reader only merges siblings that carry the same value, so stale files left at the same stem by an earlier export are ignored. Absent in older files, which match on `split_subject_count` alone. |
 
 ### Example — multisubject file with two identities, static objects, and dynamic objects
 

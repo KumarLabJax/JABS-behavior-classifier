@@ -643,6 +643,9 @@ class PoseNWBAdapter(Adapter):
     def _write_per_identity(self, data: PoseData, path: Path, **kwargs) -> None:
         num_identities = data.points.shape[0]
         all_names = [self._identity_name(data, i) for i in range(num_identities)]
+        # Shared by every file of this write, so a reader can tell them from stale files
+        # left at the same stem by an earlier export.
+        write_set_id = uuid.uuid4().hex
         if len(set(all_names)) != len(all_names):
             raise ValueError(f"Identity names are not unique after sanitization: {all_names}")
         # Check every file before writing the first, so a bad name cannot leave a
@@ -738,6 +741,7 @@ class PoseNWBAdapter(Adapter):
                 per_identity_files=True,
                 source_identity_index=i,
                 split_subject_count=num_identities,
+                write_set_id=write_set_id,
             )
             nwbfile.add_scratch(
                 ScratchData(
@@ -999,6 +1003,8 @@ class PoseNWBAdapter(Adapter):
         # Segmentation is the one large payload, so each sibling's is copied into the
         # merged array as soon as it is read and dropped from the sibling's PoseData,
         # instead of every sibling's being held until the end.
+        # Files from before write_set_id existed carry none, and match on the count alone.
+        write_set_id = jabs_meta.get("write_set_id")
         candidates = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
         parts: list[tuple[int, PoseData, dict]] = []
         for sibling_path in candidates:
@@ -1006,7 +1012,11 @@ class PoseNWBAdapter(Adapter):
                 pd, meta = first_read, jabs_meta
             else:
                 pd, meta = self._read_single(sibling_path)
-            if meta.get("per_identity_files") and meta.get("split_subject_count") == total:
+            if (
+                meta.get("per_identity_files")
+                and meta.get("split_subject_count") == total
+                and meta.get("write_set_id") == write_set_id
+            ):
                 idx = meta.get("source_identity_index", 0)
                 if sibling_path != path:
                     segmentation.add(idx, pd.segmentation_data)

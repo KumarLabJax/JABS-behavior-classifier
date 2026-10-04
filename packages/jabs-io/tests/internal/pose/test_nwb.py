@@ -1602,3 +1602,25 @@ def test_per_identity_read_ignores_stale_sibling_from_another_session(tmp_path, 
     result = adapter.read(tmp_path / "pose_stale_a.nwb")
 
     _assert_pose_data_equal(data, result)
+
+
+def test_per_identity_read_ignores_stale_siblings_with_the_same_identity_count(tmp_path, adapter):
+    """Stale files from an earlier export at the same stem are skipped by write-set id.
+
+    The identity count matches, so the count alone cannot tell the two sets apart.
+    """
+    path = tmp_path / "pose_reexport.nwb"
+    old = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["x", "y"]
+    )
+    adapter.write(old, path)
+    new = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(new, path)
+
+    assert len(list(tmp_path.glob("pose_reexport_*.nwb"))) == 4
+
+    result = adapter.read(tmp_path / "pose_reexport_a.nwb")
+
+    _assert_pose_data_equal(new, result)

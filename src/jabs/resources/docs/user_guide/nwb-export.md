@@ -634,6 +634,7 @@ here; the JABS reader restores it from the canonical keypoint index.)
 | `per_identity_files`    | `bool`                    | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files.                                                                                                                                                      |
 | `source_identity_index` | `int`                     | Per-identity mode only       | Zero-based index of the identity in this file.                                                                                                                                                                      |
 | `split_subject_count`      | `int`                     | Per-identity mode only       | Total number of subjects in the session across all split files.                                                                                                                                                     |
+| `write_set_id`          | `str`                     | Per-identity mode only       | Random identifier shared by every file written together; stale files at the same stem are ignored on read. Absent in older files. |
 
 #### Example — multisubject file
 
