@@ -2,6 +2,7 @@ import enum
 from itertools import groupby
 
 import numpy as np
+import numpy.typing as npt
 
 from .project_merge import MergeStrategy
 
@@ -65,6 +66,36 @@ class TrackLabels:
          - make this a property
         """
         return self._labels
+
+    def labels_masked_to_identity(
+        self, identity_mask: npt.NDArray[np.bool_] | npt.NDArray[np.integer]
+    ) -> npt.NDArray[np.int8]:
+        """Return the labels with frames the identity is absent from cleared.
+
+        A frame where the identity does not exist cannot carry a usable label,
+        so it is forced to :attr:`Label.NONE`. Every consumer of labeled frames
+        applies this rule and they must all apply the *same* one: cross-validation
+        scores exactly the frames feature collection selected, so if the two
+        drift apart the frames being scored silently stop matching.
+
+        The result is a copy, so callers cannot mutate the stored labels through
+        it - :meth:`get_labels` hands out the underlying array by reference.
+
+        NOTE: in the future we might want to handle this differently, since we
+        can still predict behavior even when the identity is not detected in a
+        frame (e.g., occluded) thanks to window features.
+
+        Args:
+            identity_mask: Per-frame mask, truthy where the identity exists, as
+                returned by ``PoseEstimation.identity_mask``. Any dtype that
+                converts to bool is accepted.
+
+        Returns:
+            A new label array of the same length as the stored labels.
+        """
+        labels = self._labels.copy()
+        labels[~np.asarray(identity_mask, dtype=bool)] = self.Label.NONE
+        return labels
 
     def get_frame_label(self, frame_index):
         """get the label for a given frame"""
