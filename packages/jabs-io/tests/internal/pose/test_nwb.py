@@ -1581,3 +1581,24 @@ def test_stack_identity_datasets_stacks_several_in_order():
     a, b = np.zeros((2, 2)), np.ones((2, 2))
 
     np.testing.assert_array_equal(_stack_identity_datasets([a, b]), np.stack([a, b]))
+
+
+def test_per_identity_read_ignores_stale_sibling_from_another_session(tmp_path, adapter):
+    """A glob match from a different write session is skipped, not merged."""
+    path = tmp_path / "pose_stale.nwb"
+    data = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(data, path)
+
+    # a leftover from a run with a different identity count matches the glob but not the set
+    stale_data = _make_pose_data(
+        num_identities=3, num_frames=6, with_segmentation=True, external_ids=["x", "y", "z"]
+    )
+    adapter.write(stale_data, tmp_path / "pose_stale_other.nwb")
+    for stale in tmp_path.glob("pose_stale_other_*.nwb"):
+        stale.rename(tmp_path / stale.name.replace("pose_stale_other_", "pose_stale_zz_"))
+
+    result = adapter.read(tmp_path / "pose_stale_a.nwb")
+
+    _assert_pose_data_equal(data, result)

@@ -1012,6 +1012,10 @@ class PoseNWBAdapter(Adapter):
                     segmentation.add(idx, pd.segmentation_data)
                     pd = dataclasses.replace(pd, segmentation_data=None)
                 parts.append((idx, pd, meta))
+            else:
+                # A stale match is expected and may hold gigabytes of contours; release it
+                # now so it is not still alive while the next sibling is read.
+                del pd
 
         if len(parts) != total:
             raise ValueError(
