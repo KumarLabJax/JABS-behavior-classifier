@@ -1539,3 +1539,18 @@ def test_per_identity_read_reads_each_file_once(tmp_path, adapter, monkeypatch):
     assert len(reads) == 3
     assert len(set(reads)) == 3
     _assert_pose_data_equal(data, result)
+
+
+@pytest.mark.parametrize("slot", [-1, 2], ids=["negative", "too_large"])
+def test_segmentation_merger_rejects_out_of_range_slot(slot):
+    """A slot outside the identity axis is an error, not a silent drop or wrap."""
+    with pytest.raises(ValueError, match="outside"):
+        _SegmentationMerger(2).add(slot, _one_identity_segmentation(2, 1, 2, 1))
+
+
+def test_segmentation_merger_rejects_duplicate_slot():
+    """Two files claiming the same identity would leave another slot silently empty."""
+    merger = _SegmentationMerger(2)
+    merger.add(0, _one_identity_segmentation(2, 1, 2, 1))
+    with pytest.raises(ValueError, match="duplicate"):
+        merger.add(0, _one_identity_segmentation(2, 1, 2, 2))

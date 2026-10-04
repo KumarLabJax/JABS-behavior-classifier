@@ -60,7 +60,7 @@ class SegmentationData:
             ``vertex_counts`` is 0.
     """
 
-    contours: npt.NDArray[np.signedinteger]
+    contours: npt.NDArray[np.signedinteger[Any]]
     vertex_counts: npt.NDArray[np.uint32]
     is_external: npt.NDArray[np.bool_]
 

@@ -161,7 +161,7 @@ def _bounding_box_description(identity_name: str) -> str:
 
 def _stack_identity_datasets(
     datasets: Sequence[Any], dtype: npt.DTypeLike | None = None
-) -> npt.NDArray:
+) -> npt.NDArray[Any]:
     """Stack one per-identity dataset into a single identity-first array.
 
     ``np.stack`` on a list comprehension would hold every identity's array and the
@@ -215,9 +215,10 @@ class _SegmentationMerger:
             num_identities: Number of identities in the merged result.
         """
         self._num_identities = num_identities
-        self._contours: npt.NDArray[np.signedinteger] | None = None
+        self._contours: npt.NDArray[np.signedinteger[Any]] | None = None
         self._vertex_counts: npt.NDArray[np.uint32] | None = None
         self._is_external: npt.NDArray[np.bool_] | None = None
+        self._filled: set[int] = set()
         self.complete = True
 
     def add(self, slot: int, part: SegmentationData | None) -> None:
@@ -230,9 +231,15 @@ class _SegmentationMerger:
                 PoseData, so one missing part discards the whole result.
 
         Raises:
-            ValueError: If the part does not hold exactly one identity, or its frame
-                count differs from the identities already added.
+            ValueError: If the slot is out of range or already filled, if the part does not
+                hold exactly one identity, or if its frame count differs from the
+                identities already added.
         """
+        if not 0 <= slot < self._num_identities:
+            raise ValueError(f"identity slot {slot} is outside 0..{self._num_identities - 1}")
+        if slot in self._filled:
+            raise ValueError(f"duplicate identity slot {slot}")
+        self._filled.add(slot)
         if part is None:
             self.complete = False
             self._contours = self._vertex_counts = self._is_external = None
@@ -500,7 +507,14 @@ class PoseNWBAdapter(Adapter):
             return pose_data
 
         if jabs_meta.get("per_identity_files", False):
-            return self._read_merged(path, jabs_meta, pose_data)
+            # Move this file's contours into the merger and drop them from pose_data, so
+            # the only live copy is the merger's and no reference outlives this call.
+            segmentation = _SegmentationMerger(jabs_meta["split_subject_count"])
+            segmentation.add(
+                jabs_meta.get("source_identity_index", 0), pose_data.segmentation_data
+            )
+            pose_data = dataclasses.replace(pose_data, segmentation_data=None)
+            return self._read_merged(path, jabs_meta, pose_data, segmentation)
 
         raise ValueError(
             f"{path} uses the legacy combined single-file NWB layout, which is no "
@@ -944,14 +958,23 @@ class PoseNWBAdapter(Adapter):
         )
         return pose_data, jabs_meta
 
-    def _read_merged(self, path: Path, jabs_meta: dict, first_read: PoseData) -> PoseData:
+    def _read_merged(
+        self,
+        path: Path,
+        jabs_meta: dict,
+        first_read: PoseData,
+        segmentation: _SegmentationMerger,
+    ) -> PoseData:
         """Auto-detect and merge sibling per-identity NWB files.
 
         Args:
             path: The sibling file the caller opened.
             jabs_meta: That file's ``jabs_metadata``.
             first_read: The PoseData already read from ``path``, reused so the file is
-                not read a second time.
+                not read a second time. Its segmentation must already have been moved
+                into ``segmentation`` and cleared.
+            segmentation: Merger already holding ``path``'s segmentation; the siblings'
+                are added to it as they are read.
 
         Returns:
             PoseData with all identities merged in their original order.
@@ -973,7 +996,6 @@ class PoseNWBAdapter(Adapter):
         # merged array as soon as it is read and dropped from the sibling's PoseData,
         # instead of every sibling's being held until the end.
         candidates = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
-        segmentation = _SegmentationMerger(total)
         parts: list[tuple[int, PoseData, dict]] = []
         for sibling_path in candidates:
             if sibling_path == path:
@@ -982,14 +1004,10 @@ class PoseNWBAdapter(Adapter):
                 pd, meta = self._read_single(sibling_path)
             if meta.get("per_identity_files") and meta.get("split_subject_count") == total:
                 idx = meta.get("source_identity_index", 0)
-                if not 0 <= idx < total:
-                    raise ValueError(
-                        f"source_identity_index {idx} in {sibling_path} is outside 0..{total - 1}"
-                    )
-                if any(idx == seen for seen, _, _ in parts):
-                    raise ValueError(f"duplicate source_identity_index {idx} in {sibling_path}")
-                segmentation.add(idx, pd.segmentation_data)
-                parts.append((idx, dataclasses.replace(pd, segmentation_data=None), meta))
+                if sibling_path != path:
+                    segmentation.add(idx, pd.segmentation_data)
+                    pd = dataclasses.replace(pd, segmentation_data=None)
+                parts.append((idx, pd, meta))
 
         if len(parts) != total:
             raise ValueError(

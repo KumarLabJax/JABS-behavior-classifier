@@ -5,6 +5,7 @@ import dataclasses
 import datetime
 import logging
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
@@ -111,7 +112,7 @@ def _collect_hdf5_attributes(path: Path) -> dict[str, dict[str, object]]:
 _SEG_PADDING = -1
 
 
-def _identity_first_contours(pose: PoseEstimation) -> npt.NDArray[np.signedinteger] | None:
+def _identity_first_contours(pose: PoseEstimation) -> npt.NDArray[np.signedinteger[Any]] | None:
     """Return every identity's contours as one identity-first array, avoiding a copy.
 
     ``seg_data`` can be gigabytes for a long video and the pose object already holds it, so
