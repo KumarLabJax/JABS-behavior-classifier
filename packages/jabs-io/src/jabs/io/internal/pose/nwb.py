@@ -179,6 +179,10 @@ def _stack_identity_datasets(
         An array of shape (len(datasets), *dataset_shape).
     """
     first = np.asarray(datasets[0][:])
+    if len(datasets) == 1:
+        # Per-identity files hold exactly one identity: add the axis as a view rather than
+        # allocating a second array as large as the one just read.
+        return first[np.newaxis] if dtype is None else first.astype(dtype, copy=False)[np.newaxis]
     stacked = np.empty(
         (len(datasets), *first.shape), dtype=first.dtype if dtype is None else dtype
     )

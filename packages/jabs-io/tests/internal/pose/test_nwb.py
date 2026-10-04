@@ -32,6 +32,7 @@ from jabs.io.internal.pose.nwb import (
     PoseNWBAdapter,
     _merge_segmentation,
     _SegmentationMerger,
+    _stack_identity_datasets,
     sanitize_identity_name,
 )
 from jabs.io.registry import get_adapter
@@ -1554,3 +1555,29 @@ def test_segmentation_merger_rejects_duplicate_slot():
     merger.add(0, _one_identity_segmentation(2, 1, 2, 1))
     with pytest.raises(ValueError, match="duplicate"):
         merger.add(0, _one_identity_segmentation(2, 1, 2, 2))
+
+
+def test_stack_identity_datasets_single_dataset_is_a_view():
+    """One identity gets its axis added in place instead of being copied."""
+    source = np.arange(12, dtype=np.int16).reshape(3, 4)
+
+    stacked = _stack_identity_datasets([source])
+
+    assert stacked.shape == (1, 3, 4)
+    assert np.shares_memory(stacked, source)
+
+
+def test_stack_identity_datasets_single_dataset_converts_dtype():
+    """An explicit dtype still applies when there is only one identity."""
+    stacked = _stack_identity_datasets([np.array([0, 1, 2])], dtype=bool)
+
+    assert stacked.dtype == np.bool_
+    assert stacked.shape == (1, 3)
+    np.testing.assert_array_equal(stacked[0], [False, True, True])
+
+
+def test_stack_identity_datasets_stacks_several_in_order():
+    """Several identities are stacked identity-first, in the order given."""
+    a, b = np.zeros((2, 2)), np.ones((2, 2))
+
+    np.testing.assert_array_equal(_stack_identity_datasets([a, b]), np.stack([a, b]))
