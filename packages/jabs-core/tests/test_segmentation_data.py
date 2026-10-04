@@ -116,3 +116,27 @@ def test_pose_data_segmentation_shape_mismatch_raises(seg_idents, seg_frames):
     )
     with pytest.raises(ValueError, match="segmentation_data covers"):
         PoseData(**kw)
+
+
+@pytest.mark.parametrize(
+    ("counts", "match"),
+    [
+        (np.full((1, 3, 2), 6, dtype=np.uint32), "within 0..5"),
+        (np.full((1, 3, 2), -1, dtype=np.int32), "within 0..5"),
+        (np.full((1, 3, 2), 1.5, dtype=np.float64), "integer array"),
+    ],
+    ids=["above_capacity", "negative", "fractional"],
+)
+def test_vertex_counts_must_be_integral_and_within_capacity(counts, match):
+    """A count that no contour slot could hold is rejected rather than exported."""
+    kw = _seg_kwargs(num_vertices=5)
+    kw["vertex_counts"] = counts
+    with pytest.raises(ValueError, match=match):
+        SegmentationData(**kw)
+
+
+def test_vertex_counts_may_fill_the_slot_exactly():
+    """A count equal to the vertex capacity is valid."""
+    kw = _seg_kwargs(num_vertices=5)
+    kw["vertex_counts"] = np.full((1, 3, 2), 5, dtype=np.uint32)
+    assert SegmentationData(**kw).vertex_counts.max() == 5

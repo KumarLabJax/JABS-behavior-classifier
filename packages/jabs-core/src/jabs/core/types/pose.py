@@ -70,7 +70,8 @@ class SegmentationData:
         Raises:
             ValueError: If the arrays have the wrong number of dimensions, if the
                 trailing axis of ``contours`` is not 2, if ``contours`` is not a signed
-                integer array, or if the shapes disagree.
+                integer array, if the shapes disagree, or if ``vertex_counts`` is not an
+                integer array with every count in ``0..num_vertices``.
         """
         if not np.issubdtype(self.contours.dtype, np.signedinteger):
             # An unsigned array would wrap the -1 padding sentinel to its maximum value,
@@ -97,6 +98,20 @@ class SegmentationData:
                 f"is_external shape {self.is_external.shape} must match the first "
                 f"three dimensions of contours {expected}"
             )
+
+        # vertex_counts is authoritative for how much of each slot is real, so a count
+        # that is fractional, negative or past the slot's capacity would describe a
+        # contour that cannot exist.
+        if not np.issubdtype(self.vertex_counts.dtype, np.integer):
+            raise ValueError(
+                f"vertex_counts must be an integer array, got {self.vertex_counts.dtype}"
+            )
+        if self.vertex_counts.size:
+            max_vertices = self.contours.shape[3]
+            if self.vertex_counts.min() < 0 or self.vertex_counts.max() > max_vertices:
+                raise ValueError(
+                    f"vertex_counts must be within 0..{max_vertices} (the contour vertex capacity)"
+                )
 
 
 @dataclass(frozen=True)
