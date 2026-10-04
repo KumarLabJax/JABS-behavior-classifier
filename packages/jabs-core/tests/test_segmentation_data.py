@@ -140,3 +140,16 @@ def test_vertex_counts_may_fill_the_slot_exactly():
     kw = _seg_kwargs(num_vertices=5)
     kw["vertex_counts"] = np.full((1, 3, 2), 5, dtype=np.uint32)
     assert SegmentationData(**kw).vertex_counts.max() == 5
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.int64, np.uint8, np.float64])
+def test_is_external_must_be_boolean(dtype):
+    """Integer flags, such as the pose reader's -1 sentinel, are rejected rather than cast."""
+    kw = _seg_kwargs()
+    kw["is_external"] = (
+        np.full((1, 3, 2), -1).astype(dtype)
+        if dtype != np.uint8
+        else np.ones((1, 3, 2), dtype=dtype)
+    )
+    with pytest.raises(ValueError, match="boolean array"):
+        SegmentationData(**kw)

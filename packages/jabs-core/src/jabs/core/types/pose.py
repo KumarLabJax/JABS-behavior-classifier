@@ -71,7 +71,8 @@ class SegmentationData:
             ValueError: If the arrays have the wrong number of dimensions, if the
                 trailing axis of ``contours`` is not 2, if ``contours`` is not a signed
                 integer array, if the shapes disagree, or if ``vertex_counts`` is not an
-                integer array with every count in ``0..num_vertices``.
+                integer array with every count in ``0..num_vertices``, or if
+                ``is_external`` is not a boolean array.
         """
         if not np.issubdtype(self.contours.dtype, np.signedinteger):
             # An unsigned array would wrap the -1 padding sentinel to its maximum value,
@@ -98,6 +99,11 @@ class SegmentationData:
                 f"is_external shape {self.is_external.shape} must match the first "
                 f"three dimensions of contours {expected}"
             )
+
+        if self.is_external.dtype != np.bool_:
+            # Casting an integer flag array to bool turns the pose reader's -1 "no contour"
+            # sentinel into True, which would export a hole as an outer boundary.
+            raise ValueError(f"is_external must be a boolean array, got {self.is_external.dtype}")
 
         # vertex_counts is authoritative for how much of each slot is real, so a count
         # that is fractional, negative or past the slot's capacity would describe a
