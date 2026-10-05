@@ -1,4 +1,3 @@
-import contextlib
 import gzip
 import json
 import shutil
@@ -73,9 +72,9 @@ def patch_session_tracker():
 
 
 @pytest.fixture(scope="module")
-def project_with_data():
-    """Fixture to create a project with empty video file and annotations,and clean up afterwards."""
-    _EXISTING_PROJ_PATH = Path("test_project_with_data")
+def project_with_data(tmp_path_factory: pytest.TempPathFactory):
+    """Fixture to create a project with empty video file and annotations in a temp directory."""
+    _EXISTING_PROJ_PATH = tmp_path_factory.mktemp("project_with_data")
     _FILENAMES: list[str] = ["test_file_1.avi", "test_file_2.avi"]
 
     # filenames of some sample pose files in the test/data directory.
@@ -86,13 +85,6 @@ def project_with_data():
     ]
 
     test_data_dir = Path(__file__).parent.parent / "data"
-
-    # make sure the test project dir is gone in case we previously
-    # threw an exception during setup
-    with contextlib.suppress(FileNotFoundError):
-        shutil.rmtree(_EXISTING_PROJ_PATH)
-
-    _EXISTING_PROJ_PATH.mkdir()
 
     for i, name in enumerate(_FILENAMES):
         # make a stub for the .avi file in the project directory
@@ -128,15 +120,12 @@ def project_with_data():
     # open project
     project = Project(_EXISTING_PROJ_PATH, enable_video_check=False, enable_session_tracker=False)
 
-    yield project
-
-    # teardown
-    shutil.rmtree(_EXISTING_PROJ_PATH)
+    return project
 
 
-def test_create():
+def test_create(tmp_path: Path) -> None:
     """test creating a new empty Project"""
-    project_dir = Path("test_project_dir")
+    project_dir = tmp_path / "test_project_dir"
     project = Project(project_dir, enable_session_tracker=False, validate_project_dir=False)
 
     # make sure that the empty project directory was created
@@ -150,9 +139,6 @@ def test_create():
 
     # make sure the jabs/predictions directory was created
     assert project.project_paths.prediction_dir.exists()
-
-    # remove project dir
-    shutil.rmtree(project_dir)
 
 
 def test_get_video_list(project_with_data):
@@ -169,7 +155,7 @@ def test_load_annotations(project_with_data):
     labels = project_with_data.video_manager.load_video_labels("test_file_1.avi")
 
     with (
-        Path("test_project_with_data")
+        project_with_data.dir
         / "jabs"
         / "annotations"
         / Path("test_file_1.avi").with_suffix(".json")
@@ -177,6 +163,10 @@ def test_load_annotations(project_with_data):
         dict_from_file = json.load(f)
 
     assert len(project_with_data.video_manager.videos) == 2
+
+    # The labeler is stamped onto the file by Project.save_annotations (which another test
+    # on this shared project may already have called); it is not part of VideoLabels.
+    dict_from_file.pop("labeler", None)
 
     # check to see that calling as_dict() on the VideoLabels object
     # matches what was used to load the annotation track from disk
@@ -202,7 +192,7 @@ def test_save_annotations(project_with_data):
     # make sure the .json file in the project directory matches the new
     # state
     with (
-        Path("test_project_with_data")
+        project_with_data.dir
         / "jabs"
         / "annotations"
         / Path("test_file_1.avi").with_suffix(".json")
@@ -231,7 +221,7 @@ def test_bad_video_file(project_with_data):
     """Opt-in up-front video check raises IOError when a video can't be opened."""
     with pytest.raises(IOError), hide_stderr():
         _ = Project(
-            Path("test_project_with_data"),
+            project_with_data.dir,
             enable_video_check=True,
             enable_session_tracker=False,
         )
@@ -244,7 +234,7 @@ def test_load_defers_video_frame_check_by_default(project_with_data):
     opt-in path raises IOError (see ``test_bad_video_file``). With the default
     (deferred) behavior no video file is opened, so the project loads cleanly.
     """
-    project = Project(Path("test_project_with_data"), enable_session_tracker=False)
+    project = Project(project_with_data.dir, enable_session_tracker=False)
     assert set(project.video_manager.videos) == {"test_file_1.avi", "test_file_2.avi"}
 
 
@@ -319,20 +309,33 @@ def test_rename_behavior_raises_if_new_name_exists(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_save_classifier_binary_uses_behavior_path(tmp_path: Path) -> None:
-    """Binary classifier save path remains one pickle file per behavior."""
-    project = Project(
-        tmp_path,
-        enable_video_check=False,
-        enable_session_tracker=False,
-        validate_project_dir=False,
-    )
+@pytest.mark.parametrize(
+    ("mode", "behavior", "expected_filename"),
+    [
+        (ClassifierMode.BINARY, "Groom & Rear", f"{to_safe_name('Groom & Rear')}.pickle"),
+        (ClassifierMode.MULTICLASS, None, "_multiclass.pickle"),
+    ],
+    ids=["binary-one-file-per-behavior", "multiclass-reserved-file"],
+)
+def test_save_classifier_uses_mode_specific_path(
+    tmp_path: Path, mode: ClassifierMode, behavior: str | None, expected_filename: str
+) -> None:
+    """Binary save stays one pickle per behavior; multi-class uses one reserved file.
+
+    Args:
+        tmp_path: Temporary directory for the project.
+        mode: Classifier mode configured on the project.
+        behavior: Behavior name passed to ``save_classifier``, if any.
+        expected_filename: Classifier file name expected in the classifier directory.
+    """
+    project = _bare_project(tmp_path)
+    if mode == ClassifierMode.MULTICLASS:
+        project.settings_manager.save_project_file({"settings": {CLASSIFIER_MODE_KEY: mode.value}})
     classifier = _PathRecordingClassifier()
-    behavior = "Groom & Rear"
 
     project.save_classifier(classifier, behavior)
 
-    expected_path = project.classifier_dir / f"{to_safe_name(behavior)}.pickle"
+    expected_path = project.classifier_dir / expected_filename
     assert classifier.saved_path == expected_path
     assert expected_path.exists()
 
@@ -351,90 +354,47 @@ def test_save_classifier_binary_requires_behavior(tmp_path: Path) -> None:
         project.save_classifier(classifier)
 
 
-def test_load_classifier_binary_uses_behavior_path(tmp_path: Path) -> None:
-    """Binary classifier load path remains one pickle file per behavior."""
-    project = Project(
-        tmp_path,
-        enable_video_check=False,
-        enable_session_tracker=False,
-        validate_project_dir=False,
-    )
-    classifier = _PathRecordingClassifier()
-    behavior = "Groom & Rear"
-    expected_path = project.classifier_dir / f"{to_safe_name(behavior)}.pickle"
-    expected_path.write_text("classifier", encoding="utf-8")
+@pytest.mark.parametrize(
+    ("mode", "behavior", "expected_filename", "file_exists"),
+    [
+        (ClassifierMode.BINARY, "Groom & Rear", f"{to_safe_name('Groom & Rear')}.pickle", True),
+        (
+            ClassifierMode.BINARY,
+            "Missing Behavior",
+            f"{to_safe_name('Missing Behavior')}.pickle",
+            False,
+        ),
+        (ClassifierMode.MULTICLASS, "Ignored Behavior", "_multiclass.pickle", True),
+        (ClassifierMode.MULTICLASS, None, "_multiclass.pickle", False),
+    ],
+    ids=["binary-existing", "binary-missing", "multiclass-existing", "multiclass-missing"],
+)
+def test_load_classifier_uses_mode_specific_path(
+    tmp_path: Path,
+    mode: ClassifierMode,
+    behavior: str | None,
+    expected_filename: str,
+    file_exists: bool,
+) -> None:
+    """Load reads the mode-specific classifier file and returns False instead of raising if absent.
 
-    assert project.load_classifier(classifier, behavior) is True
+    Args:
+        tmp_path: Temporary directory for the project.
+        mode: Classifier mode configured on the project.
+        behavior: Behavior name passed to ``load_classifier``, if any.
+        expected_filename: Classifier file name expected in the classifier directory.
+        file_exists: Whether the classifier file is created before loading.
+    """
+    project = _bare_project(tmp_path)
+    if mode == ClassifierMode.MULTICLASS:
+        project.settings_manager.save_project_file({"settings": {CLASSIFIER_MODE_KEY: mode.value}})
+    classifier = _PathRecordingClassifier()
+    expected_path = project.classifier_dir / expected_filename
+    if file_exists:
+        expected_path.write_text("classifier", encoding="utf-8")
+
+    assert project.load_classifier(classifier, behavior) is file_exists
     assert classifier.loaded_path == expected_path
-
-
-def test_load_classifier_missing_binary_returns_false(tmp_path: Path) -> None:
-    """Missing binary classifier files return False instead of raising."""
-    project = Project(
-        tmp_path,
-        enable_video_check=False,
-        enable_session_tracker=False,
-        validate_project_dir=False,
-    )
-    classifier = _PathRecordingClassifier()
-
-    assert project.load_classifier(classifier, "Missing Behavior") is False
-
-
-def test_save_classifier_multiclass_uses_reserved_path(tmp_path: Path) -> None:
-    """Multi-class classifier save path ignores behavior and uses one reserved file."""
-    project = Project(
-        tmp_path,
-        enable_video_check=False,
-        enable_session_tracker=False,
-        validate_project_dir=False,
-    )
-    project.settings_manager.save_project_file(
-        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
-    )
-    classifier = _PathRecordingClassifier()
-
-    project.save_classifier(classifier)
-
-    expected_path = project.classifier_dir / "_multiclass.pickle"
-    assert classifier.saved_path == expected_path
-    assert expected_path.exists()
-
-
-def test_load_classifier_multiclass_uses_reserved_path(tmp_path: Path) -> None:
-    """Multi-class classifier load path ignores behavior and uses one reserved file."""
-    project = Project(
-        tmp_path,
-        enable_video_check=False,
-        enable_session_tracker=False,
-        validate_project_dir=False,
-    )
-    project.settings_manager.save_project_file(
-        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
-    )
-    classifier = _PathRecordingClassifier()
-    expected_path = project.classifier_dir / "_multiclass.pickle"
-    expected_path.write_text("classifier", encoding="utf-8")
-
-    assert project.load_classifier(classifier, "Ignored Behavior") is True
-    assert classifier.loaded_path == expected_path
-
-
-def test_load_classifier_missing_multiclass_returns_false(tmp_path: Path) -> None:
-    """Missing multi-class classifier files return False instead of raising."""
-    project = Project(
-        tmp_path,
-        enable_video_check=False,
-        enable_session_tracker=False,
-        validate_project_dir=False,
-    )
-    project.settings_manager.save_project_file(
-        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
-    )
-    classifier = _PathRecordingClassifier()
-
-    assert project.load_classifier(classifier) is False
-    assert classifier.loaded_path == project.classifier_dir / "_multiclass.pickle"
 
 
 # ---------------------------------------------------------------------------
@@ -465,35 +425,43 @@ def _make_project_with_mock_vm(tmp_path: Path, videos_and_labels: dict) -> Proje
     return project
 
 
-def test_overlapping_labels_no_videos(tmp_path: Path) -> None:
-    """Returns empty list when the project has no videos."""
-    project = _make_project_with_mock_vm(tmp_path, {})
-    assert project.get_overlapping_behavior_label_videos() == []
+def _labels_with_blocks(blocks: dict[str, tuple[int, int]]) -> VideoLabels:
+    """Return 100-frame VideoLabels with one BEHAVIOR block per behavior on identity "0".
 
-
-def test_overlapping_labels_none_labels(tmp_path: Path) -> None:
-    """Returns empty list when load_video_labels returns None."""
-    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": None})
-    assert project.get_overlapping_behavior_label_videos() == []
-
-
-def test_overlapping_labels_single_behavior(tmp_path: Path) -> None:
-    """Single behavior per identity - no conflict possible."""
+    Args:
+        blocks: Mapping of behavior name to the inclusive ``(start, end)`` frames labeled.
+    """
     labels = VideoLabels("video1.avi", 100)
-    track = labels.get_track_labels("0", "Walk")
-    track.label_behavior(10, 20)
-    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": labels})
-    assert project.get_overlapping_behavior_label_videos() == []
+    for behavior, (start, end) in blocks.items():
+        labels.get_track_labels("0", behavior).label_behavior(start, end)
+    return labels
 
 
-def test_overlapping_labels_no_conflict(tmp_path: Path) -> None:
-    """Two behaviors on the same identity but on different frames - no conflict."""
-    labels = VideoLabels("video1.avi", 100)
-    track_a = labels.get_track_labels("0", "Walk")
-    track_a.label_behavior(10, 20)
-    track_b = labels.get_track_labels("0", "Run")
-    track_b.label_behavior(30, 40)
-    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": labels})
+@pytest.mark.parametrize(
+    "videos_and_labels",
+    [
+        {},
+        {"video1.avi": None},
+        {"video1.avi": _labels_with_blocks({"Walk": (10, 20)})},
+        {"video1.avi": _labels_with_blocks({"Walk": (10, 20), "Run": (30, 40)})},
+    ],
+    ids=[
+        "no-videos",
+        "video-without-labels",
+        "single-behavior",
+        "two-behaviors-on-different-frames",
+    ],
+)
+def test_overlapping_labels_no_conflict_returns_empty(
+    tmp_path: Path, videos_and_labels: dict[str, VideoLabels | None]
+) -> None:
+    """Returns an empty list when no video has two behaviors sharing a labeled frame.
+
+    Args:
+        tmp_path: Temporary directory for the project.
+        videos_and_labels: Mapping of video filename to the labels its mock load returns.
+    """
+    project = _make_project_with_mock_vm(tmp_path, videos_and_labels)
     assert project.get_overlapping_behavior_label_videos() == []
 
 

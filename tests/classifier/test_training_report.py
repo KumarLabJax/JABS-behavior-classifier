@@ -88,81 +88,6 @@ def sample_training_data(sample_cv_results):
     )
 
 
-class TestCrossValidationResult:
-    """Tests for BinaryCVResult dataclass."""
-
-    def test_create_cv_result(self):
-        """Test creating a BinaryCVResult instance."""
-        result = BinaryCVResult(
-            iteration=1,
-            test_label="test.mp4 [0]",
-            accuracy=0.95,
-            precision_not_behavior=0.94,
-            precision_behavior=0.96,
-            recall_not_behavior=0.97,
-            recall_behavior=0.93,
-            f1_behavior=0.945,
-            support_behavior=100,
-            support_not_behavior=150,
-            confusion_matrix=np.array([[140, 10], [7, 93]]),
-            top_features=[("feature1", 0.5), ("feature2", 0.3)],
-        )
-
-        assert result.iteration == 1
-        assert result.test_label == "test.mp4 [0]"
-        assert result.accuracy == 0.95
-        assert result.precision_not_behavior == 0.94
-        assert result.precision_behavior == 0.96
-        assert result.recall_not_behavior == 0.97
-        assert result.recall_behavior == 0.93
-        assert result.f1_behavior == 0.945
-        assert result.support_behavior == 100
-        assert result.support_not_behavior == 150
-        assert result.confusion_matrix.shape == (2, 2)
-        assert result.top_features == [("feature1", 0.5), ("feature2", 0.3)]
-
-
-class TestTrainingReportData:
-    """Tests for TrainingReportData dataclass."""
-
-    def test_create_training_data(self, sample_cv_results):
-        """Test creating a TrainingReportData instance."""
-        timestamp = datetime.now()
-        data = TrainingReportData(
-            behavior_name="Rearing",
-            classifier_type="XGBoost",
-            window_size=7,
-            balance_training_labels=False,
-            symmetric_behavior=True,
-            distance_unit="pixel",
-            cv_results=sample_cv_results,
-            final_top_features=[("feature1", 0.5), ("feature2", 0.3)],
-            frames_behavior=500,
-            frames_not_behavior=1500,
-            bouts_behavior=20,
-            bouts_not_behavior=80,
-            training_time_ms=5000,
-            timestamp=timestamp,
-            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
-        )
-
-        assert data.behavior_name == "Rearing"
-        assert data.classifier_type == "XGBoost"
-        assert data.window_size == 7
-        assert data.balance_training_labels is False
-        assert data.symmetric_behavior is True
-        assert data.distance_unit == "pixel"
-        assert len(data.cv_results) == 2
-        assert len(data.final_top_features) == 2
-        assert data.frames_behavior == 500
-        assert data.frames_not_behavior == 1500
-        assert data.bouts_behavior == 20
-        assert data.bouts_not_behavior == 80
-        assert data.training_time_ms == 5000
-        assert data.timestamp == timestamp
-        assert data.cv_grouping_strategy == CrossValidationGroupingStrategy.VIDEO
-
-
 class TestGenerateMarkdownReport:
     """Tests for generate_markdown_report function."""
 
@@ -208,8 +133,11 @@ class TestGenerateMarkdownReport:
 
         assert "## Cross-Validation Results" in report
         assert "### Performance Summary" in report
-        assert "**Mean Accuracy:**" in report
-        assert "**Mean F1 Score (Behavior):**" in report
+        # means of the two iterations: accuracy (0.9234 + 0.8912) / 2 = 0.9073 and
+        # F1 (0.9163 + 0.8842) / 2 = 0.90025 (only the 3 decimals clear of the
+        # rounding tie are pinned)
+        assert "**Mean Accuracy:** 0.9073" in report
+        assert "**Mean F1 Score (Behavior):** 0.900" in report
         assert "### Iteration Details" in report
 
     def test_report_contains_cv_table(self, sample_training_data):
@@ -304,14 +232,6 @@ class TestGenerateMarkdownReport:
 class TestSaveTrainingReport:
     """Tests for save_training_report function."""
 
-    def test_save_report_creates_file(self, sample_training_data, tmp_path):
-        """Test that saving a report creates a file."""
-        output_file = tmp_path / "test_report.md"
-
-        save_training_report(sample_training_data, output_file)
-
-        assert output_file.exists()
-
     def test_saved_report_content(self, sample_training_data, tmp_path):
         """Test that saved report contains expected content."""
         output_file = tmp_path / "test_report.md"
@@ -330,9 +250,10 @@ class TestSaveTrainingReport:
 
         save_training_report(sample_training_data, output_file)
 
-        # Should be able to read with UTF-8
+        # Should be able to read with UTF-8; the performance summary's plus-minus
+        # sign is non-ASCII, so it survives only if the file really is UTF-8
         content = output_file.read_text(encoding="utf-8")
-        assert len(content) > 0
+        assert "±" in content
 
     def test_save_report_overwrites_existing(self, sample_training_data, tmp_path):
         """Test that saving overwrites an existing file."""
@@ -348,35 +269,6 @@ class TestSaveTrainingReport:
         content = output_file.read_text(encoding="utf-8")
         assert "Old content" not in content
         assert "# Training Report: Grooming" in content
-
-
-class TestReportFormatting:
-    """Tests for report formatting details."""
-
-    def test_numbers_formatted_correctly(self, sample_training_data):
-        """Test that numbers are formatted with proper precision."""
-        report = generate_markdown_report(sample_training_data)
-
-        # Accuracies should be 4 decimal places
-        assert "0.9234" in report
-        assert "0.8912" in report
-
-        # Feature importance should be 2 decimal places
-        assert "0.16" in report  # nose_speed importance
-
-    def test_comma_separated_counts(self, sample_training_data):
-        """Test that large numbers use comma separators."""
-        report = generate_markdown_report(sample_training_data)
-
-        assert "1,250" in report  # behavior frames
-        assert "3,840" in report  # not-behavior frames
-
-    def test_training_time_in_seconds(self, sample_training_data):
-        """Test that training time is converted from ms to seconds."""
-        report = generate_markdown_report(sample_training_data)
-
-        # 12345 ms = 12.35 seconds
-        assert "12.35 seconds" in report
 
 
 class TestMulticlassReport:
@@ -553,10 +445,11 @@ class TestPostprocessedReporting:
 
         report = generate_markdown_report(data)
 
-        assert "Mean Accuracy (Postprocessed):" in report
-        assert "Mean F1 Score (Behavior, Postprocessed):" in report
+        # postprocessed accuracies are 0.95 and 0.96, F1 is 0.9605 for both
+        assert "**Mean Accuracy (Postprocessed):** 0.9550" in report
+        assert "**Mean F1 Score (Behavior, Postprocessed):** 0.9605" in report
         # raw means are still present, so the two can be compared
-        assert "**Mean Accuracy:**" in report
+        assert "**Mean Accuracy:** 0.9073" in report
 
     def test_markdown_lists_evaluated_stages(self, sample_training_data):
         """The summary records which stages were evaluated, so the report is self-describing."""
@@ -611,15 +504,22 @@ class TestPostprocessedReporting:
         # raw means over the same iterations are given for a like-for-like comparison
         assert f"accuracy {raw_accuracy:.4f}" in summary
 
-    def test_markdown_has_no_partial_warning_when_every_iteration_was_evaluated(
-        self, sample_training_data
-    ):
-        """A fully evaluated run carries no coverage warning."""
+    def test_markdown_has_no_warnings_or_notes_for_a_clean_run(self, sample_training_data) -> None:
+        """A fully evaluated run whose passes agree carries no warning or note.
+
+        Neither the partial-coverage warning, the consistency warning, nor the
+        no-prediction note may clutter a clean report.
+        """
         data = self._postprocessed_data(sample_training_data)
 
-        summary = generate_markdown_report(data)
+        report = generate_markdown_report(data)
 
-        assert "iterations (not evaluated" not in summary
+        # every iteration was evaluated, so no coverage warning
+        assert "iterations (not evaluated" not in report
+        # the two prediction passes agreed, so no empty consistency warning
+        assert "may not be comparable" not in report
+        # every frame was predicted, so no empty no-prediction note
+        assert "excludes them" not in report
 
     def test_markdown_does_not_claim_evaluation_when_every_fold_skipped(
         self, sample_training_data
@@ -637,8 +537,13 @@ class TestPostprocessedReporting:
 
     def test_json_records_whether_postprocessing_was_evaluated(self, sample_training_data):
         """The JSON separates what was requested from what actually happened."""
+        # requested (the stage list is recorded) but no iteration produced metrics
+        sample_training_data.postprocessing_stages = [
+            {"stage_name": "BoutStitchingStage", "enabled": True, "parameters": {}}
+        ]
         requested_only = generate_json_report(sample_training_data)
         assert requested_only["postprocessing_evaluated"] is False
+        assert requested_only["postprocessing_stages"][0]["stage_name"] == "BoutStitchingStage"
 
         evaluated = generate_json_report(self._postprocessed_data(sample_training_data))
         assert evaluated["postprocessing_evaluated"] is True
@@ -684,14 +589,6 @@ class TestPostprocessedReporting:
         # and beside the table, the caveat precedes the numbers it applies to
         assert details.index("may not be comparable") < details.index("0.9605")
 
-    def test_markdown_has_no_warning_block_when_the_passes_agree(self, sample_training_data):
-        """A clean run does not clutter the report with an empty warning."""
-        data = self._postprocessed_data(sample_training_data)
-
-        report = generate_markdown_report(data)
-
-        assert "may not be comparable" not in report
-
     def test_markdown_notes_frames_with_no_prediction(self, sample_training_data):
         """A fold with unpredicted frames says so, since the confusion matrix hides it."""
         data = self._postprocessed_data(sample_training_data)
@@ -704,14 +601,6 @@ class TestPostprocessedReporting:
         assert f"Iteration {data.cv_results[0].iteration}: 3 frame(s)" in details
         # the unaffected iteration is not listed
         assert f"Iteration {data.cv_results[1].iteration}: " not in details
-
-    def test_markdown_has_no_no_prediction_note_when_fully_predicted(self, sample_training_data):
-        """A clean run does not clutter the report with an empty note."""
-        data = self._postprocessed_data(sample_training_data)
-
-        report = generate_markdown_report(data)
-
-        assert "excludes them" not in report
 
     def test_json_contains_the_no_prediction_count(self, sample_training_data):
         """The saved JSON carries the count so a reader can tell the matrix is partial."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
 
@@ -78,19 +79,6 @@ def test_load_config_file_json_list(tmp_path: Path) -> None:
     assert result == config
 
 
-def test_load_config_file_json_dict(tmp_path: Path) -> None:
-    """Load a JSON dict config."""
-    config = {
-        "grooming": [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}]
-    }
-    cfg_file = tmp_path / "pipeline.json"
-    cfg_file.write_text(json.dumps(config))
-
-    result = load_config_file(cfg_file)
-
-    assert result == config
-
-
 def test_load_config_file_invalid_json(tmp_path: Path) -> None:
     """Malformed JSON raises ClickException."""
     import click
@@ -157,7 +145,7 @@ def test_list_behaviors_missing_predictions_group(tmp_path: Path) -> None:
 
 
 def test_run_inplace_writes_postprocessed(tmp_path: Path) -> None:
-    """In-place run adds predicted_class_postprocessed to the file."""
+    """In-place run adds predicted_class_postprocessed, with short behavior bouts removed."""
     pred_file = tmp_path / "predictions.h5"
     _write_prediction_file(pred_file, "grooming")
 
@@ -166,8 +154,22 @@ def test_run_inplace_writes_postprocessed(tmp_path: Path) -> None:
 
     assert processed == ["grooming"]
     result: BehaviorPrediction = io.load(pred_file, BehaviorPrediction, behavior="grooming")
+    raw = result.predicted_class
     assert result.predicted_class_postprocessed is not None
-    assert result.predicted_class_postprocessed.shape == result.predicted_class.shape
+    assert result.predicted_class_postprocessed.shape == raw.shape
+
+    # min_duration=3 turns behavior (1) runs shorter than 3 frames into not-behavior (0)
+    # and leaves longer runs alone, independently for every identity
+    expected = raw.copy()
+    for row in expected:
+        start = 0
+        for value, run in itertools.groupby(row.tolist()):
+            length = len(list(run))
+            if value == 1 and length < 3:
+                row[start : start + length] = 0
+            start += length
+    assert (expected != raw).any() and expected.any(), "test data must exercise the filter"
+    np.testing.assert_array_equal(result.predicted_class_postprocessed, expected)
 
 
 def test_run_output_file_does_not_modify_input(tmp_path: Path) -> None:

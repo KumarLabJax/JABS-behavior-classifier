@@ -100,6 +100,15 @@ def test_get_reduced_point_mask(stub_pose: _StubPose) -> None:
     assert np.array_equal(reduced, expected)
 
 
+_ACCESSORS = (
+    "get_points",
+    "get_identity_poses",
+    "identity_mask",
+    "get_identity_point_mask",
+    "get_reduced_point_mask",
+)
+
+
 @pytest.mark.parametrize(
     "reader",
     [
@@ -110,17 +119,15 @@ def test_get_reduced_point_mask(stub_pose: _StubPose) -> None:
         PoseEstimationV7,
         PoseEstimationV8,
     ],
+    ids=["v3", "v4", "v5", "v6", "v7", "v8"],
 )
-@pytest.mark.parametrize(
-    "method",
-    [
-        "get_points",
-        "get_identity_poses",
-        "identity_mask",
-        "get_identity_point_mask",
-        "get_reduced_point_mask",
-    ],
-)
-def test_readers_share_one_implementation(reader: type, method: str) -> None:
-    """Every v3+ reader resolves these accessors to the mixin, not to a copy of it."""
-    assert getattr(reader, method) is getattr(IdentityIndexedPoseMixin, method)
+def test_readers_share_one_implementation(reader: type) -> None:
+    """Every v3+ reader resolves these accessors to the mixin, not to a copy of it.
+
+    Args:
+        reader: Pose reader class under test.
+    """
+    for method in _ACCESSORS:
+        assert getattr(reader, method) is getattr(IdentityIndexedPoseMixin, method), (
+            f"{reader.__name__}.{method} is not the IdentityIndexedPoseMixin implementation"
+        )

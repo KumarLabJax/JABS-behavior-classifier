@@ -62,12 +62,14 @@ def test_per_frame_cache_round_trip(tmp_path, pose_est_v5) -> None:
         np.testing.assert_array_equal(cached_flat[key], computed_flat[key], err_msg=key)
 
 
-def test_window_feature_cache_round_trip(tmp_path, pose_est_v5) -> None:
+def test_window_feature_cache_round_trip(
+    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+) -> None:
     """Window features loaded from cache must equal freshly computed values."""
-    computed = _make_identity_features(pose_est_v5, tmp_path, force=True)
+    computed = _make_identity_features(pose_est_v5_short, tmp_path, force=True)
     computed_window = computed.get_window_features(_WINDOW_SIZE, force=True)
 
-    cached = _make_identity_features(pose_est_v5, tmp_path, force=False)
+    cached = _make_identity_features(pose_est_v5_short, tmp_path, force=False)
     cached_window = cached.get_window_features(_WINDOW_SIZE)
 
     computed_flat = IdentityFeatures.merge_window_features(computed_window)

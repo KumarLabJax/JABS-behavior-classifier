@@ -139,7 +139,8 @@ def test_invalid_grouping_strategy_rejected(tmp_path: Path, run_cv_spy: mock.Moc
     """An unknown strategy is rejected by Click before run_cross_validation is called."""
     result = _invoke(tmp_path, "--grouping-strategy", "bogus")
 
-    assert result.exit_code != 0
+    assert result.exit_code == 2, result.output
+    assert "Invalid value" in result.output
     run_cv_spy.assert_not_called()
 
 
@@ -276,7 +277,9 @@ def test_invalid_mlflow_tag_rejected(
     """A malformed --mlflow-tag fails before run_cross_validation when MLflow is enabled."""
     result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "noequals")
 
-    assert result.exit_code != 0
+    # reported as a CLI error (exit 1, message on stderr), not an escaping ValueError
+    assert result.exit_code == 1, result.output
+    assert "expected KEY=VALUE" in result.stderr
     run_cv_spy.assert_not_called()
 
 

@@ -4,10 +4,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
+from jabs.project import TrackLabels, VideoLabels
 
 try:
     from jabs.ui.main_window import central_widget_mode
@@ -22,6 +24,26 @@ pytestmark = pytest.mark.skipif(
     SKIP_UI_TESTS,
     reason=SKIP_REASON if SKIP_UI_TESTS else "",
 )
+
+_NUM_FRAMES = 30
+_BEHAVIOR = TrackLabels.Label.BEHAVIOR
+_NOT_BEHAVIOR = TrackLabels.Label.NOT_BEHAVIOR
+
+
+def _track(labels: VideoLabels, behavior: str, identity: str = "0") -> npt.NDArray[np.int8]:
+    """Return the label values of one identity's track for a behavior."""
+    return labels.get_track_labels(identity, behavior).get_labels()
+
+
+def _runs(*runs: tuple[int, int, int]) -> npt.NDArray[np.int8]:
+    """Build the expected label values: unlabeled except for ``(start, end, value)`` runs.
+
+    Both ends of a run are inclusive, as in ``TrackLabels``.
+    """
+    expected = np.full(_NUM_FRAMES, TrackLabels.Label.NONE, dtype=np.int8)
+    for start, end, value in runs:
+        expected[start : end + 1] = value
+    return expected
 
 
 # ---------------------------------------------------------------------------
@@ -78,21 +100,10 @@ def test_load_video_predictions_multiclass_returns_class_names() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_track_mock() -> MagicMock:
-    track = MagicMock()
-    track.label_behavior = MagicMock()
-    track.label_not_behavior = MagicMock()
-    track.clear_labels = MagicMock()
-    return track
-
-
 def test_apply_behavior_label_binary_does_not_clear_competing() -> None:
-    """Binary mode labels the current track and never iterates competing behaviors."""
-    current_track = _make_track_mock()
-    labels = SimpleNamespace(
-        get_track_labels=MagicMock(return_value=current_track),
-        iter_behavior_labels=MagicMock(),
-    )
+    """Binary mode labels the current track and leaves other behaviors' labels alone."""
+    labels = VideoLabels("t.avi", _NUM_FRAMES)
+    labels.get_track_labels("0", "Run").label_behavior(5, 25)
 
     central_widget_mode.apply_behavior_label(
         labels,
@@ -103,21 +114,15 @@ def test_apply_behavior_label_binary_does_not_clear_competing() -> None:
         end=20,
     )
 
-    labels.iter_behavior_labels.assert_not_called()
-    labels.get_track_labels.assert_called_once_with("0", "Walk")
-    current_track.label_behavior.assert_called_once_with(10, 20)
+    np.testing.assert_array_equal(_track(labels, "Walk"), _runs((10, 20, _BEHAVIOR)))
+    np.testing.assert_array_equal(_track(labels, "Run"), _runs((5, 25, _BEHAVIOR)))
 
 
 def test_apply_behavior_label_multiclass_clears_competing_then_labels() -> None:
     """Multi-class mode clears non-current behavior tracks on the range, then labels current."""
-    competing_track = _make_track_mock()
-    current_track = _make_track_mock()
-    labels = SimpleNamespace(
-        get_track_labels=MagicMock(return_value=current_track),
-        iter_behavior_labels=MagicMock(
-            return_value=iter([("Walk", current_track), ("Run", competing_track)])
-        ),
-    )
+    labels = VideoLabels("t.avi", _NUM_FRAMES)
+    labels.get_track_labels("0", "Run").label_behavior(5, 25)
+    labels.get_track_labels("0", "Walk").label_behavior(0, 2)
 
     central_widget_mode.apply_behavior_label(
         labels,
@@ -128,9 +133,13 @@ def test_apply_behavior_label_multiclass_clears_competing_then_labels() -> None:
         end=20,
     )
 
-    competing_track.clear_labels.assert_called_once_with(10, 20)
-    current_track.clear_labels.assert_not_called()
-    current_track.label_behavior.assert_called_once_with(10, 20)
+    # the competing behavior loses only the labeled range
+    np.testing.assert_array_equal(
+        _track(labels, "Run"), _runs((5, 9, _BEHAVIOR), (21, 25, _BEHAVIOR))
+    )
+    np.testing.assert_array_equal(
+        _track(labels, "Walk"), _runs((0, 2, _BEHAVIOR), (10, 20, _BEHAVIOR))
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +149,8 @@ def test_apply_behavior_label_multiclass_clears_competing_then_labels() -> None:
 
 def test_apply_not_behavior_label_binary_returns_current_behavior_false() -> None:
     """Binary mode labels the current track as not-behavior and reports (behavior, False)."""
-    current_track = _make_track_mock()
-    labels = SimpleNamespace(
-        get_track_labels=MagicMock(return_value=current_track),
-        iter_behavior_labels=MagicMock(),
-    )
+    labels = VideoLabels("t.avi", _NUM_FRAMES)
+    labels.get_track_labels("0", "Run").label_behavior(0, 29)
 
     behavior_key, is_positive = central_widget_mode.apply_not_behavior_label(
         labels,
@@ -157,20 +163,15 @@ def test_apply_not_behavior_label_binary_returns_current_behavior_false() -> Non
 
     assert behavior_key == "Walk"
     assert is_positive is False
-    labels.iter_behavior_labels.assert_not_called()
-    current_track.label_not_behavior.assert_called_once_with(5, 15)
+    np.testing.assert_array_equal(_track(labels, "Walk"), _runs((5, 15, _NOT_BEHAVIOR)))
+    np.testing.assert_array_equal(_track(labels, "Run"), _runs((0, 29, _BEHAVIOR)))
 
 
 def test_apply_not_behavior_label_multiclass_returns_none_key_true() -> None:
     """Multi-class mode clears competing tracks and labels the NONE track as positive."""
-    none_track = _make_track_mock()
-    competing_track = _make_track_mock()
-    labels = SimpleNamespace(
-        get_track_labels=MagicMock(return_value=none_track),
-        iter_behavior_labels=MagicMock(
-            return_value=iter([(MULTICLASS_NONE_BEHAVIOR, none_track), ("Walk", competing_track)])
-        ),
-    )
+    labels = VideoLabels("t.avi", _NUM_FRAMES)
+    labels.get_track_labels("0", "Walk").label_behavior(0, 10)
+    labels.get_track_labels("0", "Run").label_behavior(12, 29)
 
     behavior_key, is_positive = central_widget_mode.apply_not_behavior_label(
         labels,
@@ -183,10 +184,11 @@ def test_apply_not_behavior_label_multiclass_returns_none_key_true() -> None:
 
     assert behavior_key == MULTICLASS_NONE_BEHAVIOR
     assert is_positive is True
-    competing_track.clear_labels.assert_called_once_with(5, 15)
-    none_track.clear_labels.assert_not_called()
-    labels.get_track_labels.assert_called_once_with("0", MULTICLASS_NONE_BEHAVIOR)
-    none_track.label_behavior.assert_called_once_with(5, 15)
+    np.testing.assert_array_equal(
+        _track(labels, MULTICLASS_NONE_BEHAVIOR), _runs((5, 15, _BEHAVIOR))
+    )
+    np.testing.assert_array_equal(_track(labels, "Walk"), _runs((0, 4, _BEHAVIOR)))
+    np.testing.assert_array_equal(_track(labels, "Run"), _runs((16, 29, _BEHAVIOR)))
 
 
 # ---------------------------------------------------------------------------
@@ -196,14 +198,9 @@ def test_apply_not_behavior_label_multiclass_returns_none_key_true() -> None:
 
 def test_build_timeline_label_arrays_multiclass_uses_merged_arrays() -> None:
     """Multi-class returns one merged label array per identity from VideoLabels."""
-    expected = [
-        np.array([0, 1, 2, 0], dtype=np.int16),
-        np.array([1, 0, 0, 2], dtype=np.int16),
-    ]
-    labels = SimpleNamespace(
-        build_multiclass_label_array=MagicMock(side_effect=expected),
-        get_track_labels=MagicMock(),
-    )
+    labels = VideoLabels("t.avi", _NUM_FRAMES)
+    labels.get_track_labels("0", "Walk").label_behavior(2, 3)
+    labels.get_track_labels("1", "Run").label_behavior(0, 1)
 
     result = central_widget_mode.build_timeline_label_arrays(
         labels,
@@ -213,33 +210,24 @@ def test_build_timeline_label_arrays_multiclass_uses_merged_arrays() -> None:
         behaviors=["Walk", "Run"],
     )
 
-    labels.get_track_labels.assert_not_called()
-    assert labels.build_multiclass_label_array.call_count == 2
-    labels.build_multiclass_label_array.assert_any_call("0", ["Walk", "Run"])
-    labels.build_multiclass_label_array.assert_any_call("1", ["Walk", "Run"])
-    np.testing.assert_array_equal(result[0], expected[0])
-    np.testing.assert_array_equal(result[1], expected[1])
+    # class index 0 is unlabeled and 1 is the None class, so behaviors start at 2
+    expected_first = np.zeros(_NUM_FRAMES, dtype=np.int16)
+    expected_first[2:4] = 2
+    expected_second = np.zeros(_NUM_FRAMES, dtype=np.int16)
+    expected_second[0:2] = 3
+    assert len(result) == 2
+    np.testing.assert_array_equal(result[0], expected_first)
+    np.testing.assert_array_equal(result[1], expected_second)
 
 
-def test_build_timeline_label_arrays_binary_uses_lut_indices(monkeypatch) -> None:
+def test_build_timeline_label_arrays_binary_uses_lut_indices() -> None:
     """Binary returns one LUT-index array per identity for current_behavior only."""
-    lut_call_args: list = []
-
-    def fake_lut(track):
-        lut_call_args.append(track)
-        return np.array([1, 2, 3], dtype=np.int16)
-
-    monkeypatch.setattr(
-        "jabs.ui.main_window.central_widget_mode.track_labels_to_lut_indices",
-        fake_lut,
-    )
-
-    track_a = MagicMock(name="track_a")
-    track_b = MagicMock(name="track_b")
-    labels = SimpleNamespace(
-        get_track_labels=MagicMock(side_effect=[track_a, track_b]),
-        build_multiclass_label_array=MagicMock(),
-    )
+    labels = VideoLabels("t.avi", _NUM_FRAMES)
+    walk = labels.get_track_labels("0", "Walk")
+    walk.label_behavior(2, 3)
+    walk.label_not_behavior(4, 5)
+    labels.get_track_labels("0", "Run").label_behavior(6, 7)  # another behavior is ignored
+    labels.get_track_labels("1", "Run").label_behavior(0, 1)
 
     result = central_widget_mode.build_timeline_label_arrays(
         labels,
@@ -249,8 +237,10 @@ def test_build_timeline_label_arrays_binary_uses_lut_indices(monkeypatch) -> Non
         behaviors=["Walk", "Run"],
     )
 
-    labels.build_multiclass_label_array.assert_not_called()
-    labels.get_track_labels.assert_any_call("0", "Walk")
-    labels.get_track_labels.assert_any_call("1", "Walk")
-    assert lut_call_args == [track_a, track_b]
+    # label values shift up by one: unlabeled -> 0, not behavior -> 1, behavior -> 2
+    expected_first = np.zeros(_NUM_FRAMES, dtype=np.int16)
+    expected_first[2:4] = 2
+    expected_first[4:6] = 1
     assert len(result) == 2
+    np.testing.assert_array_equal(result[0], expected_first)
+    np.testing.assert_array_equal(result[1], np.zeros(_NUM_FRAMES, dtype=np.int16))

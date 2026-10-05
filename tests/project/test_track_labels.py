@@ -14,7 +14,8 @@ class TestTrackLabels(unittest.TestCase):
         ensures all frames initialized to no label
         """
         labels = TrackLabels(100)
-        for i in range(0, 99):
+        self.assertEqual(len(labels.get_labels()), 100)
+        for i in range(100):
             self.assertEqual(labels.get_frame_label(i), labels.Label.NONE)
 
     def test_add_behavior_label(self):
@@ -22,7 +23,8 @@ class TestTrackLabels(unittest.TestCase):
         labels = TrackLabels(1000)
         labels.label_behavior(50, 100)
 
-        for i in range(50, 100):
+        # the end frame is inclusive
+        for i in range(50, 101):
             self.assertEqual(labels.get_frame_label(i), labels.Label.BEHAVIOR)
 
         # test before and after the block we labeled to make sure it is
@@ -35,22 +37,31 @@ class TestTrackLabels(unittest.TestCase):
         labels = TrackLabels(1000)
         labels.label_not_behavior(50, 100)
 
-        for i in range(50, 100):
+        # the end frame is inclusive
+        for i in range(50, 101):
             self.assertEqual(labels.get_frame_label(i), labels.Label.NOT_BEHAVIOR)
+
+        # frames before and after the block we labeled are still unlabeled
+        self.assertEqual(labels.get_frame_label(49), labels.Label.NONE)
+        self.assertEqual(labels.get_frame_label(101), labels.Label.NONE)
 
     def test_clear_labels(self):
         """test clearing labels"""
         labels = TrackLabels(100)
 
         # apply some labels so we can clear them
-        labels.label_behavior(15, 30)
+        labels.label_behavior(10, 40)
 
-        # clear labels we just set
+        # clear part of the labels we just set, [15, 30] inclusive
         labels.clear_labels(15, 30)
 
-        # make sure frames no longer have labels
-        for i in range(15, 30):
+        # frames in the cleared range, including its end frame, no longer have labels
+        for i in range(15, 31):
             self.assertEqual(labels.get_frame_label(i), labels.Label.NONE)
+
+        # frames on either side of the cleared range keep their labels
+        for i in [*range(10, 15), *range(31, 41)]:
+            self.assertEqual(labels.get_frame_label(i), labels.Label.BEHAVIOR)
 
     def test_export_behavior_blocks(self):
         """test exporting to list of label block dicts"""
@@ -67,8 +78,7 @@ class TestTrackLabels(unittest.TestCase):
             {"start": 300, "end": 325, "present": True},
         ]
 
-        for exported, expected in zip(labels.get_blocks(), expected_blocks, strict=False):
-            self.assertDictEqual(exported, expected)
+        self.assertListEqual(labels.get_blocks(), expected_blocks)
 
     def test_export_behavior_block_slice(self):
         """test exporting to list of label block dicts"""
@@ -77,11 +87,14 @@ class TestTrackLabels(unittest.TestCase):
         labels.label_behavior(250, 500)
 
         expected_blocks = [{"start": 0, "end": 25, "present": True}]
+        self.assertListEqual(labels.get_slice_blocks(0, 25), expected_blocks)
 
-        for exported, expected in zip(
-            labels.get_slice_blocks(0, 25), expected_blocks, strict=False
-        ):
-            self.assertDictEqual(exported, expected)
+        # block frame numbers are relative to the slice start, and the slice end is inclusive
+        expected_blocks = [
+            {"start": 0, "end": 20, "present": True},
+            {"start": 170, "end": 190, "present": True},
+        ]
+        self.assertListEqual(labels.get_slice_blocks(80, 270), expected_blocks)
 
     def test_labeling_single_frame(self):
         """test labeling a single frame"""

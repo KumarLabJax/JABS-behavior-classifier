@@ -1,12 +1,17 @@
 """Tests for multi-class color utilities in jabs.ui.colors."""
 
+import itertools
+import math
+from collections.abc import Callable
+
 import numpy as np
 import pytest
+
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 
 try:
     from PySide6.QtGui import QColor
 
-    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
     from jabs.ui.colors import (
         BACKGROUND_COLOR,
         BEHAVIOR_COLOR,
@@ -38,32 +43,44 @@ def test_make_behavior_color_map_keys():
     assert set(result.keys()) == {"walk", "groom", "rear"}
 
 
-def test_make_behavior_color_map_distinct():
-    """All generated colors are visually distinct from each other."""
-    result = make_behavior_color_map(["walk", "groom", "rear", "eat"])
-    colors = [c.getRgb()[:3] for c in result.values()]
-    assert len(colors) == len(set(colors))
+# Smallest RGB distance (Euclidean, 0-255 channels) accepted between two colors a user has
+# to tell apart. With the palette's exclusion list intact the generated colors stay at least
+# 133.7 from each fixed UI color for 10 behaviors, and at least 127 from each other. With the
+# exclusion list emptied the closest approach to a fixed color falls to 89.8, so 100 separates
+# the two while leaving some room for a distinctipy version change.
+_MIN_COLOR_DISTANCE = 100.0
 
 
-def test_make_behavior_color_map_no_background_collision():
-    """Generated colors do not match the background gray."""
-    bg = BACKGROUND_COLOR.getRgb()[:3]
-    for color in make_behavior_color_map(["walk", "groom"]).values():
-        assert color.getRgb()[:3] != bg
+@pytest.mark.parametrize(
+    "behavior_count", [2, 4, 10], ids=["2-behaviors", "4-behaviors", "10-behaviors"]
+)
+def test_make_behavior_color_map_colors_are_far_from_each_other_and_the_fixed_colors(
+    behavior_count: int,
+) -> None:
+    """Generated colors stay visibly apart from each other and from the fixed UI colors.
 
+    The fixed colors are the background gray, the not-behavior blue and the behavior
+    orange. Exact RGB equality cannot catch a palette that drifts close to one of them, so
+    this checks distance instead.
 
-def test_make_behavior_color_map_no_not_behavior_collision():
-    """Generated colors do not match the not-behavior blue."""
-    nb = NOT_BEHAVIOR_COLOR.getRgb()[:3]
-    for color in make_behavior_color_map(["walk", "groom"]).values():
-        assert color.getRgb()[:3] != nb
+    Args:
+        behavior_count: Number of behaviors to generate colors for.
+    """
+    colors = make_behavior_color_map([f"behavior_{i}" for i in range(behavior_count)])
+    fixed_colors = {
+        "background": BACKGROUND_COLOR,
+        "not-behavior": NOT_BEHAVIOR_COLOR,
+        "behavior": BEHAVIOR_COLOR,
+    }
 
+    for name, color in colors.items():
+        for fixed_name, fixed_color in fixed_colors.items():
+            distance = math.dist(color.getRgb()[:3], fixed_color.getRgb()[:3])
+            assert distance >= _MIN_COLOR_DISTANCE, f"{name} is too close to {fixed_name}"
 
-def test_make_behavior_color_map_no_behavior_collision():
-    """Generated colors do not match the behavior orange."""
-    beh = BEHAVIOR_COLOR.getRgb()[:3]
-    for color in make_behavior_color_map(["walk", "groom"]).values():
-        assert color.getRgb()[:3] != beh
+    for (name_a, color_a), (name_b, color_b) in itertools.combinations(colors.items(), 2):
+        distance = math.dist(color_a.getRgb()[:3], color_b.getRgb()[:3])
+        assert distance >= _MIN_COLOR_DISTANCE, f"{name_a} is too close to {name_b}"
 
 
 def test_make_behavior_color_map_deterministic():
@@ -78,29 +95,19 @@ def test_make_behavior_color_map_single():
     assert "walk" in make_behavior_color_map(["walk"])
 
 
-def test_build_multiclass_color_lut_shape_no_behaviors():
-    """LUT with no behaviors has shape (2, 4): background + None."""
-    lut = build_multiclass_color_lut([], {})
-    assert lut.shape == (2, 4)
+@pytest.mark.parametrize(
+    ("behavior_names", "expected_rows"),
+    [([], 2), (["walk", "groom"], 4)],
+    ids=["no-behaviors", "two-behaviors"],
+)
+def test_build_multiclass_color_lut_layout(behavior_names: list[str], expected_rows: int) -> None:
+    """The LUT has N+2 RGBA rows: background at index 0, the None color at index 1."""
+    color_map = make_behavior_color_map(behavior_names)
+    lut = build_multiclass_color_lut(behavior_names, color_map)
+
+    assert lut.shape == (expected_rows, 4)
     assert lut.dtype == np.uint8
-
-
-def test_build_multiclass_color_lut_shape_with_behaviors():
-    """LUT shape is N+2 rows: background, None, plus one per behavior."""
-    color_map = make_behavior_color_map(["walk", "groom"])
-    lut = build_multiclass_color_lut(["walk", "groom"], color_map)
-    assert lut.shape == (4, 4)
-
-
-def test_build_multiclass_color_lut_index_0_background():
-    """Index 0 maps to the background color."""
-    lut = build_multiclass_color_lut([], {})
     assert tuple(lut[0]) == BACKGROUND_COLOR.getRgb()
-
-
-def test_build_multiclass_color_lut_index_1_not_behavior():
-    """Index 1 maps to the not-behavior (None) color."""
-    lut = build_multiclass_color_lut([], {})
     assert tuple(lut[1]) == NOT_BEHAVIOR_COLOR.getRgb()
 
 
@@ -112,28 +119,29 @@ def test_build_multiclass_color_lut_behavior_indices():
     assert tuple(lut[3]) == color_map["groom"].getRgb()
 
 
-def test_make_behavior_color_map_reserved_name_raises():
-    """Reserved MULTICLASS_NONE_BEHAVIOR name raises ValueError."""
-    with pytest.raises(ValueError, match="reserved"):
-        make_behavior_color_map([MULTICLASS_NONE_BEHAVIOR])
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda: make_behavior_color_map([MULTICLASS_NONE_BEHAVIOR]), "reserved"),
+        (lambda: make_behavior_color_map(["walk", "walk"]), "duplicate"),
+        (lambda: build_multiclass_color_lut([MULTICLASS_NONE_BEHAVIOR], {}), "reserved"),
+        (lambda: build_multiclass_color_lut(["walk", "walk"], {"walk": None}), "duplicate"),
+    ],
+    ids=[
+        "color-map-reserved-name",
+        "color-map-duplicate-names",
+        "lut-reserved-name",
+        "lut-duplicate-names",
+    ],
+)
+def test_invalid_behavior_names_raise_value_error(call: Callable[[], object], match: str) -> None:
+    """Both builders reject the reserved None behavior name and duplicate names.
 
-
-def test_make_behavior_color_map_duplicates_raises():
-    """Duplicate names in behavior_names raises ValueError."""
-    with pytest.raises(ValueError, match="duplicate"):
-        make_behavior_color_map(["walk", "walk"])
-
-
-def test_build_multiclass_color_lut_reserved_name_raises():
-    """Reserved MULTICLASS_NONE_BEHAVIOR name raises ValueError."""
-    with pytest.raises(ValueError, match="reserved"):
-        build_multiclass_color_lut([MULTICLASS_NONE_BEHAVIOR], {})
-
-
-def test_build_multiclass_color_lut_duplicates_raises():
-    """Duplicate names in behavior_names raises ValueError."""
-    with pytest.raises(ValueError, match="duplicate"):
-        build_multiclass_color_lut(["walk", "walk"], {"walk": None})
+    The calls are lambdas so that nothing needing Qt is evaluated when the
+    parametrization is collected.
+    """
+    with pytest.raises(ValueError, match=match):
+        call()
 
 
 def test_build_multiclass_color_lut_missing_key_raises():

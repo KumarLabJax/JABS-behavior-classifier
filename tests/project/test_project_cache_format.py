@@ -147,13 +147,31 @@ def test_clear_feature_cache_preserves_directory_structure(tmp_path: Path) -> No
     assert (project.feature_dir / "video_stem").exists()
 
 
-def test_clear_feature_cache_no_op_when_feature_dir_empty(tmp_path: Path) -> None:
-    """clear_feature_cache does not raise when the features directory has no cache files."""
-    project = _make_project(tmp_path)
+@pytest.mark.parametrize(
+    "feature_dir_exists",
+    [True, False],
+    ids=["empty-features-dir", "missing-features-dir"],
+)
+def test_clear_feature_cache_is_a_no_op_without_cache_files(
+    tmp_path: Path, feature_dir_exists: bool
+) -> None:
+    """clear_feature_cache neither fails nor changes anything when there is no cache.
 
-    # feature_dir is created by Project.__init__; it just has no identity subdirs yet
-    assert project.feature_dir.exists()
-    project.clear_feature_cache()  # should not raise
+    Args:
+        tmp_path: Temporary project directory.
+        feature_dir_exists: Whether the features directory is left in place (empty)
+            or removed before clearing.
+    """
+    project = _make_project(tmp_path)
+    if not feature_dir_exists:
+        # Project.__init__ creates the features directory empty
+        project.feature_dir.rmdir()
+
+    project.clear_feature_cache()
+
+    # the directory is neither created nor removed, and nothing appears inside it
+    assert project.feature_dir.exists() is feature_dir_exists
+    assert list(project.feature_dir.glob("*")) == []
 
 
 def test_clear_feature_cache_handles_pose_hash_layout(tmp_path: Path) -> None:

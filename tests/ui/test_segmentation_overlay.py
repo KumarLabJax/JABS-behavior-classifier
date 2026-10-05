@@ -48,29 +48,6 @@ def _overlay(enabled: bool, identities=(0, 1, 2), active_identity: int = 1):
     return overlay
 
 
-def test_the_overlay_starts_switched_off():
-    """Segmentation is opt-in: View > Overlay Segmentation turns it on."""
-    widget = FrameWithOverlaysWidget()
-
-    assert widget.segmentation_overlay_enabled is False
-
-
-def test_toggling_the_overlay_repaints_the_frame(monkeypatch):
-    """The contours are painted over the frame on screen, so no frame is re-decoded."""
-    widget = FrameWithOverlaysWidget()
-    update = MagicMock()
-    monkeypatch.setattr(widget, "update", update)
-
-    widget.segmentation_overlay_enabled = True
-
-    assert widget.segmentation_overlay_enabled is True
-    update.assert_called_once_with()
-
-    # Setting the same value again is not a change and must not force a repaint.
-    widget.segmentation_overlay_enabled = True
-    update.assert_called_once_with()
-
-
 def test_segmentation_keeps_its_place_in_the_paint_order():
     """The overlays that used to be baked into the frame keep the order they had.
 

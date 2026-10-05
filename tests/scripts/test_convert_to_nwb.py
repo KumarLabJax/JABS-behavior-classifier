@@ -47,13 +47,13 @@ def test_parse_z_suffix():
 
 def test_parse_naive_assumes_utc(caplog):
     """Test that naive datetime strings are assumed to be UTC and log a warning."""
-    import logging
-
     with caplog.at_level(logging.WARNING):
         dt = _parse_session_start_time("2024-03-15T10:30:00")
 
     assert dt.tzinfo == datetime.timezone.utc
-    assert "no timezone" in caplog.text.lower() or "utc" in caplog.text.lower()
+    # the warning has to say both what is wrong and what was assumed
+    assert "no timezone" in caplog.text.lower()
+    assert "utc" in caplog.text.lower()
 
 
 def test_parse_invalid_raises():
@@ -115,27 +115,32 @@ def _patch_conversion_internals(monkeypatch, pose_data=None):
     return save_mock
 
 
-def test_run_conversion_multisubject_forwarded(monkeypatch, tmp_path):
-    """run_conversion(multisubject=True) forwards multisubject=True to save()."""
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [({}, False), ({"multisubject": True}, True)],
+    ids=["default_per_identity", "multisubject"],
+)
+def test_run_conversion_forwards_multisubject(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kwargs: dict[str, bool], expected: bool
+) -> None:
+    """run_conversion forwards multisubject to save(), defaulting to per-identity (False).
+
+    Args:
+        monkeypatch: Pytest fixture used to patch the pose-loading and save boundaries.
+        tmp_path: Pytest temporary directory.
+        kwargs: Extra keyword arguments passed to run_conversion.
+        expected: The multisubject value save() is expected to receive.
+    """
     save_mock = _patch_conversion_internals(monkeypatch)
 
-    run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb", multisubject=True)
+    run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb", **kwargs)
 
     save_mock.assert_called_once()
-    assert save_mock.call_args.kwargs["multisubject"] is True
-
-
-def test_run_conversion_defaults_to_per_identity(monkeypatch, tmp_path):
-    """run_conversion defaults to multisubject=False (per-identity output)."""
-    save_mock = _patch_conversion_internals(monkeypatch)
-
-    run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb")
-
-    assert save_mock.call_args.kwargs["multisubject"] is False
+    assert save_mock.call_args.kwargs["multisubject"] is expected
 
 
 def test_run_conversion_rejects_invalid_subjects_before_saving(monkeypatch, tmp_path):
-    """Invalid subject metadata must abort before save(), leaving nothing on disk.
+    """Invalid subject metadata must abort before save() is called.
 
     Per-identity output writes one file per identity in a loop, so validating after
     the first write would leave a partial, unpublishable set behind.
@@ -148,7 +153,6 @@ def test_run_conversion_rejects_invalid_subjects_before_saving(monkeypatch, tmp_
         run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb")
 
     save_mock.assert_not_called()
-    assert list(tmp_path.glob("*.nwb")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -156,8 +160,22 @@ def test_run_conversion_rejects_invalid_subjects_before_saving(monkeypatch, tmp_
 # ---------------------------------------------------------------------------
 
 
-def test_cli_multisubject_flag_forwarded(monkeypatch, tmp_path):
-    """The --multisubject flag is forwarded to run_conversion."""
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [([], False), (["--multisubject"], True)],
+    ids=["default_per_identity", "multisubject"],
+)
+def test_cli_multisubject_flag_forwarded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, flag: list[str], expected: bool
+) -> None:
+    """--multisubject reaches run_conversion; without it the CLI requests per-identity output.
+
+    Args:
+        monkeypatch: Pytest fixture used to patch run_conversion.
+        tmp_path: Pytest temporary directory.
+        flag: Extra command-line arguments passed to convert-to-nwb.
+        expected: The multisubject value run_conversion is expected to receive.
+    """
     from jabs.scripts.cli.cli import cli
 
     run_mock = mock.Mock()
@@ -166,28 +184,10 @@ def test_cli_multisubject_flag_forwarded(monkeypatch, tmp_path):
     input_path.write_bytes(b"")  # must exist for click.Path(exists=True)
     output = tmp_path / "session.nwb"
 
-    result = CliRunner().invoke(
-        cli, ["convert-to-nwb", str(input_path), str(output), "--multisubject"]
-    )
+    result = CliRunner().invoke(cli, ["convert-to-nwb", str(input_path), str(output), *flag])
 
     assert result.exit_code == 0, result.output
-    assert run_mock.call_args.kwargs["multisubject"] is True
-
-
-def test_cli_defaults_to_per_identity(monkeypatch, tmp_path):
-    """Without --multisubject the CLI requests per-identity output (multisubject=False)."""
-    from jabs.scripts.cli.cli import cli
-
-    run_mock = mock.Mock()
-    monkeypatch.setattr("jabs.scripts.cli.cli.run_conversion", run_mock)
-    input_path = tmp_path / "session_pose_est_v6.h5"
-    input_path.write_bytes(b"")
-    output = tmp_path / "session.nwb"
-
-    result = CliRunner().invoke(cli, ["convert-to-nwb", str(input_path), str(output)])
-
-    assert result.exit_code == 0, result.output
-    assert run_mock.call_args.kwargs["multisubject"] is False
+    assert run_mock.call_args.kwargs["multisubject"] is expected
 
 
 def test_cli_per_identity_flag_removed(tmp_path):

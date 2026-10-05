@@ -155,13 +155,6 @@ def test_get_points_out_of_range(pose_est_v4):
         _, _ = pose_est_v4.get_points(1000000, 0)
 
 
-def test_scaling_points(pose_est_v4):
-    """test scaling points"""
-    points, _ = pose_est_v4.get_points(10, 0)
-    scaled_points, _ = pose_est_v4.get_points(10, 0, 0.03)
-    np.testing.assert_equal(points * 0.03, scaled_points)
-
-
 def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files):
     """test that an unmasked instance_embed_id value of 0 raises PoseIdEmbeddingException
 

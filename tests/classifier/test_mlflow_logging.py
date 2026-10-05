@@ -377,35 +377,48 @@ def test_archive_annotations_excludes_symlinked_file(
     assert "Skipped 1 symlinked entry" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("link_name", "points_outside"),
+    [
+        pytest.param("linked_dir", True, id="directory_outside_project"),
+        pytest.param("loop", False, id="self_referential_cycle"),
+    ],
+)
 def test_archive_annotations_excludes_symlinked_directory(
-    annotations_dir: Path, tmp_path: Path
+    annotations_dir: Path, tmp_path: Path, link_name: str, points_outside: bool
 ) -> None:
-    """A symlinked directory is not traversed, so files outside are not archived."""
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "secret.json").write_text('{"secret": true}')
-    (annotations_dir / "linked_dir").symlink_to(outside, target_is_directory=True)
+    """A symlinked directory is neither traversed nor archived.
+
+    A link to a directory outside the project must not pull that directory's
+    files into the upload; a self-referential link must neither hang the walk nor
+    land in the archive.
+
+    Args:
+        annotations_dir: Fixture annotations directory with three annotation files.
+        tmp_path: Pytest temporary directory.
+        link_name: Name of the symlink created inside the annotations directory.
+        points_outside: True to link to a directory outside the project holding a
+            secret file; False to link back to the annotations directory itself.
+    """
+    if points_outside:
+        target = tmp_path / "outside"
+        target.mkdir()
+        (target / "secret.json").write_text('{"secret": true}')
+    else:
+        target = annotations_dir
+    (annotations_dir / link_name).symlink_to(target, target_is_directory=True)
     output = tmp_path / "annotations.zip"
 
     assert archive_annotations(annotations_dir, output) == output
 
     with zipfile.ZipFile(output) as archive:
-        assert not any("secret" in name or "linked_dir" in name for name in archive.namelist())
-
-
-def test_archive_annotations_survives_symlink_cycle(annotations_dir: Path, tmp_path: Path) -> None:
-    """A self-referential symlink neither hangs the walk nor lands in the archive."""
-    (annotations_dir / "loop").symlink_to(annotations_dir, target_is_directory=True)
-    output = tmp_path / "annotations.zip"
-
-    assert archive_annotations(annotations_dir, output) == output
-
-    with zipfile.ZipFile(output) as archive:
-        assert sorted(archive.namelist()) == [
-            "annotations/archive/video3.json",
-            "annotations/video1.json",
-            "annotations/video2.json",
-        ]
+        names = sorted(archive.namelist())
+    assert not any("secret" in name or link_name in name for name in names)
+    assert names == [
+        "annotations/archive/video3.json",
+        "annotations/video1.json",
+        "annotations/video2.json",
+    ]
 
 
 # --------------------------------------------------------------------------- #

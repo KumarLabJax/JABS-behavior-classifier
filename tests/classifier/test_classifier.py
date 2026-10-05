@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.ensemble import RandomForestClassifier
 
 from jabs.classifier.classifier import Classifier
 from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
@@ -99,11 +100,6 @@ class TestClassifierInitialization:
         clf = Classifier(classifier=ClassifierType.XGBOOST)
         assert clf.classifier_type == ClassifierType.XGBOOST
 
-    def test_initialization_with_catboost(self):
-        """Test creating a classifier with CatBoost type."""
-        clf = Classifier(classifier=ClassifierType.CATBOOST)
-        assert clf.classifier_type == ClassifierType.CATBOOST
-
     def test_invalid_classifier_type_raises_error(self):
         """Test that invalid classifier type raises ValueError."""
         with (
@@ -117,34 +113,11 @@ class TestClassifierInitialization:
 class TestClassifierProperties:
     """Test Classifier properties."""
 
-    def test_classifier_name_property(self):
-        """Test classifier_name property returns correct name."""
-        clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)
-        assert clf.classifier_name == ClassifierType.RANDOM_FOREST.value
-
-    def test_behavior_name_property(self):
-        """Test behavior_name getter and setter."""
-        clf = Classifier()
-        assert clf.behavior_name is None
-
-        clf.behavior_name = "Grooming"
-        assert clf.behavior_name == "Grooming"
-
     def test_version_property(self):
         """Test version property returns correct version."""
         clf = Classifier()
         assert isinstance(clf.version, int)
         assert clf.version > 0
-
-    def test_classifier_file_property_unset(self):
-        """Test classifier_file property when not set."""
-        clf = Classifier()
-        assert clf.classifier_file is None
-
-    def test_classifier_hash_property_unset(self):
-        """Test classifier_hash property when not set."""
-        clf = Classifier()
-        assert clf.classifier_hash is None
 
     def test_project_settings_property(self):
         """Test project_settings property returns copy."""
@@ -159,11 +132,6 @@ class TestClassifierProperties:
         settings["test"] = "modified"
         assert clf._project_settings["test"] == "value"
 
-    def test_feature_names_property(self):
-        """Test feature_names property."""
-        clf = Classifier()
-        assert clf.feature_names is None
-
 
 class TestDataSplitting:
     """Test data splitting methods."""
@@ -177,8 +145,9 @@ class TestDataSplitting:
             Classifier.leave_one_group_out(per_frame, window, sample_labels, sample_groups)
         )
 
-        # Should generate at least one split
-        assert len(splits) > 0
+        # Both groups hold at least LABEL_THRESHOLD frames of each class, so
+        # each is a valid held-out group.
+        assert len(splits) == 2
 
         # Check first split structure
         split = splits[0]
@@ -194,8 +163,9 @@ class TestDataSplitting:
         max_groups = Classifier.get_leave_one_group_out_max(sample_labels, sample_groups)
 
         assert isinstance(max_groups, int | np.integer)
-        assert max_groups >= 0
-        assert max_groups <= len(np.unique(sample_groups))
+        # Both groups hold at least LABEL_THRESHOLD frames of each class (the
+        # seeded shuffle gives 30/20 and 20/30), so each is a valid test group.
+        assert max_groups == 2
 
 
 class TestDataAugmentation:
@@ -287,8 +257,16 @@ class TestClassifierTraining:
             "training_labels": imbalanced_labels,
         }
 
-        clf.train(data, random_seed=42)
+        with patch.object(
+            RandomForestClassifier, "fit", autospec=True, side_effect=RandomForestClassifier.fit
+        ) as fit_spy:
+            clf.train(data, random_seed=42)
+
         assert clf._classifier is not None
+        _, fit_features, fit_labels = fit_spy.call_args.args
+        # the 80/20 split is downsampled to the minority count in each class
+        assert len(fit_features) == 40
+        assert np.unique(fit_labels, return_counts=True)[1].tolist() == [20, 20]
 
     def test_train_with_symmetric_augmentation(self, sample_features, sample_labels, mock_project):
         """Test training with symmetric augmentation enabled."""
@@ -306,8 +284,16 @@ class TestClassifierTraining:
             "training_labels": sample_labels,
         }
 
-        clf.train(data, random_seed=42)
+        with patch.object(
+            RandomForestClassifier, "fit", autospec=True, side_effect=RandomForestClassifier.fit
+        ) as fit_spy:
+            clf.train(data, random_seed=42)
+
         assert clf._classifier is not None
+        _, fit_features, fit_labels = fit_spy.call_args.args
+        # augmentation appends a left/right reflected copy of every row
+        assert len(fit_features) == 2 * len(sample_features)
+        assert len(fit_labels) == 2 * len(sample_labels)
 
     def test_train_catboost(self, sample_features, sample_labels, mock_project):
         """Test training a CatBoost classifier."""
@@ -542,21 +528,25 @@ class TestClassifierSettings:
 
     def test_set_project_settings_with_behavior(self, mock_project):
         """Test setting project settings for specific behavior."""
+        behavior_settings = {"balance_labels": True, "symmetric_behavior": False}
+        mock_project.settings_manager.get_behavior.return_value = behavior_settings
         clf = Classifier()
         clf.behavior_name = "Grooming"
 
         clf.set_project_settings(mock_project)
 
-        assert clf.project_settings is not None
+        assert clf.project_settings == behavior_settings
         mock_project.settings_manager.get_behavior.assert_called_with("Grooming")
 
     def test_set_project_settings_without_behavior(self, mock_project):
         """Test setting project settings without behavior uses defaults."""
+        default_settings = {"balance_labels": False, "symmetric_behavior": True}
+        mock_project.get_project_defaults.return_value = default_settings
         clf = Classifier()
 
         clf.set_project_settings(mock_project)
 
-        assert clf.project_settings is not None
+        assert clf.project_settings == default_settings
         mock_project.get_project_defaults.assert_called_once()
 
     def test_set_project_settings_explicit_behavior_overrides_attribute(self, mock_project):
@@ -602,22 +592,6 @@ class TestClassifierChoices:
         assert ClassifierType.RANDOM_FOREST in choices
         assert ClassifierType.CATBOOST in choices
         assert all(isinstance(v, str) for v in choices.values())
-
-    def test_catboost_in_choices(self):
-        """Test that CatBoost is available in classifier choices."""
-        clf = Classifier()
-        choices = clf.classifier_choices()
-
-        assert ClassifierType.CATBOOST in choices
-        assert choices[ClassifierType.CATBOOST] == "CatBoost"
-
-    def test_set_classifier(self):
-        """Test changing classifier type."""
-        clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)
-
-        # Change to same type should work
-        clf.set_classifier(ClassifierType.RANDOM_FOREST)
-        assert clf.classifier_type == ClassifierType.RANDOM_FOREST
 
     def test_set_classifier_to_catboost(self):
         """Test switching to CatBoost classifier type."""
@@ -967,4 +941,5 @@ class TestFromTrainingFile:
             assert clf.classifier_type == ClassifierType.RANDOM_FOREST
             assert clf._classifier is not None
             assert clf.classifier_file == training_file_path.name
+            assert clf.classifier_hash == "mock_hash_value"
             assert clf._classifier_source == "training_file"

@@ -17,16 +17,13 @@ mock_pose_est.external_identities = None
 class TestVideoLabels(unittest.TestCase):
     """test project.video_labels.VideoLabels"""
 
-    def test_create(self):
-        """test initializing new VideoLabels"""
-        _ = VideoLabels("filename.avi", mock_pose_est)
-
     def test_getting_new_track(self):
-        """test initializing new VideoLabels"""
+        """a new track covers every frame of the video and starts with no labels"""
         labels = VideoLabels("filename.avi", 100)
         track = labels.get_track_labels("0", "behavior name")
 
-        for i in range(0, 99):
+        self.assertEqual(len(track.get_labels()), 100)
+        for i in range(100):
             self.assertEqual(track.get_frame_label(i), track.Label.NONE)
 
     def test_identity_must_be_string(self):
@@ -270,7 +267,8 @@ def test_multiclass_only_behavior_frames_labeled(empty_video_labels):
 
 
 def test_multiclass_identity_with_no_labels(empty_video_labels):
-    """An identity with no tracks returns an all-zero array."""
+    """An identity with no tracks returns an all-zero array, even if another identity has labels."""
+    empty_video_labels.get_track_labels("0", "walk").label_behavior(10, 20)
     result = empty_video_labels.build_multiclass_label_array("1", ["walk", "groom"])
     assert (result == 0).all()
 

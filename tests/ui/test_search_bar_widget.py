@@ -36,11 +36,21 @@ def test_compare_file_frame_vs_search_hit_after():
     assert _compare_file_frame_vs_search_hit(key, hit) == 1
 
 
-def test_compare_file_frame_vs_search_hit_overlap():
-    """Test that a frame within the hit returns 0."""
+@pytest.mark.parametrize(
+    ("frame_index", "expected"),
+    [(9, -1), (10, 0), (15, 0), (20, 0), (21, 1)],
+    ids=["just-before", "first-frame", "middle", "last-frame", "just-after"],
+)
+def test_compare_file_frame_vs_search_hit_overlap(frame_index: int, expected: int) -> None:
+    """A frame within the hit returns 0, and both end frames count as within it.
+
+    Args:
+        frame_index: Frame to compare against a hit spanning frames 10 to 20.
+        expected: Expected comparison result.
+    """
     hit = SearchHit(file="video1", identity="0", behavior=None, start_frame=10, end_frame=20)
-    key = {"video_name": "video1", "frame_index": 15}
-    assert _compare_file_frame_vs_search_hit(key, hit) == 0
+    key = {"video_name": "video1", "frame_index": frame_index}
+    assert _compare_file_frame_vs_search_hit(key, hit) == expected
 
 
 def test_compare_file_frame_vs_search_hit_different_video():

@@ -32,24 +32,33 @@ def qapp():
     yield app
 
 
-def test_default_label_button_color_is_orange() -> None:
-    """A freshly built control widget uses the default orange behavior tint."""
-    widget = MainControlWidget()
+def _assert_default_button_tint(widget: "MainControlWidget") -> None:
+    """Assert the Label Behavior button has the binary-mode default tint.
 
+    Args:
+        widget: Control widget whose Label Behavior button style to check.
+    """
     style = widget._label_behavior_button.styleSheet()
     assert f"rgba{BEHAVIOR_COLOR.getRgb()}" in style
     assert "color: white" in style
+    # the binary-mode default keeps grey disabled text
+    assert "color: grey" in style
 
 
-def test_set_behavior_button_color_none_restores_default() -> None:
-    """Passing None restores the default orange (binary-mode) tint."""
+def test_label_button_has_the_default_orange_tint_and_none_restores_it() -> None:
+    """A new widget starts with the default orange tint, and passing None restores it.
+
+    The constructor applies the default through ``set_behavior_button_color(None)``,
+    so both the freshly built widget and the restored one are checked.
+    """
     widget = MainControlWidget()
+
+    _assert_default_button_tint(widget)
 
     widget.set_behavior_button_color(QColor(10, 20, 30))
     widget.set_behavior_button_color(None)
 
-    style = widget._label_behavior_button.styleSheet()
-    assert f"rgba{BEHAVIOR_COLOR.getRgb()}" in style
+    _assert_default_button_tint(widget)
 
 
 def test_set_behavior_button_color_applies_behavior_color() -> None:
@@ -84,14 +93,6 @@ def test_set_behavior_button_color_disabled_text_contrasts() -> None:
     # light behavior color -> light disabled background -> dark disabled text
     widget.set_behavior_button_color(QColor(240, 240, 240))
     assert "color: #555555" in widget._label_behavior_button.styleSheet()
-
-
-def test_default_disabled_text_is_grey() -> None:
-    """Binary-mode default keeps grey disabled text (unchanged)."""
-    widget = MainControlWidget()
-
-    widget.set_behavior_button_color(None)
-    assert "color: grey" in widget._label_behavior_button.styleSheet()
 
 
 class _RejectedDialog:

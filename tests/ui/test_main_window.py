@@ -189,6 +189,14 @@ def test_start_feature_cache_scan_tracks_and_starts_the_thread(monkeypatch):
     thread.start.assert_called_once()
     assert stub._feature_cache_scan_thread is thread
 
+    # the results and the end of the scan reach the window's handlers, the latter with
+    # the thread that finished (so it can tell a superseded scan from the current one)
+    thread.scan_complete.connect.assert_called_once_with(stub._feature_cache_scan_complete)
+    thread.finished.connect.assert_called_once()
+    (on_finished,) = thread.finished.connect.call_args.args
+    on_finished()
+    stub._feature_cache_scan_finished.assert_called_once_with(thread)
+
 
 def test_refresh_starts_a_scan_when_none_is_running():
     """With no scan in flight, a refresh starts one immediately."""
@@ -328,37 +336,41 @@ def _feature_menu_stub(
     return stub, menu_refs
 
 
-def test_feature_menus_follow_the_projects_capabilities():
-    """Every feature the project's videos support is enabled; the rest are not."""
+@pytest.mark.parametrize(
+    ("is_cm_unit", "can_use_social", "can_use_segmentation", "static_objects"),
+    [
+        (True, True, True, {"corners"}),
+        (False, False, False, set()),
+        (True, False, False, {"lixit"}),
+        (False, True, False, set()),
+        (False, False, True, {"corners", "lixit"}),
+    ],
+    ids=["all-supported", "none-supported", "only-cm-units", "only-social", "only-segmentation"],
+)
+def test_feature_menus_follow_the_projects_capabilities(
+    is_cm_unit: bool,
+    can_use_social: bool,
+    can_use_segmentation: bool,
+    static_objects: set[str],
+) -> None:
+    """Every feature the project's videos support is enabled; the rest are not.
+
+    A project whose videos support nothing extra leaves every feature disabled. Each
+    menu item follows its own capability, which the cases that enable a single feature
+    check: with every flag equal, a menu item wired to another feature's flag would
+    still look right.
+    """
     stub, menu_refs = _feature_menu_stub(
-        is_cm_unit=True,
-        can_use_social=True,
-        can_use_segmentation=True,
-        static_objects={"corners"},
+        is_cm_unit=is_cm_unit,
+        can_use_social=can_use_social,
+        can_use_segmentation=can_use_segmentation,
+        static_objects=static_objects,
     )
 
     MainWindow.update_feature_availability_menus(stub)
 
-    menu_refs.enable_cm_units.setEnabled.assert_called_once_with(True)
-    menu_refs.enable_social_features.setEnabled.assert_called_once_with(True)
-    menu_refs.enable_segmentation_features.setEnabled.assert_called_once_with(True)
-    menu_refs.enable_landmark_features["corners"].setEnabled.assert_called_once_with(True)
-    menu_refs.enable_landmark_features["lixit"].setEnabled.assert_called_once_with(False)
-
-
-def test_feature_menus_disabled_for_an_unsupported_project():
-    """A project whose videos support nothing extra leaves every feature disabled."""
-    stub, menu_refs = _feature_menu_stub(
-        is_cm_unit=False,
-        can_use_social=False,
-        can_use_segmentation=False,
-        static_objects=set(),
-    )
-
-    MainWindow.update_feature_availability_menus(stub)
-
-    menu_refs.enable_cm_units.setEnabled.assert_called_once_with(False)
-    menu_refs.enable_social_features.setEnabled.assert_called_once_with(False)
-    menu_refs.enable_segmentation_features.setEnabled.assert_called_once_with(False)
-    menu_refs.enable_landmark_features["corners"].setEnabled.assert_called_once_with(False)
-    menu_refs.enable_landmark_features["lixit"].setEnabled.assert_called_once_with(False)
+    menu_refs.enable_cm_units.setEnabled.assert_called_once_with(is_cm_unit)
+    menu_refs.enable_social_features.setEnabled.assert_called_once_with(can_use_social)
+    menu_refs.enable_segmentation_features.setEnabled.assert_called_once_with(can_use_segmentation)
+    for landmark, menu_item in menu_refs.enable_landmark_features.items():
+        menu_item.setEnabled.assert_called_once_with(landmark in static_objects)

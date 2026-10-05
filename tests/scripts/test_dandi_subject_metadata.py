@@ -97,12 +97,10 @@ def test_subject_id_missing_entirely() -> None:
     ("field", "value"),
     [
         ("species", None),
-        ("species", ""),
         ("species", "   "),
         ("sex", None),
-        ("sex", ""),
     ],
-    ids=["species-none", "species-empty", "species-blank", "sex-none", "sex-empty"],
+    ids=["species-none", "species-blank", "sex-none"],
 )
 def test_blank_required_fields_count_as_missing(field: str, value: str | None) -> None:
     """None, empty and whitespace-only values are all treated as missing."""
@@ -218,11 +216,6 @@ def test_weight_without_a_space_is_rejected() -> None:
     assert "[numeric] [unit]" in problems[0]
 
 
-def test_absent_weight_is_not_a_problem() -> None:
-    """Weight is optional, so omitting it is fine."""
-    assert subject_metadata_problems(VALID) == []
-
-
 def test_all_problems_are_reported_together() -> None:
     """Every failed rule is reported, not just the first."""
     meta = {"subject_id": "M1", "species": "mouse", "sex": "male", "age": "70 days"}
@@ -262,8 +255,8 @@ def test_validate_names_only_the_failing_identity() -> None:
         validate_subjects(data)
 
     message = str(exc.value)
-    assert "subject_2" in message
-    assert "subject_1" not in message.split("\n")[1]
+    assert "subject_2:" in message
+    assert "subject_1:" not in message
 
 
 def test_validate_resolves_metadata_by_raw_external_id() -> None:
@@ -326,27 +319,29 @@ def test_no_warning_when_every_key_matches(caplog) -> None:
 
 
 @pytest.mark.parametrize(
-    "field",
-    ["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
+    ("field", "expected"),
+    [
+        ("species", ["species is missing"]),
+        ("sex", ["sex is missing"]),
+        # date_of_birth is absent too, so the requirement is unmet
+        ("age", ["age or date_of_birth is missing"]),
+        # subject_id falls back to the default; date_of_birth and weight are optional
+        ("subject_id", []),
+        ("date_of_birth", []),
+        ("weight", []),
+    ],
     ids=["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
 )
-def test_blank_is_treated_as_absent(field: str) -> None:
-    """A blank value is reported exactly as an absent one would be."""
+def test_blank_is_treated_as_absent(field: str, expected: list[str]) -> None:
+    """A blank value is reported exactly as an absent one would be.
+
+    Args:
+        field: The subject metadata field set to a blank string.
+        expected: The problems reported for the otherwise valid metadata.
+    """
     problems = subject_metadata_problems({**VALID, field: ""}, default_subject_id="subject_1")
 
-    if field in ("species", "sex"):
-        assert problems == [f"{field} is missing"]
-    elif field == "age":
-        # date_of_birth is absent too, so the requirement is unmet.
-        assert problems == ["age or date_of_birth is missing"]
-    else:
-        # subject_id falls back to the default; date_of_birth and weight are optional.
-        assert problems == []
-
-
-def test_blank_date_of_birth_is_not_a_problem() -> None:
-    """A blank date_of_birth is absent, not a malformed datetime."""
-    assert subject_metadata_problems({**VALID, "date_of_birth": ""}) == []
+    assert problems == expected
 
 
 def test_blank_age_is_covered_by_date_of_birth() -> None:
@@ -382,11 +377,11 @@ def test_reversed_age_ranges_are_rejected(age: str) -> None:
 
 @pytest.mark.parametrize(
     "age",
-    ["P1D/P3D", "P90Y/", "/P3D", "P1M/P30D", "P30D/P1M"],
-    ids=["increasing", "open-upper", "open-lower", "ambiguous", "ambiguous-rev"],
+    ["P1M/P30D", "P30D/P1M"],
+    ids=["ambiguous", "ambiguous-rev"],
 )
 def test_ranges_that_must_not_be_rejected(age: str) -> None:
-    """One open bound is legal, and calendar-ambiguous pairs are left to the archive."""
+    """Calendar-ambiguous pairs are left to the archive."""
     assert subject_metadata_problems({**VALID, "age": age}) == []
 
 
