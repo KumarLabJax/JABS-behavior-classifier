@@ -1,19 +1,24 @@
-"""NWB adapter for PoseData using ndx-pose."""
+"""NWB adapter for PoseData using ndx-pose and ndx-jabs."""
 
 from __future__ import annotations
 
+import collections
+import dataclasses
 import datetime
 import json
 import logging
 import re
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 
 try:
+    from hdmf.backends.hdf5 import H5DataIO
+    from ndx_jabs import ContourSeries
     from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
     from pynwb import NWBHDF5IO, NWBFile, TimeSeries
     from pynwb.core import ScratchData
@@ -35,7 +40,7 @@ except ImportError:
 
 from jabs.core.abstract.pose_est import PoseEstimation as _JABSPoseEstimation
 from jabs.core.enums import StorageFormat
-from jabs.core.types import DynamicObjectData, PoseData
+from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
 from jabs.io.base import Adapter
 from jabs.io.registry import register_adapter
 
@@ -75,11 +80,57 @@ _BOUNDING_BOXES_PREFIX = "jabs_bounding_boxes"
 _PROCESSING_MODULE_NAME = "behavior"
 _PROCESSING_MODULE_DESC = "JABS pose estimation data"
 _SKELETON_NAME = "subject"
+_CONTOUR_SERIES_PREFIX = "jabs_segmentation_contours"
+# Padding value for unused contour vertices and unused contour slots, matching what
+# JABS pose files use.
+_SEG_PADDING = -1
 _REFERENCE_FRAME = "Top-left corner of video frame, x increases rightward, y increases downward"
 _CONFIDENCE_DEFINITION = "0.0=invalid/missing keypoint, >0.0=valid keypoint"
 _DYNAMIC_CONFIDENCE_DEFINITION = (
     "1.0=valid object instance in this slot, 0.0=slot unoccupied at this prediction"
 )
+
+
+def _contour_series_key(identity_name: str) -> str:
+    """Return the data interface name for the segmentation contours of a given identity."""
+    return f"{_CONTOUR_SERIES_PREFIX}_{identity_name}"
+
+
+def _check_container_names(identity_names: Sequence[str], data: PoseData) -> None:
+    """Raise if two things written to the behavior module would share a name.
+
+    Identity containers, the identity mask, the per-identity bounding box and contour
+    series, and the object containers all live in one namespace. The derived names embed
+    the identity name, so an identity named ``jabs_segmentation_contours_mouse`` collides
+    with the contour series of the identity ``mouse``, and one named ``jabs_identity_mask``
+    collides with the mask. Only names that actually clash are rejected.
+
+    Args:
+        identity_names: Sanitized names of the identities written to this file.
+        data: The PoseData being written.
+
+    Raises:
+        ValueError: If any name would be used more than once in the behavior module.
+    """
+    names: list[str] = [
+        "Skeletons",
+        _IDENTITY_MASK_KEY,
+        *identity_names,
+        *(name for name, pts in data.static_objects.items() if pts.ndim == 2),
+        *data.dynamic_objects,
+    ]
+    if data.bounding_boxes is not None:
+        names.extend(_bounding_box_key(name) for name in identity_names)
+    if data.segmentation_data is not None:
+        names.extend(_contour_series_key(name) for name in identity_names)
+    duplicates = sorted(n for n, count in collections.Counter(names).items() if count > 1)
+    if duplicates:
+        raise ValueError(
+            f"These names would be used more than once in the NWB behavior module: "
+            f"{duplicates}. An identity or object name collides with a name JABS generates "
+            f"(for example '{_IDENTITY_MASK_KEY}' or "
+            f"'{_CONTOUR_SERIES_PREFIX}_<identity>'); rename it."
+        )
 
 
 def _bounding_box_key(identity_name: str) -> str:
@@ -108,6 +159,193 @@ def _bounding_box_description(identity_name: str) -> str:
     )
 
 
+def _stack_identity_datasets(
+    datasets: Sequence[Any], dtype: npt.DTypeLike | None = None
+) -> npt.NDArray[Any]:
+    """Stack one per-identity dataset into a single identity-first array.
+
+    ``np.stack`` on a list comprehension would hold every identity's array and the
+    combined array at the same time, which doubles the peak for the contour dataset -
+    the largest thing in the file. Filling a preallocated array one identity at a time
+    keeps only a single identity's slice alive alongside the result.
+
+    Args:
+        datasets: One per identity, all the same shape, in identity order. Each must
+            support ``[:]``, which covers both an h5py dataset and an ndarray.
+        dtype: dtype for the result. Defaults to the first dataset's own dtype, and each
+            identity is converted as it is assigned rather than in a second pass.
+
+    Returns:
+        An array of shape (len(datasets), *dataset_shape).
+    """
+    first = np.asarray(datasets[0][:])
+    if len(datasets) == 1:
+        # Per-identity files hold exactly one identity: add the axis as a view rather than
+        # allocating a second array as large as the one just read.
+        return first[np.newaxis] if dtype is None else first.astype(dtype, copy=False)[np.newaxis]
+    stacked = np.empty(
+        (len(datasets), *first.shape), dtype=first.dtype if dtype is None else dtype
+    )
+    stacked[0] = first
+    del first
+    for i, dataset in enumerate(datasets[1:], start=1):
+        stacked[i] = dataset[:]
+    return stacked
+
+
+class _SegmentationMerger:
+    """Assembles per-identity segmentation into one array, one identity at a time.
+
+    Contours can be gigabytes, so collecting every identity's array and then concatenating
+    them would peak at twice the final size. This writes each identity straight into a
+    destination allocated once, letting the caller release the identity's own array
+    afterward, so the peak is the final array plus one identity.
+
+    The producer sizes a pose file's contour array to the maxima it observed over that
+    whole video (see ``contour_capacity``/``point_capacity`` in JABS-pose's
+    ``video_pose.py``), so two files can legitimately pad to different numbers of contour
+    slots and vertices. The destination is sized from the first identity added and grown
+    (a one-off copy) if a later identity needs more, rather than assuming they line up.
+    ``vertex_counts`` stays authoritative, so slots added by padding read as unused.
+
+    Attributes:
+        complete: False once an identity without segmentation has been added.
+    """
+
+    def __init__(self, num_identities: int) -> None:
+        """Initialize an empty merger.
+
+        Args:
+            num_identities: Number of identities in the merged result.
+        """
+        self._num_identities = num_identities
+        self._contours: npt.NDArray[np.signedinteger[Any]] | None = None
+        self._vertex_counts: npt.NDArray[np.uint32] | None = None
+        self._is_external: npt.NDArray[np.bool_] | None = None
+        self._filled: set[int] = set()
+        self.complete = True
+
+    def add(self, slot: int, part: SegmentationData | None) -> None:
+        """Copy one identity's segmentation into its slot of the merged result.
+
+        Args:
+            slot: Position of the identity along the merged identity axis.
+            part: The identity's segmentation, with a leading identity axis of length 1,
+                or None if that identity has none. Segmentation is all-or-nothing in
+                PoseData, so one missing part discards the whole result.
+
+        Raises:
+            ValueError: If the slot is out of range or already filled, if the part does not
+                hold exactly one identity, or if its frame count differs from the
+                identities already added.
+        """
+        if not 0 <= slot < self._num_identities:
+            raise ValueError(f"identity slot {slot} is outside 0..{self._num_identities - 1}")
+        if slot in self._filled:
+            raise ValueError(f"duplicate identity slot {slot}")
+        self._filled.add(slot)
+        if part is None:
+            self.complete = False
+            self._contours = self._vertex_counts = self._is_external = None
+            return
+        if not self.complete:
+            return
+        if part.contours.shape[0] != 1:
+            raise ValueError(
+                f"expected one identity per file, got {part.contours.shape[0]} in segmentation"
+            )
+
+        _, n_frames, n_contours, n_vertices, _ = part.contours.shape
+        self._reserve(n_frames, n_contours, n_vertices, part.contours.dtype)
+        assert self._contours is not None
+        assert self._vertex_counts is not None
+        assert self._is_external is not None
+        self._contours[slot, :, :n_contours, :n_vertices] = part.contours[0]
+        self._vertex_counts[slot, :, :n_contours] = part.vertex_counts[0]
+        self._is_external[slot, :, :n_contours] = part.is_external[0]
+
+    def _reserve(
+        self, n_frames: int, n_contours: int, n_vertices: int, dtype: np.dtype[Any]
+    ) -> None:
+        """Make the destination large enough for an identity of the given shape."""
+        if self._contours is None:
+            self._contours = np.full(
+                (self._num_identities, n_frames, n_contours, n_vertices, 2),
+                _SEG_PADDING,
+                dtype=dtype,
+            )
+            self._vertex_counts = np.zeros(
+                (self._num_identities, n_frames, n_contours), dtype=np.uint32
+            )
+            self._is_external = np.zeros(
+                (self._num_identities, n_frames, n_contours), dtype=np.bool_
+            )
+            return
+
+        assert self._vertex_counts is not None
+        assert self._is_external is not None
+        _, cur_frames, cur_contours, cur_vertices, _ = self._contours.shape
+        if n_frames != cur_frames:
+            raise ValueError(
+                f"segmentation frame count mismatch between identity files: "
+                f"{n_frames} vs {cur_frames}"
+            )
+        new_dtype = np.promote_types(self._contours.dtype, dtype)
+        new_contours = max(cur_contours, n_contours)
+        new_vertices = max(cur_vertices, n_vertices)
+        if (new_contours, new_vertices, new_dtype) == (
+            cur_contours,
+            cur_vertices,
+            self._contours.dtype,
+        ):
+            return
+
+        grown = np.full(
+            (self._num_identities, cur_frames, new_contours, new_vertices, 2),
+            _SEG_PADDING,
+            dtype=new_dtype,
+        )
+        grown[:, :, :cur_contours, :cur_vertices] = self._contours
+        counts = np.zeros((self._num_identities, cur_frames, new_contours), dtype=np.uint32)
+        counts[:, :, :cur_contours] = self._vertex_counts
+        external = np.zeros((self._num_identities, cur_frames, new_contours), dtype=np.bool_)
+        external[:, :, :cur_contours] = self._is_external
+        self._contours, self._vertex_counts, self._is_external = grown, counts, external
+
+    def result(self) -> SegmentationData | None:
+        """Return the merged segmentation.
+
+        Returns:
+            The combined SegmentationData, or None if no identity was added or any
+            identity had none.
+        """
+        if not self.complete or self._contours is None:
+            return None
+        assert self._vertex_counts is not None
+        assert self._is_external is not None
+        return SegmentationData(
+            contours=self._contours,
+            vertex_counts=self._vertex_counts,
+            is_external=self._is_external,
+        )
+
+
+def _merge_segmentation(parts: list[SegmentationData | None]) -> SegmentationData | None:
+    """Concatenate per-identity segmentation along the identity axis.
+
+    Args:
+        parts: One SegmentationData per identity file, in identity order.
+
+    Returns:
+        The combined SegmentationData, or None if any part is missing. Segmentation is
+        all-or-nothing in PoseData, so a partial set cannot be represented.
+    """
+    merger = _SegmentationMerger(len(parts))
+    for slot, part in enumerate(parts):
+        merger.add(slot, part)
+    return merger.result()
+
+
 @register_adapter(StorageFormat.NWB, PoseData, priority=10)
 class PoseNWBAdapter(Adapter):
     """NWB adapter for PoseData."""
@@ -118,10 +356,10 @@ class PoseNWBAdapter(Adapter):
 
     @staticmethod
     def _require_nwb() -> None:
-        """Raise a clear ImportError if pynwb / ndx-pose are not installed."""
+        """Raise a clear ImportError if pynwb / ndx-pose / ndx-jabs are not installed."""
         if not _NWB_AVAILABLE:
             raise ImportError(
-                "pynwb and ndx-pose are required for NWB format support. "
+                "pynwb, ndx-pose and ndx-jabs are required for NWB format support. "
                 "Install with: pip install 'jabs-io[nwb]'"
             )
 
@@ -172,7 +410,7 @@ class PoseNWBAdapter(Adapter):
             save(pose_data, "session.nwb", multisubject=True)
             # → session.nwb  (all identities + SubjectsTable)
 
-        The NWB layout written by this adapter (ndx-pose 0.2)::
+        The NWB layout written by this adapter (ndx-pose 0.2, ndx-jabs 0.1)::
 
             acquisition/
               SubjectsTable           ← multisubject mode only: one row per subject
@@ -186,6 +424,7 @@ class PoseNWBAdapter(Adapter):
                 <obj_name>_0/         ← one PoseEstimationSeries per point
               jabs_identity_mask              ← TimeSeries, uint8 presence mask
               jabs_bounding_boxes_<identity>  ← TimeSeries per identity, optional (num_frames, 2, 2)
+              jabs_segmentation_contours_<identity>  ← ndx-jabs ContourSeries per identity, optional
             scratch/
               jabs_metadata           ← JSON: format_version, cm_per_pixel,
                                         identity_names, metadata, …
@@ -272,7 +511,14 @@ class PoseNWBAdapter(Adapter):
             return pose_data
 
         if jabs_meta.get("per_identity_files", False):
-            return self._read_merged(path, jabs_meta)
+            # Move this file's contours into the merger and drop them from pose_data, so
+            # the only live copy is the merger's and no reference outlives this call.
+            segmentation = _SegmentationMerger(jabs_meta["split_subject_count"])
+            segmentation.add(
+                jabs_meta.get("source_identity_index", 0), pose_data.segmentation_data
+            )
+            pose_data = dataclasses.replace(pose_data, segmentation_data=None)
+            return self._read_merged(path, jabs_meta, pose_data, segmentation)
 
         raise ValueError(
             f"{path} uses the legacy combined single-file NWB layout, which is no "
@@ -308,6 +554,7 @@ class PoseNWBAdapter(Adapter):
         identity_names = [self._identity_name(data, i) for i in range(num_identities)]
         if len(set(identity_names)) != len(identity_names):
             raise ValueError(f"Identity names are not unique after sanitization: {identity_names}")
+        _check_container_names(identity_names, data)
 
         nwbfile = self._make_nwb_file(**kwargs)
         nwbfile.add_acquisition(self._build_subjects_table(data, identity_names))
@@ -334,6 +581,8 @@ class PoseNWBAdapter(Adapter):
                 skeleton=skeleton,
             )
             behavior.add(pe)
+            if data.segmentation_data is not None:
+                behavior.add(self._build_contour_series(name, data.segmentation_data, i, data.fps))
 
         for obj_name, obj_skeleton in static_skeletons.items():
             behavior.add(
@@ -394,8 +643,15 @@ class PoseNWBAdapter(Adapter):
     def _write_per_identity(self, data: PoseData, path: Path, **kwargs) -> None:
         num_identities = data.points.shape[0]
         all_names = [self._identity_name(data, i) for i in range(num_identities)]
+        # Shared by every file of this write, so a reader can tell them from stale files
+        # left at the same stem by an earlier export.
+        write_set_id = uuid.uuid4().hex
         if len(set(all_names)) != len(all_names):
             raise ValueError(f"Identity names are not unique after sanitization: {all_names}")
+        # Check every file before writing the first, so a bad name cannot leave a
+        # partial set of per-identity files behind.
+        for name in all_names:
+            _check_container_names([name], data)
 
         for i in range(num_identities):
             identity_name = self._identity_name(data, i)
@@ -432,6 +688,10 @@ class PoseNWBAdapter(Adapter):
                 skeleton=skeleton,
             )
             behavior.add(pe)
+            if data.segmentation_data is not None:
+                behavior.add(
+                    self._build_contour_series(identity_name, data.segmentation_data, i, data.fps)
+                )
 
             for obj_name, obj_skeleton in static_skeletons.items():
                 behavior.add(
@@ -481,6 +741,7 @@ class PoseNWBAdapter(Adapter):
                 per_identity_files=True,
                 source_identity_index=i,
                 split_subject_count=num_identities,
+                write_set_id=write_set_id,
             )
             nwbfile.add_scratch(
                 ScratchData(
@@ -673,6 +934,20 @@ class PoseNWBAdapter(Adapter):
             static_object_names = jabs_meta.get("static_object_names", [])
             static_objects = self._read_static_objects(pe_containers, static_object_names)
 
+            # Read segmentation contours from the behavior module, where one ContourSeries
+            # per identity sits beside that identity's PoseEstimation. Files written before
+            # this field existed have no 'has_segmentation' key, and none of them carry
+            # contours either.
+            segmentation_data = None
+            if jabs_meta.get("has_segmentation", False):
+                segmentation_data = self._read_contour_series(behavior, ordered_names)
+                if segmentation_data is None:
+                    logger.warning(
+                        "NWB file %s claims segmentation but one or more identities have no "
+                        "ContourSeries; reading without it",
+                        path,
+                    )
+
         pose_data = PoseData(
             points=points,
             point_mask=point_mask,
@@ -682,6 +957,7 @@ class PoseNWBAdapter(Adapter):
             fps=int(fps_value),
             cm_per_pixel=cm_per_pixel,
             bounding_boxes=bounding_boxes,
+            segmentation_data=segmentation_data,
             static_objects=static_objects,
             dynamic_objects=dynamic_objects,
             external_ids=external_ids,
@@ -690,8 +966,55 @@ class PoseNWBAdapter(Adapter):
         )
         return pose_data, jabs_meta
 
-    def _read_merged(self, path: Path, jabs_meta: dict) -> PoseData:
-        """Auto-detect and merge sibling per-identity NWB files."""
+    @staticmethod
+    def _is_sibling(meta: dict, total: int, write_set_id: str | None) -> bool:
+        """Return whether a file's metadata says it belongs to the given per-identity set."""
+        return bool(
+            meta.get("per_identity_files")
+            and meta.get("split_subject_count") == total
+            and meta.get("write_set_id") == write_set_id
+        )
+
+    @staticmethod
+    def _read_jabs_metadata(path: Path) -> dict | None:
+        """Read only the ``jabs_metadata`` of an NWB file, leaving its datasets unread.
+
+        Args:
+            path: NWB file to inspect.
+
+        Returns:
+            The decoded metadata, or None if the file is unreadable or has none, which is
+            how a truncated or foreign file that merely matched a glob presents.
+        """
+        try:
+            with NWBHDF5IO(str(path), mode="r", load_namespaces=True) as io:
+                nwbfile = io.read()
+                return json.loads(str(nwbfile.scratch[_JABS_METADATA_KEY].data))
+        except (OSError, KeyError, ValueError) as exc:
+            logger.warning("Ignoring %s: cannot read jabs_metadata (%s)", path, exc)
+            return None
+
+    def _read_merged(
+        self,
+        path: Path,
+        jabs_meta: dict,
+        first_read: PoseData,
+        segmentation: _SegmentationMerger,
+    ) -> PoseData:
+        """Auto-detect and merge sibling per-identity NWB files.
+
+        Args:
+            path: The sibling file the caller opened.
+            jabs_meta: That file's ``jabs_metadata``.
+            first_read: The PoseData already read from ``path``, reused so the file is
+                not read a second time. Its segmentation must already have been moved
+                into ``segmentation`` and cleared.
+            segmentation: Merger already holding ``path``'s segmentation; the siblings'
+                are added to it as they are read.
+
+        Returns:
+            PoseData with all identities merged in their original order.
+        """
         total = jabs_meta["split_subject_count"]
         stem = path.stem
 
@@ -704,13 +1027,27 @@ class PoseNWBAdapter(Adapter):
         # jabs_metadata identifies them as belonging to this specific file set
         # (same base_stem and split_subject_count). This prevents stale files from
         # prior runs matching the glob pattern and producing extra identities.
+        #
+        # Segmentation is the one large payload, so each sibling's is copied into the
+        # merged array as soon as it is read and dropped from the sibling's PoseData,
+        # instead of every sibling's being held until the end.
+        # Files from before write_set_id existed carry none, and match on the count alone.
+        write_set_id = jabs_meta.get("write_set_id")
         candidates = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
         parts: list[tuple[int, PoseData, dict]] = []
         for sibling_path in candidates:
-            pd, meta = self._read_single(sibling_path)
-            if meta.get("per_identity_files") and meta.get("split_subject_count") == total:
-                idx = meta.get("source_identity_index", 0)
-                parts.append((idx, pd, meta))
+            if sibling_path == path:
+                pd, meta = first_read, jabs_meta
+            else:
+                # Check the metadata alone first: a stale match must be skipped without
+                # decompressing its contours, and without failing if it is unreadable.
+                meta = self._read_jabs_metadata(sibling_path)
+                if meta is None or not self._is_sibling(meta, total, write_set_id):
+                    continue
+                pd, _ = self._read_single(sibling_path)
+                segmentation.add(meta.get("source_identity_index", 0), pd.segmentation_data)
+                pd = dataclasses.replace(pd, segmentation_data=None)
+            parts.append((meta.get("source_identity_index", 0), pd, meta))
 
         if len(parts) != total:
             raise ValueError(
@@ -740,6 +1077,8 @@ class PoseNWBAdapter(Adapter):
         if all(pd.bounding_boxes is not None for pd in pose_datas):
             bounding_boxes = np.concatenate([pd.bounding_boxes for pd in pose_datas], axis=0)
 
+        segmentation_data = segmentation.result()
+
         # Recover external_ids and subjects from jabs_meta of the first file;
         # each per-identity file stores the full original values, so any file's meta will do.
         first_meta = parts[0][2]
@@ -755,6 +1094,7 @@ class PoseNWBAdapter(Adapter):
             fps=ref.fps,
             cm_per_pixel=ref.cm_per_pixel,
             bounding_boxes=bounding_boxes,
+            segmentation_data=segmentation_data,
             static_objects=ref.static_objects,
             dynamic_objects=ref.dynamic_objects,
             external_ids=external_ids,
@@ -976,6 +1316,101 @@ class PoseNWBAdapter(Adapter):
             description=f"Pose estimation for {name}",
             skeleton=skeleton,
             source_software="JABS",
+        )
+
+    @staticmethod
+    def _build_contour_series(
+        identity_name: str,
+        seg: SegmentationData,
+        index: int,
+        fps: int,
+    ) -> ContourSeries:  # type: ignore[valid-type]
+        """Build a ContourSeries holding one identity's segmentation contours.
+
+        The contour array is the largest dataset in the file by a wide margin and is
+        mostly padding, so it is written chunked and gzipped. That typically costs
+        a few percent of the raw size.
+
+        Args:
+            identity_name: Name of the identity these contours belong to.
+            seg: Segmentation for every identity.
+            index: Index of this identity in ``seg``.
+            fps: Frames per second of the source video.
+
+        Returns:
+            A ContourSeries for this identity.
+        """
+        contours = seg.contours[index]  # (num_frames, num_contours, num_vertices, 2)
+
+        # Chunk along the frame axis, targeting roughly 1 MiB per chunk so a reader
+        # pulling a frame range does not have to decompress the whole video.
+        bytes_per_frame = max(1, int(np.prod(contours.shape[1:])) * contours.dtype.itemsize)
+        frames_per_chunk = max(1, min(contours.shape[0], (1 << 20) // bytes_per_frame))
+
+        return ContourSeries(
+            name=_contour_series_key(identity_name),
+            data=H5DataIO(
+                data=contours,
+                chunks=(frames_per_chunk, *contours.shape[1:]),
+                compression="gzip",
+                compression_opts=4,
+            ),
+            vertex_count=seg.vertex_counts[index],
+            is_external=seg.is_external[index],
+            unit="pixels",
+            reference_frame=_REFERENCE_FRAME,
+            description=(
+                f"Instance segmentation contours for identity '{identity_name}', as polygon "
+                "outlines in (x, y) pixel coordinates. Only the first vertex_count vertices of "
+                "each contour slot are real; the rest is padding. is_external marks an outer "
+                "boundary True and a hole False."
+            ),
+            rate=float(fps),
+        )
+
+    @staticmethod
+    def _read_contour_series(
+        behavior: Any,
+        ordered_names: list[str],
+    ) -> SegmentationData | None:
+        """Rebuild SegmentationData from the ContourSeries of each identity.
+
+        Args:
+            behavior: The ``behavior`` processing module holding one ContourSeries per
+                identity, named by :func:`_contour_series_key`.
+            ordered_names: Identity names in PoseData order.
+
+        Returns:
+            A SegmentationData covering every identity, or None when any identity is
+            missing contours. Segmentation is all-or-nothing in PoseData, so a partial
+            set cannot be represented and is treated as absent.
+
+        Raises:
+            ValueError: If the identities disagree on the contour array shape, which
+                would mean the files were not written together.
+        """
+        series = []
+        for name in ordered_names:
+            key = _contour_series_key(name)
+            if key not in behavior.data_interfaces:
+                return None
+            series.append(behavior[key])
+
+        shapes = {tuple(s.data.shape) for s in series}
+        if len(shapes) != 1:
+            raise ValueError(
+                f"Identities disagree on segmentation contour shape: {sorted(shapes)}"
+            )
+
+        # Keep the contour dtype the file was written with rather than converting: the
+        # writer stores the pose file's own integer width, and a conversion here would
+        # copy the largest array in the file for nothing.
+        return SegmentationData(
+            contours=_stack_identity_datasets([s.data for s in series]),
+            vertex_counts=_stack_identity_datasets(
+                [s.vertex_count for s in series], dtype=np.uint32
+            ),
+            is_external=_stack_identity_datasets([s.is_external for s in series], dtype=bool),
         )
 
     @staticmethod
@@ -1241,6 +1676,7 @@ class PoseNWBAdapter(Adapter):
             "subjects": data.subjects,
             "metadata": data.metadata,
         }
+        meta["has_segmentation"] = data.segmentation_data is not None
         if data.static_objects:
             meta["static_object_names"] = list(data.static_objects.keys())
         if data.dynamic_objects:
