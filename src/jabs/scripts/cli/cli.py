@@ -322,9 +322,10 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
 @click.option(
     "--behavior",
     type=str,
-    required=True,
-    help="Behavior to perform cross-validation on (required). Can be quoted if it contains spaces. "
-    "Must match an existing behavior in the project.",
+    default=None,
+    help="Behavior to perform cross-validation on. Required for binary projects; can be quoted "
+    "if it contains spaces and must match an existing behavior in the project. Ignored for "
+    "multi-class projects, which cross-validate all behaviors together.",
 )
 @click.option(
     "--grouping-strategy",
@@ -395,7 +396,8 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     metavar="NAME",
     help="With --mlflow, the MLflow experiment to log the run under. If not provided, "
     "defaults to the MLFLOW_EXPERIMENT_NAME environment variable, else 'jabs-<behavior>' "
-    "(one experiment per behavior). No-op without --mlflow.",
+    "(one experiment per behavior, or 'jabs-multiclass' for multi-class projects). "
+    "No-op without --mlflow.",
 )
 @click.option(
     "--mlflow-tag",
@@ -422,7 +424,7 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
 def cross_validation(
     ctx: click.Context,
     directory: Path,
-    behavior: str,
+    behavior: str | None,
     k: int,
     grouping_strategy: str | None,
     grouping_pattern: str | None,

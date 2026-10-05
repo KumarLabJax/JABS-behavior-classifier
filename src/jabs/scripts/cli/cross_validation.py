@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.table import Table
@@ -13,7 +14,10 @@ from jabs.classifier import (
     Classifier,
     CrossValidationResult,
     MlflowLoggingError,
+    MultiClassClassifier,
+    MultiClassCVResult,
     TrainingReportData,
+    classifier_utils,
     enabled_stage_configs,
     log_cross_validation_to_mlflow,
     postprocessed_results,
@@ -21,10 +25,136 @@ from jabs.classifier import (
     save_training_report,
 )
 from jabs.core.constants import FINAL_TRAIN_SEED
-from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.core.enums import (
+    ClassifierMode,
+    ClassifierType,
+    CrossValidationGroupingStrategy,
+    ProjectDistanceUnit,
+)
 from jabs.project import Project
 
 N_JOBS = 4
+
+# Multi-class cross-validation covers every behavior at once, so reports and MLflow
+# runs are named for the mode rather than for a single behavior.
+MULTICLASS_REPORT_NAME = "multiclass"
+
+
+def _included_row_mask(features: dict) -> npt.NDArray[np.bool_] | None:
+    """Select the feature rows whose group is not excluded from training.
+
+    Videos excluded from training still appear in ``features`` so they can serve as
+    held-out cross-validation groups, but the final model must not train on them.
+
+    Args:
+        features: Feature payload from ``Project.get_multiclass_labeled_features``.
+
+    Returns:
+        A boolean mask aligned to the feature rows, or None when no group is excluded.
+    """
+    excluded = features.get("excluded_groups")
+    if not excluded:
+        return None
+    return ~np.isin(features["groups"], list(excluded))
+
+
+def _max_multiclass_splits(classifier: MultiClassClassifier, features: dict) -> int:
+    """Count the valid leave-one-group-out splits for multi-class features.
+
+    Args:
+        classifier: Multi-class classifier the splits are validated against.
+        features: Feature payload from ``Project.get_multiclass_labeled_features``.
+
+    Returns:
+        Number of groups that can serve as a valid test split.
+    """
+    labels_by_behavior = features["labels_by_behavior"]
+    if not labels_by_behavior:
+        return 0
+    labels, _ = classifier_utils.merge_labels(labels_by_behavior, classifier.behavior_names)
+    return classifier.get_leave_one_group_out_max(
+        labels, features["groups"], features.get("excluded_groups")
+    )
+
+
+def _train_final_multiclass(
+    classifier: MultiClassClassifier,
+    features: dict,
+    settings: dict,
+) -> list[tuple[str, float]]:
+    """Train the multi-class classifier on all included labeled data.
+
+    Args:
+        classifier: Multi-class classifier to train in place.
+        features: Feature payload from ``Project.get_multiclass_labeled_features``.
+        settings: Effective training settings (window size, balancing, ...).
+
+    Returns:
+        The classifier's top 10 ``(feature name, importance)`` pairs.
+    """
+    mask = _included_row_mask(features)
+    per_frame = features["per_frame"]
+    window = features["window"]
+    labels_by_behavior = features["labels_by_behavior"]
+    if mask is not None:
+        per_frame = per_frame[mask].reset_index(drop=True)
+        window = window[mask].reset_index(drop=True)
+        labels_by_behavior = {name: arr[mask] for name, arr in labels_by_behavior.items()}
+
+    # cross-validation folds pass the settings in their payload; a run with no valid
+    # splits reaches the final fit without having used them
+    classifier.set_dict_settings(settings)
+    feature_names = classifier.combine_data(per_frame, window).columns.to_list()
+    classifier.train(
+        {
+            "per_frame": per_frame,
+            "window": window,
+            "labels_by_behavior": labels_by_behavior,
+            "settings": settings,
+            "feature_names": feature_names,
+        },
+        random_seed=FINAL_TRAIN_SEED,
+    )
+    return classifier.get_feature_importance(limit=10)
+
+
+def _multiclass_class_counts(
+    project: Project,
+    classifier: MultiClassClassifier,
+    features: dict,
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Count labeled frames and bouts per class over the videos trained on.
+
+    Args:
+        project: Project the labels come from.
+        classifier: Multi-class classifier supplying the ordered class names.
+        features: Feature payload from ``Project.get_multiclass_labeled_features``.
+
+    Returns:
+        ``(frame counts, bout counts)``, each keyed by class name (including the
+        reserved None class).
+    """
+    class_names = classifier.get_class_names()
+    mask = _included_row_mask(features)
+    labels_by_behavior = features["labels_by_behavior"]
+    if mask is not None:
+        labels_by_behavior = {name: arr[mask] for name, arr in labels_by_behavior.items()}
+    merged_labels, _ = classifier_utils.merge_labels(labels_by_behavior, classifier.behavior_names)
+    frame_counts = {
+        name: int(np.sum(merged_labels == class_idx)) for class_idx, name in enumerate(class_names)
+    }
+
+    settings_manager = project.settings_manager
+    bout_counts: dict[str, int] = {}
+    for class_name in class_names:
+        bouts = 0
+        for video, video_counts in project.counts(class_name).items():
+            if settings_manager.is_video_excluded(video):
+                continue
+            for identity_counts in video_counts.values():
+                bouts += identity_counts["unfragmented_bout_counts"][0]
+        bout_counts[class_name] = bouts
+    return frame_counts, bout_counts
 
 
 def _print_consistency_warnings(console: Console, cv_results: list[CrossValidationResult]) -> None:
@@ -45,9 +175,43 @@ def _print_consistency_warnings(console: Console, cv_results: list[CrossValidati
             )
 
 
+def _print_multiclass_results(console: Console, cv_results: list[CrossValidationResult]) -> None:
+    """Print the per-iteration table for multi-class cross-validation.
+
+    Columns match the multi-class table in the training report.
+
+    Args:
+        console: Rich console to print to.
+        cv_results: Cross-validation iteration results. Does nothing when empty.
+    """
+    if not cv_results:
+        return
+    table = Table(title="Cross-Validation Results")
+    table.add_column("Iter", justify="center")
+    table.add_column("Accuracy", justify="right")
+    table.add_column("Precision\n(Macro)", justify="right")
+    table.add_column("Recall\n(Macro)", justify="right")
+    table.add_column("F1\n(Macro)", justify="right")
+    table.add_column("F1\n(Micro)", justify="right")
+    table.add_column("Test Group", justify="left")
+    for cv in cv_results:
+        if not isinstance(cv, MultiClassCVResult):
+            continue
+        table.add_row(
+            str(cv.iteration),
+            f"{cv.accuracy:.3f}",
+            f"{cv.precision_macro:.3f}",
+            f"{cv.recall_macro:.3f}",
+            f"{cv.f1_macro:.3f}",
+            f"{cv.f1_micro:.3f}",
+            str(cv.test_label),
+        )
+    console.print(table)
+
+
 def run_cross_validation(
     project_dir: Path,
-    behavior: str,
+    behavior: str | None,
     classifier_type: ClassifierType,
     grouping_strategy: CrossValidationGroupingStrategy | None,
     k: int,
@@ -63,11 +227,14 @@ def run_cross_validation(
 ) -> None:
     """Run cross-validation for a JABS project from the command line.
 
-    Prints results to the console and saves a training report markdown file.
+    Prints results to the console and saves a training report markdown file. A binary
+    project is cross-validated for one behavior; a multi-class project is cross-validated
+    for all of its behaviors together, as the GUI does.
 
     Args:
         project_dir (Path): Path to the JABS project directory.
-        behavior (str): Behavior label to perform cross-validation on.
+        behavior (str | None): Behavior label to perform cross-validation on. Required for
+          binary projects. Ignored (with a warning) for multi-class projects.
         classifier_type (ClassifierType): Classifier type to use.
         grouping_strategy (CrossValidationGroupingStrategy): Grouping strategy for cross-validation.
           If None, uses project settings.
@@ -81,6 +248,7 @@ def run_cross_validation(
           behavior's prediction postprocessing pipeline applied. This re-predicts each
           held-out group's full tracks, so it costs roughly one classification pass over
           the labeled identities. If None, uses the behavior's saved project setting.
+          Binary projects only; multi-class projects skip it (with a warning if True).
         mlflow_enabled (bool): If True, push the cross-validation results to MLflow
           after the report is saved. Callers should only enable this when the optional
           'mlflow' dependency is installed (the CLI checks this and fails fast with an
@@ -116,18 +284,51 @@ def run_cross_validation(
     # load the project
     project = Project(project_dir, enable_session_tracker=False)
 
-    # validate the behavior
-    if behavior not in project.settings_manager.behavior_names:
-        raise ValueError(f"The specified behavior '{behavior}' is not found in the project.")
-
-    classifier = Classifier(classifier=classifier_type, n_jobs=N_JOBS)
-
-    # None means "use the behavior's saved setting", matching how the grouping
-    # strategy and pattern overrides work.
-    if evaluate_postprocessing is None:
-        evaluate_postprocessing = project.settings_manager.evaluate_postprocessing_in_cv(behavior)
-
     console = Console()
+    is_multiclass = project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+    classifier: Classifier | MultiClassClassifier
+    settings: dict
+
+    if is_multiclass:
+        behavior_names = list(project.settings_manager.behavior_names)
+        if not behavior_names:
+            raise ValueError(
+                "The project has no behaviors defined, so there is nothing to classify."
+            )
+        if behavior is not None:
+            console.print(
+                "[yellow]Warning:[/yellow] --behavior is ignored for multi-class projects; "
+                "all behaviors are cross-validated together."
+            )
+        if evaluate_postprocessing:
+            console.print(
+                "[yellow]Warning:[/yellow] postprocessing evaluation is not supported for "
+                "multi-class projects and will be skipped."
+            )
+        # prediction postprocessing is binary-only
+        evaluate_postprocessing = False
+        report_name = MULTICLASS_REPORT_NAME
+        classifier = MultiClassClassifier(
+            behavior_names, classifier_type=classifier_type, n_jobs=N_JOBS
+        )
+        settings = classifier.project_settings or project.get_project_defaults()
+    else:
+        if behavior is None:
+            raise ValueError("--behavior is required for a binary classifier project.")
+        # validate the behavior
+        if behavior not in project.settings_manager.behavior_names:
+            raise ValueError(f"The specified behavior '{behavior}' is not found in the project.")
+        report_name = behavior
+        classifier = Classifier(classifier=classifier_type, n_jobs=N_JOBS)
+        settings = project.settings_manager.get_behavior(behavior)
+
+        # None means "use the behavior's saved setting", matching how the grouping
+        # strategy and pattern overrides work.
+        if evaluate_postprocessing is None:
+            evaluate_postprocessing = project.settings_manager.evaluate_postprocessing_in_cv(
+                behavior
+            )
+
     status_message = "Starting cross-validation..."
     progress = Progress(
         TextColumn("{task.description}"),
@@ -156,28 +357,38 @@ def run_cross_validation(
     t0_ns = time.perf_counter_ns()
 
     with console.status("Extracting features for labeled frames...", spinner="dots"):
-        features, group_mapping = project.get_labeled_features(
-            behavior,
-            grouping_strategy=grouping_strategy,
-            grouping_regex=grouping_regex,
-        )
+        if is_multiclass:
+            features, group_mapping = project.get_multiclass_labeled_features(
+                grouping_strategy=grouping_strategy,
+                grouping_regex=grouping_regex,
+                behavior_settings=settings,
+            )
+        else:
+            features, group_mapping = project.get_labeled_features(
+                behavior,
+                grouping_strategy=grouping_strategy,
+                grouping_regex=grouping_regex,
+            )
 
     with progress:
         if k == 0:
             # k=0 means "as many splits as the data supports" here, so a maximum of
             # zero is not a request for no cross-validation - it is a failure to find
             # any, which run_leave_one_group_out_cv would not warn about.
-            k = classifier.get_leave_one_group_out_max(features["labels"], features["groups"])
+            if is_multiclass:
+                k = _max_multiclass_splits(classifier, features)
+            else:
+                k = classifier.get_leave_one_group_out_max(features["labels"], features["groups"])
             if k == 0:
                 warning_callback(NO_VALID_SPLITS_WARNING)
 
-        task_id = progress.add_task(f"Cross-validation ({behavior})", total=k)
+        task_id = progress.add_task(f"Cross-validation ({report_name})", total=k)
         cv_results = run_leave_one_group_out_cv(
             classifier=classifier,
             project=project,
             features=features,
             group_mapping=group_mapping,
-            behavior=behavior,
+            behavior=report_name,
             k=k,
             status_callback=status_callback,
             progress_callback=progress_callback,
@@ -189,7 +400,9 @@ def run_cross_validation(
         console.print(f"[yellow]Warning:[/yellow] {cv_warning}")
 
     # Print Rich table of results
-    if cv_results:
+    if is_multiclass:
+        _print_multiclass_results(console, cv_results)
+    elif cv_results:
         # same predicate the markdown and JSON reports use, so the three
         # surfaces cannot disagree about which iterations have these metrics
         show_postprocessed = bool(postprocessed_results(cv_results))
@@ -235,22 +448,26 @@ def run_cross_validation(
     with console.status(
         "Training final model on all labeled data for feature importance...", spinner="dots"
     ):
-        features, _ = project.get_labeled_features(behavior)
-        full_dataset = classifier.combine_data(features["per_frame"], features["window"])
-        feature_names = full_dataset.columns.to_list()
-        # cross-validation folds set these as a side effect, but a run with no
-        # valid splits reaches the final fit without them
-        classifier.behavior_name = behavior
-        classifier.set_project_settings(project, behavior)
-        classifier.train(
-            {
-                "training_data": full_dataset,
-                "training_labels": features["labels"],
-                "feature_names": feature_names,
-            },
-            random_seed=FINAL_TRAIN_SEED,
-        )
-        final_top_features = classifier.get_feature_importance(limit=10)
+        if is_multiclass:
+            # the features collected for cross-validation already cover every behavior
+            final_top_features = _train_final_multiclass(classifier, features, settings)
+        else:
+            features, _ = project.get_labeled_features(behavior)
+            full_dataset = classifier.combine_data(features["per_frame"], features["window"])
+            feature_names = full_dataset.columns.to_list()
+            # cross-validation folds set these as a side effect, but a run with no
+            # valid splits reaches the final fit without them
+            classifier.behavior_name = behavior
+            classifier.set_project_settings(project, behavior)
+            classifier.train(
+                {
+                    "training_data": full_dataset,
+                    "training_labels": features["labels"],
+                    "feature_names": feature_names,
+                },
+                random_seed=FINAL_TRAIN_SEED,
+            )
+            final_top_features = classifier.get_feature_importance(limit=10)
 
     # output final top features
     console.print("\nTop 10 Features from Final Model Trained on All Data:")
@@ -265,21 +482,29 @@ def run_cross_validation(
     # Prepare training report
     elapsed_ms = int((time.perf_counter_ns() - t0_ns) // 1_000_000)
 
-    # get bout counts
     behavior_bouts = 0
     not_behavior_bouts = 0
-    for _video, video_counts in project.counts(behavior).items():
-        for _identity, counts in video_counts.items():
-            behavior_bouts += counts["unfragmented_bout_counts"][0]
-            not_behavior_bouts += counts["unfragmented_bout_counts"][1]
+    behavior_count = 0
+    not_behavior_count = 0
+    class_frame_counts: dict[str, int] | None = None
+    class_bout_counts: dict[str, int] | None = None
+    if is_multiclass:
+        class_frame_counts, class_bout_counts = _multiclass_class_counts(
+            project, classifier, features
+        )
+    else:
+        # get bout counts
+        for _video, video_counts in project.counts(behavior).items():
+            for _identity, counts in video_counts.items():
+                behavior_bouts += counts["unfragmented_bout_counts"][0]
+                not_behavior_bouts += counts["unfragmented_bout_counts"][1]
 
-    # get labeled frame counts
-    behavior_count = int(np.sum(features["labels"] == 1))
-    not_behavior_count = int(np.sum(features["labels"] == 0))
+        # get labeled frame counts
+        behavior_count = int(np.sum(features["labels"] == 1))
+        not_behavior_count = int(np.sum(features["labels"] == 0))
 
     unit = "cm" if project.feature_manager.distance_unit == ProjectDistanceUnit.CM else "pixel"
     report_timestamp = datetime.now()
-    behavior_settings = project.settings_manager.get_behavior(behavior)
 
     # resolve the grouping strategy/regex actually used so the report reflects any
     # command-line overrides rather than the project's saved settings.
@@ -294,10 +519,10 @@ def run_cross_validation(
         else project.settings_manager.cv_grouping_regex
     )
     training_data = TrainingReportData(
-        behavior_name=behavior,
+        behavior_name=report_name,
         classifier_type=classifier.classifier_name,
-        balance_training_labels=behavior_settings.get("balance_labels", False),
-        symmetric_behavior=behavior_settings.get("symmetric_behavior", False),
+        balance_training_labels=settings.get("balance_labels", False),
+        symmetric_behavior=settings.get("symmetric_behavior", False),
         distance_unit=unit,
         cv_results=cv_results,
         cv_warning=cv_warning,
@@ -306,9 +531,11 @@ def run_cross_validation(
         frames_not_behavior=not_behavior_count,
         bouts_behavior=behavior_bouts,
         bouts_not_behavior=not_behavior_bouts,
+        class_frame_counts=class_frame_counts,
+        class_bout_counts=class_bout_counts,
         training_time_ms=elapsed_ms,
         timestamp=report_timestamp,
-        window_size=behavior_settings["window_size"],
+        window_size=settings["window_size"],
         cv_grouping_strategy=effective_grouping_strategy,
         cv_grouping_regex=(
             effective_grouping_regex
@@ -326,7 +553,7 @@ def run_cross_validation(
     if report_file is None:
         # no filename specified, generate default
         timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
-        report_file = Path(f"{behavior}_{timestamp_str}_training_report.md")
+        report_file = Path(f"{report_name}_{timestamp_str}_training_report.md")
 
     save_training_report(training_data, report_file)
     console.print(f"\nTraining report saved to: {report_file}", style="bold green")
