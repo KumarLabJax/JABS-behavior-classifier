@@ -750,7 +750,7 @@ MLFLOW_TRACKING_PASSWORD=hunter2
 
 #### Selecting the experiment
 
-Each behavior is logged to its **own experiment** by default, named `jabs-<behavior>` (for example `jabs-grooming`). This keeps comparisons meaningful: an experiment's runs table is effectively a leaderboard, and you want to rank runs of the *same* behavior over time rather than mix behaviors, whose metrics are not comparable. The experiment is created automatically if it does not exist. A multi-class project cross-validates all behaviors together, so its runs go to `jabs-multiclass`.
+Each behavior is logged to its **own experiment** by default, named `jabs-<behavior>` (for example `jabs-grooming`). This keeps comparisons meaningful: an experiment's runs table is effectively a leaderboard, and you want to rank runs of the *same* behavior over time rather than mix behaviors, whose metrics are not comparable. The experiment is created automatically if it does not exist. A multi-class project cross-validates all behaviors together, so its experiment is named for the whole set of behaviors joined with `+` (for example `jabs-Walk+Run`); projects with different behavior sets get different experiments.
 
 To override the experiment name, in order of precedence:
 

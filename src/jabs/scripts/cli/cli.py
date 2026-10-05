@@ -396,7 +396,8 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     metavar="NAME",
     help="With --mlflow, the MLflow experiment to log the run under. If not provided, "
     "defaults to the MLFLOW_EXPERIMENT_NAME environment variable, else 'jabs-<behavior>' "
-    "(one experiment per behavior, or 'jabs-multiclass' for multi-class projects). "
+    "(one experiment per behavior, or per behavior set for multi-class projects, "
+    "e.g. 'jabs-Walk+Run'). "
     "No-op without --mlflow.",
 )
 @click.option(

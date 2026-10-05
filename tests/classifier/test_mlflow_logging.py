@@ -429,12 +429,12 @@ def test_default_run_name_multiclass_combines_behaviors(
     assert default_run_name(report) == "Walk+Run-cv-20260623-120000"
 
 
-def test_multiclass_run_logged_under_combined_name(
+def test_multiclass_run_and_experiment_logged_under_combined_name(
     binary_report: TrainingReportData,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The combined name is what reaches MLflow when no explicit run name is given."""
+    """The combined behaviors name both the run and the experiment by default."""
     fake = _FakeMlflow()
     monkeypatch.setitem(sys.modules, "mlflow", fake)
     monkeypatch.delenv("MLFLOW_EXPERIMENT_NAME", raising=False)
@@ -449,7 +449,7 @@ def test_multiclass_run_logged_under_combined_name(
     log_cross_validation_to_mlflow(report_data=report, report_file=report_file)
 
     assert fake.run_name == "Walk+Run-cv-20260623-120000"
-    assert fake.experiment == "jabs-multiclass"
+    assert fake.experiment == "jabs-Walk+Run"
 
 
 # --------------------------------------------------------------------------- #
