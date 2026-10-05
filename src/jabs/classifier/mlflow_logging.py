@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+
 from .training_report import BinaryCVResult, MultiClassCVResult
 
 if TYPE_CHECKING:
@@ -320,19 +322,51 @@ def build_tags(report_data: TrainingReportData) -> dict[str, str]:
     return {key: value for key, value in tags.items() if value}
 
 
+def _behavior_label(report_data: TrainingReportData) -> str:
+    """Name the behavior(s) a cross-validation run covers.
+
+    A binary run covers one behavior. A multi-class run covers several at once, so
+    its label joins all of them with ``+`` (the None class is left out).
+
+    Args:
+        report_data: Completed training report data.
+
+    Returns:
+        The behavior name, or the ``+``-joined behavior names for multi-class.
+    """
+    if report_data.class_frame_counts:
+        return "+".join(
+            name for name in report_data.class_frame_counts if name != MULTICLASS_NONE_BEHAVIOR
+        )
+    return report_data.behavior_name
+
+
+def default_run_name(report_data: TrainingReportData) -> str:
+    """Build the default MLflow run name for a cross-validation run.
+
+    Args:
+        report_data: Completed training report data.
+
+    Returns:
+        ``<behavior(s)>-cv-<timestamp>``, for example ``Walk+Run-cv-20260623-120000``.
+    """
+    return f"{_behavior_label(report_data)}-cv-{report_data.timestamp:%Y%m%d-%H%M%S}"
+
+
 def resolve_experiment_name(report_data: TrainingReportData, experiment_name: str | None) -> str:
     """Resolve the MLflow experiment name for a cross-validation run.
 
     Each behavior is logged to its own experiment by default so that runs of the
     same behavior are compared together (and not mixed with other behaviors, whose
-    metrics are not comparable). Precedence, highest first:
+    metrics are not comparable). A multi-class run is keyed by its whole set of
+    behaviors, e.g. ``jabs-Walk+Run``. Precedence, highest first:
 
     1. ``experiment_name`` -- an explicit override (e.g. from ``--mlflow-experiment``).
     2. The ``MLFLOW_EXPERIMENT_NAME`` environment variable, if set.
-    3. The default ``jabs-<behavior>``.
+    3. The default ``jabs-<behavior>`` (``jabs-<behavior>+<behavior>...`` for multi-class).
 
     Args:
-        report_data: Completed training report data (supplies the behavior name).
+        report_data: Completed training report data (supplies the behavior name(s)).
         experiment_name: Explicit override, or None to fall back to the env var/default.
 
     Returns:
@@ -341,7 +375,7 @@ def resolve_experiment_name(report_data: TrainingReportData, experiment_name: st
     return (
         experiment_name
         or os.environ.get("MLFLOW_EXPERIMENT_NAME")
-        or f"jabs-{report_data.behavior_name}"
+        or f"jabs-{_behavior_label(report_data)}"
     )
 
 
@@ -408,7 +442,7 @@ def log_cross_validation_to_mlflow(
     mlflow.set_experiment(resolved_experiment)
 
     if run_name is None:
-        run_name = f"{report_data.behavior_name}-cv-{report_data.timestamp:%Y%m%d-%H%M%S}"
+        run_name = default_run_name(report_data)
 
     logger.info(
         "Logging cross-validation results to MLflow experiment %r run %r",

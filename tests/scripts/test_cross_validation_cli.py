@@ -53,6 +53,14 @@ def _invoke(tmp_path: Path, *extra_args: str):
     )
 
 
+def test_behavior_is_optional(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """``--behavior`` is only needed for binary projects, so the command accepts its absence."""
+    result = CliRunner().invoke(cli, ["cross-validation", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.args[1] is None
+
+
 @pytest.mark.parametrize(
     ("strategy_arg", "expected"),
     [

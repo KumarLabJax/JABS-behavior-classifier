@@ -8,6 +8,7 @@ The actual MLflow client is never imported here; tests that exercise
 import os
 import sys
 import zipfile
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,6 +23,7 @@ from jabs.classifier.mlflow_logging import (
     archive_annotations,
     build_params,
     build_tags,
+    default_run_name,
     load_env_file,
     log_cross_validation_to_mlflow,
     mlflow_available,
@@ -404,6 +406,50 @@ def test_archive_annotations_survives_symlink_cycle(annotations_dir: Path, tmp_p
             "annotations/video1.json",
             "annotations/video2.json",
         ]
+
+
+# --------------------------------------------------------------------------- #
+# default_run_name
+# --------------------------------------------------------------------------- #
+def test_default_run_name_binary(binary_report: TrainingReportData) -> None:
+    """A binary run is named for its behavior."""
+    assert default_run_name(binary_report) == "Walk-cv-20260623-120000"
+
+
+def test_default_run_name_multiclass_combines_behaviors(
+    binary_report: TrainingReportData,
+) -> None:
+    """A multi-class run is named for every behavior, leaving out the None class."""
+    report = replace(
+        binary_report,
+        behavior_name="multiclass",
+        class_frame_counts={"None": 50, "Walk": 40, "Run": 30},
+    )
+
+    assert default_run_name(report) == "Walk+Run-cv-20260623-120000"
+
+
+def test_multiclass_run_and_experiment_logged_under_combined_name(
+    binary_report: TrainingReportData,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The combined behaviors name both the run and the experiment by default."""
+    fake = _FakeMlflow()
+    monkeypatch.setitem(sys.modules, "mlflow", fake)
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_NAME", raising=False)
+    report_file = tmp_path / "report.md"
+    report_file.write_text("# report")
+    report = replace(
+        binary_report,
+        behavior_name="multiclass",
+        class_frame_counts={"None": 50, "Walk": 40, "Run": 30},
+    )
+
+    log_cross_validation_to_mlflow(report_data=report, report_file=report_file)
+
+    assert fake.run_name == "Walk+Run-cv-20260623-120000"
+    assert fake.experiment == "jabs-Walk+Run"
 
 
 # --------------------------------------------------------------------------- #

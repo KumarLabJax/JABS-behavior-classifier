@@ -632,14 +632,16 @@ jabs-cli convert-parquet session_poses.parquet \
 
 ## jabs-cli cross-validation
 
-The `jabs-cli cross-validation` command runs leave-one-group-out cross-validation for a single behavior in a JABS project, then trains a final model on all labeled data to report feature importance. It prints per-iteration metrics to the console and writes a training report file (the same report produced by the GUI). Use it to estimate how well a classifier generalizes before committing to a trained model.
+The `jabs-cli cross-validation` command runs leave-one-group-out cross-validation in a JABS project, then trains a final model on all labeled data to report feature importance. It prints per-iteration metrics to the console and writes a training report file (the same report produced by the GUI). Use it to estimate how well a classifier generalizes before committing to a trained model.
+
+For a binary project, cross-validation is run for a single behavior chosen with `--behavior`. For a [multi-class](multi-class.md) project, all behaviors (plus the None class) are cross-validated together as one classifier, exactly as in the GUI, and the report gives macro- and micro-averaged metrics and per-class counts. `--behavior` is not needed for multi-class projects and is ignored if given.
 
 Features must already be computed for the project (for example via [`jabs-init`](#jabs-init)); if they are missing this command will compute them, which can be slow.
 
 **Usage:**
 
 ```bash
-jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
+jabs-cli cross-validation DIRECTORY [--behavior BEHAVIOR] \
     [-k SPLITS] \
     [--grouping-strategy {video|individual|filename}] \
     [--grouping-pattern REGEX] \
@@ -651,13 +653,13 @@ jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
 ```
 
 - `DIRECTORY`: Path to the JABS project directory.
-- `--behavior BEHAVIOR` (required): Behavior to evaluate. Quote it if it contains spaces; must match an existing behavior in the project.
+- `--behavior BEHAVIOR`: Behavior to evaluate. Required for binary projects; quote it if it contains spaces; must match an existing behavior in the project. Ignored for multi-class projects.
 - `-k SPLITS`: Number of cross-validation iterations. `0` (the default) uses the maximum number of splits supported by the data and grouping strategy.
 - `--grouping-strategy {video|individual|filename}`: How labeled frames are grouped into cross-validation folds (see [Grouping strategies](#grouping-strategies)). If omitted, the project's saved setting is used.
 - `--grouping-pattern REGEX`: Regular expression applied to each video filename to derive a grouping key. Only used with `--grouping-strategy filename`. If omitted, the pattern saved in the project is used.
 - `--classifier {catboost|random_forest|xgboost}`: Classifier to evaluate. Defaults to `xgboost`. The available choices depend on which classifier libraries are installed; see [Classifier Types](classifier-types.md).
-- `--postprocessing` / `--no-postprocessing`: Whether to also report metrics with the behavior's prediction postprocessing pipeline applied. If omitted, the behavior's saved **Evaluate in Cross-Validation** setting is used. Evaluating postprocessing re-predicts each held-out animal's full track, so it costs roughly one extra classification pass over the labeled animals. Binary classifiers only.
-- `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`).
+- `--postprocessing` / `--no-postprocessing`: Whether to also report metrics with the behavior's prediction postprocessing pipeline applied. If omitted, the behavior's saved **Evaluate in Cross-Validation** setting is used. Evaluating postprocessing re-predicts each held-out animal's full track, so it costs roughly one extra classification pass over the labeled animals. Binary classifiers only; on a multi-class project the evaluation is skipped with a warning.
+- `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`, or `multiclass_<timestamp>_training_report.md` for a multi-class project).
 - `--mlflow`, `--mlflow-experiment`, `--mlflow-tag`, `--mlflow-no-report`, `--mlflow-no-annotations`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).
 
 ### Grouping strategies
@@ -748,7 +750,7 @@ MLFLOW_TRACKING_PASSWORD=hunter2
 
 #### Selecting the experiment
 
-Each behavior is logged to its **own experiment** by default, named `jabs-<behavior>` (for example `jabs-grooming`). This keeps comparisons meaningful: an experiment's runs table is effectively a leaderboard, and you want to rank runs of the *same* behavior over time rather than mix behaviors, whose metrics are not comparable. The experiment is created automatically if it does not exist.
+Each behavior is logged to its **own experiment** by default, named `jabs-<behavior>` (for example `jabs-grooming`). This keeps comparisons meaningful: an experiment's runs table is effectively a leaderboard, and you want to rank runs of the *same* behavior over time rather than mix behaviors, whose metrics are not comparable. The experiment is created automatically if it does not exist. A multi-class project cross-validates all behaviors together, so its experiment is named for the whole set of behaviors joined with `+` (for example `jabs-Walk+Run`); projects with different behavior sets get different experiments.
 
 To override the experiment name, in order of precedence:
 
@@ -771,7 +773,7 @@ The aggregate scores below (`cv_f1_behavior_mean`, `cv_accuracy_mean`, etc.) are
 
 #### What gets logged
 
-Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`.
+Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`. For a multi-class project the run is named for all of its behaviors joined with `+` (for example `Walk+Run-cv-<timestamp>`).
 
 **Metrics** (aggregated across cross-validation iterations):
 
