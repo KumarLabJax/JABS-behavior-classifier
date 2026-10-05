@@ -220,9 +220,9 @@ def test_max_multiclass_splits_without_labels_is_zero() -> None:
     """No labeled frames means no valid splits, not an error."""
     classifier = MultiClassClassifier(BEHAVIORS, classifier_type=ClassifierType.RANDOM_FOREST)
 
-    assert (
-        _max_multiclass_splits(classifier, {"labels_by_behavior": {}, "groups": np.empty(0)}) == 0
-    )
+    features = {**_make_features(n_groups=1), "labels_by_behavior": {}}
+
+    assert _max_multiclass_splits(classifier, features) == 0
 
 
 def test_train_final_multiclass_drops_excluded_groups() -> None:

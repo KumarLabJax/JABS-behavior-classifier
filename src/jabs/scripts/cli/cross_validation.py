@@ -24,6 +24,7 @@ from jabs.classifier import (
     run_leave_one_group_out_cv,
     save_training_report,
 )
+from jabs.classifier.cross_validation import CVFeatures
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import (
     ClassifierMode,
@@ -40,7 +41,7 @@ N_JOBS = 4
 MULTICLASS_REPORT_NAME = "multiclass"
 
 
-def _included_row_mask(features: dict) -> npt.NDArray[np.bool_] | None:
+def _included_row_mask(features: CVFeatures) -> npt.NDArray[np.bool_] | None:
     """Select the feature rows whose group is not excluded from training.
 
     Videos excluded from training still appear in ``features`` so they can serve as
@@ -58,7 +59,7 @@ def _included_row_mask(features: dict) -> npt.NDArray[np.bool_] | None:
     return ~np.isin(features["groups"], list(excluded))
 
 
-def _max_multiclass_splits(classifier: MultiClassClassifier, features: dict) -> int:
+def _max_multiclass_splits(classifier: MultiClassClassifier, features: CVFeatures) -> int:
     """Count the valid leave-one-group-out splits for multi-class features.
 
     Args:
@@ -79,7 +80,7 @@ def _max_multiclass_splits(classifier: MultiClassClassifier, features: dict) -> 
 
 def _train_final_multiclass(
     classifier: MultiClassClassifier,
-    features: dict,
+    features: CVFeatures,
     settings: dict,
 ) -> list[tuple[str, float]]:
     """Train the multi-class classifier on all included labeled data.
@@ -121,7 +122,7 @@ def _train_final_multiclass(
 def _multiclass_class_counts(
     project: Project,
     classifier: MultiClassClassifier,
-    features: dict,
+    features: CVFeatures,
 ) -> tuple[dict[str, int], dict[str, int]]:
     """Count labeled frames and bouts per class over the videos trained on.
 
