@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 from tabulate import tabulate
 
 from jabs.core.enums import CrossValidationGroupingStrategy
@@ -34,6 +35,49 @@ class CrossValidationResult:
 
 
 @dataclass
+class PostprocessedMetrics:
+    """Binary metrics for one CV iteration after prediction postprocessing.
+
+    Computed on the same held-out labeled frames as the iteration's raw
+    metrics, so the two are directly comparable. Support counts are not
+    repeated here because the ground truth is unchanged.
+
+    Attributes:
+        accuracy: Classification accuracy (0.0 to 1.0).
+        confusion_matrix: Confusion matrix, shape ``(2, 2)``, restricted to the
+            behavior/not-behavior labels. Frames postprocessing left with no
+            prediction are not counted in it; see ``no_prediction_count``.
+        precision_behavior: Precision for the behavior class.
+        precision_not_behavior: Precision for the not-behavior class.
+        recall_behavior: Recall for the behavior class.
+        recall_not_behavior: Recall for the not-behavior class.
+        f1_behavior: F1 score for the behavior class.
+        no_prediction_count: Number of scored frames where postprocessing left
+            no prediction (label ``TrackLabels.Label.NONE``). These frames are
+            counted as incorrect in ``accuracy`` but excluded from
+            ``confusion_matrix``, so the matrix's counts can sum to fewer than
+            the total scored frames when this is nonzero.
+        consistency_warning: Why these metrics may not be comparable with the
+            iteration's raw metrics, or ``None`` when the two paths agreed. The
+            postprocessed numbers come from a second, full-sequence prediction
+            pass; if that pass does not reproduce the fold's own labels and raw
+            predictions frame for frame (even when their accuracies match), then
+            the two are measuring different things and the comparison is not
+            meaningful.
+    """
+
+    accuracy: float = 0.0
+    confusion_matrix: npt.NDArray[np.int64] | None = None
+    precision_behavior: float = 0.0
+    precision_not_behavior: float = 0.0
+    recall_behavior: float = 0.0
+    recall_not_behavior: float = 0.0
+    f1_behavior: float = 0.0
+    no_prediction_count: int = 0
+    consistency_warning: str | None = None
+
+
+@dataclass
 class BinaryCVResult(CrossValidationResult):
     """Binary cross-validation iteration result.
 
@@ -45,6 +89,8 @@ class BinaryCVResult(CrossValidationResult):
         f1_behavior: F1 score for the behavior class.
         support_behavior: Number of behavior frames in the test set.
         support_not_behavior: Number of not-behavior frames in the test set.
+        postprocessed: Metrics for the same iteration with the postprocessing
+            pipeline applied, or ``None`` when postprocessing was not evaluated.
     """
 
     precision_behavior: float = 0.0
@@ -54,6 +100,7 @@ class BinaryCVResult(CrossValidationResult):
     f1_behavior: float = 0.0
     support_behavior: int = 0
     support_not_behavior: int = 0
+    postprocessed: PostprocessedMetrics | None = None
 
 
 @dataclass
@@ -110,6 +157,9 @@ class TrainingReportData:
         cv_warning: Why cross-validation did not run as requested, when it did not.
             Reported in place of the neutral "no cross-validation" note so the
             report says whether the metrics are missing by choice or by necessity.
+        postprocessing_stages: Enabled postprocessing stage configurations that
+            were evaluated during cross-validation, or ``None`` when
+            postprocessing was not evaluated.
     """
 
     behavior_name: str
@@ -131,6 +181,7 @@ class TrainingReportData:
     class_bout_counts: dict[str, int] | None = None
     cv_grouping_regex: str | None = None
     cv_warning: str | None = None
+    postprocessing_stages: list[dict] | None = None
 
 
 def _escape_markdown(text: str) -> str:
@@ -144,6 +195,61 @@ def _escape_markdown(text: str) -> str:
 def _is_multiclass_cv(cv_results: list[CrossValidationResult]) -> bool:
     """Return True if the CV result list belongs to multi-class mode."""
     return bool(cv_results) and isinstance(cv_results[0], MultiClassCVResult)
+
+
+def _format_postprocessing_stages(stages: list[dict], evaluated: bool) -> list[str]:
+    """Return markdown lines describing the postprocessing evaluation.
+
+    The stage list is set from the behavior's saved configuration as soon as the
+    evaluation is *requested*, before anything is known about the outcome, so
+    this has to be told whether the evaluation actually happened. Reporting
+    "Yes" off the request alone contradicts the report itself when, say, no
+    valid cross-validation splits were found.
+
+    Args:
+        stages: Enabled postprocessing stage configurations that were requested.
+        evaluated: Whether any iteration produced postprocessed metrics.
+
+    Returns:
+        Markdown lines for the training summary.
+    """
+    if not stages:
+        # evaluation is skipped outright when the pipeline would be a no-op
+        return [
+            "- **Postprocessing Evaluated in Cross-Validation:** No "
+            "(requested, but no stages are enabled)"
+        ]
+    if not evaluated:
+        # no cross-validation folds ran, or no fold had scorable held-out frames
+        return [
+            "- **Postprocessing Evaluated in Cross-Validation:** No "
+            "(requested, but cross-validation produced no postprocessed metrics)"
+        ]
+    lines = ["- **Postprocessing Evaluated in Cross-Validation:** Yes"]
+    for stage in stages:
+        params = stage.get("parameters") or {}
+        rendered = _escape_markdown(", ".join(f"{name}={value}" for name, value in params.items()))
+        name = _escape_markdown(str(stage.get("stage_name", "unknown")))
+        lines.append(f"  - {name}" + (f" ({rendered})" if rendered else ""))
+    return lines
+
+
+def postprocessed_results(cv_results: list[CrossValidationResult]) -> list[BinaryCVResult]:
+    """Return the binary CV results that carry postprocessed metrics.
+
+    Public because every surface that reports raw and postprocessed metrics
+    side by side has to agree on which iterations have them - the markdown
+    report, the JSON report and the ``jabs-cli`` console table. A second,
+    looser predicate (such as a ``getattr`` probe) could silently disagree
+    with this one for the same input.
+
+    Args:
+        cv_results: Cross-validation iteration results, either mode.
+
+    Returns:
+        The binary results whose postprocessed metrics are populated, in order.
+    """
+    return [r for r in cv_results if isinstance(r, BinaryCVResult) and r.postprocessed is not None]
 
 
 def _format_label_counts(data: TrainingReportData) -> list[str]:
@@ -185,6 +291,43 @@ def _format_performance_summary(cv_results: list[CrossValidationResult]) -> list
                 f"- **Mean F1 Score (Behavior):** {np.mean(f1_behavior):.4f} "
                 f"(± {np.std(f1_behavior):.4f})"
             )
+        postprocessed = postprocessed_results(cv_results)
+        if postprocessed:
+            pp_accuracies = [r.postprocessed.accuracy for r in postprocessed]
+            pp_f1 = [r.postprocessed.f1_behavior for r in postprocessed]
+            lines.append(
+                f"- **Mean Accuracy (Postprocessed):** {np.mean(pp_accuracies):.4f} "
+                f"(± {np.std(pp_accuracies):.4f})"
+            )
+            lines.append(
+                f"- **Mean F1 Score (Behavior, Postprocessed):** {np.mean(pp_f1):.4f} "
+                f"(± {np.std(pp_f1):.4f})"
+            )
+            if len(postprocessed) < len(cv_results):
+                # The raw means above cover every iteration, so beside a partial set of
+                # postprocessed means they are not like for like. Say so, and give the raw
+                # means over exactly the evaluated iterations to compare against.
+                evaluated = {r.iteration for r in postprocessed}
+                missing = [str(r.iteration) for r in cv_results if r.iteration not in evaluated]
+                same_raw_accuracy = [r.accuracy for r in postprocessed]
+                same_raw_f1 = [r.f1_behavior for r in postprocessed]
+                lines.append(
+                    f"- **Warning:** postprocessed metrics cover {len(postprocessed)} of "
+                    f"{len(cv_results)} iterations (not evaluated: {', '.join(missing)}), so "
+                    f"they are not comparable with the means above, which cover all "
+                    f"iterations. Raw means over the evaluated iterations only: accuracy "
+                    f"{np.mean(same_raw_accuracy):.4f}, F1 (Behavior) {np.mean(same_raw_f1):.4f}."
+                )
+            # flagged here as well as beside the table: these means are the
+            # numbers a reader takes away, and they must not look trustworthy
+            # when the pass that produced them disagreed with the raw pass
+            warned = [r for r in postprocessed if r.postprocessed.consistency_warning]
+            if warned:
+                lines.append(
+                    f"- **Warning:** {len(warned)} of {len(postprocessed)} iterations "
+                    f"produced postprocessed metrics that may not be comparable with "
+                    f"their raw metrics; see Iteration Details (Postprocessed)."
+                )
     return lines
 
 
@@ -237,6 +380,77 @@ _MULTICLASS_HEADERS = [
 ]
 
 
+def _postprocessed_iteration_row(result: BinaryCVResult) -> list[str | int]:
+    """Return a single iteration row for the postprocessed binary CV table."""
+    postprocessed = result.postprocessed
+    if postprocessed is None:  # pragma: no cover - callers filter these out
+        raise ValueError("result has no postprocessed metrics")
+    return [
+        result.iteration,
+        f"{postprocessed.accuracy:.4f}",
+        f"{postprocessed.precision_not_behavior:.4f}",
+        f"{postprocessed.precision_behavior:.4f}",
+        f"{postprocessed.recall_not_behavior:.4f}",
+        f"{postprocessed.recall_behavior:.4f}",
+        f"{postprocessed.f1_behavior:.4f}",
+        _escape_markdown(result.test_label),
+    ]
+
+
+def _format_postprocessed_iteration_table(cv_results: list[CrossValidationResult]) -> str:
+    """Return the markdown iteration table for postprocessed metrics."""
+    rows = [_postprocessed_iteration_row(r) for r in postprocessed_results(cv_results)]
+    return tabulate(rows, headers=_BINARY_HEADERS, tablefmt="github")
+
+
+def _format_postprocessing_consistency_warnings(
+    cv_results: list[CrossValidationResult],
+) -> list[str]:
+    """Return markdown lines for iterations whose two prediction passes disagreed.
+
+    Rendered before the postprocessed table so the caveat is read before the
+    numbers it applies to.
+    """
+    warned = [
+        (r.iteration, r.postprocessed.consistency_warning)
+        for r in postprocessed_results(cv_results)
+        if r.postprocessed.consistency_warning
+    ]
+    if not warned:
+        return []
+    lines = ["> **Warning:** the postprocessed metrics below may not be comparable.", ">"]
+    lines.extend(f"> - Iteration {iteration}: {message}" for iteration, message in warned)
+    lines.append("")
+    return lines
+
+
+def _format_no_prediction_notes(cv_results: list[CrossValidationResult]) -> list[str]:
+    """Return markdown lines noting iterations with unpredicted frames.
+
+    Postprocessing can leave a frame with no prediction. Those frames count
+    against accuracy but are excluded from the confusion matrix, so the
+    matrix's counts can otherwise look complete while actually summing to
+    fewer than the frames accuracy was scored over.
+    """
+    affected = [
+        (r.iteration, r.postprocessed.no_prediction_count)
+        for r in postprocessed_results(cv_results)
+        if r.postprocessed.no_prediction_count
+    ]
+    if not affected:
+        return []
+    lines = [
+        "> **Note:** some iterations had frames with no prediction after "
+        "postprocessing. Accuracy below counts them as incorrect, but the "
+        "confusion matrix in the JSON report excludes them, so its counts "
+        "sum to fewer than the scored frames.",
+        ">",
+    ]
+    lines.extend(f"> - Iteration {iteration}: {count} frame(s)" for iteration, count in affected)
+    lines.append("")
+    return lines
+
+
 def _format_iteration_table(cv_results: list[CrossValidationResult]) -> str:
     """Return the markdown iteration-details table."""
     if _is_multiclass_cv(cv_results):
@@ -277,6 +491,13 @@ def generate_markdown_report(data: TrainingReportData) -> str:
     lines.append(f"- **Symmetric Behavior:** {'Yes' if data.symmetric_behavior else 'No'}")
     lines.append(f"- **Distance Unit:** {data.distance_unit}")
     lines.append(f"- **Training Time:** {data.training_time_ms / 1000:.2f} seconds")
+    if data.postprocessing_stages is not None:
+        lines.extend(
+            _format_postprocessing_stages(
+                data.postprocessing_stages,
+                evaluated=bool(postprocessed_results(data.cv_results)),
+            )
+        )
     lines.append("")
 
     lines.append("### Label Counts")
@@ -299,6 +520,21 @@ def generate_markdown_report(data: TrainingReportData) -> str:
         lines.append("")
         lines.append(_format_iteration_table(data.cv_results))
         lines.append("")
+
+        if postprocessed_results(data.cv_results):
+            lines.append("### Iteration Details (Postprocessed)")
+            lines.append("")
+            lines.append(
+                "Metrics for the same held-out frames after applying the prediction "
+                "postprocessing pipeline. Predictions are made over each held-out "
+                "identity's full track before postprocessing, then scored on the "
+                "labeled frames only."
+            )
+            lines.append("")
+            lines.extend(_format_postprocessing_consistency_warnings(data.cv_results))
+            lines.extend(_format_no_prediction_notes(data.cv_results))
+            lines.append(_format_postprocessed_iteration_table(data.cv_results))
+            lines.append("")
     else:
         lines.append("## Cross-Validation")
         lines.append("")
@@ -367,6 +603,18 @@ def _binary_cv_to_dict(result: BinaryCVResult) -> dict:
             "support_not_behavior": int(result.support_not_behavior),
         }
     )
+    if result.postprocessed is not None:
+        payload["postprocessed"] = {
+            "accuracy": float(result.postprocessed.accuracy),
+            "confusion_matrix": _to_python_type(result.postprocessed.confusion_matrix),
+            "precision_behavior": float(result.postprocessed.precision_behavior),
+            "precision_not_behavior": float(result.postprocessed.precision_not_behavior),
+            "recall_behavior": float(result.postprocessed.recall_behavior),
+            "recall_not_behavior": float(result.postprocessed.recall_not_behavior),
+            "f1_behavior": float(result.postprocessed.f1_behavior),
+            "no_prediction_count": int(result.postprocessed.no_prediction_count),
+            "consistency_warning": result.postprocessed.consistency_warning,
+        }
     return payload
 
 
@@ -424,6 +672,9 @@ def generate_json_report(data: TrainingReportData) -> dict:
         "cv_grouping_strategy": data.cv_grouping_strategy.value,
         "cv_grouping_regex": data.cv_grouping_regex,
         "cv_warning": data.cv_warning,
+        "postprocessing_stages": _to_python_type(data.postprocessing_stages),
+        # the stage list records what was requested; this records what happened
+        "postprocessing_evaluated": bool(postprocessed_results(data.cv_results)),
         "frames_behavior": int(data.frames_behavior),
         "frames_not_behavior": int(data.frames_not_behavior),
         "bouts_behavior": int(data.bouts_behavior),

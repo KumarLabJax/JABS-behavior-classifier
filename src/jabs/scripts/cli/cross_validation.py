@@ -9,10 +9,14 @@ from rich.table import Table
 
 from jabs.classifier import (
     NO_VALID_SPLITS_WARNING,
+    BinaryCVResult,
     Classifier,
+    CrossValidationResult,
     MlflowLoggingError,
     TrainingReportData,
+    enabled_stage_configs,
     log_cross_validation_to_mlflow,
+    postprocessed_results,
     run_leave_one_group_out_cv,
     save_training_report,
 )
@@ -23,6 +27,24 @@ from jabs.project import Project
 N_JOBS = 4
 
 
+def _print_consistency_warnings(console: Console, cv_results: list[CrossValidationResult]) -> None:
+    """Print any iteration whose two prediction passes disagreed.
+
+    The results table puts raw and postprocessed metrics side by side, so it
+    has to say when that comparison is not meaningful.
+
+    Args:
+        console: Rich console to print to.
+        cv_results: Cross-validation iteration results.
+    """
+    for cv in postprocessed_results(cv_results):
+        if cv.postprocessed.consistency_warning:
+            console.print(
+                f"[yellow]Warning (iteration {cv.iteration}):[/yellow] "
+                f"{cv.postprocessed.consistency_warning}"
+            )
+
+
 def run_cross_validation(
     project_dir: Path,
     behavior: str,
@@ -31,6 +53,7 @@ def run_cross_validation(
     k: int,
     report_file: Path | None = None,
     grouping_regex: str | None = None,
+    evaluate_postprocessing: bool | None = None,
     mlflow_enabled: bool = False,
     mlflow_env_file: Path | None = None,
     mlflow_experiment: str | None = None,
@@ -54,6 +77,10 @@ def run_cross_validation(
         grouping_regex (str | None): Regular expression used to extract a grouping key
           from each video filename. Only used when ``grouping_strategy`` is
           ``FILENAME_PATTERN``. If None, uses the pattern saved in project settings.
+        evaluate_postprocessing (bool | None): If True, also report metrics with the
+          behavior's prediction postprocessing pipeline applied. This re-predicts each
+          held-out group's full tracks, so it costs roughly one classification pass over
+          the labeled identities. If None, uses the behavior's saved project setting.
         mlflow_enabled (bool): If True, push the cross-validation results to MLflow
           after the report is saved. Callers should only enable this when the optional
           'mlflow' dependency is installed (the CLI checks this and fails fast with an
@@ -94,6 +121,11 @@ def run_cross_validation(
         raise ValueError(f"The specified behavior '{behavior}' is not found in the project.")
 
     classifier = Classifier(classifier=classifier_type, n_jobs=N_JOBS)
+
+    # None means "use the behavior's saved setting", matching how the grouping
+    # strategy and pattern overrides work.
+    if evaluate_postprocessing is None:
+        evaluate_postprocessing = project.settings_manager.evaluate_postprocessing_in_cv(behavior)
 
     console = Console()
     status_message = "Starting cross-validation..."
@@ -150,6 +182,7 @@ def run_cross_validation(
             status_callback=status_callback,
             progress_callback=progress_callback,
             warning_callback=warning_callback,
+            evaluate_postprocessing=evaluate_postprocessing,
         )
     console.print(f"Cross-validation complete. {len(cv_results)} iterations performed.")
     if cv_warning:
@@ -157,6 +190,9 @@ def run_cross_validation(
 
     # Print Rich table of results
     if cv_results:
+        # same predicate the markdown and JSON reports use, so the three
+        # surfaces cannot disagree about which iterations have these metrics
+        show_postprocessed = bool(postprocessed_results(cv_results))
         table = Table(title="Cross-Validation Results")
         table.add_column("Iter", justify="center")
         table.add_column("Accuracy", justify="right")
@@ -165,9 +201,13 @@ def run_cross_validation(
         table.add_column("Recall\n(Behavior)", justify="right")
         table.add_column("Recall\n(Not Behavior)", justify="right")
         table.add_column("F1 Score", justify="right")
+        if show_postprocessed:
+            # placed next to the raw values they should be compared against
+            table.add_column("Accuracy\n(Postproc.)", justify="right")
+            table.add_column("F1 Score\n(Postproc.)", justify="right")
         table.add_column("Test Group", justify="left")
         for cv in cv_results:
-            table.add_row(
+            row = [
                 str(cv.iteration),
                 f"{cv.accuracy:.3f}",
                 f"{cv.precision_behavior:.3f}",
@@ -175,9 +215,21 @@ def run_cross_validation(
                 f"{cv.recall_behavior:.3f}",
                 f"{cv.recall_not_behavior:.3f}",
                 f"{cv.f1_behavior:.3f}",
-                str(cv.test_label),
-            )
+            ]
+            if show_postprocessed:
+                postprocessed = cv.postprocessed if isinstance(cv, BinaryCVResult) else None
+                row.append(f"{postprocessed.accuracy:.3f}" if postprocessed else "-")
+                row.append(f"{postprocessed.f1_behavior:.3f}" if postprocessed else "-")
+            row.append(str(cv.test_label))
+            table.add_row(*row)
         console.print(table)
+        _print_consistency_warnings(console, cv_results)
+
+        if not show_postprocessed and evaluate_postprocessing:
+            console.print(
+                "[yellow]Postprocessing evaluation was requested but produced no "
+                "metrics (no enabled stages, or no scorable held-out frames).[/yellow]"
+            )
 
     # train final model on all data
     with console.status(
@@ -261,6 +313,11 @@ def run_cross_validation(
         cv_grouping_regex=(
             effective_grouping_regex
             if effective_grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN
+            else None
+        ),
+        postprocessing_stages=(
+            enabled_stage_configs(project.settings_manager.postprocessing_config(behavior))
+            if evaluate_postprocessing
             else None
         ),
     )

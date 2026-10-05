@@ -10,6 +10,7 @@ strategy and stays mode-agnostic.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -22,6 +23,7 @@ from jabs.classifier import (
     MultiClassClassifier,
     TrainingReportData,
     classifier_utils,
+    enabled_stage_configs,
 )
 
 if TYPE_CHECKING:
@@ -75,6 +77,26 @@ class TrainingStrategy:
         """Return the settings used for both feature extraction and training."""
         raise NotImplementedError
 
+    @property
+    def evaluate_postprocessing(self) -> bool:
+        """Whether cross-validation should also report postprocessed metrics.
+
+        Prediction postprocessing is binary-only, so this is the single place
+        the mode decides: the strategy type *is* the mode check, and a strategy
+        that does not override this never asks for the evaluation.
+        """
+        return False
+
+    @property
+    def postprocessing_config(self) -> list[dict] | None:
+        """Postprocessing stage configuration cross-validation should evaluate, or ``None``."""
+        return None
+
+    @property
+    def postprocessing_stages(self) -> list[dict] | None:
+        """Enabled postprocessing stages to record in the report, or ``None``."""
+        return None
+
     def final_train_data(
         self,
         features: dict,
@@ -125,6 +147,46 @@ class BinaryTrainingStrategy(TrainingStrategy):
     ) -> None:
         super().__init__(classifier, project, behavior)
         self._bout_counts = bout_counts
+        # Training runs in a background thread while the Prediction Postprocessing
+        # dialog stays usable, so the setting and stage configuration are captured once
+        # here. Cross-validation evaluates this copy and the report describes this copy,
+        # so neither can drift from the other if the user edits the settings mid-run.
+        settings_manager = project.settings_manager
+        self._evaluate_postprocessing = bool(
+            settings_manager.evaluate_postprocessing_in_cv(behavior)
+        )
+        self._postprocessing_config: list[dict] = (
+            copy.deepcopy(list(settings_manager.postprocessing_config(behavior)))
+            if self._evaluate_postprocessing
+            else []
+        )
+
+    @property
+    def evaluate_postprocessing(self) -> bool:
+        """Whether this behavior was configured to evaluate its postprocessing in CV."""
+        return self._evaluate_postprocessing
+
+    @property
+    def postprocessing_config(self) -> list[dict] | None:
+        """The stage configuration captured when the strategy was built, or ``None``.
+
+        ``None`` when postprocessing is not being evaluated. Passed to
+        cross-validation so the pipeline it runs is this exact snapshot.
+        """
+        if not self._evaluate_postprocessing:
+            return None
+        return self._postprocessing_config
+
+    @property
+    def postprocessing_stages(self) -> list[dict] | None:
+        """The enabled stages recorded in the report, or ``None`` when not evaluating.
+
+        Derived from the same snapshot cross-validation evaluates, so the report
+        describes the pipeline that produced the metrics.
+        """
+        if not self._evaluate_postprocessing:
+            return None
+        return enabled_stage_configs(self._postprocessing_config)
 
     def collect_features(
         self,
@@ -223,6 +285,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
             cv_warning=cv_warning,
+            postprocessing_stages=self.postprocessing_stages,
         )
 
     def cv_secondary_metric(self, cv_results: list[CrossValidationResult]) -> float | None:
@@ -323,7 +386,10 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         """Build the multi-class training report with per-class frame and bout counts.
 
         Frame and bout counts reflect only the videos trained on; rows and videos
-        excluded from training are filtered out.
+        excluded from training are filtered out. Prediction postprocessing is
+        binary-only, so this strategy inherits the base
+        :attr:`~TrainingStrategy.postprocessing_stages` of ``None`` and the
+        report records nothing about it.
         """
         class_names = self._classifier.get_class_names()
         behavior_names = self._classifier.behavior_names

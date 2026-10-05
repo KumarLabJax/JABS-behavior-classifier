@@ -10,13 +10,20 @@ fast and do not require a real JABS project on disk.
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
 import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.cli.cli as cli_module
-from jabs.classifier import MlflowLoggingError
+from jabs.classifier import (
+    BinaryCVResult,
+    MlflowLoggingError,
+    MultiClassCVResult,
+    PostprocessedMetrics,
+)
 from jabs.core.enums import CrossValidationGroupingStrategy
 from jabs.scripts.cli.cli import cli
+from jabs.scripts.cli.cross_validation import _print_consistency_warnings
 
 
 @pytest.fixture
@@ -95,6 +102,29 @@ def test_no_strategy_defaults_to_none(tmp_path: Path, run_cv_spy: mock.Mock) -> 
     run_cv_spy.assert_called_once()
     assert run_cv_spy.call_args.args[3] is None
     assert run_cv_spy.call_args.kwargs["grouping_regex"] is None
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--postprocessing", True), ("--no-postprocessing", False)],
+    ids=["enabled", "disabled"],
+)
+def test_postprocessing_flag_forwarded(
+    tmp_path: Path, run_cv_spy: mock.Mock, flag: str, expected: bool
+) -> None:
+    """``--postprocessing``/``--no-postprocessing`` overrides the saved project setting."""
+    result = _invoke(tmp_path, flag)
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["evaluate_postprocessing"] is expected
+
+
+def test_postprocessing_defaults_to_project_setting(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """Omitting the flag passes None so the behavior's saved setting is used."""
+    result = _invoke(tmp_path)
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["evaluate_postprocessing"] is None
 
 
 def test_invalid_grouping_strategy_rejected(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
@@ -275,3 +305,55 @@ def test_mlflow_unavailable_fails_fast(
     assert "not installed" in result.stderr
     # cross-validation must not run when an explicitly requested feature is unavailable
     run_cv_spy.assert_not_called()
+
+
+def _cv_result(iteration: int, warning: str | None, postprocessed: bool = True):
+    """Build a binary CV result, optionally carrying postprocessed metrics."""
+    result = BinaryCVResult(
+        iteration=iteration,
+        test_label=f"video_{iteration}.mp4",
+        accuracy=0.9,
+        confusion_matrix=np.array([[1, 0], [0, 1]]),
+    )
+    if postprocessed:
+        result.postprocessed = PostprocessedMetrics(consistency_warning=warning)
+    return result
+
+
+def test_print_consistency_warnings_reports_each_inconsistent_iteration() -> None:
+    """The console names every iteration whose two prediction passes disagreed."""
+    console = mock.Mock()
+    results = [
+        _cv_result(1, "pass one disagreed"),
+        _cv_result(2, None),
+        _cv_result(3, None, postprocessed=False),
+    ]
+
+    _print_consistency_warnings(console, results)
+
+    console.print.assert_called_once()
+    printed = console.print.call_args.args[0]
+    assert "iteration 1" in printed
+    assert "pass one disagreed" in printed
+
+
+def test_print_consistency_warnings_ignores_multiclass_results() -> None:
+    """Multi-class iterations are not binary results, so they are skipped.
+
+    Guards the shared ``postprocessed_results`` predicate: a looser check would
+    pick up any object that happens to carry a ``postprocessed`` attribute.
+    """
+    console = mock.Mock()
+    multiclass = MultiClassCVResult(
+        iteration=1,
+        test_label="video_1.mp4",
+        accuracy=0.9,
+        confusion_matrix=np.array([[1, 0], [0, 1]]),
+        class_names=["None", "Walk"],
+    )
+    # an unrelated attribute of the same name must not be mistaken for metrics
+    multiclass.postprocessed = PostprocessedMetrics(consistency_warning="should be ignored")
+
+    _print_consistency_warnings(console, [multiclass])
+
+    console.print.assert_not_called()

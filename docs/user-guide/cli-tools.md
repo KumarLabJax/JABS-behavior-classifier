@@ -644,6 +644,7 @@ jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
     [--grouping-strategy {video|individual|filename}] \
     [--grouping-pattern REGEX] \
     [--classifier {catboost|random_forest|xgboost}] \
+    [--postprocessing | --no-postprocessing] \
     [--report-file FILE] \
     [--mlflow [ENV_FILE]] [--mlflow-experiment NAME] [--mlflow-tag KEY=VALUE] \
     [--mlflow-no-report] [--mlflow-no-annotations]
@@ -655,6 +656,7 @@ jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
 - `--grouping-strategy {video|individual|filename}`: How labeled frames are grouped into cross-validation folds (see [Grouping strategies](#grouping-strategies)). If omitted, the project's saved setting is used.
 - `--grouping-pattern REGEX`: Regular expression applied to each video filename to derive a grouping key. Only used with `--grouping-strategy filename`. If omitted, the pattern saved in the project is used.
 - `--classifier {catboost|random_forest|xgboost}`: Classifier to evaluate. Defaults to `xgboost`. The available choices depend on which classifier libraries are installed; see [Classifier Types](classifier-types.md).
+- `--postprocessing` / `--no-postprocessing`: Whether to also report metrics with the behavior's prediction postprocessing pipeline applied. If omitted, the behavior's saved **Evaluate in Cross-Validation** setting is used. Evaluating postprocessing re-predicts each held-out animal's full track, so it costs roughly one extra classification pass over the labeled animals. Binary classifiers only.
 - `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`).
 - `--mlflow`, `--mlflow-experiment`, `--mlflow-tag`, `--mlflow-no-report`, `--mlflow-no-annotations`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).
 
@@ -672,11 +674,12 @@ For the `filename` strategy, the pattern is applied with `re.search`, so it matc
 
 ### Training report
 
-The report (and the console output) include:
+The report includes:
 
 - Per-iteration accuracy, precision and recall for both classes, and F1 for the behavior class, plus the held-out test group label for each iteration.
 - The top features (by importance) from a final model trained on all labeled data.
 - Labeled frame and bout counts, the window size, distance unit, classifier type, and the grouping strategy/pattern used.
+- When postprocessing evaluation is enabled, a second set of per-iteration metrics with the postprocessing pipeline applied, next to the raw ones, and the stage configuration that was evaluated. The console shows only the postprocessed accuracy and F1 per iteration; the full postprocessed metrics and the stage configuration are in the report. If the postprocessed pass does not reproduce an iteration's raw labels and predictions frame for frame, the two are not measuring the same thing, and the report and console say so rather than presenting the comparison as sound.
 
 **Examples:**
 
