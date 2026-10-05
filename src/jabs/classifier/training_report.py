@@ -302,6 +302,21 @@ def _format_performance_summary(cv_results: list[CrossValidationResult]) -> list
                 f"- **Mean F1 Score (Behavior, Postprocessed):** {np.mean(pp_f1):.4f} "
                 f"(± {np.std(pp_f1):.4f})"
             )
+            if len(postprocessed) < len(cv_results):
+                # The raw means above cover every iteration, so beside a partial set of
+                # postprocessed means they are not like for like. Say so, and give the raw
+                # means over exactly the evaluated iterations to compare against.
+                evaluated = {r.iteration for r in postprocessed}
+                missing = [str(r.iteration) for r in cv_results if r.iteration not in evaluated]
+                same_raw_accuracy = [r.accuracy for r in postprocessed]
+                same_raw_f1 = [r.f1_behavior for r in postprocessed]
+                lines.append(
+                    f"- **Warning:** postprocessed metrics cover {len(postprocessed)} of "
+                    f"{len(cv_results)} iterations (not evaluated: {', '.join(missing)}), so "
+                    f"they are not comparable with the means above, which cover all "
+                    f"iterations. Raw means over the evaluated iterations only: accuracy "
+                    f"{np.mean(same_raw_accuracy):.4f}, F1 (Behavior) {np.mean(same_raw_f1):.4f}."
+                )
             # flagged here as well as beside the table: these means are the
             # numbers a reader takes away, and they must not look trustworthy
             # when the pass that produced them disagreed with the raw pass

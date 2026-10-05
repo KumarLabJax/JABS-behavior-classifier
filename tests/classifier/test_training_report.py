@@ -597,6 +597,30 @@ class TestPostprocessedReporting:
         # and the stages are not listed under a heading claiming they ran
         assert "BoutStitchingStage" not in report
 
+    def test_markdown_flags_a_partial_set_of_evaluated_iterations(self, sample_training_data):
+        """Postprocessed means over only some iterations are not passed off as comparable."""
+        data = self._postprocessed_data(sample_training_data)
+        data.cv_results[0].postprocessed = None
+        evaluated = data.cv_results[1:]
+        raw_accuracy = np.mean([r.accuracy for r in evaluated])
+
+        summary = generate_markdown_report(data)
+
+        assert f"cover {len(evaluated)} of {len(data.cv_results)} iterations" in summary
+        assert f"not evaluated: {data.cv_results[0].iteration}" in summary
+        # raw means over the same iterations are given for a like-for-like comparison
+        assert f"accuracy {raw_accuracy:.4f}" in summary
+
+    def test_markdown_has_no_partial_warning_when_every_iteration_was_evaluated(
+        self, sample_training_data
+    ):
+        """A fully evaluated run carries no coverage warning."""
+        data = self._postprocessed_data(sample_training_data)
+
+        summary = generate_markdown_report(data)
+
+        assert "iterations (not evaluated" not in summary
+
     def test_markdown_does_not_claim_evaluation_when_every_fold_skipped(
         self, sample_training_data
     ):

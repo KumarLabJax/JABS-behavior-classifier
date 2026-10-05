@@ -296,7 +296,8 @@ def _postprocessing_context(
 
 def _build_postprocessed_metrics(
     evaluation: FoldPostprocessingEvaluation,
-    raw_accuracy: float,
+    fold_labels: npt.NDArray[np.integer],
+    fold_predictions: npt.NDArray[np.integer],
 ) -> PostprocessedMetrics:
     """Score one fold's postprocessed predictions against its ground truth.
 
@@ -307,32 +308,37 @@ def _build_postprocessed_metrics(
 
     Args:
         evaluation: Ground truth and predictions for the fold's labeled frames.
-        raw_accuracy: Accuracy the fold's raw metrics reported, used only for a
-            consistency check.
+        fold_labels: Ground-truth labels the fold's raw metrics were scored on.
+        fold_predictions: Raw predictions the fold's raw metrics were scored on.
+            Both are used only for a consistency check.
 
     Returns:
         The postprocessed metrics for the fold.
     """
-    # The full-sequence pass predicts the same rows the fold's raw metrics used,
-    # so its raw accuracy should match. A mismatch means the two paths disagree
-    # about features or settings, which is worth surfacing. The message is
-    # carried on the metrics rather than only logged: a saved report that shows
-    # raw and postprocessed numbers side by side has to say when the comparison
-    # is not meaningful, and a GUI user never sees the log.
-    full_sequence_raw_accuracy = classifier_utils.accuracy_score(evaluation.truth, evaluation.raw)
+    # The full-sequence pass predicts the same rows, in the same order, as the
+    # fold's raw metrics, so its truth and raw predictions should equal the
+    # fold's. Comparing the vectors rather than their accuracies matters: two
+    # different prediction sequences can score the same number of correct frames.
+    # A mismatch means the two paths disagree about features or settings, which is
+    # worth surfacing. The message is carried on the metrics rather than only
+    # logged: a saved report that shows raw and postprocessed numbers side by side
+    # has to say when the comparison is not meaningful, and a GUI user never sees
+    # the log.
     consistency_warning: str | None = None
-    if full_sequence_raw_accuracy != raw_accuracy:
+    if not (
+        np.array_equal(evaluation.truth, fold_labels)
+        and np.array_equal(evaluation.raw, fold_predictions)
+    ):
         consistency_warning = (
-            f"Raw accuracy from the full-sequence postprocessing pass "
-            f"({full_sequence_raw_accuracy:.4f}) does not match this iteration's raw accuracy "
-            f"({raw_accuracy:.4f}), so the postprocessed metrics may not be comparable with "
-            f"the raw ones."
+            "The full-sequence postprocessing pass did not reproduce this iteration's raw "
+            "labels and predictions frame for frame, so the postprocessed metrics may not "
+            "be comparable with the raw ones."
         )
         logger.warning(
-            "Raw accuracy from the full-sequence postprocessing pass (%.6f) does not match "
-            "the fold's raw accuracy (%.6f); postprocessed metrics may not be comparable",
-            full_sequence_raw_accuracy,
-            raw_accuracy,
+            "Full-sequence postprocessing pass does not reproduce the fold's raw labels and "
+            "predictions (%d vs %d frames); postprocessed metrics may not be comparable",
+            len(evaluation.raw),
+            len(fold_predictions),
         )
 
     precision, recall, f1, _ = precision_recall_fscore_support(
@@ -363,7 +369,8 @@ def _evaluate_fold_postprocessing(
     behavior: str,
     group_info: dict[str, object],
     context: _PostprocessingEvaluationContext,
-    raw_accuracy: float,
+    fold_labels: npt.NDArray[np.integer],
+    fold_predictions: npt.NDArray[np.integer],
     emit_status: Callable[[str], None],
     terminate_callback: Callable[[], None] | None,
 ) -> PostprocessedMetrics | None:
@@ -395,7 +402,7 @@ def _evaluate_fold_postprocessing(
     )
     if evaluation is None:
         return None
-    return _build_postprocessed_metrics(evaluation, raw_accuracy)
+    return _build_postprocessed_metrics(evaluation, fold_labels, fold_predictions)
 
 
 def run_leave_one_group_out_cv(
@@ -538,7 +545,8 @@ def run_leave_one_group_out_cv(
                     behavior=behavior,
                     group_info=group_mapping[data["test_group"]],
                     context=postprocessing_context,
-                    raw_accuracy=accuracy,
+                    fold_labels=data["test_labels"],
+                    fold_predictions=predictions,
                     emit_status=emit_status,
                     terminate_callback=terminate_callback,
                 )
