@@ -118,15 +118,17 @@ def test_identity_features_parquet_round_trip(tmp_path, pose_est_v5) -> None:
         np.testing.assert_array_almost_equal(cached_flat[key], computed_flat[key], err_msg=key)
 
 
-def test_identity_features_parquet_window_round_trip(tmp_path, pose_est_v5) -> None:
+def test_identity_features_parquet_window_round_trip(
+    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+) -> None:
     """Window features loaded from a Parquet cache must equal freshly computed values."""
     computed = _make_identity_features(
-        pose_est_v5, tmp_path, force=True, cache_format=CacheFormat.PARQUET
+        pose_est_v5_short, tmp_path, force=True, cache_format=CacheFormat.PARQUET
     )
     computed_window = computed.get_window_features(_WINDOW_SIZE, force=True)
 
     cached = _make_identity_features(
-        pose_est_v5, tmp_path, force=False, cache_format=CacheFormat.PARQUET
+        pose_est_v5_short, tmp_path, force=False, cache_format=CacheFormat.PARQUET
     )
     cached_window = cached.get_window_features(_WINDOW_SIZE)
 
@@ -138,7 +140,11 @@ def test_identity_features_parquet_window_round_trip(tmp_path, pose_est_v5) -> N
         np.testing.assert_array_almost_equal(cached_flat[key], computed_flat[key], err_msg=key)
 
 
-def test_window_cache_readable_after_first_compute(tmp_path, pose_est_v5) -> None:
+def test_window_cache_readable_after_first_compute(
+    tmp_path: Path,
+    pose_est_v5_short: pose_est_module.PoseEstimation,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A single IdentityFeatures instance can load window features it just wrote.
 
     Regression test: when no cache exists at construction time, _reader was left
@@ -146,20 +152,33 @@ def test_window_cache_readable_after_first_compute(tmp_path, pose_est_v5) -> Non
     call on the same instance to recompute instead of loading from disk.
     """
     # First call with no existing cache — writes per-frame cache and initializes reader.
-    instance = _make_identity_features(pose_est_v5, tmp_path, force=False)
+    instance = _make_identity_features(pose_est_v5_short, tmp_path, force=False)
 
     # The regression: _reader was left None after the first compute.  The fix
     # initializes it inside __init__ so this assertion catches a regression before
     # get_window_features is even called.
     assert instance._reader is not None, "_reader must be set after first compute"
 
+    # Count window recomputes. A silent recompute returns the same values as a cache
+    # load, so comparing the two results cannot tell them apart. The method is
+    # name-mangled, hence the spelled-out attribute name.
+    compute_window = "_IdentityFeatures__compute_window_features"
+    real_compute_window = getattr(IdentityFeatures, compute_window)
+    computed_window_sizes: list[int] = []
+
+    def _counting_compute_window(self: IdentityFeatures, window_size: int):
+        computed_window_sizes.append(window_size)
+        return real_compute_window(self, window_size)
+
+    monkeypatch.setattr(IdentityFeatures, compute_window, _counting_compute_window)
+
     # First get_window_features call: computes and writes window cache.
     first = instance.get_window_features(_WINDOW_SIZE)
 
-    # Second call on the same instance: should load from cache, not recompute.
-    # If _reader were still None this would silently recompute; results are
-    # identical either way, but the cache file must exist.
+    # Second call on the same instance: must load from cache, not recompute.
     second = instance.get_window_features(_WINDOW_SIZE)
+
+    assert computed_window_sizes == [_WINDOW_SIZE]
 
     first_flat = IdentityFeatures.merge_window_features(first)
     second_flat = IdentityFeatures.merge_window_features(second)
@@ -169,7 +188,9 @@ def test_window_cache_readable_after_first_compute(tmp_path, pose_est_v5) -> Non
         np.testing.assert_array_equal(second_flat[key], first_flat[key], err_msg=key)
 
 
-def test_window_compute_after_flat_per_frame_cache_hit(tmp_path, pose_est_v5) -> None:
+def test_window_compute_after_flat_per_frame_cache_hit(
+    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+) -> None:
     """Window recompute works after per-frame flat cache access.
 
     Regression test: when per-frame data came from the flattened cache path,
@@ -177,9 +198,11 @@ def test_window_compute_after_flat_per_frame_cache_hit(tmp_path, pose_est_v5) ->
     recomputation, window feature modules received None and crashed.
     """
     # Seed a cache so the next instance loads _per_frame_flat from disk.
-    _make_identity_features(pose_est_v5, tmp_path, force=True, cache_format=CacheFormat.PARQUET)
+    _make_identity_features(
+        pose_est_v5_short, tmp_path, force=True, cache_format=CacheFormat.PARQUET
+    )
     cached = _make_identity_features(
-        pose_est_v5, tmp_path, force=False, cache_format=CacheFormat.PARQUET
+        pose_est_v5_short, tmp_path, force=False, cache_format=CacheFormat.PARQUET
     )
 
     labels = np.full(cached._num_frames, TrackLabels.Label.BEHAVIOR, dtype=np.int8)
@@ -188,8 +211,11 @@ def test_window_compute_after_flat_per_frame_cache_hit(tmp_path, pose_est_v5) ->
 
     # Use a distinct window size to force a window-cache miss/recompute path.
     window_features = cached.get_window_features(_WINDOW_SIZE + 2, labels)
+    assert {"angles", "pairwise_distances"} <= set(window_features)
+
     window_flat = IdentityFeatures.merge_window_features(window_features)
     assert window_flat
+    assert len({values.shape for values in window_flat.values()}) == 1
 
 
 def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) -> None:

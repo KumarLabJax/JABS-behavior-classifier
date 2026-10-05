@@ -1,6 +1,7 @@
 """Unit tests for the Angles feature class."""
 
 import numpy as np
+import pytest
 
 from jabs.feature_extraction.angle_index import AngleIndex
 from jabs.feature_extraction.base_features import Angles
@@ -107,24 +108,43 @@ def test_angles_compute_angles_multiple_points():
     assert np.all(angles < 360)
 
 
-def test_angles_window_operations(pose_est_v5):
-    """Test that window operations work correctly with circular statistics."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    angles_feature = Angles(pose_est_v5, pixel_scale)
+def test_angles_circular_window_operations_use_a_0_360_range() -> None:
+    """Angles overrides the circular window operations to report angles in [0, 360).
 
-    for identity in range(pose_est_v5.num_identities):
-        per_frame_values = angles_feature.per_frame(identity)
+    The default circular operations use [-180, 180), where the mean of 170 and 190
+    degrees is -180. The Angles override reports it as 180.
+    """
+    mean = Angles._circular_window_operations["mean"]
+    std_dev = Angles._circular_window_operations["std_dev"]
+
+    assert mean(np.array([170.0, 190.0])) == pytest.approx(180.0)
+    assert mean(np.array([10.0, 20.0])) == pytest.approx(15.0)
+    assert std_dev(np.array([45.0, 45.0])) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_angles_window_means_are_never_negative(pose_est_v5_short) -> None:
+    """Angles.window applies its [0, 360) circular mean, so no window mean is negative."""
+    angles_feature = Angles(pose_est_v5_short, pose_est_v5_short.cm_per_pixel)
+
+    for identity in range(pose_est_v5_short.num_identities):
         window_values = angles_feature.window(
-            identity, window_size=5, per_frame_features=per_frame_values
+            identity,
+            window_size=5,
+            per_frame_features=angles_feature.per_frame(identity),
         )
 
-        # Check that window operations are computed
-        assert len(window_values) > 0
-
-        for _op_name, op_features in window_values.items():
-            for _feature_name, feature_values in op_features.items():
-                # Window values should have same shape as per_frame
-                assert feature_values.shape == (pose_est_v5.num_frames,)
+        # the sine and cosine columns use a plain mean and are legitimately negative
+        angle_means = np.concatenate(
+            [
+                values
+                for name, values in window_values["mean"].items()
+                if not name.endswith(("sine", "cosine"))
+            ]
+        )
+        assert np.nanmin(angle_means) >= 0.0
+        assert np.nanmax(angle_means) < 360.0
+        # the sample has angles past 180, which a [-180, 180) range would report as negative
+        assert np.nanmax(angle_means) > 180.0
 
 
 def test_angles_feature_name():

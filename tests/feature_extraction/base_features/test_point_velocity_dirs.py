@@ -100,26 +100,6 @@ def test_point_velocity_dirs_relative_to_bearing(pose_est_v5):
         assert len(values) > 0
 
 
-def test_point_velocity_dirs_window_operations(pose_est_v5):
-    """Test that window operations work correctly with circular statistics."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    velocity_dirs_feature = PointVelocityDirs(pose_est_v5, pixel_scale)
-
-    for identity in range(pose_est_v5.num_identities):
-        per_frame_values = velocity_dirs_feature.per_frame(identity)
-        window_values = velocity_dirs_feature.window(
-            identity, window_size=5, per_frame_features=per_frame_values
-        )
-
-        # Check that window operations are computed
-        assert len(window_values) > 0
-
-        for _op_name, op_features in window_values.items():
-            for _feature_name, feature_values in op_features.items():
-                # Window values should have same shape as per_frame
-                assert feature_values.shape == (pose_est_v5.num_frames,)
-
-
 def test_point_velocity_dirs_feature_name():
     """Test that the feature name is set correctly."""
     assert PointVelocityDirs.name() == "point_velocity_dirs"
