@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ClassifierMode
 from jabs.project import Project
 
 
@@ -29,6 +31,11 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
                     return True
         return False
 
+    behaviors_to_check = list(project.settings_manager.behavior_names)
+    if project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+        # the reserved None track is not a project behavior, but labels on it are training data
+        behaviors_to_check.append(MULTICLASS_NONE_BEHAVIOR)
+
     videos_to_remove = []
     for video in project.video_manager.videos:
         video_path = project.video_manager.video_path(video)
@@ -40,7 +47,7 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
             counts = project.load_counts(video, behavior)
             has_labels = check_label_counts(counts)
         else:
-            for b in project.settings_manager.behavior_names:
+            for b in behaviors_to_check:
                 counts = project.load_counts(video, b)
                 has_labels = check_label_counts(counts)
 
