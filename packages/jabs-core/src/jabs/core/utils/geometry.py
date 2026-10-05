@@ -1,9 +1,16 @@
 """Geometry helpers shared by feature extraction and the GUI.
 
-Note: ``Angles._compute_angles`` in the ``base_features`` angle feature deliberately
-does not use :func:`signed_angle_degrees`. It wraps to an unsigned ``[0, 360)`` range
-instead, and its output is stored in the feature cache, so switching conventions there
-would change computed feature values.
+Note: two angle features wrap their own output rather than calling
+:func:`signed_angle_degrees`, because their values are stored in the feature cache and
+rewrapping them would change computed feature values (and so require a
+``FEATURE_VERSION`` bump):
+
+- ``Angles._compute_angles`` wraps to an unsigned ``[0, 360)`` range instead. This is
+  deliberate; the feature's own docstring documents that range.
+- ``PointVelocityDirs.per_frame`` wraps with ``((x + 360) % 360) - 180``, which lands in
+  ``[-180, 180)`` but is rotated 180 degrees from this module's convention. That one is
+  a known defect rather than a choice - the sibling ``CentroidVelocityDir`` computes the
+  same bearing-relative angle correctly - and is documented where it occurs.
 """
 
 from __future__ import annotations

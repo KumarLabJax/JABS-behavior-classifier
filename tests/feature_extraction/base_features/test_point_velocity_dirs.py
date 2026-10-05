@@ -1,6 +1,7 @@
 """Unit tests for the PointVelocityDirs feature class."""
 
 import numpy as np
+import pytest
 
 from jabs.feature_extraction.base_features import PointVelocityDirs
 from jabs.pose_estimation import PoseEstimation
@@ -86,18 +87,108 @@ def test_point_velocity_dirs_feature_names(pose_est_v5):
             assert expected_cosine_name in values
 
 
-def test_point_velocity_dirs_relative_to_bearing(pose_est_v5):
-    """Test that velocity directions are computed relative to animal bearing."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    velocity_dirs_feature = PointVelocityDirs(pose_est_v5, pixel_scale)
+def _pose_with_constant_motion(pose_est_v5, delta: tuple[float, float]) -> object:
+    """Wrap a pose object so every keypoint translates by ``delta`` each frame.
 
-    # The implementation computes directions relative to the animal's bearing
-    # This ensures consistency across different orientations
-    for identity in range(pose_est_v5.num_identities):
-        values = velocity_dirs_feature.per_frame(identity)
+    Bearings are reported as a constant 0 degrees (animal facing +x), so the
+    bearing-relative velocity direction depends only on ``delta``. Delegating to the
+    real pose object keeps the attributes the feature does not control (fps, frame
+    count, keypoint layout) realistic.
 
-        # Verify that features are computed
-        assert len(values) > 0
+    Args:
+        pose_est_v5: Real pose object to delegate unhandled attributes to.
+        delta: Per-frame ``(dx, dy)`` translation applied to every keypoint.
+
+    Returns:
+        A pose-like object suitable for passing to :class:`PointVelocityDirs`.
+    """
+    num_frames = pose_est_v5.num_frames
+    num_keypoints = len(PoseEstimation.KeypointIndex)
+
+    frame_numbers = np.arange(num_frames, dtype=np.float32)[:, np.newaxis]
+    poses = np.empty((num_frames, num_keypoints, 2), dtype=np.float32)
+    poses[:, :, 0] = frame_numbers * delta[0]
+    poses[:, :, 1] = frame_numbers * delta[1]
+    point_masks = np.ones((num_frames, num_keypoints), dtype=np.uint8)
+    bearings = np.zeros(num_frames, dtype=np.float32)
+
+    class _PoseWithConstantMotion:
+        """Delegates to the real pose object, but reports synthetic poses/bearings."""
+
+        def __getattr__(self, name):
+            return getattr(pose_est_v5, name)
+
+        def get_identity_poses(self, identity, pixel_scale=None):
+            return poses, point_masks
+
+        def compute_all_bearings(self, identity):
+            return bearings
+
+    return _PoseWithConstantMotion()
+
+
+@pytest.mark.parametrize(
+    ("delta", "expected"),
+    [
+        ((1.0, 0.0), -180.0),
+        ((0.0, 1.0), -90.0),
+        ((-1.0, 0.0), 0.0),
+        ((0.0, -1.0), 90.0),
+    ],
+    ids=["along-bearing", "90-off-bearing", "against-bearing", "270-off-bearing"],
+)
+def test_point_velocity_dirs_bearing_relative_convention(pose_est_v5, delta, expected):
+    """Pin the bearing-relative angle convention this feature emits.
+
+    With the animal facing +x (bearing 0) and every keypoint translating by ``delta``
+    each frame, the velocity direction relative to the bearing is fully determined.
+
+    These expectations encode the 180 degree offset documented on
+    :class:`PointVelocityDirs`: motion straight along the bearing reads ``-180``
+    rather than ``0``. Correcting the offset changes cached feature values, so it
+    needs a ``FEATURE_VERSION`` bump - and updating these expectations by 180 degrees.
+    """
+    poses = _pose_with_constant_motion(pose_est_v5, delta)
+    values = PointVelocityDirs(poses, 1.0).per_frame(0)
+
+    for keypoint in PoseEstimation.KeypointIndex:
+        direction = values[f"{keypoint.name} velocity direction"]
+        assert direction == pytest.approx(expected), keypoint.name
+
+        # sine/cosine must stay consistent with the direction they are derived from
+        assert values[f"{keypoint.name} velocity direction sine"] == pytest.approx(
+            np.sin(np.deg2rad(expected)), abs=1e-6
+        )
+        assert values[f"{keypoint.name} velocity direction cosine"] == pytest.approx(
+            np.cos(np.deg2rad(expected)), abs=1e-6
+        )
+
+
+@pytest.mark.parametrize(
+    ("delta", "intended"),
+    [
+        ((1.0, 0.0), 0.0),
+        ((0.0, 1.0), 90.0),
+        ((0.0, -1.0), -90.0),
+    ],
+    ids=["along-bearing", "90-off-bearing", "270-off-bearing"],
+)
+def test_point_velocity_dirs_offset_is_a_constant_rotation(pose_est_v5, delta, intended):
+    """Rotating the emitted angles by 180 degrees recovers the intended convention.
+
+    This records that the gap against ``CentroidVelocityDir`` is one constant rotation
+    rather than a sporadic discrepancy, so whoever fixes the wrap can confirm it closes
+    the gap for every direction at once.
+    """
+    poses = _pose_with_constant_motion(pose_est_v5, delta)
+    values = PointVelocityDirs(poses, 1.0).per_frame(0)
+
+    for keypoint in PoseEstimation.KeypointIndex:
+        emitted = values[f"{keypoint.name} velocity direction"]
+        # undo the offset, then wrap back into [-180, 180) the way
+        # jabs.core.utils.geometry.signed_angle_degrees does
+        rotated = ((emitted + 180.0) + 180.0) % 360.0 - 180.0
+        assert rotated == pytest.approx(intended), keypoint.name
 
 
 def test_point_velocity_dirs_window_operations(pose_est_v5):
