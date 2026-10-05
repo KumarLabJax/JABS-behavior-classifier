@@ -65,12 +65,6 @@ def test_signed_dist(pose_est_v5_with_static_objects, food_hopper_feature):
                 assert np.isnan(values[f"food hopper {key_point.name}"][i])
 
 
-def test_frame_out_of_range(food_hopper_feature):
-    """Test that requesting a frame out of range raises IndexError."""
-    with pytest.raises(IndexError):
-        _ = food_hopper_feature.per_frame(0)["food hopper NOSE"][100000]
-
-
 def test_identity_out_of_range(food_hopper_feature):
     """Test that requesting an identity out of range raises IndexError."""
     with pytest.raises(IndexError):

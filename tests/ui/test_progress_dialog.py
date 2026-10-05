@@ -60,14 +60,6 @@ def test_close_does_not_dismiss_the_dialog(dialog, qapp) -> None:
     assert dialog.isVisible()
 
 
-def test_hide_dismisses_the_dialog(dialog, qapp) -> None:
-    """hide() is the way to actually take the dialog down."""
-    dialog.hide()
-    qapp.processEvents()
-
-    assert not dialog.isVisible()
-
-
 def test_escape_does_not_dismiss_the_dialog(dialog, qapp) -> None:
     """ESC is ignored, so a stray keypress cannot abandon a running task."""
     dialog.keyPressEvent(

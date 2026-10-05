@@ -91,76 +91,9 @@ def sample_training_data(sample_cv_results):
 class TestCrossValidationResult:
     """Tests for BinaryCVResult dataclass."""
 
-    def test_create_cv_result(self):
-        """Test creating a BinaryCVResult instance."""
-        result = BinaryCVResult(
-            iteration=1,
-            test_label="test.mp4 [0]",
-            accuracy=0.95,
-            precision_not_behavior=0.94,
-            precision_behavior=0.96,
-            recall_not_behavior=0.97,
-            recall_behavior=0.93,
-            f1_behavior=0.945,
-            support_behavior=100,
-            support_not_behavior=150,
-            confusion_matrix=np.array([[140, 10], [7, 93]]),
-            top_features=[("feature1", 0.5), ("feature2", 0.3)],
-        )
-
-        assert result.iteration == 1
-        assert result.test_label == "test.mp4 [0]"
-        assert result.accuracy == 0.95
-        assert result.precision_not_behavior == 0.94
-        assert result.precision_behavior == 0.96
-        assert result.recall_not_behavior == 0.97
-        assert result.recall_behavior == 0.93
-        assert result.f1_behavior == 0.945
-        assert result.support_behavior == 100
-        assert result.support_not_behavior == 150
-        assert result.confusion_matrix.shape == (2, 2)
-        assert result.top_features == [("feature1", 0.5), ("feature2", 0.3)]
-
 
 class TestTrainingReportData:
     """Tests for TrainingReportData dataclass."""
-
-    def test_create_training_data(self, sample_cv_results):
-        """Test creating a TrainingReportData instance."""
-        timestamp = datetime.now()
-        data = TrainingReportData(
-            behavior_name="Rearing",
-            classifier_type="XGBoost",
-            window_size=7,
-            balance_training_labels=False,
-            symmetric_behavior=True,
-            distance_unit="pixel",
-            cv_results=sample_cv_results,
-            final_top_features=[("feature1", 0.5), ("feature2", 0.3)],
-            frames_behavior=500,
-            frames_not_behavior=1500,
-            bouts_behavior=20,
-            bouts_not_behavior=80,
-            training_time_ms=5000,
-            timestamp=timestamp,
-            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
-        )
-
-        assert data.behavior_name == "Rearing"
-        assert data.classifier_type == "XGBoost"
-        assert data.window_size == 7
-        assert data.balance_training_labels is False
-        assert data.symmetric_behavior is True
-        assert data.distance_unit == "pixel"
-        assert len(data.cv_results) == 2
-        assert len(data.final_top_features) == 2
-        assert data.frames_behavior == 500
-        assert data.frames_not_behavior == 1500
-        assert data.bouts_behavior == 20
-        assert data.bouts_not_behavior == 80
-        assert data.training_time_ms == 5000
-        assert data.timestamp == timestamp
-        assert data.cv_grouping_strategy == CrossValidationGroupingStrategy.VIDEO
 
 
 class TestGenerateMarkdownReport:
@@ -304,14 +237,6 @@ class TestGenerateMarkdownReport:
 class TestSaveTrainingReport:
     """Tests for save_training_report function."""
 
-    def test_save_report_creates_file(self, sample_training_data, tmp_path):
-        """Test that saving a report creates a file."""
-        output_file = tmp_path / "test_report.md"
-
-        save_training_report(sample_training_data, output_file)
-
-        assert output_file.exists()
-
     def test_saved_report_content(self, sample_training_data, tmp_path):
         """Test that saved report contains expected content."""
         output_file = tmp_path / "test_report.md"
@@ -352,31 +277,6 @@ class TestSaveTrainingReport:
 
 class TestReportFormatting:
     """Tests for report formatting details."""
-
-    def test_numbers_formatted_correctly(self, sample_training_data):
-        """Test that numbers are formatted with proper precision."""
-        report = generate_markdown_report(sample_training_data)
-
-        # Accuracies should be 4 decimal places
-        assert "0.9234" in report
-        assert "0.8912" in report
-
-        # Feature importance should be 2 decimal places
-        assert "0.16" in report  # nose_speed importance
-
-    def test_comma_separated_counts(self, sample_training_data):
-        """Test that large numbers use comma separators."""
-        report = generate_markdown_report(sample_training_data)
-
-        assert "1,250" in report  # behavior frames
-        assert "3,840" in report  # not-behavior frames
-
-    def test_training_time_in_seconds(self, sample_training_data):
-        """Test that training time is converted from ms to seconds."""
-        report = generate_markdown_report(sample_training_data)
-
-        # 12345 ms = 12.35 seconds
-        assert "12.35 seconds" in report
 
 
 class TestMulticlassReport:

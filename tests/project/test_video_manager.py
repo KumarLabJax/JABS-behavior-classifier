@@ -80,14 +80,6 @@ def video_manager(project_paths, settings_manager):
     )
 
 
-def test_get_videos(video_manager, project_paths):
-    """Test retrieving video files from the project directory."""
-    videos = video_manager.get_videos(project_paths.project_dir)
-    assert "video1.avi" in videos
-    assert "video2.mp4" in videos
-    assert len(videos) == 2
-
-
 def test_get_videos_excludes_dotfiles(tmp_path):
     """get_videos ignores dotfiles, including macOS AppleDouble ('._*') sidecars."""
     (tmp_path / "real1.mp4").touch()

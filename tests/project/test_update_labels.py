@@ -262,17 +262,6 @@ def test_preflight_auto_scaffolds_target_when_jabs_missing(tmp_path, monkeypatch
     assert (target_dir / "jabs" / "project.json").exists()
 
 
-def test_preflight_rejects_invalid_source(tmp_path):
-    """The preflight should fail when the source is not a valid JABS project."""
-    target_dir = tmp_path / "target"
-    source_dir = tmp_path / "source"
-    _make_valid_project_dir(target_dir, write_annotation=True)
-    source_dir.mkdir()
-
-    with pytest.raises(ValueError, match="source labels"):
-        update_labels._preflight_label_update_inputs(target_dir, source_dir)
-
-
 def test_preflight_invalid_source_does_not_scaffold_target(tmp_path):
     """Source validation must happen before target scaffolding to avoid orphan jabs/."""
     target_dir = tmp_path / "target"

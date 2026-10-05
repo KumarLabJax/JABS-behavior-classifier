@@ -17,10 +17,6 @@ mock_pose_est.external_identities = None
 class TestVideoLabels(unittest.TestCase):
     """test project.video_labels.VideoLabels"""
 
-    def test_create(self):
-        """test initializing new VideoLabels"""
-        _ = VideoLabels("filename.avi", mock_pose_est)
-
     def test_getting_new_track(self):
         """test initializing new VideoLabels"""
         labels = VideoLabels("filename.avi", 100)

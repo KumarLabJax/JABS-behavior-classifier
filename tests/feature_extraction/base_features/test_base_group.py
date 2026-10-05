@@ -12,14 +12,6 @@ from jabs.feature_extraction.base_features import (
 )
 
 
-def test_base_feature_group_instantiation(pose_est_v5):
-    """Test that BaseFeatureGroup can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    feature_group = BaseFeatureGroup(pose_est_v5, pixel_scale)
-
-    assert feature_group is not None
-
-
 def test_base_feature_group_name():
     """Test that the group name is set correctly."""
     assert BaseFeatureGroup._name == "base"

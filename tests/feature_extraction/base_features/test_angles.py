@@ -7,15 +7,6 @@ from jabs.feature_extraction.angle_index import AngleIndex
 from jabs.feature_extraction.base_features import Angles
 
 
-def test_angles_instantiation(pose_est_v5):
-    """Test that Angles can be instantiated with a pose estimation object."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    angles_feature = Angles(pose_est_v5, pixel_scale)
-
-    assert angles_feature is not None
-    assert angles_feature._num_angles == len(AngleIndex)
-
-
 def test_angles_per_frame_dimensions(pose_est_v5):
     """Test that per_frame returns correct dimensions."""
     pixel_scale = pose_est_v5.cm_per_pixel

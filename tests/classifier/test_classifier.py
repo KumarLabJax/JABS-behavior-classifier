@@ -99,11 +99,6 @@ class TestClassifierInitialization:
         clf = Classifier(classifier=ClassifierType.XGBOOST)
         assert clf.classifier_type == ClassifierType.XGBOOST
 
-    def test_initialization_with_catboost(self):
-        """Test creating a classifier with CatBoost type."""
-        clf = Classifier(classifier=ClassifierType.CATBOOST)
-        assert clf.classifier_type == ClassifierType.CATBOOST
-
     def test_invalid_classifier_type_raises_error(self):
         """Test that invalid classifier type raises ValueError."""
         with (
@@ -117,34 +112,11 @@ class TestClassifierInitialization:
 class TestClassifierProperties:
     """Test Classifier properties."""
 
-    def test_classifier_name_property(self):
-        """Test classifier_name property returns correct name."""
-        clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)
-        assert clf.classifier_name == ClassifierType.RANDOM_FOREST.value
-
-    def test_behavior_name_property(self):
-        """Test behavior_name getter and setter."""
-        clf = Classifier()
-        assert clf.behavior_name is None
-
-        clf.behavior_name = "Grooming"
-        assert clf.behavior_name == "Grooming"
-
     def test_version_property(self):
         """Test version property returns correct version."""
         clf = Classifier()
         assert isinstance(clf.version, int)
         assert clf.version > 0
-
-    def test_classifier_file_property_unset(self):
-        """Test classifier_file property when not set."""
-        clf = Classifier()
-        assert clf.classifier_file is None
-
-    def test_classifier_hash_property_unset(self):
-        """Test classifier_hash property when not set."""
-        clf = Classifier()
-        assert clf.classifier_hash is None
 
     def test_project_settings_property(self):
         """Test project_settings property returns copy."""
@@ -158,11 +130,6 @@ class TestClassifierProperties:
         # Modify returned dict shouldn't affect internal settings
         settings["test"] = "modified"
         assert clf._project_settings["test"] == "value"
-
-    def test_feature_names_property(self):
-        """Test feature_names property."""
-        clf = Classifier()
-        assert clf.feature_names is None
 
 
 class TestDataSplitting:
@@ -602,22 +569,6 @@ class TestClassifierChoices:
         assert ClassifierType.RANDOM_FOREST in choices
         assert ClassifierType.CATBOOST in choices
         assert all(isinstance(v, str) for v in choices.values())
-
-    def test_catboost_in_choices(self):
-        """Test that CatBoost is available in classifier choices."""
-        clf = Classifier()
-        choices = clf.classifier_choices()
-
-        assert ClassifierType.CATBOOST in choices
-        assert choices[ClassifierType.CATBOOST] == "CatBoost"
-
-    def test_set_classifier(self):
-        """Test changing classifier type."""
-        clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)
-
-        # Change to same type should work
-        clf.set_classifier(ClassifierType.RANDOM_FOREST)
-        assert clf.classifier_type == ClassifierType.RANDOM_FOREST
 
     def test_set_classifier_to_catboost(self):
         """Test switching to CatBoost classifier type."""

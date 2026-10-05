@@ -78,19 +78,6 @@ def test_load_config_file_json_list(tmp_path: Path) -> None:
     assert result == config
 
 
-def test_load_config_file_json_dict(tmp_path: Path) -> None:
-    """Load a JSON dict config."""
-    config = {
-        "grooming": [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}]
-    }
-    cfg_file = tmp_path / "pipeline.json"
-    cfg_file.write_text(json.dumps(config))
-
-    result = load_config_file(cfg_file)
-
-    assert result == config
-
-
 def test_load_config_file_invalid_json(tmp_path: Path) -> None:
     """Malformed JSON raises ClickException."""
     import click

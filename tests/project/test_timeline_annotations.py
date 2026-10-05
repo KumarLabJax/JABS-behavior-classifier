@@ -206,21 +206,6 @@ def test_load_warns_on_skipped_entry(caplog):
 
 
 @pytest.mark.parametrize(
-    "tag, ok",
-    [
-        ("a", True),
-        ("a" * MAX_TAG_LEN, True),
-        ("a" * (MAX_TAG_LEN + 1), False),
-    ],
-)
-def test_tag_length(tag, ok):
-    """Test that tags exceeding max length are skipped."""
-    data = [{"start": 0, "end": 0, "tag": tag, "color": "#000"}]
-    rebuilt = TimelineAnnotations.load(data)
-    assert len(rebuilt) == 1 if ok else len(rebuilt) == 0
-
-
-@pytest.mark.parametrize(
     ("tag", "expected"),
     [
         ("a", True),

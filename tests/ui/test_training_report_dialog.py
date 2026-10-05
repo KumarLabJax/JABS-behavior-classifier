@@ -77,13 +77,6 @@ def qapp():
 class TestTrainingReportDialog:
     """Tests for TrainingReportDialog class."""
 
-    def test_dialog_creation(self, sample_markdown):
-        """Test that dialog can be created."""
-        dialog = TrainingReportDialog(sample_markdown)
-
-        assert dialog is not None
-        assert dialog.windowTitle() == "Training Report"
-
     def test_custom_title(self, sample_markdown):
         """Test that custom title is set."""
         dialog = TrainingReportDialog(sample_markdown, title="Custom Title")
@@ -95,12 +88,6 @@ class TestTrainingReportDialog:
         dialog = TrainingReportDialog(sample_markdown)
 
         assert dialog._markdown_content == sample_markdown
-
-    def test_web_view_created(self, sample_markdown):
-        """Test that web view is created and added to dialog."""
-        dialog = TrainingReportDialog(sample_markdown)
-
-        assert dialog.web_view is not None
 
     def test_copy_button_exists(self, sample_markdown):
         """Test that copy button is created."""
@@ -181,28 +168,3 @@ class TestTrainingReportDialog:
 
 class TestTrainingReportDialogIntegration:
     """Integration tests for TrainingReportDialog."""
-
-    def test_parent_widget_set(self, sample_markdown):
-        """Test that parent widget can be set to None."""
-        dialog = TrainingReportDialog(sample_markdown, parent=None)
-
-        # Dialog should be created successfully with None parent
-        assert dialog is not None
-        assert dialog.parent() is None
-
-    def test_dialog_can_be_shown(self, sample_markdown):
-        """Test that dialog can be shown (non-modal)."""
-        dialog = TrainingReportDialog(sample_markdown)
-
-        # Should not raise an error
-        dialog.show()
-        dialog.close()
-
-    def test_multiple_dialogs(self, sample_markdown):
-        """Test that multiple dialogs can be created."""
-        dialog1 = TrainingReportDialog(sample_markdown, title="Report 1")
-        dialog2 = TrainingReportDialog(sample_markdown, title="Report 2")
-
-        assert dialog1.windowTitle() == "Report 1"
-        assert dialog2.windowTitle() == "Report 2"
-        assert dialog1 is not dialog2

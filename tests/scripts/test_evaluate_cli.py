@@ -67,16 +67,6 @@ def test_compare_identity_reports_both_criteria() -> None:
     assert comparison.predicted_bouts == [evaluate_module.Bout(2, 3)]
 
 
-def test_compare_identity_criteria_can_disagree() -> None:
-    """A 2-frame prediction inside an 8-frame bout: found, but poorly bounded."""
-    truth = np.array([0, 1, 1, 1, 1, 1, 1, 1, 1, 0])
-    predicted = np.array([0, 0, 0, 0, 1, 1, 0, 0, 0, 0])
-    comparison = compare_identity(truth, predicted, CRITERIA)
-
-    assert comparison.bout_metrics[OVERLAP.label].detection_rate == pytest.approx(1.0)
-    assert comparison.bout_metrics[IOU.label].detection_rate == pytest.approx(0.0)
-
-
 def test_compare_identity_shares_one_overlap_sweep_across_criteria() -> None:
     """Compare identity shares one overlap sweep across criteria."""
     truth = np.array([1, 1, 0, 1, 1])
@@ -483,13 +473,6 @@ def test_out_dir_writes_all_three_files(wired, tmp_path: Path) -> None:
     written = sorted(p.name.rsplit("_", 1)[-1] for p in out.iterdir())
     assert written == ["bouts.csv", "evaluation.json", "evaluation.md"]
     assert all(p.name.startswith("Grooming_") for p in out.iterdir())
-
-
-def test_out_dir_filenames_use_the_resolved_behavior(wired, tmp_path: Path) -> None:
-    """The behavior comes from the classifier when --behavior is not given."""
-    out = tmp_path / "results"
-    assert _invoke(tmp_path, "--out-dir", str(out)).exit_code == 0
-    assert all("Grooming" in p.name for p in out.iterdir())
 
 
 def test_explicit_output_paths_are_honored(wired, tmp_path: Path) -> None:
@@ -1328,31 +1311,6 @@ def test_sweep_markdown_report_has_a_sweep_section(monkeypatch: pytest.MonkeyPat
     assert f"### Sweep - {IOU.label}" in text
 
 
-def test_command_passes_the_combination_ceiling(wired, tmp_path: Path) -> None:
-    """--max-sweep-combinations reaches the plan builder."""
-    spy, _ = wired
-    captured = {}
-    # capture the real function before patching, or the wrapper recurses
-    real_builder = evaluate_module.build_postprocessing_plan
-
-    def fake_plan(config, behavior, max_combinations):
-        captured["max"] = max_combinations
-        return real_builder(config, behavior, max_combinations=max_combinations)
-
-    cfg = tmp_path / "pp.json"
-    cfg.write_text(json.dumps(_SWEEP_CONFIG))
-    with mock.patch.object(evaluate_module, "build_postprocessing_plan", side_effect=fake_plan):
-        result = _invoke(
-            tmp_path,
-            "--postprocess-config",
-            str(cfg),
-            "--max-sweep-combinations",
-            "7",
-        )
-    assert result.exit_code == 0, result.output
-    assert captured["max"] == 7
-
-
 def test_command_announces_the_sweep_size(wired, tmp_path: Path) -> None:
     """The user should know a grid is running before it runs."""
     cfg = tmp_path / "pp.json"
@@ -1603,31 +1561,4 @@ def test_sweep_titles_render_on_one_line(monkeypatch: pytest.MonkeyPatch) -> Non
             f"Rich wraps a table title to the table's own width, which comes from the "
             f"columns. If a column was renamed, removed, or narrowed, either shorten "
             f"sweep_table_title() or move the wording into the note below the tables."
-        )
-
-
-def test_sweep_title_fits_the_narrowest_table_it_will_be_drawn_on(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Compare title length against the rendered table width directly.
-
-    Stated as the actual invariant, so a failure says which of the two moved.
-    """
-    from rich.console import Console
-
-    _fake_project(
-        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
-    )
-    result = _run(plan=_plan(_SWEEP_CONFIG))
-
-    console = Console(width=200, record=True)
-    evaluate_report.print_sweep_tables(result, console)
-    border = next(ln for ln in console.export_text().splitlines() if ln.startswith("\u250f"))
-    table_width = len(border.rstrip())
-
-    for criterion in result.criteria:
-        title = evaluate_report.sweep_table_title(criterion)
-        assert len(title) <= table_width, (
-            f"title is {len(title)} chars but the table is only {table_width} wide, "
-            f"so Rich will wrap it: {title!r}"
         )

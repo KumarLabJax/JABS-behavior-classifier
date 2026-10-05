@@ -3,17 +3,6 @@ import numpy as np
 from jabs.feature_extraction.segmentation_features import Moments
 
 
-def test_data(seg_data):
-    """Test segmentation data integrity.
-
-    Verifies that segmentation data has proper shape and is non-empty.
-    """
-    seg_data_array = seg_data["pose_est_v6"]._segmentation_dict["seg_data"]
-
-    assert len(seg_data_array.shape) == 5
-    assert sum(seg_data_array.shape) > 0
-
-
 def test_posev6_instantiation(seg_data):
     """Test PoseEstimationV6 class instantiation with segmentation data.
 

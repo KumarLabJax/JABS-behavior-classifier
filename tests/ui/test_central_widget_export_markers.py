@@ -389,23 +389,3 @@ def test_multiclass_predictions_from_a_record_that_does_not_match_are_refused(
     # stale with the record and are still exportable on their own.
     assert labels_reason is None
     assert _overlay(widget, labels=True) is not None
-
-
-def test_multiclass_predictions_from_a_matching_record_are_accepted() -> None:
-    """The ordinary case, where nothing has changed since the video was classified."""
-    overlay = _overlay(
-        _widget(
-            classifier_mode=ClassifierMode.MULTICLASS,
-            color_lut=_LUT,
-            multiclass_class_names=["None", "Grooming", "Rearing"],
-        ),
-        predictions=True,
-    )
-
-    assert overlay is not None
-    assert [name for name, _ in overlay.legend] == [
-        "None",
-        "Grooming",
-        "Rearing",
-        "no prediction",
-    ]

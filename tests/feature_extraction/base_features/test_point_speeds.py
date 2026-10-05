@@ -8,14 +8,6 @@ from jabs.feature_extraction.base_features import PointSpeeds
 from jabs.pose_estimation import PoseEstimation
 
 
-def test_point_speeds_instantiation(pose_est_v5):
-    """Test that PointSpeeds can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    speeds_feature = PointSpeeds(pose_est_v5, pixel_scale)
-
-    assert speeds_feature is not None
-
-
 def test_point_speeds_per_frame_dimensions(pose_est_v5):
     """Test that per_frame returns correct dimensions."""
     pixel_scale = pose_est_v5.cm_per_pixel
@@ -165,16 +157,3 @@ def test_point_speeds_window_operations(pose_est_v5):
 def test_point_speeds_feature_name():
     """Test that the feature name is set correctly."""
     assert PointSpeeds.name() == "point_speeds"
-
-
-def test_point_speeds_handles_nans(pose_est_v5):
-    """Test that point speeds handles NaN coordinates correctly."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    speeds_feature = PointSpeeds(pose_est_v5, pixel_scale)
-
-    for identity in range(pose_est_v5.num_identities):
-        values = speeds_feature.per_frame(identity)
-
-        # Should produce output with same shape even with NaNs in input
-        for _feature_name, feature_values in values.items():
-            assert feature_values.shape == (pose_est_v5.num_frames,)

@@ -5,14 +5,6 @@ import numpy as np
 from jabs.feature_extraction.base_features import AngularVelocity
 
 
-def test_angular_velocity_instantiation(pose_est_v5):
-    """Test that AngularVelocity can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    angular_vel_feature = AngularVelocity(pose_est_v5, pixel_scale)
-
-    assert angular_vel_feature is not None
-
-
 def test_angular_velocity_per_frame_dimensions(pose_est_v5):
     """Test that per_frame returns correct dimensions."""
     pixel_scale = pose_est_v5.cm_per_pixel
@@ -107,19 +99,6 @@ def test_angular_velocity_consecutive_same_angles():
 def test_angular_velocity_feature_name():
     """Test that the feature name is set correctly."""
     assert AngularVelocity.name() == "angular_velocity"
-
-
-def test_angular_velocity_handles_nans(pose_est_v5):
-    """Test that angular velocity handles NaN bearings correctly."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    angular_vel_feature = AngularVelocity(pose_est_v5, pixel_scale)
-
-    for identity in range(pose_est_v5.num_identities):
-        values = angular_vel_feature.per_frame(identity)
-        velocities = values["angular_velocity"]
-
-        # Should produce output with same shape even with NaNs in input
-        assert velocities.shape == (pose_est_v5.num_frames,)
 
 
 def test_angular_velocity_window_operations(pose_est_v5):

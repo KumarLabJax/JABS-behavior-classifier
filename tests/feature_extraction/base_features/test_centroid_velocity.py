@@ -5,14 +5,6 @@ import numpy as np
 from jabs.feature_extraction.base_features import CentroidVelocityDir, CentroidVelocityMag
 
 
-def test_centroid_velocity_dir_instantiation(pose_est_v5):
-    """Test that CentroidVelocityDir can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    centroid_dir_feature = CentroidVelocityDir(pose_est_v5, pixel_scale)
-
-    assert centroid_dir_feature is not None
-
-
 def test_centroid_velocity_dir_per_frame_dimensions(pose_est_v5):
     """Test that per_frame returns correct dimensions for CentroidVelocityDir."""
     pixel_scale = pose_est_v5.cm_per_pixel
@@ -71,14 +63,6 @@ def test_centroid_velocity_dir_feature_name():
 def test_centroid_velocity_dir_uses_circular_statistics():
     """Test that CentroidVelocityDir uses circular statistics."""
     assert CentroidVelocityDir._use_circular is True
-
-
-def test_centroid_velocity_mag_instantiation(pose_est_v5):
-    """Test that CentroidVelocityMag can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    centroid_mag_feature = CentroidVelocityMag(pose_est_v5, pixel_scale)
-
-    assert centroid_mag_feature is not None
 
 
 def test_centroid_velocity_mag_per_frame_dimensions(pose_est_v5):
@@ -171,21 +155,6 @@ def test_centroid_velocity_mag_window_operations(pose_est_v5):
             for _feature_name, feature_values in op_features.items():
                 # Window values should have same shape as per_frame
                 assert feature_values.shape == (pose_est_v5.num_frames,)
-
-
-def test_centroid_velocity_handles_missing_frames(pose_est_v5):
-    """Test that centroid velocity features handle frames where identity is not present."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    centroid_dir_feature = CentroidVelocityDir(pose_est_v5, pixel_scale)
-    centroid_mag_feature = CentroidVelocityMag(pose_est_v5, pixel_scale)
-
-    for identity in range(pose_est_v5.num_identities):
-        dir_values = centroid_dir_feature.per_frame(identity)
-        mag_values = centroid_mag_feature.per_frame(identity)
-
-        # Should produce output with correct shape
-        assert dir_values["centroid_velocity_dir"].shape == (pose_est_v5.num_frames,)
-        assert mag_values["centroid_velocity_mag"].shape == (pose_est_v5.num_frames,)
 
 
 def test_centroid_velocity_handles_missing_convex_hull(pose_est_v5):

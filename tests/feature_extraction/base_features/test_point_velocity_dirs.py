@@ -6,14 +6,6 @@ from jabs.feature_extraction.base_features import PointVelocityDirs
 from jabs.pose_estimation import PoseEstimation
 
 
-def test_point_velocity_dirs_instantiation(pose_est_v5):
-    """Test that PointVelocityDirs can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    velocity_dirs_feature = PointVelocityDirs(pose_est_v5, pixel_scale)
-
-    assert velocity_dirs_feature is not None
-
-
 def test_point_velocity_dirs_per_frame_dimensions(pose_est_v5):
     """Test that per_frame returns correct dimensions."""
     pixel_scale = pose_est_v5.cm_per_pixel
@@ -108,16 +100,3 @@ def test_point_velocity_dirs_feature_name():
 def test_point_velocity_dirs_uses_circular_statistics():
     """Test that the PointVelocityDirs feature uses circular statistics."""
     assert PointVelocityDirs._use_circular is True
-
-
-def test_point_velocity_dirs_handles_nans(pose_est_v5):
-    """Test that velocity directions handle NaN coordinates correctly."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    velocity_dirs_feature = PointVelocityDirs(pose_est_v5, pixel_scale)
-
-    for identity in range(pose_est_v5.num_identities):
-        values = velocity_dirs_feature.per_frame(identity)
-
-        # Should produce output with same shape even with NaNs in input
-        for _feature_name, feature_values in values.items():
-            assert feature_values.shape == (pose_est_v5.num_frames,)

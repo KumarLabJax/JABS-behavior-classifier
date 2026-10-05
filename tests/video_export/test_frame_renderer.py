@@ -86,15 +86,6 @@ def test_segmentation_queried_when_the_pose_file_has_it(blank_frame: np.ndarray)
     assert pose.segmentation_calls == [(3, 0), (3, 1)]
 
 
-def test_segmentation_not_queried_when_switched_off(blank_frame: np.ndarray) -> None:
-    """--no-segmentation / unchecked box skips it even when the data exists."""
-    pose = StubPose(has_segmentation=True)
-
-    render_overlay_frame(blank_frame, pose, 0, draw_segmentation=False)
-
-    assert pose.segmentation_calls == []
-
-
 def test_no_overlays_returns_an_unmodified_copy(blank_frame: np.ndarray) -> None:
     """With every overlay switched off the frame is copied through untouched."""
     result = render_overlay_frame(

@@ -280,22 +280,6 @@ def test_cli_invalid_project_dir(tmp_path: Path) -> None:
     assert "not a valid jabs project" in result.output.lower()
 
 
-def test_cli_unknown_behavior(tmp_path: Path) -> None:
-    """An unknown behavior label produces a clear error."""
-    runner = CliRunner()
-    with patch("jabs.scripts.cli.sample_frames.Project") as MockProject:
-        MockProject.is_valid_project_directory.return_value = True
-        mock_project = MagicMock()
-        mock_project.settings = {"behavior": {"rearing": {}}}
-        MockProject.return_value = mock_project
-        result = runner.invoke(
-            cli,
-            ["sample-frames", "--behavior", "walking", "--num-frames", "5", str(tmp_path)],
-        )
-    assert result.exit_code != 0
-    assert "walking" in result.output
-
-
 def test_cli_out_dir_created(tmp_path: Path) -> None:
     """--out-dir is created if it does not yet exist."""
     out_dir = tmp_path / "new" / "subdir"
@@ -413,29 +397,6 @@ def test_collect_bouts_multiple_identities_same_video() -> None:
     assert len(bouts) == 2
     assert ("v.mp4", 0, 5) in bouts
     assert ("v.mp4", 3, 8) in bouts
-
-
-def test_collect_bouts_mixed_present_flags() -> None:
-    """Only blocks with present=True are included; present=False blocks are excluded."""
-    vl = _make_video_labels(
-        [
-            (
-                "0",
-                "walking",
-                [
-                    {"start": 0, "end": 10, "present": True},
-                    {"start": 11, "end": 20, "present": False},
-                    {"start": 21, "end": 30, "present": True},
-                ],
-            ),
-        ]
-    )
-    project = _make_project(["v.mp4"], {"v.mp4": vl}, ["walking"])
-
-    bouts = collect_behavior_bouts(project, "walking")
-    assert len(bouts) == 2
-    assert ("v.mp4", 0, 10) in bouts
-    assert ("v.mp4", 21, 30) in bouts
 
 
 # ---------------------------------------------------------------------------

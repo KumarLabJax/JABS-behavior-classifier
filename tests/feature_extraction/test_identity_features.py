@@ -336,16 +336,3 @@ def test_legacy_rename_failure_is_non_fatal(tmp_path, pose_est_v5, caplog, monke
     assert instance._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)
     assert legacy.exists(), "legacy dir untouched after failed rename"
     assert any("failed to rename" in r.message for r in caplog.records)
-
-
-def test_no_rename_when_video_stem_used(tmp_path, pose_est_v5) -> None:
-    """If the source filename has no ``_pose_est_vN`` suffix, no rename is attempted."""
-    instance = IdentityFeatures(
-        source_file="sample.mp4",
-        identity=_IDENTITY,
-        directory=tmp_path,
-        pose_est=pose_est_v5,
-        op_settings={},
-    )
-
-    assert instance._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)

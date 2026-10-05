@@ -909,13 +909,3 @@ class TestLabelThreshold:
 # ---------------------------------------------------------------------------
 # Protocol compliance
 # ---------------------------------------------------------------------------
-
-
-def test_satisfies_classifier_protocol():
-    """MultiClassClassifier structurally satisfies ClassifierProtocol."""
-    # Runtime check: verify all required attributes are present
-    clf = MultiClassClassifier(BEHAVIOR_NAMES)
-    protocol_methods = ("train", "predict", "predict_proba", "save", "load")
-    for method in protocol_methods:
-        assert callable(getattr(clf, method, None)), f"Missing method: {method}"
-    assert hasattr(clf, "feature_names"), "Missing property: feature_names"

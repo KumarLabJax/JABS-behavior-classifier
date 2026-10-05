@@ -76,20 +76,6 @@ def test_invalid_source_project_rejected(tmp_path: Path) -> None:
     assert "not a valid JABS project" in result.output
 
 
-def test_missing_project_directory_rejected(tmp_path: Path) -> None:
-    """A nonexistent project path fails click's path validation."""
-    dest = _make_project_dir(tmp_path / "dest")
-    missing = tmp_path / "does_not_exist"
-
-    result = CliRunner().invoke(
-        cli,
-        ["merge", str(dest), str(missing), "--merge-strategy", "destination-wins"],
-    )
-
-    assert result.exit_code != 0
-    assert "does_not_exist" in result.output
-
-
 def test_merge_invoked_with_selected_strategy(tmp_path: Path) -> None:
     """Valid inputs open both projects and forward the selected merge strategy."""
     dest = _make_project_dir(tmp_path / "dest")

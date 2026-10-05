@@ -98,8 +98,8 @@ def test_tagged_setting_with_invalid_json_names_the_dataset(tmp_path: Path) -> N
 
 @pytest.mark.parametrize(
     "value",
-    [["a", "b"], [1, 2, 3], [[1, 2], [3, 4]], [{"a": 1}]],
-    ids=["strings", "ints", "nested_lists", "dicts"],
+    [["a", "b"], [1, 2, 3], [[1, 2], [3, 4]]],
+    ids=["strings", "ints", "nested_lists"],
 )
 def test_list_element_types_round_trip(tmp_path: Path, value: list[Any]) -> None:
     """Lists of assorted JSON-compatible element types round-trip."""

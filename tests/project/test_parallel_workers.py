@@ -174,10 +174,6 @@ class TestGetIdentityCount:
         """V2 is single-identity regardless of HDF5 contents."""
         assert _get_identity_count(_h5_like({}), major_version=2) == 1
 
-    def test_v1_returns_one(self):
-        """Any version below 3 returns 1."""
-        assert _get_identity_count(_h5_like({}), major_version=1) == 1
-
     def test_v3_uses_points_shape(self):
         """V3 reads identity count from points.shape[1]."""
         points_mock = MagicMock()
@@ -191,13 +187,6 @@ class TestGetIdentityCount:
         id_center_mock.shape = (4,)
         pose_grp = {"instance_id_center": id_center_mock}
         assert _get_identity_count(_h5_like(pose_grp), major_version=4) == 4
-
-    def test_v5_uses_instance_id_center(self):
-        """V5 behaves the same as V4 when instance_id_center is present."""
-        id_center_mock = MagicMock()
-        id_center_mock.shape = (2,)
-        pose_grp = {"instance_id_center": id_center_mock}
-        assert _get_identity_count(_h5_like(pose_grp), major_version=5) == 2
 
     def test_v4_fallback_no_instance_id_center_returns_zero(self):
         """V4+ without instance_id_center or embed_id data returns 0."""

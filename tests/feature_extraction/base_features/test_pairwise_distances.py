@@ -8,14 +8,6 @@ from jabs.feature_extraction.base_features import PairwisePointDistances
 from jabs.pose_estimation import PoseEstimation
 
 
-def test_pairwise_distances_instantiation(pose_est_v5):
-    """Test that PairwisePointDistances can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    pairwise_feature = PairwisePointDistances(pose_est_v5, pixel_scale)
-
-    assert pairwise_feature is not None
-
-
 def test_pairwise_distances_per_frame_dimensions(pose_est_v5):
     """Test that per_frame returns correct dimensions."""
     pixel_scale = pose_est_v5.cm_per_pixel
