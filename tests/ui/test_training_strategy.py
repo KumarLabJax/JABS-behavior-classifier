@@ -46,7 +46,7 @@ def test_binary_prepare_final_training_applies_behavior_settings():
     "Project settings for classifier unset".
     """
     classifier = SimpleNamespace(behavior_name=None, set_project_settings=MagicMock())
-    project = SimpleNamespace()
+    project = _project_with_postprocessing(evaluate=False, stages=[])
     strategy = BinaryTrainingStrategy(classifier, project, "Walk", (1, 2))
 
     strategy.prepare_final_training()
@@ -109,6 +109,21 @@ def test_binary_strategy_drops_disabled_stages():
     )
     strategy = BinaryTrainingStrategy(SimpleNamespace(), project, "Walk", (1, 2))
 
+    assert strategy.postprocessing_stages == [_STITCH_STAGE]
+
+
+def test_binary_strategy_keeps_the_postprocessing_config_it_captured():
+    """Editing the settings after the strategy is built changes neither CV nor the report."""
+    stages = [dict(_STITCH_STAGE)]
+    project = _project_with_postprocessing(evaluate=True, stages=stages)
+    strategy = BinaryTrainingStrategy(SimpleNamespace(), project, "Walk", (1, 2))
+
+    stages[0]["enabled"] = False
+    stages.append({"stage_name": "GapInterpolationStage", "enabled": True})
+    project.settings_manager.evaluate_postprocessing_in_cv = lambda _behavior: False
+
+    assert strategy.evaluate_postprocessing is True
+    assert strategy.postprocessing_config == [_STITCH_STAGE]
     assert strategy.postprocessing_stages == [_STITCH_STAGE]
 
 

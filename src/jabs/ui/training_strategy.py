@@ -10,6 +10,7 @@ strategy and stays mode-agnostic.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -87,6 +88,11 @@ class TrainingStrategy:
         return False
 
     @property
+    def postprocessing_config(self) -> list[dict] | None:
+        """Postprocessing stage configuration cross-validation should evaluate, or ``None``."""
+        return None
+
+    @property
     def postprocessing_stages(self) -> list[dict] | None:
         """Enabled postprocessing stages to record in the report, or ``None``."""
         return None
@@ -141,29 +147,46 @@ class BinaryTrainingStrategy(TrainingStrategy):
     ) -> None:
         super().__init__(classifier, project, behavior)
         self._bout_counts = bout_counts
+        # Training runs in a background thread while the Prediction Postprocessing
+        # dialog stays usable, so the setting and stage configuration are captured once
+        # here. Cross-validation evaluates this copy and the report describes this copy,
+        # so neither can drift from the other if the user edits the settings mid-run.
+        settings_manager = project.settings_manager
+        self._evaluate_postprocessing = bool(
+            settings_manager.evaluate_postprocessing_in_cv(behavior)
+        )
+        self._postprocessing_config: list[dict] = (
+            copy.deepcopy(list(settings_manager.postprocessing_config(behavior)))
+            if self._evaluate_postprocessing
+            else []
+        )
 
     @property
     def evaluate_postprocessing(self) -> bool:
-        """Whether this behavior is configured to evaluate its postprocessing in CV."""
-        return self._project.settings_manager.evaluate_postprocessing_in_cv(self._behavior)
+        """Whether this behavior was configured to evaluate its postprocessing in CV."""
+        return self._evaluate_postprocessing
+
+    @property
+    def postprocessing_config(self) -> list[dict] | None:
+        """The stage configuration captured when the strategy was built, or ``None``.
+
+        ``None`` when postprocessing is not being evaluated. Passed to
+        cross-validation so the pipeline it runs is this exact snapshot.
+        """
+        if not self._evaluate_postprocessing:
+            return None
+        return self._postprocessing_config
 
     @property
     def postprocessing_stages(self) -> list[dict] | None:
         """The enabled stages recorded in the report, or ``None`` when not evaluating.
 
-        Read on demand rather than captured at construction. Capturing would
-        not make the report and the evaluated pipeline provably consistent
-        anyway, because
-        :func:`~jabs.classifier.cross_validation._postprocessing_context`
-        reads the stage configuration again to build the pipeline it runs. The
-        consistency check on the resulting metrics is what catches the two
-        disagreeing.
+        Derived from the same snapshot cross-validation evaluates, so the report
+        describes the pipeline that produced the metrics.
         """
-        if not self.evaluate_postprocessing:
+        if not self._evaluate_postprocessing:
             return None
-        return enabled_stage_configs(
-            self._project.settings_manager.postprocessing_config(self._behavior)
-        )
+        return enabled_stage_configs(self._postprocessing_config)
 
     def collect_features(
         self,

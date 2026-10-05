@@ -261,6 +261,7 @@ def _postprocessing_context(
     behavior: str,
     is_multiclass: bool,
     emit_status: Callable[[str], None],
+    config: list[dict] | None = None,
 ) -> _PostprocessingEvaluationContext | None:
     """Build the postprocessing evaluation context, or ``None`` to skip it.
 
@@ -277,7 +278,8 @@ def _postprocessing_context(
         emit_status("Postprocessing evaluation is not supported in multi-class mode; skipping")
         return None
 
-    config = project.settings_manager.postprocessing_config(behavior)
+    if config is None:
+        config = project.settings_manager.postprocessing_config(behavior)
     if not enabled_stage_configs(config):
         logger.info(
             "Postprocessing evaluation was requested for %s but no stages are enabled; skipping",
@@ -417,6 +419,7 @@ def run_leave_one_group_out_cv(
     terminate_callback: Callable[[], None] | None = None,
     warning_callback: Callable[[str], None] | None = None,
     evaluate_postprocessing: bool = False,
+    postprocessing_config: list[dict] | None = None,
 ) -> list[CrossValidationResult]:
     """Run leave-one-group-out cross-validation for a classifier.
 
@@ -439,6 +442,10 @@ def run_leave_one_group_out_cv(
             re-predicts each held-out group's full tracks (see
             :mod:`jabs.classifier.cv_postprocessing`), so it costs roughly one
             classification pass over the labeled identities. Binary mode only.
+        postprocessing_config: Stage configuration to evaluate. Callers that also
+            report the configuration pass the same copy here, so the report cannot
+            describe a different pipeline from the one evaluated. When None, the
+            behavior's configuration is read from the project settings.
 
     Returns:
         List of cross-validation iteration results.
@@ -481,7 +488,9 @@ def run_leave_one_group_out_cv(
     # Built after the k check so a skipped CV run neither reads postprocessing
     # settings nor reports on a pipeline it will never apply.
     postprocessing_context = (
-        _postprocessing_context(project, behavior, is_multiclass, emit_status)
+        _postprocessing_context(
+            project, behavior, is_multiclass, emit_status, postprocessing_config
+        )
         if evaluate_postprocessing
         else None
     )

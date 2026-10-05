@@ -60,9 +60,10 @@ class PostprocessedMetrics:
         consistency_warning: Why these metrics may not be comparable with the
             iteration's raw metrics, or ``None`` when the two paths agreed. The
             postprocessed numbers come from a second, full-sequence prediction
-            pass; if that pass does not reproduce the fold's own raw accuracy
-            then the two are measuring different things and the comparison is
-            not meaningful.
+            pass; if that pass does not reproduce the fold's own labels and raw
+            predictions frame for frame (even when their accuracies match), then
+            the two are measuring different things and the comparison is not
+            meaningful.
     """
 
     accuracy: float = 0.0

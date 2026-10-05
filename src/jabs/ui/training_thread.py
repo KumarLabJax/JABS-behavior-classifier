@@ -156,6 +156,7 @@ class TrainingThread(QThread):
                 terminate_callback=check_termination_requested,
                 warning_callback=record_cv_warning,
                 evaluate_postprocessing=strategy.evaluate_postprocessing,
+                postprocessing_config=strategy.postprocessing_config,
             )
 
             self.current_status.emit("Training Classifier")

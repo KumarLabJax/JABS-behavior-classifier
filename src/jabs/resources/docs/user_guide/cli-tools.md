@@ -674,12 +674,12 @@ For the `filename` strategy, the pattern is applied with `re.search`, so it matc
 
 ### Training report
 
-The report (and the console output) include:
+The report includes:
 
 - Per-iteration accuracy, precision and recall for both classes, and F1 for the behavior class, plus the held-out test group label for each iteration.
 - The top features (by importance) from a final model trained on all labeled data.
 - Labeled frame and bout counts, the window size, distance unit, classifier type, and the grouping strategy/pattern used.
-- When postprocessing evaluation is enabled, a second set of per-iteration metrics with the postprocessing pipeline applied, next to the raw ones, and the stage configuration that was evaluated. If the postprocessed pass fails to reproduce an iteration's raw accuracy the two are not measuring the same thing, and the report and console say so rather than presenting the comparison as sound.
+- When postprocessing evaluation is enabled, a second set of per-iteration metrics with the postprocessing pipeline applied, next to the raw ones, and the stage configuration that was evaluated. The console shows only the postprocessed accuracy and F1 per iteration; the full postprocessed metrics and the stage configuration are in the report. If the postprocessed pass does not reproduce an iteration's raw labels and predictions frame for frame, the two are not measuring the same thing, and the report and console say so rather than presenting the comparison as sound.
 
 **Examples:**
 

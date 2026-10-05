@@ -22,7 +22,7 @@ A few things to keep in mind:
 - Like the postprocessing settings themselves, this option is saved per behavior.
 - Postprocessing is only available for binary classifiers, so this option has no effect in multi-class mode.
 - If no postprocessing steps are enabled, the evaluation is skipped (the pipeline would not change anything) and the training report says so.
-- The postprocessed metrics come from a second pass over the held-out animals, which should reproduce that iteration's raw accuracy exactly. If it does not, the two sets of numbers are not measuring the same frames and cannot be compared; the training report flags the affected iterations rather than presenting the comparison as sound.
+- The postprocessed metrics come from a second pass over the held-out animals, which should reproduce that iteration's raw labels and predictions frame for frame. If it does not, even when the accuracies happen to match, the two sets of numbers are not measuring the same frames and cannot be compared; the training report flags the affected iterations rather than presenting the comparison as sound.
 
 ## Visualizing Postprocessed Predictions
 

@@ -184,6 +184,8 @@ def test_training_thread_forwards_postprocessing_setting(monkeypatch, tmp_path) 
 
     assert errors == []
     assert captured["evaluate_postprocessing"] is True
+    # the same snapshot goes to CV and to the report
+    assert captured["postprocessing_config"] == [_STITCH_STAGE]
     assert report_data[0].postprocessing_stages == [_STITCH_STAGE]
 
 
