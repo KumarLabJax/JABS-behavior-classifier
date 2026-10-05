@@ -773,7 +773,7 @@ The aggregate scores below (`cv_f1_behavior_mean`, `cv_accuracy_mean`, etc.) are
 
 #### What gets logged
 
-Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`.
+Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`. For a multi-class project the run is named for all of its behaviors joined with `+` (for example `Walk+Run-cv-<timestamp>`).
 
 **Metrics** (aggregated across cross-validation iterations):
 

@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+
 from .training_report import BinaryCVResult, MultiClassCVResult
 
 if TYPE_CHECKING:
@@ -320,6 +322,26 @@ def build_tags(report_data: TrainingReportData) -> dict[str, str]:
     return {key: value for key, value in tags.items() if value}
 
 
+def default_run_name(report_data: TrainingReportData) -> str:
+    """Build the default MLflow run name for a cross-validation run.
+
+    A binary run is named for its behavior. A multi-class run covers several
+    behaviors at once, so it is named for all of them (the None class is left out).
+
+    Args:
+        report_data: Completed training report data.
+
+    Returns:
+        ``<behavior(s)>-cv-<timestamp>``, for example ``Walk+Run-cv-20260623-120000``.
+    """
+    label = report_data.behavior_name
+    if report_data.class_frame_counts:
+        label = "+".join(
+            name for name in report_data.class_frame_counts if name != MULTICLASS_NONE_BEHAVIOR
+        )
+    return f"{label}-cv-{report_data.timestamp:%Y%m%d-%H%M%S}"
+
+
 def resolve_experiment_name(report_data: TrainingReportData, experiment_name: str | None) -> str:
     """Resolve the MLflow experiment name for a cross-validation run.
 
@@ -408,7 +430,7 @@ def log_cross_validation_to_mlflow(
     mlflow.set_experiment(resolved_experiment)
 
     if run_name is None:
-        run_name = f"{report_data.behavior_name}-cv-{report_data.timestamp:%Y%m%d-%H%M%S}"
+        run_name = default_run_name(report_data)
 
     logger.info(
         "Logging cross-validation results to MLflow experiment %r run %r",
