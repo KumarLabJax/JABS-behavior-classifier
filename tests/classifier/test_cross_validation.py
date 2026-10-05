@@ -541,7 +541,7 @@ def test_postprocessed_metrics_warn_when_frame_counts_differ() -> None:
 
 
 def test_postprocessed_metrics_have_no_warning_when_the_passes_agree() -> None:
-    """Matching raw accuracies leave the metrics unannotated."""
+    """Labels and raw predictions that match frame for frame leave the metrics unannotated."""
     evaluation = cross_validation.FoldPostprocessingEvaluation(
         truth=np.array([0, 1], dtype=np.int8),
         raw=np.array([0, 1], dtype=np.int8),
