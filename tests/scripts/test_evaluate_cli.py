@@ -437,20 +437,34 @@ def test_command_runs_and_prints_tables(wired, tmp_path: Path) -> None:
     assert "Bout-level agreement" in result.output
 
 
-def test_command_passes_both_criteria_in_overlap_then_iou_order(wired, tmp_path: Path) -> None:
-    """run_evaluation documents this order; the CSV match columns depend on it."""
-    spy, _ = wired
-    assert _invoke(tmp_path).exit_code == 0
-    criteria = spy.call_args.kwargs["criteria"]
-    assert [c.label for c in criteria] == ["overlap >= 1 frame", "IoU >= 0.5"]
+@pytest.mark.parametrize(
+    ("extra_args", "expected_labels"),
+    [
+        ((), ["overlap >= 1 frame", "IoU >= 0.5"]),
+        (
+            ("--min-overlap", "5", "--iou-threshold", "0.25"),
+            ["overlap >= 5 frames", "IoU >= 0.25"],
+        ),
+    ],
+    ids=["default-thresholds", "threshold-options"],
+)
+def test_command_passes_both_criteria_in_overlap_then_iou_order(
+    wired, tmp_path: Path, extra_args: tuple[str, ...], expected_labels: list[str]
+) -> None:
+    """Both criteria reach run_evaluation, overlap first, with the threshold options applied.
 
+    run_evaluation documents this order; the CSV match columns depend on it.
 
-def test_command_threshold_options_reach_the_criteria(wired, tmp_path: Path) -> None:
-    """Command threshold options reach the criteria."""
+    Args:
+        wired: Fixture stubbing out classifier loading, project scanning and the run.
+        tmp_path: Temporary project directory.
+        extra_args: Threshold options to pass on the command line.
+        expected_labels: Labels the two criteria are expected to carry, in order.
+    """
     spy, _ = wired
-    assert _invoke(tmp_path, "--min-overlap", "5", "--iou-threshold", "0.25").exit_code == 0
+    assert _invoke(tmp_path, *extra_args).exit_code == 0
     criteria = spy.call_args.kwargs["criteria"]
-    assert [c.label for c in criteria] == ["overlap >= 5 frames", "IoU >= 0.25"]
+    assert [c.label for c in criteria] == expected_labels
 
 
 def test_command_rejects_an_out_of_range_iou(wired, tmp_path: Path) -> None:
@@ -1087,9 +1101,24 @@ _SWEEP_CONFIG = [
 ]
 
 
-def test_plan_for_a_scalar_config_is_not_a_sweep() -> None:
-    """A config valid for the other tools yields one postprocessed stage."""
-    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}])
+@pytest.mark.parametrize(
+    "stage_config",
+    [
+        [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}],
+        [{"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": [30]}}],
+    ],
+    ids=["scalar", "one-element-list"],
+)
+def test_plan_with_one_combination_is_not_a_sweep(stage_config: list[dict[str, object]]) -> None:
+    """A config valid for the other tools yields one postprocessed stage.
+
+    A one-element list has one unambiguous answer, so it must behave like the
+    scalar config.
+
+    Args:
+        stage_config: Postprocessing stage list that expands to a single combination.
+    """
+    plan = _plan(stage_config)
     assert plan.is_sweep is False
     assert plan.stage_keys == [POSTPROCESSED_STAGE]
     assert plan.labels == {POSTPROCESSED_STAGE: "Postprocessed"}
@@ -1206,13 +1235,39 @@ def test_sweep_picks_a_best_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.best_stage != "sweep_2"  # the one that deletes every bout
 
 
-def test_best_stage_is_none_without_a_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Nothing to choose between, so the detail views show both stages."""
-    _fake_project(monkeypatch, {"a.mp4": {"truth": {0: [1, 0]}, "predicted": {0: [1, 0]}}})
-    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}])
+@pytest.mark.parametrize(
+    ("min_duration", "truth", "predicted"),
+    [
+        (5, [1, 0], [1, 0]),
+        ([5], [1, 1, 0, 0], [1, 1, 0, 0]),
+    ],
+    ids=["scalar", "one-element-list"],
+)
+def test_no_sweep_has_no_best_stage_and_keeps_both_detail_stages(
+    monkeypatch: pytest.MonkeyPatch,
+    min_duration: int | list[int],
+    truth: list[int],
+    predicted: list[int],
+) -> None:
+    """Nothing to choose between, so the detail views show both stages.
+
+    A one-element list is not narrowed to raw + best any more than a scalar is.
+
+    Args:
+        monkeypatch: Patching fixture.
+        min_duration: Duration filter parameter, a scalar or a one-element list.
+        truth: Ground-truth labels for the single identity.
+        predicted: Predicted classes for the single identity.
+    """
+    _fake_project(monkeypatch, {"a.mp4": {"truth": {0: truth}, "predicted": {0: predicted}}})
+    plan = _plan(
+        [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": min_duration}}]
+    )
     result = _run(plan=plan)
+    assert result.is_sweep is False
     assert result.best_stage is None
     assert result.detail_stages == (RAW_STAGE, POSTPROCESSED_STAGE)
+    assert result.sweep_axis_names == ()
 
 
 def test_detail_stages_narrow_to_raw_and_best_for_a_sweep(
@@ -1399,14 +1454,6 @@ def test_run_evaluation_reuses_a_passed_project(monkeypatch: pytest.MonkeyPatch)
     assert evaluate_module.Project.call_count == 0
 
 
-def test_a_one_element_list_is_not_treated_as_a_sweep() -> None:
-    """It has one unambiguous answer, so it must behave like the scalar config."""
-    plan = _plan([{"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": [30]}}])
-    assert plan.is_sweep is False
-    assert plan.stage_keys == [POSTPROCESSED_STAGE]
-    assert plan.labels == {POSTPROCESSED_STAGE: "Postprocessed"}
-
-
 def test_a_one_element_list_still_saves_postprocessed_predictions(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1429,18 +1476,6 @@ def test_a_one_element_list_still_saves_postprocessed_predictions(
 
     _run(plan=plan, save_predictions_dir=tmp_path)
     assert captured["post"] is not None, "a one-point grid must still write postprocessed"
-
-
-def test_a_one_element_list_keeps_both_detail_stages(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No narrowing to raw + best, because there is nothing to choose between."""
-    _fake_project(
-        monkeypatch, {"a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}}}
-    )
-    plan = _plan([{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": [5]}}])
-    result = _run(plan=plan)
-    assert result.is_sweep is False
-    assert result.detail_stages == (RAW_STAGE, POSTPROCESSED_STAGE)
-    assert result.sweep_axis_names == ()
 
 
 def test_build_summary_buckets_rather_than_rescanning(monkeypatch: pytest.MonkeyPatch) -> None:

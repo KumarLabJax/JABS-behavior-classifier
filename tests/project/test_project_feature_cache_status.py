@@ -132,8 +132,26 @@ def test_clear_feature_cache_invalidates_status(project):
     assert project.refresh_feature_cache_status("video1.avi").has_cached_features is False
 
 
-def test_all_videos_missing_when_nothing_cached(project):
-    """With an empty cache every video needs feature computation."""
+@pytest.mark.parametrize(
+    "cached",
+    [
+        [],
+        [(0, 5)],
+        [(identity, 10) for identity in range(_NUM_IDENTITIES)],
+    ],
+    ids=["nothing-cached", "only-some-identities-cached", "other-window-size-cached"],
+)
+def test_incomplete_cache_leaves_every_video_missing(
+    project, cached: list[tuple[int, int]]
+) -> None:
+    """Every video needs feature computation unless the window size covers all identities.
+
+    ``cached`` lists the ``(identity, window_size)`` caches written for video1 before
+    asking for window size 5; video2 never has a cache.
+    """
+    for identity, window_size in cached:
+        _cache_window_features(project, "video1.avi", identity=identity, window_size=window_size)
+
     assert project.videos_missing_window_features(5) == list(_VIDEOS)
 
 
@@ -143,21 +161,6 @@ def test_video_not_missing_once_every_identity_is_cached(project):
         _cache_window_features(project, "video1.avi", identity=identity, window_size=5)
 
     assert project.videos_missing_window_features(5) == ["video2.avi"]
-
-
-def test_partially_cached_video_still_missing(project):
-    """Caching some identities is not enough when every identity is required."""
-    _cache_window_features(project, "video1.avi", identity=0, window_size=5)
-
-    assert "video1.avi" in project.videos_missing_window_features(5)
-
-
-def test_other_window_size_does_not_count(project):
-    """A cache for a different window size does not cover the requested one."""
-    for identity in range(_NUM_IDENTITIES):
-        _cache_window_features(project, "video1.avi", identity=identity, window_size=10)
-
-    assert "video1.avi" in project.videos_missing_window_features(5)
 
 
 def test_missing_check_scans_unscanned_videos(project):

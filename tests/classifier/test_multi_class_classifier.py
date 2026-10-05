@@ -191,12 +191,17 @@ class TestMergeLabels:
 class TestMultiClassClassifierInit:
     """Tests for MultiClassClassifier.__init__."""
 
-    def test_default_initialization(self):
-        """Classifier initializes with expected defaults."""
+    def test_default_initialization(self) -> None:
+        """A fresh classifier has the expected defaults and binary-compatible metadata."""
         clf = MultiClassClassifier(BEHAVIOR_NAMES)
         assert clf.classifier_type == ClassifierType.RANDOM_FOREST
         assert clf.behavior_names == BEHAVIOR_NAMES
         assert clf.feature_names is None
+        # unsaved classifier exposes the same metadata defaults as the binary classifier
+        assert clf.classifier_name == ClassifierType.RANDOM_FOREST.value
+        assert clf.classifier_file is None
+        assert clf.classifier_hash is None
+        assert clf.project_settings == {}
 
     def test_behavior_names_stored_as_copy(self):
         """Mutating the input list does not affect the stored behavior names."""
@@ -290,14 +295,6 @@ class TestRenameBehavior:
 
 class TestClassifierCompatibility:
     """Tests for Classifier-compatible API used by GUI threads."""
-
-    def test_classifier_metadata_properties_defaults(self):
-        """Unsaved classifier exposes binary-compatible metadata defaults."""
-        clf = MultiClassClassifier(BEHAVIOR_NAMES)
-        assert clf.classifier_name == ClassifierType.RANDOM_FOREST.value
-        assert clf.classifier_file is None
-        assert clf.classifier_hash is None
-        assert clf.project_settings == {}
 
     def test_set_dict_settings_copies(self):
         """set_dict_settings stores and returns a defensive copy."""

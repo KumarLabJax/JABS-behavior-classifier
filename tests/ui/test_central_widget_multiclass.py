@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 try:
@@ -70,37 +71,34 @@ def test_decompose_multiclass_prediction_rows_shape_checks() -> None:
         )
 
 
-def test_get_multiclass_prediction_rows_falls_back_on_invalid_shape() -> None:
-    """Invalid saved prediction shapes fall back to empty timeline rows."""
+@pytest.mark.parametrize(
+    ("predictions", "probabilities"),
+    [
+        (
+            np.array([0, 1, 2, 0], dtype=np.int8),
+            np.array([0.1, 0.7, 0.2, 0.0], dtype=np.float32),
+        ),
+        (
+            np.array([0, 1, 2], dtype=np.int8),
+            np.array([[0.1, 0.7, 0.2]] * 3, dtype=np.float32),
+        ),
+    ],
+    ids=["invalid-shape", "frame-mismatch"],
+)
+def test_get_multiclass_prediction_rows_falls_back_on_bad_saved_predictions(
+    predictions: npt.NDArray[np.int8], probabilities: npt.NDArray[np.float32]
+) -> None:
+    """Invalid shapes or mismatched frame lengths in saved predictions fall back to empty rows.
+
+    The invalid-shape case has 1-D probabilities where a 2-D matrix is expected; the
+    frame-mismatch case has three frames of predictions for a four-frame video.
+    """
     dummy = SimpleNamespace(
         _pose_est=SimpleNamespace(num_identities=1),
         _player_widget=SimpleNamespace(num_frames=4),
         _controls=SimpleNamespace(behaviors=["Walk", "Run"]),
-        _predictions={0: np.array([0, 1, 2, 0], dtype=np.int8)},
-        _probabilities={0: np.array([0.1, 0.7, 0.2, 0.0], dtype=np.float32)},
-        _decompose_multiclass_prediction_rows=CentralWidget._decompose_multiclass_prediction_rows,
-    )
-
-    prediction_rows, probability_rows = CentralWidget._get_multiclass_prediction_rows(dummy)
-
-    assert len(prediction_rows) == 1
-    assert len(probability_rows) == 1
-    assert len(prediction_rows[0]) == 3
-    assert len(probability_rows[0]) == 3
-    for row in prediction_rows[0]:
-        np.testing.assert_array_equal(row, np.zeros(4, dtype=np.int16))
-    for row in probability_rows[0]:
-        np.testing.assert_array_equal(row, np.zeros(4, dtype=np.float32))
-
-
-def test_get_multiclass_prediction_rows_falls_back_on_frame_mismatch() -> None:
-    """Mismatched frame lengths fall back to empty timeline rows."""
-    dummy = SimpleNamespace(
-        _pose_est=SimpleNamespace(num_identities=1),
-        _player_widget=SimpleNamespace(num_frames=4),
-        _controls=SimpleNamespace(behaviors=["Walk", "Run"]),
-        _predictions={0: np.array([0, 1, 2], dtype=np.int8)},
-        _probabilities={0: np.array([[0.1, 0.7, 0.2]] * 3, dtype=np.float32)},
+        _predictions={0: predictions},
+        _probabilities={0: probabilities},
         _decompose_multiclass_prediction_rows=CentralWidget._decompose_multiclass_prediction_rows,
     )
 

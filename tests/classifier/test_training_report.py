@@ -511,15 +511,22 @@ class TestPostprocessedReporting:
         # raw means over the same iterations are given for a like-for-like comparison
         assert f"accuracy {raw_accuracy:.4f}" in summary
 
-    def test_markdown_has_no_partial_warning_when_every_iteration_was_evaluated(
-        self, sample_training_data
-    ):
-        """A fully evaluated run carries no coverage warning."""
+    def test_markdown_has_no_warnings_or_notes_for_a_clean_run(self, sample_training_data) -> None:
+        """A fully evaluated run whose passes agree carries no warning or note.
+
+        Neither the partial-coverage warning, the consistency warning, nor the
+        no-prediction note may clutter a clean report.
+        """
         data = self._postprocessed_data(sample_training_data)
 
-        summary = generate_markdown_report(data)
+        report = generate_markdown_report(data)
 
-        assert "iterations (not evaluated" not in summary
+        # every iteration was evaluated, so no coverage warning
+        assert "iterations (not evaluated" not in report
+        # the two prediction passes agreed, so no empty consistency warning
+        assert "may not be comparable" not in report
+        # every frame was predicted, so no empty no-prediction note
+        assert "excludes them" not in report
 
     def test_markdown_does_not_claim_evaluation_when_every_fold_skipped(
         self, sample_training_data
@@ -584,14 +591,6 @@ class TestPostprocessedReporting:
         # and beside the table, the caveat precedes the numbers it applies to
         assert details.index("may not be comparable") < details.index("0.9605")
 
-    def test_markdown_has_no_warning_block_when_the_passes_agree(self, sample_training_data):
-        """A clean run does not clutter the report with an empty warning."""
-        data = self._postprocessed_data(sample_training_data)
-
-        report = generate_markdown_report(data)
-
-        assert "may not be comparable" not in report
-
     def test_markdown_notes_frames_with_no_prediction(self, sample_training_data):
         """A fold with unpredicted frames says so, since the confusion matrix hides it."""
         data = self._postprocessed_data(sample_training_data)
@@ -604,14 +603,6 @@ class TestPostprocessedReporting:
         assert f"Iteration {data.cv_results[0].iteration}: 3 frame(s)" in details
         # the unaffected iteration is not listed
         assert f"Iteration {data.cv_results[1].iteration}: " not in details
-
-    def test_markdown_has_no_no_prediction_note_when_fully_predicted(self, sample_training_data):
-        """A clean run does not clutter the report with an empty note."""
-        data = self._postprocessed_data(sample_training_data)
-
-        report = generate_markdown_report(data)
-
-        assert "excludes them" not in report
 
     def test_json_contains_the_no_prediction_count(self, sample_training_data):
         """The saved JSON carries the count so a reader can tell the matrix is partial."""

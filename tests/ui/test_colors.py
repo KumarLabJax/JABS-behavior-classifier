@@ -1,12 +1,15 @@
 """Tests for multi-class color utilities in jabs.ui.colors."""
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
+
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 
 try:
     from PySide6.QtGui import QColor
 
-    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
     from jabs.ui.colors import (
         BACKGROUND_COLOR,
         BEHAVIOR_COLOR,
@@ -78,29 +81,19 @@ def test_make_behavior_color_map_single():
     assert "walk" in make_behavior_color_map(["walk"])
 
 
-def test_build_multiclass_color_lut_shape_no_behaviors():
-    """LUT with no behaviors has shape (2, 4): background + None."""
-    lut = build_multiclass_color_lut([], {})
-    assert lut.shape == (2, 4)
+@pytest.mark.parametrize(
+    ("behavior_names", "expected_rows"),
+    [([], 2), (["walk", "groom"], 4)],
+    ids=["no-behaviors", "two-behaviors"],
+)
+def test_build_multiclass_color_lut_layout(behavior_names: list[str], expected_rows: int) -> None:
+    """The LUT has N+2 RGBA rows: background at index 0, the None color at index 1."""
+    color_map = make_behavior_color_map(behavior_names)
+    lut = build_multiclass_color_lut(behavior_names, color_map)
+
+    assert lut.shape == (expected_rows, 4)
     assert lut.dtype == np.uint8
-
-
-def test_build_multiclass_color_lut_shape_with_behaviors():
-    """LUT shape is N+2 rows: background, None, plus one per behavior."""
-    color_map = make_behavior_color_map(["walk", "groom"])
-    lut = build_multiclass_color_lut(["walk", "groom"], color_map)
-    assert lut.shape == (4, 4)
-
-
-def test_build_multiclass_color_lut_index_0_background():
-    """Index 0 maps to the background color."""
-    lut = build_multiclass_color_lut([], {})
     assert tuple(lut[0]) == BACKGROUND_COLOR.getRgb()
-
-
-def test_build_multiclass_color_lut_index_1_not_behavior():
-    """Index 1 maps to the not-behavior (None) color."""
-    lut = build_multiclass_color_lut([], {})
     assert tuple(lut[1]) == NOT_BEHAVIOR_COLOR.getRgb()
 
 
@@ -112,28 +105,29 @@ def test_build_multiclass_color_lut_behavior_indices():
     assert tuple(lut[3]) == color_map["groom"].getRgb()
 
 
-def test_make_behavior_color_map_reserved_name_raises():
-    """Reserved MULTICLASS_NONE_BEHAVIOR name raises ValueError."""
-    with pytest.raises(ValueError, match="reserved"):
-        make_behavior_color_map([MULTICLASS_NONE_BEHAVIOR])
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda: make_behavior_color_map([MULTICLASS_NONE_BEHAVIOR]), "reserved"),
+        (lambda: make_behavior_color_map(["walk", "walk"]), "duplicate"),
+        (lambda: build_multiclass_color_lut([MULTICLASS_NONE_BEHAVIOR], {}), "reserved"),
+        (lambda: build_multiclass_color_lut(["walk", "walk"], {"walk": None}), "duplicate"),
+    ],
+    ids=[
+        "color-map-reserved-name",
+        "color-map-duplicate-names",
+        "lut-reserved-name",
+        "lut-duplicate-names",
+    ],
+)
+def test_invalid_behavior_names_raise_value_error(call: Callable[[], object], match: str) -> None:
+    """Both builders reject the reserved None behavior name and duplicate names.
 
-
-def test_make_behavior_color_map_duplicates_raises():
-    """Duplicate names in behavior_names raises ValueError."""
-    with pytest.raises(ValueError, match="duplicate"):
-        make_behavior_color_map(["walk", "walk"])
-
-
-def test_build_multiclass_color_lut_reserved_name_raises():
-    """Reserved MULTICLASS_NONE_BEHAVIOR name raises ValueError."""
-    with pytest.raises(ValueError, match="reserved"):
-        build_multiclass_color_lut([MULTICLASS_NONE_BEHAVIOR], {})
-
-
-def test_build_multiclass_color_lut_duplicates_raises():
-    """Duplicate names in behavior_names raises ValueError."""
-    with pytest.raises(ValueError, match="duplicate"):
-        build_multiclass_color_lut(["walk", "walk"], {"walk": None})
+    The calls are lambdas so that nothing needing Qt is evaluated when the
+    parametrization is collected.
+    """
+    with pytest.raises(ValueError, match=match):
+        call()
 
 
 def test_build_multiclass_color_lut_missing_key_raises():

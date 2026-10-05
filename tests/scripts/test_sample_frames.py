@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -318,58 +318,53 @@ def test_cli_out_dir_created(tmp_path: Path) -> None:
     assert out_dir.exists()
 
 
-def test_cli_num_frames_calls_correct_sampler(tmp_path: Path) -> None:
-    """--num-frames invokes sample_num_frames_total (not sample_frames_per_bout)."""
+@pytest.mark.parametrize(
+    ("option", "value", "expected_sampler", "other_sampler"),
+    [
+        ("--num-frames", "1", "sample_num_frames_total", "sample_frames_per_bout"),
+        ("--frames-per-bout", "5", "sample_frames_per_bout", "sample_num_frames_total"),
+    ],
+    ids=["num-frames", "frames-per-bout"],
+)
+def test_cli_mode_option_calls_correct_sampler(
+    tmp_path: Path, option: str, value: str, expected_sampler: str, other_sampler: str
+) -> None:
+    """--num-frames and --frames-per-bout each invoke their own sampler and not the other.
+
+    Args:
+        tmp_path: Pytest temporary directory used as the project directory.
+        option: The sampling-mode option passed to sample-frames.
+        value: The value passed to ``option``.
+        expected_sampler: Name of the sampler that must be called exactly once.
+        other_sampler: Name of the sampler that must not be called.
+    """
     runner = CliRunner()
     with (
         patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
         patch("jabs.scripts.cli.sample_frames.collect_behavior_bouts") as mock_collect,
-        patch("jabs.scripts.cli.sample_frames.sample_num_frames_total") as mock_total,
-        patch("jabs.scripts.cli.sample_frames.sample_frames_per_bout") as mock_per_bout,
-        patch("jabs.scripts.cli.sample_frames.write_frames"),
+        patch.multiple(
+            "jabs.scripts.cli.sample_frames",
+            sample_num_frames_total=DEFAULT,
+            sample_frames_per_bout=DEFAULT,
+            write_frames=DEFAULT,
+        ) as mocks,
     ):
         MockProject.is_valid_project_directory.return_value = True
         mock_project = MagicMock()
         mock_project.settings = {"behavior": {"walking": {}}}
         MockProject.return_value = mock_project
         mock_collect.return_value = [("v.mp4", 0, 9)]
-        mock_total.return_value = [("v.mp4", 5)]
+        mocks["sample_num_frames_total"].return_value = [("v.mp4", 5)]
+        mocks["sample_frames_per_bout"].return_value = [("v.mp4", 3)]
 
         result = runner.invoke(
             cli,
-            ["sample-frames", "--behavior", "walking", "--num-frames", "1", str(tmp_path)],
+            ["sample-frames", "--behavior", "walking", option, value, str(tmp_path)],
         )
 
     assert result.exit_code == 0, result.output
-    mock_total.assert_called_once()
-    mock_per_bout.assert_not_called()
-
-
-def test_cli_frames_per_bout_calls_correct_sampler(tmp_path: Path) -> None:
-    """--frames-per-bout invokes sample_frames_per_bout (not sample_num_frames_total)."""
-    runner = CliRunner()
-    with (
-        patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
-        patch("jabs.scripts.cli.sample_frames.collect_behavior_bouts") as mock_collect,
-        patch("jabs.scripts.cli.sample_frames.sample_num_frames_total") as mock_total,
-        patch("jabs.scripts.cli.sample_frames.sample_frames_per_bout") as mock_per_bout,
-        patch("jabs.scripts.cli.sample_frames.write_frames"),
-    ):
-        MockProject.is_valid_project_directory.return_value = True
-        mock_project = MagicMock()
-        mock_project.settings = {"behavior": {"walking": {}}}
-        MockProject.return_value = mock_project
-        mock_collect.return_value = [("v.mp4", 0, 9)]
-        mock_per_bout.return_value = [("v.mp4", 3)]
-
-        result = runner.invoke(
-            cli,
-            ["sample-frames", "--behavior", "walking", "--frames-per-bout", "5", str(tmp_path)],
-        )
-
-    assert result.exit_code == 0, result.output
-    mock_per_bout.assert_called_once()
-    mock_total.assert_not_called()
+    mocks[expected_sampler].assert_called_once()
+    mocks[other_sampler].assert_not_called()
 
 
 # ---------------------------------------------------------------------------

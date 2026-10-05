@@ -460,84 +460,86 @@ def test_postprocessed_metrics_no_prediction_count_is_zero_when_fully_predicted(
     assert metrics.confusion_matrix.sum() == 4
 
 
-def test_postprocessed_metrics_warn_when_raw_predictions_differ(caplog) -> None:
-    """A raw-prediction disagreement between the two paths is surfaced, not hidden.
+@pytest.mark.parametrize(
+    ("truth", "raw", "postprocessed", "fold_labels", "fold_predictions"),
+    [
+        pytest.param(
+            [0, 1],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [0, 1],
+            id="raw_predictions_differ",
+        ),
+        # With truth [0, 1], fold predictions [0, 0] and full-track predictions
+        # [1, 1] both score 0.5, so an accuracy comparison would pass them as
+        # consistent; the vectors themselves must be compared.
+        pytest.param(
+            [0, 1],
+            [1, 1],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+            id="predictions_differ_but_accuracy_matches",
+        ),
+        # A different ground truth is as disqualifying as different predictions.
+        pytest.param(
+            [0, 1],
+            [0, 1],
+            [0, 1],
+            [1, 1],
+            [0, 1],
+            id="labels_differ",
+        ),
+        # Vectors of different lengths cannot be the same frames.
+        pytest.param(
+            [0, 1, 1],
+            [0, 1, 1],
+            [0, 1, 1],
+            [0, 1],
+            [0, 1],
+            id="frame_counts_differ",
+        ),
+    ],
+)
+def test_postprocessed_metrics_warn_when_the_passes_disagree(
+    caplog: pytest.LogCaptureFixture,
+    truth: list[int],
+    raw: list[int],
+    postprocessed: list[int],
+    fold_labels: list[int],
+    fold_predictions: list[int],
+) -> None:
+    """A disagreement between the two prediction paths is surfaced, not hidden.
 
     The warning has to reach the saved report as well as the log: a GUI user
     never sees the log, and the report puts raw and postprocessed metrics side
     by side as though they were comparable.
+
+    Args:
+        caplog: Pytest log capture fixture.
+        truth: Ground truth from the full-sequence pass.
+        raw: Raw predictions from the full-sequence pass.
+        postprocessed: Postprocessed predictions from the full-sequence pass.
+        fold_labels: Ground truth the fold's own raw metrics were scored on.
+        fold_predictions: Raw predictions the fold's own raw metrics were scored on.
     """
     evaluation = cross_validation.FoldPostprocessingEvaluation(
-        truth=np.array([0, 1], dtype=np.int8),
-        raw=np.array([1, 0], dtype=np.int8),
-        postprocessed=np.array([0, 1], dtype=np.int8),
+        truth=np.array(truth, dtype=np.int8),
+        raw=np.array(raw, dtype=np.int8),
+        postprocessed=np.array(postprocessed, dtype=np.int8),
     )
 
     with caplog.at_level(logging.WARNING, logger="jabs.classifier.cross_validation"):
         metrics = cross_validation._build_postprocessed_metrics(
             evaluation,
-            fold_labels=np.array([0, 1], dtype=np.int8),
-            fold_predictions=np.array([0, 1], dtype=np.int8),
+            fold_labels=np.array(fold_labels, dtype=np.int8),
+            fold_predictions=np.array(fold_predictions, dtype=np.int8),
         )
 
     assert "does not reproduce" in caplog.text
     assert metrics.consistency_warning is not None
     assert "may not be comparable" in metrics.consistency_warning
-
-
-def test_postprocessed_metrics_warn_when_predictions_differ_but_accuracy_matches() -> None:
-    """Different prediction sequences with the same accuracy must still be flagged.
-
-    With truth [0, 1], fold predictions [0, 0] and full-track predictions [1, 1]
-    both score 0.5, so an accuracy comparison would pass them as consistent.
-    """
-    evaluation = cross_validation.FoldPostprocessingEvaluation(
-        truth=np.array([0, 1], dtype=np.int8),
-        raw=np.array([1, 1], dtype=np.int8),
-        postprocessed=np.array([1, 1], dtype=np.int8),
-    )
-
-    metrics = cross_validation._build_postprocessed_metrics(
-        evaluation,
-        fold_labels=np.array([0, 1], dtype=np.int8),
-        fold_predictions=np.array([0, 0], dtype=np.int8),
-    )
-
-    assert metrics.consistency_warning is not None
-
-
-def test_postprocessed_metrics_warn_when_labels_differ() -> None:
-    """A different ground truth is as disqualifying as different predictions."""
-    evaluation = cross_validation.FoldPostprocessingEvaluation(
-        truth=np.array([0, 1], dtype=np.int8),
-        raw=np.array([0, 1], dtype=np.int8),
-        postprocessed=np.array([0, 1], dtype=np.int8),
-    )
-
-    metrics = cross_validation._build_postprocessed_metrics(
-        evaluation,
-        fold_labels=np.array([1, 1], dtype=np.int8),
-        fold_predictions=np.array([0, 1], dtype=np.int8),
-    )
-
-    assert metrics.consistency_warning is not None
-
-
-def test_postprocessed_metrics_warn_when_frame_counts_differ() -> None:
-    """Vectors of different lengths cannot be the same frames."""
-    evaluation = cross_validation.FoldPostprocessingEvaluation(
-        truth=np.array([0, 1, 1], dtype=np.int8),
-        raw=np.array([0, 1, 1], dtype=np.int8),
-        postprocessed=np.array([0, 1, 1], dtype=np.int8),
-    )
-
-    metrics = cross_validation._build_postprocessed_metrics(
-        evaluation,
-        fold_labels=np.array([0, 1], dtype=np.int8),
-        fold_predictions=np.array([0, 1], dtype=np.int8),
-    )
-
-    assert metrics.consistency_warning is not None
 
 
 def test_postprocessed_metrics_have_no_warning_when_the_passes_agree() -> None:

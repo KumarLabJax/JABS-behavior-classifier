@@ -169,10 +169,19 @@ def test_one_marker_when_the_nearest_animal_is_also_the_nearest_in_view(monkeypa
 
 @pytest.mark.parametrize(
     "flag",
-    ["track_overlay_enabled", "closest_identity_overlay_enabled", "landmark_overlay_enabled"],
+    [
+        "track_overlay_enabled",
+        "closest_identity_overlay_enabled",
+        "landmark_overlay_enabled",
+        "segmentation_overlay_enabled",
+    ],
 )
 def test_each_overlay_starts_off_and_repaints_when_toggled(monkeypatch, flag: str):
-    """These are all opt-in, and turning one on repaints rather than re-decoding."""
+    """These are all opt-in, and turning one on repaints rather than re-decoding.
+
+    Segmentation is turned on with View > Overlay Segmentation; its contours are painted
+    over the frame on screen, so no frame is re-decoded.
+    """
     widget = FrameWithOverlaysWidget()
     update = MagicMock()
     monkeypatch.setattr(widget, "update", update)

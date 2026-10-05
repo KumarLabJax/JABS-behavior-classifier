@@ -138,11 +138,7 @@ def test_angles_window_means_are_never_negative(pose_est_v5_short) -> None:
         assert np.nanmax(angle_means) > 180.0
 
 
-def test_angles_feature_name():
-    """Test that the feature name is set correctly."""
+def test_angles_name_and_circular_flag() -> None:
+    """Test that the feature name is set correctly and circular statistics are enabled."""
     assert Angles.name() == "angles"
-
-
-def test_angles_uses_circular_statistics():
-    """Test that the Angles feature uses circular statistics."""
     assert Angles._use_circular is True

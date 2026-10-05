@@ -92,11 +92,7 @@ def test_point_velocity_dirs_relative_to_bearing(pose_est_v5):
         assert len(values) > 0
 
 
-def test_point_velocity_dirs_feature_name():
-    """Test that the feature name is set correctly."""
+def test_point_velocity_dirs_name_and_circular_flag() -> None:
+    """Test that the feature name is set correctly and circular statistics are enabled."""
     assert PointVelocityDirs.name() == "point_velocity_dirs"
-
-
-def test_point_velocity_dirs_uses_circular_statistics():
-    """Test that the PointVelocityDirs feature uses circular statistics."""
     assert PointVelocityDirs._use_circular is True

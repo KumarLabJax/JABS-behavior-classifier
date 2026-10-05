@@ -31,13 +31,19 @@ def _make_binary_project(tmp_path: Path, group_mapping: dict[int, dict]) -> Magi
     return project
 
 
-def test_load_training_data_decodes_missing_identity(tmp_path: Path) -> None:
-    """A group with no identity round-trips back to None, not the -1 sentinel."""
+def test_load_training_data_decodes_group_mapping(tmp_path: Path) -> None:
+    """Group identities and video names decode to plain Python values.
+
+    A group with no identity round-trips back to None, not the -1 sentinel; an
+    identity-specific group decodes to a builtin int, as documented; and video
+    names decode to str rather than the bytes h5py hands back.
+    """
     project = _make_binary_project(
         tmp_path,
         {
             0: {"video": "vid_a.mp4", "identity": 0},
             1: {"video": "vid_b.mp4", "identity": None},
+            2: {"video": "vid_c.mp4", "identity": 2},
         },
     )
     out = export_training_data(project, "Walk", 6, ClassifierType.RANDOM_FOREST)
@@ -46,27 +52,10 @@ def test_load_training_data_decodes_missing_identity(tmp_path: Path) -> None:
 
     assert group_mapping[0]["identity"] == 0
     assert group_mapping[1]["identity"] is None
-
-
-def test_load_training_data_identity_is_builtin_int(tmp_path: Path) -> None:
-    """An identity-specific group decodes to a plain int, as documented."""
-    project = _make_binary_project(tmp_path, {0: {"video": "vid_a.mp4", "identity": 2}})
-    out = export_training_data(project, "Walk", 6, ClassifierType.RANDOM_FOREST)
-
-    _, group_mapping = load_training_data(out)
-
-    assert isinstance(group_mapping[0]["identity"], int)
-    assert group_mapping[0]["identity"] == 2
-
-
-def test_load_training_data_decodes_video_name(tmp_path: Path) -> None:
-    """Video names decode to str rather than the bytes h5py hands back."""
-    project = _make_binary_project(tmp_path, {0: {"video": "vid_a.mp4", "identity": 0}})
-    out = export_training_data(project, "Walk", 6, ClassifierType.RANDOM_FOREST)
-
-    _, group_mapping = load_training_data(out)
-
+    assert group_mapping[2]["identity"] == 2
+    assert isinstance(group_mapping[2]["identity"], int)
     assert group_mapping[0]["video"] == "vid_a.mp4"
+    assert isinstance(group_mapping[0]["video"], str)
 
 
 def test_load_training_data_uses_filename_pattern_label(tmp_path: Path) -> None:

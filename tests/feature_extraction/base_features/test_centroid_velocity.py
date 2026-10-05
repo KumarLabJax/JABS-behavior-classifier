@@ -1,8 +1,10 @@
 """Unit tests for the CentroidVelocity feature classes."""
 
 import numpy as np
+import pytest
 
 from jabs.feature_extraction.base_features import CentroidVelocityDir, CentroidVelocityMag
+from jabs.feature_extraction.feature_base_class import Feature
 
 
 def test_centroid_velocity_dir_per_frame_dimensions(pose_est_v5):
@@ -55,14 +57,26 @@ def test_centroid_velocity_dir_sine_cosine_range(pose_est_v5):
                 assert (feature_values[non_nan_indices] <= 1).all()
 
 
-def test_centroid_velocity_dir_feature_name():
-    """Test that the feature name is set correctly."""
-    assert CentroidVelocityDir.name() == "centroid_velocity_dir"
+@pytest.mark.parametrize(
+    ("feature_class", "expected_name", "expected_circular"),
+    [
+        (CentroidVelocityDir, "centroid_velocity_dir", True),
+        (CentroidVelocityMag, "centroid_velocity_mag", False),
+    ],
+    ids=["dir", "mag"],
+)
+def test_centroid_velocity_name_and_circular_flag(
+    feature_class: type[Feature], expected_name: str, expected_circular: bool
+) -> None:
+    """Test that each feature name is set correctly and only the direction is circular.
 
-
-def test_centroid_velocity_dir_uses_circular_statistics():
-    """Test that CentroidVelocityDir uses circular statistics."""
-    assert CentroidVelocityDir._use_circular is True
+    Args:
+        feature_class: Centroid velocity feature class under test.
+        expected_name: Name the feature is registered under.
+        expected_circular: Whether the feature uses circular window statistics.
+    """
+    assert feature_class.name() == expected_name
+    assert feature_class._use_circular is expected_circular
 
 
 def test_centroid_velocity_mag_per_frame_dimensions(pose_est_v5):
@@ -110,11 +124,6 @@ def test_centroid_velocity_mag_scaled_correctly(pose_est_v5):
         if non_nan_indices.any():
             # Velocities should be non-negative and reasonable
             assert (magnitudes[non_nan_indices] >= 0).all()
-
-
-def test_centroid_velocity_mag_feature_name():
-    """Test that the feature name is set correctly."""
-    assert CentroidVelocityMag.name() == "centroid_velocity_mag"
 
 
 def test_centroid_velocity_dir_window_operations(pose_est_v5):

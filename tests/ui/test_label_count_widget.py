@@ -26,15 +26,29 @@ def qapp():
     yield app
 
 
-def test_default_class_labels() -> None:
-    """The summary defaults to the binary-mode row headers."""
-    widget = FrameLabelCountWidget()
+def _assert_binary_class_labels(widget: "FrameLabelCountWidget") -> None:
+    """Assert the frame and bout rows carry the binary-mode row headers.
 
+    Args:
+        widget: Label count widget whose row headers to check.
+    """
     assert [lbl.text() for lbl in widget._positive_row_labels] == ["Behavior", "Behavior"]
     assert [lbl.text() for lbl in widget._negative_row_labels] == [
         "Not Behavior",
         "Not Behavior",
     ]
+
+
+def test_class_labels_default_to_binary_wording_and_can_be_restored() -> None:
+    """The summary defaults to the binary-mode row headers, and switching back restores them."""
+    widget = FrameLabelCountWidget()
+
+    _assert_binary_class_labels(widget)
+
+    widget.set_class_labels("Walk", "None")
+    widget.set_class_labels("Behavior", "Not Behavior")
+
+    _assert_binary_class_labels(widget)
 
 
 def test_set_class_labels_retitles_both_rows() -> None:
@@ -45,17 +59,3 @@ def test_set_class_labels_retitles_both_rows() -> None:
 
     assert [lbl.text() for lbl in widget._positive_row_labels] == ["Walk", "Walk"]
     assert [lbl.text() for lbl in widget._negative_row_labels] == ["None", "None"]
-
-
-def test_set_class_labels_can_restore_defaults() -> None:
-    """Switching back to binary wording restores the standard headers."""
-    widget = FrameLabelCountWidget()
-
-    widget.set_class_labels("Walk", "None")
-    widget.set_class_labels("Behavior", "Not Behavior")
-
-    assert [lbl.text() for lbl in widget._positive_row_labels] == ["Behavior", "Behavior"]
-    assert [lbl.text() for lbl in widget._negative_row_labels] == [
-        "Not Behavior",
-        "Not Behavior",
-    ]

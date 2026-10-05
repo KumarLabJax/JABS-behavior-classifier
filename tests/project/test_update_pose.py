@@ -99,44 +99,28 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
     assert live_annotations == {"video1.avi"}
 
 
-def test_preflight_rejects_nonwritable_live_annotation_file(tmp_path, monkeypatch):
-    """Preflight should fail before backup if an existing annotation target is not writable."""
-    project_dir = tmp_path / "project"
-    new_pose_dir = tmp_path / "new_pose"
-    annotations_dir = project_dir / "jabs" / "annotations"
-    annotations_dir.mkdir(parents=True)
-    new_pose_dir.mkdir()
+@pytest.mark.parametrize(
+    ("unwritable", "message"),
+    [
+        (Path("jabs") / "annotations" / "video1.json", "live annotation file is not writable"),
+        (Path("jabs") / "annotations", "live annotations directory is not writable"),
+    ],
+    ids=["annotation-file", "annotations-directory"],
+)
+def test_preflight_rejects_nonwritable_live_annotation_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unwritable: Path,
+    message: str,
+) -> None:
+    """Preflight should fail before backup if a live annotation target is not writable.
 
-    (project_dir / "jabs" / "project.json").write_text("{}")
-    (project_dir / "video1.avi").touch()
-    (project_dir / "video1_pose_est_v8.h5").touch()
-    annotation_path = annotations_dir / "video1.json"
-    annotation_path.write_text("{}")
-
-    (new_pose_dir / "video1_pose_est_v8.h5").touch()
-
-    def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
-        )
-
-    def fake_access(path, mode):
-        return not (Path(path) == annotation_path and mode & os.W_OK)
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
-    monkeypatch.setattr(
-        update_pose.VideoReader,
-        "get_nframes_from_file",
-        staticmethod(lambda _path: 10),
-    )
-    monkeypatch.setattr(update_pose.os, "access", fake_access)
-
-    with pytest.raises(PermissionError, match="live annotation file is not writable"):
-        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
-
-
-def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypatch):
-    """Preflight should fail before backup if the annotations target directory is not writable."""
+    Args:
+        tmp_path: Temporary directory for the project.
+        monkeypatch: Fixture used to stub the pose reader and ``os.access``.
+        unwritable: Path, relative to the project, that ``os.access`` reports as not writable.
+        message: Expected error message for that path.
+    """
     project_dir = tmp_path / "project"
     new_pose_dir = tmp_path / "new_pose"
     annotations_dir = project_dir / "jabs" / "annotations"
@@ -150,13 +134,15 @@ def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypat
 
     (new_pose_dir / "video1_pose_est_v8.h5").touch()
 
+    unwritable_path = project_dir / unwritable
+
     def fake_open_pose_file(path, _cache_dir):
         return SimpleNamespace(
             format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
         )
 
     def fake_access(path, mode):
-        return not (Path(path) == annotations_dir and mode & os.W_OK)
+        return not (Path(path) == unwritable_path and mode & os.W_OK)
 
     monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
     monkeypatch.setattr(
@@ -166,7 +152,7 @@ def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypat
     )
     monkeypatch.setattr(update_pose.os, "access", fake_access)
 
-    with pytest.raises(PermissionError, match="live annotations directory is not writable"):
+    with pytest.raises(PermissionError, match=message):
         update_pose._preflight_update_inputs(project_dir, new_pose_dir)
 
 
@@ -789,37 +775,23 @@ def test_remap_labels_for_video_drops_source_timeline_annotations():
     assert saved_labels.timeline_annotations.serialize() == []
 
 
-def test_run_staged_label_remap_uses_explicit_videos_list_when_provided(monkeypatch):
-    """When ``videos`` is passed, ``_run_staged_label_remap`` should only iterate that list."""
-    source_videos = ["a.avi", "b.avi"]
-    captured = []
+@pytest.mark.parametrize(
+    ("videos", "expected_videos"),
+    [(["a.avi"], ["a.avi"]), (None, ["a.avi", "b.avi"])],
+    ids=["explicit-videos-list", "falls-back-to-source-videos"],
+)
+def test_run_staged_label_remap_iterates_expected_videos(
+    monkeypatch: pytest.MonkeyPatch,
+    videos: list[str] | None,
+    expected_videos: list[str],
+) -> None:
+    """``_run_staged_label_remap`` iterates ``videos`` when given, else the source project's videos.
 
-    def fake_remap(video, *_args, **_kwargs):
-        captured.append(video)
-        return (1, 0)
-
-    monkeypatch.setattr(update_pose, "_remap_labels_for_video", fake_remap)
-
-    label_source_project = MagicMock()
-    label_source_project.video_manager.videos = source_videos
-    label_dest_project = MagicMock()
-
-    success, skipped = update_pose._run_staged_label_remap(
-        label_source_project,
-        label_dest_project,
-        min_iou=0.5,
-        verbose=False,
-        annotate_failures=False,
-        drop_timeline_annotations=False,
-        videos=["a.avi"],
-    )
-
-    assert captured == ["a.avi"]
-    assert (success, skipped) == (1, 0)
-
-
-def test_run_staged_label_remap_falls_back_to_source_videos(monkeypatch):
-    """When ``videos`` is None, iteration should default to ``label_source_project``'s videos."""
+    Args:
+        monkeypatch: Fixture used to stub the per-video remap.
+        videos: Value passed as ``videos``; ``None`` omits the explicit list.
+        expected_videos: Videos the per-video remap should be called with, in order.
+    """
     captured = []
 
     def fake_remap(video, *_args, **_kwargs):
@@ -832,16 +804,18 @@ def test_run_staged_label_remap_falls_back_to_source_videos(monkeypatch):
     label_source_project.video_manager.videos = ["a.avi", "b.avi"]
     label_dest_project = MagicMock()
 
-    update_pose._run_staged_label_remap(
+    success, skipped = update_pose._run_staged_label_remap(
         label_source_project,
         label_dest_project,
         min_iou=0.5,
         verbose=False,
         annotate_failures=False,
         drop_timeline_annotations=False,
+        videos=videos,
     )
 
-    assert captured == ["a.avi", "b.avi"]
+    assert captured == expected_videos
+    assert (success, skipped) == (len(expected_videos), 0)
 
 
 def test_remap_labels_for_video_failure_tag_fits_within_max_tag_len():

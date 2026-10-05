@@ -711,11 +711,14 @@ def test_update_project_labels_in_place_invokes_pipeline(tmp_path, monkeypatch):
         "Project",
         lambda *args, **kwargs: SimpleNamespace(project_paths=SimpleNamespace()),
     )
-    monkeypatch.setattr(
-        update_labels,
-        "_run_staged_label_remap",
-        lambda *_args, **_kwargs: (sequence.append("remap") or (3, 1)),
-    )
+    captured_remap: dict[str, object] = {}
+
+    def fake_run_staged_label_remap(*_args, **kwargs):
+        sequence.append("remap")
+        captured_remap.update(kwargs)
+        return (3, 1)
+
+    monkeypatch.setattr(update_labels, "_run_staged_label_remap", fake_run_staged_label_remap)
     monkeypatch.setattr(
         update_labels,
         "_apply_live_label_update",
@@ -737,50 +740,7 @@ def test_update_project_labels_in_place_invokes_pipeline(tmp_path, monkeypatch):
     assert sequence.index("preflight") < sequence.index("backup")
     assert sequence.index("seed") < sequence.index("remap")
     assert sequence.index("remap") < sequence.index("apply")
-
-
-def test_update_project_labels_in_place_passes_labeled_videos_and_description_phrase(
-    tmp_path, monkeypatch
-):
-    """The orchestrator should thread labeled_videos and the update-labels description phrase."""
-    target_dir = tmp_path / "project"
-    source_dir = tmp_path / "source"
-    target_dir.mkdir()
-    source_dir.mkdir()
-
-    captured_remap: dict[str, object] = {}
-
-    monkeypatch.setattr(
-        update_labels,
-        "_preflight_label_update_inputs",
-        lambda *_args, **_kwargs: (["video1.avi"], set()),
-    )
-    monkeypatch.setattr(
-        update_labels,
-        "_create_backup_archive",
-        lambda *_args, **_kwargs: target_dir / ".backup" / "update_labels_test.zip",
-    )
-    monkeypatch.setattr(update_labels, "_seed_stage_project", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        update_labels,
-        "_merge_source_behaviors_into_staged_project",
-        lambda *_args, **_kwargs: [],
-    )
-    monkeypatch.setattr(
-        update_labels,
-        "Project",
-        lambda *args, **kwargs: SimpleNamespace(project_paths=SimpleNamespace()),
-    )
-    monkeypatch.setattr(update_labels, "_apply_live_label_update", lambda *_args, **_kwargs: None)
-
-    def fake_run_staged_label_remap(*_args, **kwargs):
-        captured_remap.update(kwargs)
-        return (1, 0)
-
-    monkeypatch.setattr(update_labels, "_run_staged_label_remap", fake_run_staged_label_remap)
-
-    update_labels.update_project_labels_in_place(target_dir, source_dir, min_iou=0.5)
-
+    # The preflighted videos and the update-labels description phrase reach the remap.
     assert captured_remap["videos"] == ["video1.avi"]
     assert captured_remap["failure_description_phrase"] == "label update"
 
