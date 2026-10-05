@@ -54,21 +54,31 @@ def test_point_speeds_feature_names(pose_est_v5):
             assert expected_name in values
 
 
-def test_point_speeds_scaled_by_fps(pose_est_v5):
-    """Test that speeds are scaled by fps (units should be cm/s if pixel_scale is cm/pixel)."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    speeds_feature = PointSpeeds(pose_est_v5, pixel_scale)
+def test_point_speeds_scaled_by_fps() -> None:
+    """Test that speeds are in cm/s: scaled by both the pixel scale and the frame rate."""
+    num_frames = 10
+    num_keypoints = len(PoseEstimation.KeypointIndex)
+    fps = 30.0
+    pixel_scale = 0.5
 
-    for identity in range(pose_est_v5.num_identities):
-        values = speeds_feature.per_frame(identity)
+    # BASE_NECK moves 3 pixels in x and 4 pixels in y every frame, so 5 pixels per frame
+    points = np.full((num_frames, num_keypoints, 2), np.nan, dtype=np.float64)
+    points[:, PoseEstimation.KeypointIndex.BASE_NECK, 0] = 3.0 * np.arange(num_frames)
+    points[:, PoseEstimation.KeypointIndex.BASE_NECK, 1] = 4.0 * np.arange(num_frames)
+    point_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
 
-        # Check that speeds are in reasonable range
-        # (assuming pixel_scale in cm/pixel and fps ~30, speeds should be reasonable)
-        for _feature_name, feature_values in values.items():
-            non_nan_indices = ~np.isnan(feature_values)
-            if non_nan_indices.any():
-                # Speeds should be positive and reasonable (not absurdly large)
-                assert (feature_values[non_nan_indices] >= 0).all()
+    def _get_identity_poses(identity: int, scale: float | None = None):
+        # like a real pose, convert the points from pixels to cm when given a scale
+        return (points if scale is None else points * scale), point_mask
+
+    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose.fps = fps
+    mock_pose.get_identity_poses.side_effect = _get_identity_poses
+
+    values = PointSpeeds(mock_pose, pixel_scale).per_frame(0)
+
+    # 5 pixels per frame * 0.5 cm per pixel * 30 frames per second
+    np.testing.assert_allclose(values["BASE_NECK speed"], np.full(num_frames, 75.0))
 
 
 def test_point_speeds_stationary_point():

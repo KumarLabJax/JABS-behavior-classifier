@@ -1,4 +1,3 @@
-import contextlib
 import gzip
 import json
 import shutil
@@ -73,9 +72,9 @@ def patch_session_tracker():
 
 
 @pytest.fixture(scope="module")
-def project_with_data():
-    """Fixture to create a project with empty video file and annotations,and clean up afterwards."""
-    _EXISTING_PROJ_PATH = Path("test_project_with_data")
+def project_with_data(tmp_path_factory: pytest.TempPathFactory):
+    """Fixture to create a project with empty video file and annotations in a temp directory."""
+    _EXISTING_PROJ_PATH = tmp_path_factory.mktemp("project_with_data")
     _FILENAMES: list[str] = ["test_file_1.avi", "test_file_2.avi"]
 
     # filenames of some sample pose files in the test/data directory.
@@ -86,13 +85,6 @@ def project_with_data():
     ]
 
     test_data_dir = Path(__file__).parent.parent / "data"
-
-    # make sure the test project dir is gone in case we previously
-    # threw an exception during setup
-    with contextlib.suppress(FileNotFoundError):
-        shutil.rmtree(_EXISTING_PROJ_PATH)
-
-    _EXISTING_PROJ_PATH.mkdir()
 
     for i, name in enumerate(_FILENAMES):
         # make a stub for the .avi file in the project directory
@@ -128,15 +120,12 @@ def project_with_data():
     # open project
     project = Project(_EXISTING_PROJ_PATH, enable_video_check=False, enable_session_tracker=False)
 
-    yield project
-
-    # teardown
-    shutil.rmtree(_EXISTING_PROJ_PATH)
+    return project
 
 
-def test_create():
+def test_create(tmp_path: Path) -> None:
     """test creating a new empty Project"""
-    project_dir = Path("test_project_dir")
+    project_dir = tmp_path / "test_project_dir"
     project = Project(project_dir, enable_session_tracker=False, validate_project_dir=False)
 
     # make sure that the empty project directory was created
@@ -150,9 +139,6 @@ def test_create():
 
     # make sure the jabs/predictions directory was created
     assert project.project_paths.prediction_dir.exists()
-
-    # remove project dir
-    shutil.rmtree(project_dir)
 
 
 def test_get_video_list(project_with_data):
@@ -169,7 +155,7 @@ def test_load_annotations(project_with_data):
     labels = project_with_data.video_manager.load_video_labels("test_file_1.avi")
 
     with (
-        Path("test_project_with_data")
+        project_with_data.dir
         / "jabs"
         / "annotations"
         / Path("test_file_1.avi").with_suffix(".json")
@@ -177,6 +163,10 @@ def test_load_annotations(project_with_data):
         dict_from_file = json.load(f)
 
     assert len(project_with_data.video_manager.videos) == 2
+
+    # The labeler is stamped onto the file by Project.save_annotations (which another test
+    # on this shared project may already have called); it is not part of VideoLabels.
+    dict_from_file.pop("labeler", None)
 
     # check to see that calling as_dict() on the VideoLabels object
     # matches what was used to load the annotation track from disk
@@ -202,7 +192,7 @@ def test_save_annotations(project_with_data):
     # make sure the .json file in the project directory matches the new
     # state
     with (
-        Path("test_project_with_data")
+        project_with_data.dir
         / "jabs"
         / "annotations"
         / Path("test_file_1.avi").with_suffix(".json")
@@ -231,7 +221,7 @@ def test_bad_video_file(project_with_data):
     """Opt-in up-front video check raises IOError when a video can't be opened."""
     with pytest.raises(IOError), hide_stderr():
         _ = Project(
-            Path("test_project_with_data"),
+            project_with_data.dir,
             enable_video_check=True,
             enable_session_tracker=False,
         )
@@ -244,7 +234,7 @@ def test_load_defers_video_frame_check_by_default(project_with_data):
     opt-in path raises IOError (see ``test_bad_video_file``). With the default
     (deferred) behavior no video file is opened, so the project loads cleanly.
     """
-    project = Project(Path("test_project_with_data"), enable_session_tracker=False)
+    project = Project(project_with_data.dir, enable_session_tracker=False)
     assert set(project.video_manager.videos) == {"test_file_1.avi", "test_file_2.avi"}
 
 

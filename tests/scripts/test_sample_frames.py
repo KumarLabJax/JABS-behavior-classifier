@@ -150,7 +150,8 @@ def test_sample_frames_per_bout_returns_within_bout() -> None:
     rng = np.random.default_rng(0)
     bouts = [("v.mp4", 10, 50)]
     result = sample_frames_per_bout(bouts, frames_per_bout=5, rng=rng)
-    assert len(result) <= 5
+    # the bout has 41 frames, so exactly frames_per_bout of them are drawn
+    assert len(result) == 5
     for video_name, frame in result:
         assert video_name == "v.mp4"
         assert 10 <= frame <= 50
@@ -171,9 +172,8 @@ def test_sample_frames_per_bout_deduplicates() -> None:
     # Two identities covering the same 5-frame bout
     bouts = [("v.mp4", 0, 4), ("v.mp4", 0, 4)]
     result = sample_frames_per_bout(bouts, frames_per_bout=5, rng=rng)
-    # Result must be unique (no duplicate (video, frame) pairs)
-    assert len(result) == len(set(result))
-    assert len(result) <= 5
+    # Each copy of the bout yields all 5 frames; the result holds each frame exactly once
+    assert result == [("v.mp4", frame) for frame in range(5)]
 
 
 def test_sample_frames_per_bout_multiple_bouts() -> None:
@@ -183,10 +183,10 @@ def test_sample_frames_per_bout_multiple_bouts() -> None:
     result = sample_frames_per_bout(bouts, frames_per_bout=3, rng=rng)
     first_bout_frames = [f for _, f in result if 0 <= f <= 9]
     second_bout_frames = [f for _, f in result if 100 <= f <= 109]
-    assert len(first_bout_frames) <= 3
-    assert len(second_bout_frames) <= 3
-    assert len(first_bout_frames) > 0
-    assert len(second_bout_frames) > 0
+    # both bouts have 10 frames, so each contributes exactly frames_per_bout of them
+    assert len(first_bout_frames) == 3
+    assert len(second_bout_frames) == 3
+    assert len(result) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -239,10 +239,9 @@ def test_cli_requires_at_least_one_mode(tmp_path: Path) -> None:
     with patch("jabs.scripts.cli.sample_frames.Project") as MockProject:
         MockProject.is_valid_project_directory.return_value = True
         result = runner.invoke(cli, ["sample-frames", "--behavior", "walking", str(tmp_path)])
-    assert result.exit_code != 0
-    assert "required" in result.output.lower() or (
-        result.exception is not None and "required" in str(result.exception).lower()
-    )
+    # click.UsageError exits with status 2
+    assert result.exit_code == 2
+    assert "required" in result.output.lower()
 
 
 def test_cli_mutual_exclusion(tmp_path: Path) -> None:
@@ -261,10 +260,9 @@ def test_cli_mutual_exclusion(tmp_path: Path) -> None:
             str(tmp_path),
         ],
     )
-    assert result.exit_code != 0
-    assert "mutually exclusive" in result.output.lower() or (
-        result.exception is not None and "mutually exclusive" in str(result.exception).lower()
-    )
+    # click.UsageError exits with status 2
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output.lower()
 
 
 def test_cli_invalid_project_dir(tmp_path: Path) -> None:

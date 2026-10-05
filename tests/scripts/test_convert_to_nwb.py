@@ -47,13 +47,13 @@ def test_parse_z_suffix():
 
 def test_parse_naive_assumes_utc(caplog):
     """Test that naive datetime strings are assumed to be UTC and log a warning."""
-    import logging
-
     with caplog.at_level(logging.WARNING):
         dt = _parse_session_start_time("2024-03-15T10:30:00")
 
     assert dt.tzinfo == datetime.timezone.utc
-    assert "no timezone" in caplog.text.lower() or "utc" in caplog.text.lower()
+    # the warning has to say both what is wrong and what was assumed
+    assert "no timezone" in caplog.text.lower()
+    assert "utc" in caplog.text.lower()
 
 
 def test_parse_invalid_raises():
@@ -140,7 +140,7 @@ def test_run_conversion_forwards_multisubject(
 
 
 def test_run_conversion_rejects_invalid_subjects_before_saving(monkeypatch, tmp_path):
-    """Invalid subject metadata must abort before save(), leaving nothing on disk.
+    """Invalid subject metadata must abort before save() is called.
 
     Per-identity output writes one file per identity in a loop, so validating after
     the first write would leave a partial, unpublishable set behind.
@@ -153,7 +153,6 @@ def test_run_conversion_rejects_invalid_subjects_before_saving(monkeypatch, tmp_
         run_conversion(tmp_path / "in_pose_est_v6.h5", tmp_path / "out.nwb")
 
     save_mock.assert_not_called()
-    assert list(tmp_path.glob("*.nwb")) == []
 
 
 # ---------------------------------------------------------------------------

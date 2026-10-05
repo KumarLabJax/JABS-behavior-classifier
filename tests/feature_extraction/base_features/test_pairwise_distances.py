@@ -74,22 +74,28 @@ def test_pairwise_distances_feature_names(pose_est_v5):
             assert len(parts) == 2
 
 
-def test_pairwise_distances_scaled_correctly(pose_est_v5):
-    """Test that distances are scaled by pixel_scale."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    pairwise_feature = PairwisePointDistances(pose_est_v5, pixel_scale)
+def test_pairwise_distances_scaled_correctly() -> None:
+    """Test that distances are converted from pixels to cm with the pixel scale."""
+    num_frames = 3
+    num_keypoints = len(PoseEstimation.KeypointIndex)
 
-    # Get distances with scaling
-    for identity in range(pose_est_v5.num_identities):
-        values = pairwise_feature.per_frame(identity)
+    # NOSE and BASE_NECK are a 3-4-5 triangle apart (5 pixels) in every frame
+    points = np.full((num_frames, num_keypoints, 2), np.nan, dtype=np.float64)
+    points[:, PoseEstimation.KeypointIndex.NOSE, :] = [0.0, 0.0]
+    points[:, PoseEstimation.KeypointIndex.BASE_NECK, :] = [3.0, 4.0]
+    point_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
 
-        # Check that distances are in reasonable range for scaled values
-        # (assuming pixel_scale is in cm/pixel, distances should be in cm)
-        for _feature_name, feature_values in values.items():
-            non_nan_indices = ~np.isnan(feature_values)
-            if non_nan_indices.any():
-                # Distances should be positive and reasonable
-                assert (feature_values[non_nan_indices] >= 0).all()
+    def _get_identity_poses(identity: int, scale: float | None = None):
+        # like a real pose, convert the points from pixels to cm when given a scale
+        return (points if scale is None else points * scale), point_mask
+
+    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose.get_identity_poses.side_effect = _get_identity_poses
+
+    pixel_scale = 0.5
+    values = PairwisePointDistances(mock_pose, pixel_scale).per_frame(0)
+
+    np.testing.assert_allclose(values["NOSE-BASE_NECK"], np.full(num_frames, 5.0 * pixel_scale))
 
 
 def test_pairwise_distances_window_operations(pose_est_v5):

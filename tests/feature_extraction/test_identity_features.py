@@ -14,6 +14,7 @@ from jabs.core.enums import CacheFormat
 from jabs.core.utils import pose_file_stem
 from jabs.feature_extraction.features import IdentityFeatures
 from jabs.io.feature_cache import detect_cache_format
+from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader
 from jabs.project.track_labels import TrackLabels
 
 _SAMPLE_POSE_V5 = Path(__file__).parent.parent / "data" / "sample_pose_est_v5.h5"
@@ -240,9 +241,9 @@ def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) 
     assert (identity_dir / "features.h5").exists()
 
     # A subsequent force=False run must read the HDF5 cache, not a stale Parquet one.
-    from jabs.io.feature_cache import detect_cache_format
-
-    assert detect_cache_format(identity_dir) == CacheFormat.HDF5
+    reloaded = _make_identity_features(pose_est_v5, tmp_path, force=False)
+    assert isinstance(reloaded._reader, HDF5FeatureCacheReader)
+    assert reloaded._per_frame_flat is not None, "per-frame features must load from the cache"
 
 
 def test_feature_dir_matches_for_pose_and_video_source(tmp_path, pose_est_v5) -> None:

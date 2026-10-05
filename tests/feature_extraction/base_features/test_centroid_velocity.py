@@ -1,7 +1,10 @@
 """Unit tests for the CentroidVelocity feature classes."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
+from shapely.geometry import Polygon
 
 from jabs.feature_extraction.base_features import CentroidVelocityDir, CentroidVelocityMag
 from jabs.feature_extraction.feature_base_class import Feature
@@ -41,20 +44,21 @@ def test_centroid_velocity_dir_range(pose_est_v5):
             assert (directions[non_nan_indices] <= 180).all()
 
 
-def test_centroid_velocity_dir_sine_cosine_range(pose_est_v5):
-    """Test that sine and cosine values are in [-1, 1]."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    centroid_dir_feature = CentroidVelocityDir(pose_est_v5, pixel_scale)
+def test_centroid_velocity_dir_sine_cosine_match_direction(pose_est_v5) -> None:
+    """Test that the sine and cosine columns are computed from the direction column."""
+    centroid_dir_feature = CentroidVelocityDir(pose_est_v5, pose_est_v5.cm_per_pixel)
 
     for identity in range(pose_est_v5.num_identities):
         values = centroid_dir_feature.per_frame(identity)
 
-        for feature_name in ["centroid_velocity_dir sine", "centroid_velocity_dir cosine"]:
-            feature_values = values[feature_name]
-            non_nan_indices = ~np.isnan(feature_values)
-            if non_nan_indices.any():
-                assert (feature_values[non_nan_indices] >= -1).all()
-                assert (feature_values[non_nan_indices] <= 1).all()
+        direction = values["centroid_velocity_dir"]
+        assert np.isfinite(direction).any()
+        np.testing.assert_allclose(
+            values["centroid_velocity_dir sine"], np.sin(np.deg2rad(direction)), atol=1e-6
+        )
+        np.testing.assert_allclose(
+            values["centroid_velocity_dir cosine"], np.cos(np.deg2rad(direction)), atol=1e-6
+        )
 
 
 @pytest.mark.parametrize(
@@ -109,21 +113,30 @@ def test_centroid_velocity_mag_non_negative(pose_est_v5):
             assert (magnitudes[non_nan_indices] >= 0).all()
 
 
-def test_centroid_velocity_mag_scaled_correctly(pose_est_v5):
-    """Test that centroid velocity magnitudes are scaled by fps and pixel_scale."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    centroid_mag_feature = CentroidVelocityMag(pose_est_v5, pixel_scale)
+def test_centroid_velocity_mag_scaled_correctly() -> None:
+    """Test that centroid speed is in cm/s: scaled by both the frame rate and the pixel scale."""
+    num_frames = 5
+    fps = 30.0
+    pixel_scale = 0.1
 
-    for identity in range(pose_est_v5.num_identities):
-        values = centroid_mag_feature.per_frame(identity)
-        magnitudes = values["centroid_velocity_mag"]
+    # the hull moves 3 pixels in x and 4 pixels in y every frame, so 5 pixels per frame
+    hulls = [
+        Polygon([(3.0 * i, 4.0 * i), (3.0 * i + 2.0, 4.0 * i), (3.0 * i + 1.0, 4.0 * i + 2.0)])
+        for i in range(num_frames)
+    ]
+    mock_pose = MagicMock()
+    mock_pose.num_frames = num_frames
+    mock_pose.fps = fps
+    mock_pose.identity_mask.return_value = np.ones(num_frames, dtype=np.uint8)
+    mock_pose.get_identity_convex_hulls.return_value = hulls
 
-        # Check that magnitudes are in reasonable range
-        # (assuming pixel_scale in cm/pixel and fps ~30, velocities should be reasonable)
-        non_nan_indices = ~np.isnan(magnitudes)
-        if non_nan_indices.any():
-            # Velocities should be non-negative and reasonable
-            assert (magnitudes[non_nan_indices] >= 0).all()
+    values = CentroidVelocityMag(mock_pose, pixel_scale).per_frame(0)
+
+    # 5 pixels per frame * 30 frames per second * 0.1 cm per pixel
+    # centroids are float32, so allow for rounding well below any scale mistake
+    np.testing.assert_allclose(
+        values["centroid_velocity_mag"], np.full(num_frames, 15.0), rtol=1e-5
+    )
 
 
 def test_centroid_velocity_dir_window_operations(pose_est_v5):

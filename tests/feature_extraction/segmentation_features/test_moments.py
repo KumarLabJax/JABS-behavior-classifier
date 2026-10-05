@@ -3,24 +3,15 @@ import numpy as np
 from jabs.feature_extraction.segmentation_features import Moments
 
 
-def test_posev6_instantiation(seg_data):
-    """Test PoseEstimationV6 class instantiation with segmentation data.
+def test_posev6_get_segmentation_data_selects_identity(seg_data):
+    """Test that PoseEstimationV6.get_segmentation_data returns each identity's contours.
 
-    Verifies that pose estimation v6 object is properly created with
-    segmentation dictionary and non-trivial segmentation data.
+    Verifies that the data returned for an identity is that identity's slice of the
+    segmentation array, for every identity the file stores.
     """
     pose_est_v6 = seg_data["pose_est_v6"]
 
-    # test that pose estimation object was created, and that a segmentation_dict attribute is present.
-    assert hasattr(pose_est_v6, "_segmentation_dict")
-
     seg_data_array = pose_est_v6._segmentation_dict["seg_data"]
-
-    # non-empty segmentation data
-    assert sum(seg_data_array.shape) > 0
-
-    # non-trivial data
-    assert len(np.unique(seg_data_array)) > 1
 
     # test get_segmentation data for each identity
     for i in range(seg_data_array.shape[1]):

@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
+from jabs.pose_estimation import PoseEstimationV5, PoseEstimationV6
+
 try:
     from PySide6.QtWidgets import QApplication
 
@@ -348,9 +350,15 @@ def _patch_video_export_dialogs(
 
 
 def test_export_overlay_video_starts_thread_with_chosen_path(video_export_setup, monkeypatch):
-    """The selected path, pose object and overlay choices reach the thread."""
+    """The selected path, pose object and overlay choices reach the thread.
+
+    Pose and segmentation are chosen differently so that neither can stand in for the
+    other.
+    """
     handlers, _window, player, thread_cls, thread = video_export_setup
-    _patch_video_export_dialogs(monkeypatch, selected="/tmp/out.mp4")
+    _patch_video_export_dialogs(
+        monkeypatch, selected="/tmp/out.mp4", draw_pose=False, draw_segmentation=True
+    )
 
     handlers.export_overlay_video()
 
@@ -360,7 +368,7 @@ def test_export_overlay_video_starts_thread_with_chosen_path(video_export_setup,
     assert args[2] is player.pose_est
     assert args[3] is True  # draw_segmentation
     kwargs = thread_cls.call_args.kwargs
-    assert kwargs["draw_pose"] is True
+    assert kwargs["draw_pose"] is False
     assert kwargs["label_overlay"] is None  # nothing labeled and nothing classified
     assert kwargs["parent"] is handlers.window
     thread.start.assert_called_once()
@@ -413,25 +421,39 @@ def test_export_overlay_video_without_video_warns(handler_setup, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("has_segmentation", "expect_reason"),
-    [(True, False), (False, True)],
-    ids=["v6-with-segmentation", "v6-without-segmentation"],
+    ("pose_class", "has_segmentation", "expected_reason"),
+    [
+        (PoseEstimationV6, True, None),
+        (PoseEstimationV6, False, "generated without it"),
+        (PoseEstimationV5, False, "requires pose version 6 or newer"),
+    ],
+    ids=["v6-with-segmentation", "v6-without-segmentation", "before-v6"],
 )
 def test_export_overlay_video_reports_segmentation_availability(
-    video_export_setup, monkeypatch, has_segmentation: bool, expect_reason: bool
+    video_export_setup,
+    monkeypatch,
+    pose_class: type,
+    has_segmentation: bool,
+    expected_reason: str | None,
 ):
-    """Segmentation is optional even in v6+, so the box tracks the data, not the version."""
+    """Segmentation is optional even in v6+, so the box tracks the data, not the version.
+
+    A v6+ pose file without the data and an older pose version give different reasons.
+    """
     handlers, _window, player, _thread_cls, _thread = video_export_setup
-    player.pose_est = _FakeV6Pose(has_segmentation=has_segmentation)
+    player.pose_est = MagicMock(spec=pose_class)
+    if pose_class is PoseEstimationV6:
+        player.pose_est.has_segmentation = has_segmentation
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
 
     handlers.export_overlay_video()
 
     reason = options_cls.call_args.kwargs["segmentation_unavailable"]
-    if expect_reason:
-        assert "segmentation" in reason.lower()
-    else:
+    if expected_reason is None:
         assert reason is None
+    else:
+        assert reason.startswith("No segmentation data available")
+        assert expected_reason in reason
 
 
 @pytest.mark.parametrize(
@@ -634,8 +656,8 @@ def test_prune_refreshes_feature_support_after_removing_videos(monkeypatch):
     ]
 
 
-def test_prune_cancelled_leaves_feature_support_alone(monkeypatch):
-    """Declining to remove every video short-circuits before any state changes."""
+def test_prune_refuses_to_remove_every_video(monkeypatch):
+    """Selecting every video is refused before any file is trashed or any state changes."""
     handler, recorder = _prune_setup(
         monkeypatch,
         videos_to_prune=[_video_paths("video1"), _video_paths("video2")],
@@ -644,4 +666,23 @@ def test_prune_cancelled_leaves_feature_support_alone(monkeypatch):
 
     handler.show_project_pruning_dialog()
 
+    menu_handlers_module.MessageDialog.error.assert_called_once()
+    handler.move_files_to_recycle_bin_with_delete_fallback.assert_not_called()
+    assert recorder.mock_calls == []
+
+
+def test_prune_cancelled_leaves_feature_support_alone(monkeypatch):
+    """Cancelling the prune dialog trashes no file and changes no state."""
+    handler, recorder = _prune_setup(
+        monkeypatch,
+        videos_to_prune=[_video_paths("video1")],
+        project_videos=["video1.avi", "video2.avi"],
+    )
+    dialog = menu_handlers_module.ProjectPruningDialog.return_value
+    dialog.exec.return_value = menu_handlers_module.QtWidgets.QDialog.DialogCode.Rejected
+
+    handler.show_project_pruning_dialog()
+
+    handler.move_files_to_recycle_bin_with_delete_fallback.assert_not_called()
+    handler.window.display_status_message.assert_not_called()
     assert recorder.mock_calls == []

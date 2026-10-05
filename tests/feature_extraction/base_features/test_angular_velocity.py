@@ -1,8 +1,30 @@
 """Unit tests for the AngularVelocity feature class."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
+import numpy.typing as npt
 
 from jabs.feature_extraction.base_features import AngularVelocity
+
+_FPS = 30.0
+
+
+def _pose_with_bearings(bearings: npt.NDArray[np.float64]) -> MagicMock:
+    """Build a mock pose whose animal has the given per-frame bearings.
+
+    Args:
+        bearings: Bearing of the animal in degrees for each frame.
+
+    Returns:
+        Mock pose reporting ``bearings`` for every identity at ``_FPS`` frames per second.
+    """
+    mock_pose = MagicMock()
+    mock_pose.num_frames = len(bearings)
+    mock_pose.num_identities = 1
+    mock_pose.fps = _FPS
+    mock_pose.compute_all_bearings.return_value = bearings
+    return mock_pose
 
 
 def test_angular_velocity_per_frame_dimensions(pose_est_v5):
@@ -21,38 +43,29 @@ def test_angular_velocity_per_frame_dimensions(pose_est_v5):
         assert values["angular_velocity"].shape == (pose_est_v5.num_frames,)
 
 
-def test_angular_velocity_per_frame_units(pose_est_v5):
-    """Test that angular velocity is scaled by fps (degrees per second)."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    angular_vel_feature = AngularVelocity(pose_est_v5, pixel_scale)
+def test_angular_velocity_per_frame_units() -> None:
+    """Test that angular velocity is in degrees per second, not degrees per frame."""
+    # The bearing turns 1 degree every frame, so at 30 frames per second it turns 30 deg/s.
+    bearings = np.arange(10, dtype=np.float64)
 
-    for identity in range(pose_est_v5.num_identities):
-        values = angular_vel_feature.per_frame(identity)
-        velocities = values["angular_velocity"]
+    velocities = AngularVelocity(_pose_with_bearings(bearings), 1.0).per_frame(0)[
+        "angular_velocity"
+    ]
 
-        # Angular velocity should be in degrees per second
-        # Valid values should be reasonable (not extremely large)
-        non_nan_indices = ~np.isnan(velocities)
-        if non_nan_indices.any():
-            # Most angular velocities should be within reasonable range
-            # (e.g., -1800 to 1800 degrees per second = -5 to 5 rotations per second)
-            reasonable_indices = non_nan_indices & (np.abs(velocities) < 10000)
-            assert reasonable_indices.sum() > 0
+    # the last frame has no following frame to compare against
+    np.testing.assert_allclose(velocities, [_FPS] * 9 + [np.nan])
 
 
-def test_angular_velocity_handles_wraparound(pose_est_v5):
-    """Test that angular velocity correctly handles angle wraparound (0/360 boundary)."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    angular_vel_feature = AngularVelocity(pose_est_v5, pixel_scale)
+def test_angular_velocity_handles_wraparound() -> None:
+    """Test that angular velocity takes the shortest path across the 0/360 boundary."""
+    # 350 -> 10 is a 20 degree turn forward and 10 -> 350 is 20 degrees back, not +/-340.
+    bearings = np.array([350.0, 10.0, 350.0])
 
-    # The implementation should handle wraparound correctly
-    # by choosing the shortest angular path
-    for identity in range(pose_est_v5.num_identities):
-        values = angular_vel_feature.per_frame(identity)
-        velocities = values["angular_velocity"]
+    velocities = AngularVelocity(_pose_with_bearings(bearings), 1.0).per_frame(0)[
+        "angular_velocity"
+    ]
 
-        # Check that values exist (may contain NaNs)
-        assert velocities is not None
+    np.testing.assert_allclose(velocities, [20.0 * _FPS, -20.0 * _FPS, np.nan])
 
 
 def test_angular_velocity_consecutive_same_angles():
@@ -61,8 +74,6 @@ def test_angular_velocity_consecutive_same_angles():
     Creates a mock pose object where the animal maintains the same bearing
     angle across consecutive frames, verifying that angular velocity is zero.
     """
-    from unittest.mock import MagicMock
-
     # Create a mock pose with constant bearing
     num_frames = 10
 

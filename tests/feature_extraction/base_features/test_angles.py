@@ -41,20 +41,24 @@ def test_angles_per_frame_range(pose_est_v5):
                     assert (feature_values[non_nan_indices] < 360).all()
 
 
-def test_angles_sine_cosine_range(pose_est_v5):
-    """Test that sine and cosine values are in [-1, 1]."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    angles_feature = Angles(pose_est_v5, pixel_scale)
+def test_angles_sine_cosine_match_angle(pose_est_v5) -> None:
+    """Test that each angle's sine and cosine columns are computed from that angle."""
+    angles_feature = Angles(pose_est_v5, pose_est_v5.cm_per_pixel)
 
     for identity in range(pose_est_v5.num_identities):
         values = angles_feature.per_frame(identity)
 
-        for feature_name, feature_values in values.items():
-            if "sine" in feature_name or "cosine" in feature_name:
-                non_nan_indices = ~np.isnan(feature_values)
-                if non_nan_indices.any():
-                    assert (feature_values[non_nan_indices] >= -1).all()
-                    assert (feature_values[non_nan_indices] <= 1).all()
+        angle_names = [name for name in values if not name.endswith((" sine", " cosine"))]
+        assert angle_names
+        for name in angle_names:
+            angle = values[name]
+            assert np.isfinite(angle).any(), f"{name} has no valid frames to compare"
+            np.testing.assert_allclose(
+                values[f"{name} sine"], np.sin(np.deg2rad(angle)), atol=1e-6, err_msg=name
+            )
+            np.testing.assert_allclose(
+                values[f"{name} cosine"], np.cos(np.deg2rad(angle)), atol=1e-6, err_msg=name
+            )
 
 
 def test_angles_compute_angles_basic():

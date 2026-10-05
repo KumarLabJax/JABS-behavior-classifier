@@ -1,8 +1,11 @@
 """Tests for MultiClassClassifier."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.ensemble import RandomForestClassifier
 
 from jabs.classifier import classifier_utils
 from jabs.classifier.multi_class_classifier import MultiClassClassifier
@@ -153,10 +156,9 @@ class TestMergeLabels:
         behavior_names = ["a", "b", "c"]  # alphabetical, class 1/2/3
         labels, _ = classifier_utils.merge_labels(labels_by_behavior, behavior_names)
 
-        # "a" → class 1, "b" → class 2, "c" → class 3
-        assert 3 in labels  # "c" at frame 0
-        assert 1 in labels  # "a" at frame 2
-        assert 2 in labels  # "b" at frame 4
+        # "a" → class 1, "b" → class 2, "c" → class 3; frames 0, 2 and 4 are the
+        # labeled ones, so the classes appear in that frame order
+        np.testing.assert_array_equal(labels, [3, 1, 2])
 
     def test_empty_labels_by_behavior_raises(self):
         """Empty labels_by_behavior raises ValueError."""
@@ -212,8 +214,6 @@ class TestMultiClassClassifierInit:
 
     def test_invalid_classifier_type_raises(self):
         """Unsupported classifier type raises ValueError."""
-        from unittest.mock import patch
-
         with (
             patch.object(
                 MultiClassClassifier, "_supported_classifier_choices", return_value=set()
@@ -316,8 +316,6 @@ class TestClassifierCompatibility:
 
     def test_set_classifier_invalid_raises(self):
         """set_classifier raises for unsupported classifier types."""
-        from unittest.mock import patch
-
         clf = MultiClassClassifier(BEHAVIOR_NAMES)
         with (
             patch.object(
@@ -360,9 +358,13 @@ class TestClassifierCompatibility:
     def test_get_feature_importance(self, trained_clf):
         """get_feature_importance returns ranked feature tuples after training."""
         top = trained_clf.get_feature_importance(limit=2)
-        assert len(top) <= 2
-        assert len(top) > 0
+        # three features were trained on, so ``limit`` is what trims the list to two
+        assert len(top) == 2
         assert all(isinstance(name, str) and isinstance(score, float) for name, score in top)
+        assert {name for name, _ in top} <= set(trained_clf.feature_names)
+        # ranked, highest importance first
+        scores = [score for _, score in top]
+        assert scores == sorted(scores, reverse=True)
 
 
 # ---------------------------------------------------------------------------
@@ -374,9 +376,8 @@ class TestTrain:
     """Tests for MultiClassClassifier.train."""
 
     def test_train_sets_feature_names(self, trained_clf):
-        """Training populates feature_names."""
-        assert trained_clf.feature_names is not None
-        assert len(trained_clf.feature_names) > 0
+        """Training populates feature_names: per-frame columns, then window columns."""
+        assert trained_clf.feature_names == ["feat_a", "feat_b", "feat_c"]
 
     def test_train_missing_key_raises(self, synthetic_features):
         """Missing required key in data raises ValueError."""
@@ -385,20 +386,40 @@ class TestTrain:
         with pytest.raises(ValueError, match="Missing required key"):
             clf.train({"per_frame": per_frame, "window": window})
 
-    def test_train_with_balance_labels(self, two_behavior_labels, synthetic_features):
-        """Training with balance_labels does not raise."""
+    def test_train_with_balance_labels(self, synthetic_features):
+        """Training with balance_labels downsamples every class to the smallest one."""
         per_frame, window = synthetic_features
+        # 12 frames: 6 running, 2 grooming, 3 background; frame 11 is unlabeled
+        running = np.full(12, _X, dtype=np.int8)
+        grooming = np.full(12, _X, dtype=np.int8)
+        none_beh = np.full(12, _X, dtype=np.int8)
+        running[0:6] = _B
+        grooming[6:8] = _B
+        none_beh[8:11] = _B
         clf = MultiClassClassifier(BEHAVIOR_NAMES)
-        clf.train(
-            {
-                "per_frame": per_frame,
-                "window": window,
-                "labels_by_behavior": two_behavior_labels,
-                "settings": {"balance_labels": True},
-            },
-            random_seed=42,
-        )
+
+        with patch.object(
+            RandomForestClassifier, "fit", autospec=True, side_effect=RandomForestClassifier.fit
+        ) as fit_spy:
+            clf.train(
+                {
+                    "per_frame": per_frame,
+                    "window": window,
+                    "labels_by_behavior": {
+                        "running": running,
+                        "grooming": grooming,
+                        MULTICLASS_NONE_BEHAVIOR: none_beh,
+                    },
+                    "settings": {"balance_labels": True},
+                },
+                random_seed=42,
+            )
+
         assert clf.feature_names is not None
+        _, fit_features, fit_labels = fit_spy.call_args.args
+        # each of the three classes is cut to the 2 frames of the smallest (grooming)
+        assert len(fit_features) == 6
+        assert np.bincount(fit_labels).tolist() == [2, 2, 2]
 
     def test_train_persists_effective_settings(self, two_behavior_labels, synthetic_features):
         """Training persists resolved settings for later classification reuse."""
@@ -457,16 +478,25 @@ class TestTrain:
         )
         window = pd.DataFrame({"w": np.zeros(12)})
         clf = MultiClassClassifier(BEHAVIOR_NAMES)
-        clf.train(
-            {
-                "per_frame": per_frame,
-                "window": window,
-                "labels_by_behavior": two_behavior_labels,
-                "settings": {"symmetric_behavior": True},
-            },
-            random_seed=42,
-        )
+
+        with patch.object(
+            RandomForestClassifier, "fit", autospec=True, side_effect=RandomForestClassifier.fit
+        ) as fit_spy:
+            clf.train(
+                {
+                    "per_frame": per_frame,
+                    "window": window,
+                    "labels_by_behavior": two_behavior_labels,
+                    "settings": {"symmetric_behavior": True},
+                },
+                random_seed=42,
+            )
+
         assert clf.feature_names is not None
+        _, fit_features, fit_labels = fit_spy.call_args.args
+        # 9 of the 12 frames are labeled; augmentation appends a reflected copy of each
+        assert len(fit_features) == 18
+        assert len(fit_labels) == 18
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +523,8 @@ class TestPrediction:
         frame_indexes = np.array([0, 1, 2], dtype=np.intp)
         predictions = trained_clf.predict(combined_features, frame_indexes=frame_indexes)
         assert np.all(predictions[3:] == -1)
+        # the listed frames keep their real predictions
+        np.testing.assert_array_equal(predictions[:3], trained_clf.predict(combined_features)[:3])
 
     def test_predict_proba_shape(self, trained_clf, combined_features):
         """predict_proba returns (n_frames, N+1) where N = len(behavior_names)."""
@@ -509,6 +541,8 @@ class TestPrediction:
         frame_indexes = np.array([0, 1], dtype=np.intp)
         proba = trained_clf.predict_proba(combined_features, frame_indexes=frame_indexes)
         assert np.all(proba[2:] == 0.0)
+        # the listed frames keep their real probabilities
+        np.testing.assert_allclose(proba[:2], trained_clf.predict_proba(combined_features)[:2])
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +636,9 @@ class TestLeaveOneGroupOut:
         """LOGO succeeds even when no single group contains all classes."""
         per_frame, window, labels, groups = multiclass_logo_data
         splits = list(MultiClassClassifier.leave_one_group_out(per_frame, window, labels, groups))
-        assert len(splits) > 0
+        # every group has two classes above the threshold and the other two groups
+        # supply all three classes for training, so each group is a valid test split
+        assert len(splits) == 3
 
     def test_split_structure(self, multiclass_logo_data):
         """Each split dict has the expected keys."""

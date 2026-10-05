@@ -1,5 +1,7 @@
 """Tests for multi-class color utilities in jabs.ui.colors."""
 
+import itertools
+import math
 from collections.abc import Callable
 
 import numpy as np
@@ -41,32 +43,44 @@ def test_make_behavior_color_map_keys():
     assert set(result.keys()) == {"walk", "groom", "rear"}
 
 
-def test_make_behavior_color_map_distinct():
-    """All generated colors are visually distinct from each other."""
-    result = make_behavior_color_map(["walk", "groom", "rear", "eat"])
-    colors = [c.getRgb()[:3] for c in result.values()]
-    assert len(colors) == len(set(colors))
+# Smallest RGB distance (Euclidean, 0-255 channels) accepted between two colors a user has
+# to tell apart. With the palette's exclusion list intact the generated colors stay at least
+# 133.7 from each fixed UI color for 10 behaviors, and at least 127 from each other. With the
+# exclusion list emptied the closest approach to a fixed color falls to 89.8, so 100 separates
+# the two while leaving some room for a distinctipy version change.
+_MIN_COLOR_DISTANCE = 100.0
 
 
-def test_make_behavior_color_map_no_background_collision():
-    """Generated colors do not match the background gray."""
-    bg = BACKGROUND_COLOR.getRgb()[:3]
-    for color in make_behavior_color_map(["walk", "groom"]).values():
-        assert color.getRgb()[:3] != bg
+@pytest.mark.parametrize(
+    "behavior_count", [2, 4, 10], ids=["2-behaviors", "4-behaviors", "10-behaviors"]
+)
+def test_make_behavior_color_map_colors_are_far_from_each_other_and_the_fixed_colors(
+    behavior_count: int,
+) -> None:
+    """Generated colors stay visibly apart from each other and from the fixed UI colors.
 
+    The fixed colors are the background gray, the not-behavior blue and the behavior
+    orange. Exact RGB equality cannot catch a palette that drifts close to one of them, so
+    this checks distance instead.
 
-def test_make_behavior_color_map_no_not_behavior_collision():
-    """Generated colors do not match the not-behavior blue."""
-    nb = NOT_BEHAVIOR_COLOR.getRgb()[:3]
-    for color in make_behavior_color_map(["walk", "groom"]).values():
-        assert color.getRgb()[:3] != nb
+    Args:
+        behavior_count: Number of behaviors to generate colors for.
+    """
+    colors = make_behavior_color_map([f"behavior_{i}" for i in range(behavior_count)])
+    fixed_colors = {
+        "background": BACKGROUND_COLOR,
+        "not-behavior": NOT_BEHAVIOR_COLOR,
+        "behavior": BEHAVIOR_COLOR,
+    }
 
+    for name, color in colors.items():
+        for fixed_name, fixed_color in fixed_colors.items():
+            distance = math.dist(color.getRgb()[:3], fixed_color.getRgb()[:3])
+            assert distance >= _MIN_COLOR_DISTANCE, f"{name} is too close to {fixed_name}"
 
-def test_make_behavior_color_map_no_behavior_collision():
-    """Generated colors do not match the behavior orange."""
-    beh = BEHAVIOR_COLOR.getRgb()[:3]
-    for color in make_behavior_color_map(["walk", "groom"]).values():
-        assert color.getRgb()[:3] != beh
+    for (name_a, color_a), (name_b, color_b) in itertools.combinations(colors.items(), 2):
+        distance = math.dist(color_a.getRgb()[:3], color_b.getRgb()[:3])
+        assert distance >= _MIN_COLOR_DISTANCE, f"{name_a} is too close to {name_b}"
 
 
 def test_make_behavior_color_map_deterministic():

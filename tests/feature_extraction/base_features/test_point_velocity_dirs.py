@@ -43,20 +43,24 @@ def test_point_velocity_dirs_range(pose_est_v5):
                     assert (feature_values[non_nan_indices] <= 180).all()
 
 
-def test_point_velocity_dirs_sine_cosine_range(pose_est_v5):
-    """Test that sine and cosine values are in [-1, 1]."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    velocity_dirs_feature = PointVelocityDirs(pose_est_v5, pixel_scale)
+def test_point_velocity_dirs_sine_cosine_match_direction(pose_est_v5) -> None:
+    """Test that each keypoint's sine and cosine columns are computed from its direction."""
+    velocity_dirs_feature = PointVelocityDirs(pose_est_v5, pose_est_v5.cm_per_pixel)
 
     for identity in range(pose_est_v5.num_identities):
         values = velocity_dirs_feature.per_frame(identity)
 
-        for feature_name, feature_values in values.items():
-            if "sine" in feature_name or "cosine" in feature_name:
-                non_nan_indices = ~np.isnan(feature_values)
-                if non_nan_indices.any():
-                    assert (feature_values[non_nan_indices] >= -1).all()
-                    assert (feature_values[non_nan_indices] <= 1).all()
+        direction_names = [name for name in values if not name.endswith((" sine", " cosine"))]
+        assert direction_names
+        for name in direction_names:
+            direction = values[name]
+            assert np.isfinite(direction).any(), f"{name} has no valid frames to compare"
+            np.testing.assert_allclose(
+                values[f"{name} sine"], np.sin(np.deg2rad(direction)), atol=1e-6, err_msg=name
+            )
+            np.testing.assert_allclose(
+                values[f"{name} cosine"], np.cos(np.deg2rad(direction)), atol=1e-6, err_msg=name
+            )
 
 
 def test_point_velocity_dirs_feature_names(pose_est_v5):

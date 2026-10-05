@@ -243,20 +243,35 @@ def test_cv_grouping_preview_handles_no_videos() -> None:
     assert group._preview_section.isHidden()
 
 
-def test_collapsible_section_toggles_disclosure_icon() -> None:
-    """The disclosure indicator swaps between the collapsed and expanded icons."""
-    section = CollapsibleSection("More info", QLabel("content"))
+def test_collapsible_section_toggles_content_and_disclosure_icon() -> None:
+    """Expanding shows the content and signals it; the disclosure icon follows the state.
+
+    The content starts hidden. ``isHidden`` is checked rather than ``isVisible`` because
+    the section is never shown on screen here, so nothing would be visible either way.
+    """
+    content = QLabel("content")
+    section = CollapsibleSection("More info", content)
+    toggled: list[bool] = []
+    section.toggled.connect(toggled.append)
 
     # No native arrow is drawn; only the Material disclosure icon is shown.
     assert section._toggle_btn.arrowType() == Qt.ArrowType.NoArrow
     collapsed_key = section._toggle_btn.icon().cacheKey()
+    assert not section.is_expanded()
+    assert content.isHidden()
 
     section.set_expanded(True)
     expanded_key = section._toggle_btn.icon().cacheKey()
     assert expanded_key != collapsed_key
+    assert section.is_expanded()
+    assert not content.isHidden()
 
     section.set_expanded(False)
     assert section._toggle_btn.icon().cacheKey() == collapsed_key
+    assert not section.is_expanded()
+    assert content.isHidden()
+
+    assert toggled == [True, False]
 
 
 class _FakePostprocessingSettingsManager:

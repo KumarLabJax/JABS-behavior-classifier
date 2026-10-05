@@ -6,6 +6,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 
 from jabs.scripts.cli.sample_pose_intervals import _sample_one
 
@@ -139,24 +140,36 @@ def test_start_frame_slices_correct_frames(tmp_path: Path) -> None:
     np.testing.assert_array_equal(conf_out, expected)
 
 
-def test_random_start_stays_in_valid_range(tmp_path: Path) -> None:
-    """Random start should always produce a full-length clip."""
-    frame_count = 100
-    out_frame_count = 30
+@pytest.mark.parametrize("pick", [0, 1], ids=["lowest_start", "highest_start"])
+def test_random_start_stays_in_valid_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pick: int
+) -> None:
+    """The random start is drawn from [0, max_start], so even the extremes give a full clip.
 
-    for i in range(20):
-        root = tmp_path / str(i)
-        root.mkdir()
-        out_dir = tmp_path / f"out_{i}"
-        out = _run(
-            root,
-            out_dir,
-            frame_count=frame_count,
-            out_frame_count=out_frame_count,
-        )
-        assert out is not None
-        with h5py.File(out, "r") as f:
-            assert f["poseest/points"].shape[0] == out_frame_count
+    random.randint is replaced by a stub that records its bounds and returns one of
+    them, which tests the range deterministically; an off-by-one upper bound would
+    otherwise be hit by only a small fraction of random draws.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+        monkeypatch: Pytest fixture used to replace random.randint.
+        pick: Which bound the stub returns: 0 for the lower, 1 for the upper.
+    """
+    bounds: list[tuple[int, int]] = []
+
+    def fake_randint(low: int, high: int) -> int:
+        bounds.append((low, high))
+        return (low, high)[pick]
+
+    monkeypatch.setattr("jabs.scripts.cli.sample_pose_intervals.random.randint", fake_randint)
+
+    # frame_count=100, out_frame_count=30 -> max_start=70 (0-based)
+    out = _run(tmp_path, tmp_path / "out", frame_count=100, out_frame_count=30)
+
+    assert bounds == [(0, 70)]
+    assert out is not None
+    with h5py.File(out, "r") as f:
+        assert f["poseest/points"].shape[0] == 30
 
 
 # ---------------------------------------------------------------------------
@@ -165,11 +178,21 @@ def test_random_start_stays_in_valid_range(tmp_path: Path) -> None:
 
 
 def _make_dyn(sample_indices, counts=None, n_keypoints: int = 1) -> dict:
-    """Build a minimal dynamic object dict for _write_pose_h5."""
+    """Build a minimal dynamic object dict for _write_pose_h5.
+
+    Each sample is made identifiable so a test can tell which source samples were
+    carried into the clip, and that ``counts`` and ``points`` still line up with
+    ``sample_indices``: ``counts`` defaults to 1, 2, 3, ... (the sample's position in
+    the source) and every coordinate of a sample's ``points`` row is its own source
+    frame index.
+    """
     n = len(sample_indices)
     if counts is None:
-        counts = np.ones(n, dtype=np.int64)
-    points = np.zeros((n, 1, n_keypoints, 2), dtype=np.float64)
+        counts = np.arange(1, n + 1, dtype=np.int64)
+    points = np.broadcast_to(
+        np.asarray(sample_indices, dtype=np.float64).reshape(n, 1, 1, 1),
+        (n, 1, n_keypoints, 2),
+    ).copy()
     return {
         "sample_indices": np.array(sample_indices, dtype=np.int64),
         "counts": np.array(counts, dtype=np.int64),
@@ -193,7 +216,12 @@ def test_dynamic_objects_all_within_rebased(tmp_path: Path) -> None:
     assert out is not None
     with h5py.File(out, "r") as f:
         si = f["dynamic_objects/boli/sample_indices"][:]
+        counts = f["dynamic_objects/boli/counts"][:]
+        points = f["dynamic_objects/boli/points"][:]
     np.testing.assert_array_equal(si, [0, 5, 15, 19])
+    # counts and points stay attached to their samples (source positions 1-4, frames 10-29)
+    np.testing.assert_array_equal(counts, [1, 2, 3, 4])
+    np.testing.assert_array_equal(points[:, 0, 0, 0], [10, 15, 25, 29])
 
 
 def test_dynamic_objects_boundary_before_start_clamped_to_zero(tmp_path: Path) -> None:
@@ -211,7 +239,12 @@ def test_dynamic_objects_boundary_before_start_clamped_to_zero(tmp_path: Path) -
     assert out is not None
     with h5py.File(out, "r") as f:
         si = f["dynamic_objects/boli/sample_indices"][:]
+        counts = f["dynamic_objects/boli/counts"][:]
+        points = f["dynamic_objects/boli/points"][:]
     np.testing.assert_array_equal(si, [0, 5, 15])
+    # the carried-in boundary sample keeps its own count and points (source frame 3)
+    np.testing.assert_array_equal(counts, [1, 2, 3])
+    np.testing.assert_array_equal(points[:, 0, 0, 0], [3, 15, 25])
 
 
 def test_dynamic_objects_only_last_before_included(tmp_path: Path) -> None:
@@ -230,9 +263,12 @@ def test_dynamic_objects_only_last_before_included(tmp_path: Path) -> None:
     with h5py.File(out, "r") as f:
         si = f["dynamic_objects/boli/sample_indices"][:]
         counts = f["dynamic_objects/boli/counts"][:]
+        points = f["dynamic_objects/boli/points"][:]
     # counts[2] corresponds to sample at index 8, then counts[3] to sample at 15
     np.testing.assert_array_equal(si, [0, 5])
-    np.testing.assert_array_equal(counts, [1, 1])
+    np.testing.assert_array_equal(counts, [3, 4])
+    # the carried sample is the one at frame 8 (the most recent state), not 2 or 5
+    np.testing.assert_array_equal(points[:, 0, 0, 0], [8, 15])
 
 
 def test_dynamic_objects_no_samples_before_clip(tmp_path: Path) -> None:
@@ -249,7 +285,11 @@ def test_dynamic_objects_no_samples_before_clip(tmp_path: Path) -> None:
     assert out is not None
     with h5py.File(out, "r") as f:
         si = f["dynamic_objects/boli/sample_indices"][:]
+        counts = f["dynamic_objects/boli/counts"][:]
+        points = f["dynamic_objects/boli/points"][:]
     np.testing.assert_array_equal(si, [5, 15])
+    np.testing.assert_array_equal(counts, [1, 2])
+    np.testing.assert_array_equal(points[:, 0, 0, 0], [15, 25])
 
 
 def test_dynamic_objects_all_after_stop_produces_empty(tmp_path: Path) -> None:
@@ -290,7 +330,11 @@ def test_dynamic_objects_samples_at_stop_excluded(tmp_path: Path) -> None:
     assert out is not None
     with h5py.File(out, "r") as f:
         si = f["dynamic_objects/boli/sample_indices"][:]
+        counts = f["dynamic_objects/boli/counts"][:]
+        points = f["dynamic_objects/boli/points"][:]
     np.testing.assert_array_equal(si, [10])
+    np.testing.assert_array_equal(counts, [1])
+    np.testing.assert_array_equal(points[:, 0, 0, 0], [20])
 
 
 def test_external_identity_mapping_copied_as_is(tmp_path: Path) -> None:

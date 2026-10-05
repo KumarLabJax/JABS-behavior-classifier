@@ -163,4 +163,6 @@ class TestTrainingReportDialog:
 
         html = dialog._markdown_to_html(markdown_with_code)
 
-        assert "<code>" in html or "<pre>" in html
+        # Without the fenced-code-blocks extra markdown2 renders the fence as inline
+        # ``<code>``, so only a ``<pre>`` block shows the extra is enabled.
+        assert "<pre>" in html

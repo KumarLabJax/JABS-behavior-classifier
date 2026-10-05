@@ -68,7 +68,8 @@ def test_classify_thread_binary_path(monkeypatch) -> None:
     args, kwargs = project.save_predictions.call_args
     assert args[4] == "Walk"
     assert kwargs["class_names"] is None
-    assert kwargs["postprocessed_predictions"] is not None
+    # the thread always passes a dict, so check it actually carries this identity's result
+    assert 0 in kwargs["postprocessed_predictions"]
 
 
 def test_classify_thread_multiclass_path(monkeypatch) -> None:

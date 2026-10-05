@@ -255,8 +255,8 @@ def test_validate_names_only_the_failing_identity() -> None:
         validate_subjects(data)
 
     message = str(exc.value)
-    assert "subject_2" in message
-    assert "subject_1" not in message.split("\n")[1]
+    assert "subject_2:" in message
+    assert "subject_1:" not in message
 
 
 def test_validate_resolves_metadata_by_raw_external_id() -> None:
@@ -319,22 +319,29 @@ def test_no_warning_when_every_key_matches(caplog) -> None:
 
 
 @pytest.mark.parametrize(
-    "field",
-    ["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
+    ("field", "expected"),
+    [
+        ("species", ["species is missing"]),
+        ("sex", ["sex is missing"]),
+        # date_of_birth is absent too, so the requirement is unmet
+        ("age", ["age or date_of_birth is missing"]),
+        # subject_id falls back to the default; date_of_birth and weight are optional
+        ("subject_id", []),
+        ("date_of_birth", []),
+        ("weight", []),
+    ],
     ids=["species", "sex", "age", "subject_id", "date_of_birth", "weight"],
 )
-def test_blank_is_treated_as_absent(field: str) -> None:
-    """A blank value is reported exactly as an absent one would be."""
+def test_blank_is_treated_as_absent(field: str, expected: list[str]) -> None:
+    """A blank value is reported exactly as an absent one would be.
+
+    Args:
+        field: The subject metadata field set to a blank string.
+        expected: The problems reported for the otherwise valid metadata.
+    """
     problems = subject_metadata_problems({**VALID, field: ""}, default_subject_id="subject_1")
 
-    if field in ("species", "sex"):
-        assert problems == [f"{field} is missing"]
-    elif field == "age":
-        # date_of_birth is absent too, so the requirement is unmet.
-        assert problems == ["age or date_of_birth is missing"]
-    else:
-        # subject_id falls back to the default; date_of_birth and weight are optional.
-        assert problems == []
+    assert problems == expected
 
 
 def test_blank_age_is_covered_by_date_of_birth() -> None:

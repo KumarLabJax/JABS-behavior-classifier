@@ -219,8 +219,17 @@ def test_binary_predictions_come_from_the_displayed_prediction_list() -> None:
     assert CentralWidget._prediction_overlay_labels(widget, multiclass=False) is _PREDICTED
 
 
-def test_an_unclassified_video_has_no_predictions() -> None:
-    """Nothing is drawn for a video that has not been classified."""
-    widget = _label_source_widget(prediction_list=None)
+@pytest.mark.parametrize(
+    "prediction_list",
+    [None, []],
+    ids=["no-list-yet", "empty-list"],
+)
+def test_an_unclassified_video_has_no_predictions(prediction_list: list | None) -> None:
+    """Nothing is drawn for a video that has not been classified.
+
+    An empty list is treated like a missing one, so the overlay is cleared rather than
+    handed no per-identity values.
+    """
+    widget = _label_source_widget(prediction_list=prediction_list)
 
     assert CentralWidget._prediction_overlay_labels(widget, multiclass=False) is None

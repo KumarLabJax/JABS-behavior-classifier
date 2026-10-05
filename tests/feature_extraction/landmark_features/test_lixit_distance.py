@@ -3,6 +3,7 @@
 import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -244,3 +245,43 @@ def test_mouse_lixit_angle_runs_with_three_point_lixit(fresh_pose_v5):
         assert values.shape == (pose.num_frames,)
         finite = values[~np.isnan(values)]
         assert np.all((finite >= -1.0) & (finite <= 1.0))
+
+
+def test_mouse_lixit_angle_cosines_for_known_geometry() -> None:
+    """MouseLixitAngle reports the hand-computed cosines for a mouse in known poses.
+
+    The lixit tip is 10 units along +x from the midpoint of its two sides, so the lixit
+    vector points along +x. Per frame, the first cosine is of the centroid-to-nose vector
+    and the second of the base-tail-to-centroid vector, each against the lixit vector:
+
+    * frame 0: nose ahead on +x, tail behind on -x -> 1 and 1
+    * frame 1: nose on -x, tail on +x -> -1 and -1
+    * frame 2: nose on +y, tail on -x -> 0 and 1 (the two columns differ)
+
+    The centroid is given in pixels and the pose in cm, as the real objects return them,
+    so a feature that mixed the two units would not line the vectors up.
+    """
+    pixel_scale = 0.5
+    centroid_px = np.array([[4.0, 6.0]] * 3)
+    centroid_cm = centroid_px * pixel_scale
+    nose_offsets = np.array([[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0]])
+    tail_offsets = np.array([[-1.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
+
+    points = np.zeros((3, len(PoseEstimation.KeypointIndex), 2))
+    points[:, PoseEstimation.KeypointIndex.NOSE, :] = centroid_cm + nose_offsets
+    points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :] = centroid_cm + tail_offsets
+
+    pose = MagicMock()
+    pose.get_identity_poses.return_value = (points, np.ones(points.shape[:2], dtype=bool))
+    # three-keypoint lixit: tip, left side, right side
+    pose.static_objects = {"lixit": np.array([[[10.0, 0.0], [0.0, 1.0], [0.0, -1.0]]])}
+
+    distances = MagicMock()
+    distances.get_centroids.return_value = centroid_px
+    distances.get_closest_lixit.return_value = np.zeros(3, dtype=np.uint8)
+
+    result = lixit.MouseLixitAngle(pose, pixel_scale, distances).per_frame(0)
+
+    assert set(result) == {"centroid - nose", "base-tail - centroid"}
+    np.testing.assert_allclose(result["centroid - nose"], [1.0, -1.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(result["base-tail - centroid"], [1.0, -1.0, 1.0], atol=1e-6)

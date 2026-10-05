@@ -133,8 +133,11 @@ class TestGenerateMarkdownReport:
 
         assert "## Cross-Validation Results" in report
         assert "### Performance Summary" in report
-        assert "**Mean Accuracy:**" in report
-        assert "**Mean F1 Score (Behavior):**" in report
+        # means of the two iterations: accuracy (0.9234 + 0.8912) / 2 = 0.9073 and
+        # F1 (0.9163 + 0.8842) / 2 = 0.90025 (only the 3 decimals clear of the
+        # rounding tie are pinned)
+        assert "**Mean Accuracy:** 0.9073" in report
+        assert "**Mean F1 Score (Behavior):** 0.900" in report
         assert "### Iteration Details" in report
 
     def test_report_contains_cv_table(self, sample_training_data):
@@ -247,9 +250,10 @@ class TestSaveTrainingReport:
 
         save_training_report(sample_training_data, output_file)
 
-        # Should be able to read with UTF-8
+        # Should be able to read with UTF-8; the performance summary's plus-minus
+        # sign is non-ASCII, so it survives only if the file really is UTF-8
         content = output_file.read_text(encoding="utf-8")
-        assert len(content) > 0
+        assert "±" in content
 
     def test_save_report_overwrites_existing(self, sample_training_data, tmp_path):
         """Test that saving overwrites an existing file."""
@@ -441,10 +445,11 @@ class TestPostprocessedReporting:
 
         report = generate_markdown_report(data)
 
-        assert "Mean Accuracy (Postprocessed):" in report
-        assert "Mean F1 Score (Behavior, Postprocessed):" in report
+        # postprocessed accuracies are 0.95 and 0.96, F1 is 0.9605 for both
+        assert "**Mean Accuracy (Postprocessed):** 0.9550" in report
+        assert "**Mean F1 Score (Behavior, Postprocessed):** 0.9605" in report
         # raw means are still present, so the two can be compared
-        assert "**Mean Accuracy:**" in report
+        assert "**Mean Accuracy:** 0.9073" in report
 
     def test_markdown_lists_evaluated_stages(self, sample_training_data):
         """The summary records which stages were evaluated, so the report is self-describing."""
@@ -532,8 +537,13 @@ class TestPostprocessedReporting:
 
     def test_json_records_whether_postprocessing_was_evaluated(self, sample_training_data):
         """The JSON separates what was requested from what actually happened."""
+        # requested (the stage list is recorded) but no iteration produced metrics
+        sample_training_data.postprocessing_stages = [
+            {"stage_name": "BoutStitchingStage", "enabled": True, "parameters": {}}
+        ]
         requested_only = generate_json_report(sample_training_data)
         assert requested_only["postprocessing_evaluated"] is False
+        assert requested_only["postprocessing_stages"][0]["stage_name"] == "BoutStitchingStage"
 
         evaluated = generate_json_report(self._postprocessed_data(sample_training_data))
         assert evaluated["postprocessing_evaluated"] is True

@@ -70,6 +70,16 @@ def test_a_label_edit_still_refreshes_the_label_track() -> None:
     widget._project.save_annotations.assert_called_once_with(widget._labels, widget._pose_est)
 
 
+def test_a_label_edit_refreshes_the_label_counts_and_the_train_button() -> None:
+    """The label summary and the train button follow the labels, so they refresh on an edit."""
+    widget = _widget()
+
+    CentralWidget._label_button_common(widget)
+
+    widget._update_label_counts.assert_called_once_with()
+    widget.set_train_button_enabled_state.assert_called_once_with()
+
+
 def test_pushing_overlay_values_is_what_repaints_the_frame() -> None:
     """The overlay's own repaint is what makes an edit visible with the overlay on."""
     player = PlayerWidget()

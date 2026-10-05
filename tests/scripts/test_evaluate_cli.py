@@ -7,17 +7,20 @@ disk, is replaced with a spy for the tests that exercise the Click wiring.
 
 import csv
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
+import click
 import numpy as np
 import pytest
 from click.testing import CliRunner
 
+import jabs.behavior.evaluation.bouts as bouts_module
 import jabs.scripts.cli.evaluate as evaluate_module
 import jabs.scripts.cli.evaluate_report as evaluate_report
-from jabs.behavior.evaluation import IoUCriterion, OverlapCriterion
+from jabs.behavior.evaluation import IoUCriterion, OverlapCriterion, overlapping_pairs
 from jabs.classifier import MultiClassClassifier
 from jabs.scripts.cli.cli import cli
 from jabs.scripts.cli.evaluate import (
@@ -50,6 +53,23 @@ OVERLAP = OverlapCriterion(1)
 IOU = IoUCriterion(0.5)
 CRITERIA = [OVERLAP, IOU]
 
+#: Header of the per-bout CSV, in column order; consumers of the file rely on it.
+BOUT_CSV_COLUMNS = [
+    "video",
+    "identity",
+    "stage",
+    "source",
+    "start",
+    "end",
+    "duration",
+    "evaluable",
+    "overlapping_bouts",
+    "best_overlap_frames",
+    "best_iou",
+    "matched_overlap",
+    "matched_iou",
+]
+
 # -----------------------------------------------------------------------------
 # compare_identity
 # -----------------------------------------------------------------------------
@@ -67,11 +87,25 @@ def test_compare_identity_reports_both_criteria() -> None:
     assert comparison.predicted_bouts == [evaluate_module.Bout(2, 3)]
 
 
-def test_compare_identity_shares_one_overlap_sweep_across_criteria() -> None:
-    """Compare identity shares one overlap sweep across criteria."""
+def test_compare_identity_shares_one_overlap_sweep_across_criteria(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The overlap sweep runs once and every criterion matches against its result."""
+    calls: list[int] = []
+
+    def counting(truth_bouts, predicted_bouts):
+        calls.append(1)
+        return overlapping_pairs(truth_bouts, predicted_bouts)
+
+    # match_bouts runs its own sweep when it is not handed one, so count both entry points
+    monkeypatch.setattr(evaluate_module, "overlapping_pairs", counting)
+    monkeypatch.setattr(bouts_module, "overlapping_pairs", counting)
+
     truth = np.array([1, 1, 0, 1, 1])
     predicted = np.array([1, 1, 1, 1, 1])
     comparison = compare_identity(truth, predicted, CRITERIA)
+
+    assert len(calls) == 1
     # one prediction spanning both truth bouts -> two overlapping pairs
     assert len(comparison.overlaps) == 2
 
@@ -166,7 +200,7 @@ def test_load_binary_classifier_rejects_multiclass(monkeypatch: pytest.MonkeyPat
         "load_classifier_from_pickle",
         lambda _p: mock.Mock(spec=MultiClassClassifier),
     )
-    with pytest.raises(Exception, match="binary classifiers only"):
+    with pytest.raises(click.ClickException, match="binary classifiers only"):
         load_binary_classifier(Path("model.pickle"))
 
 
@@ -177,7 +211,7 @@ def test_load_binary_classifier_wraps_load_failure(monkeypatch: pytest.MonkeyPat
         raise RuntimeError("corrupt pickle")
 
     monkeypatch.setattr(evaluate_module, "load_classifier_from_pickle", boom)
-    with pytest.raises(Exception, match="Unable to load classifier"):
+    with pytest.raises(click.ClickException, match="Unable to load classifier"):
         load_binary_classifier(Path("model.pickle"))
 
 
@@ -196,7 +230,7 @@ def test_resolve_behavior_falls_back_to_the_classifier() -> None:
 def test_resolve_behavior_errors_when_neither_is_available() -> None:
     """Resolve behavior errors when neither is available."""
     classifier = mock.Mock(behavior_name=None)
-    with pytest.raises(Exception, match="does not record a behavior name"):
+    with pytest.raises(click.ClickException, match="does not record a behavior name"):
         resolve_behavior(classifier, None)
 
 
@@ -219,13 +253,13 @@ def test_resolve_pipeline_config_selects_the_behavior_from_a_dict() -> None:
 
 def test_resolve_pipeline_config_errors_on_missing_behavior() -> None:
     """Resolve pipeline config errors on missing behavior."""
-    with pytest.raises(Exception, match="not found in the postprocessing config"):
+    with pytest.raises(click.ClickException, match="not found in the postprocessing config"):
         _resolve_pipeline_config({"Rearing": []}, "Grooming")
 
 
 def test_resolve_pipeline_config_rejects_a_scalar() -> None:
     """Resolve pipeline config rejects a scalar."""
-    with pytest.raises(Exception, match="list or object at the top level"):
+    with pytest.raises(click.ClickException, match="list or object at the top level"):
         _resolve_pipeline_config("nope", "Grooming")  # type: ignore[arg-type]
 
 
@@ -370,7 +404,9 @@ def test_write_csv_writes_one_row_per_bout(tmp_path: Path) -> None:
     """Write csv writes one row per bout."""
     path = tmp_path / "bouts.csv"
     write_csv(_records([1, 1, 0, 0], [0, 1, 1, 0]), path)
-    rows = list(csv.DictReader(path.open()))
+    reader = csv.DictReader(path.open())
+    rows = list(reader)
+    assert reader.fieldnames == BOUT_CSV_COLUMNS
     assert len(rows) == 2
     assert {r["source"] for r in rows} == {GROUND_TRUTH_SOURCE, PREDICTED_SOURCE}
     assert rows[0]["video"] == "v.mp4"
@@ -467,15 +503,25 @@ def test_command_passes_both_criteria_in_overlap_then_iou_order(
     assert [c.label for c in criteria] == expected_labels
 
 
-def test_command_rejects_an_out_of_range_iou(wired, tmp_path: Path) -> None:
-    """Command rejects an out of range iou."""
-    assert _invoke(tmp_path, "--iou-threshold", "0").exit_code != 0
-    assert _invoke(tmp_path, "--iou-threshold", "1.5").exit_code != 0
+@pytest.mark.parametrize("threshold", ["0", "1.5"], ids=["zero", "above-one"])
+def test_command_rejects_an_out_of_range_iou(wired, tmp_path: Path, threshold: str) -> None:
+    """An IoU threshold outside (0, 1] is a Click usage error, not a crash in the criteria.
+
+    Args:
+        wired: Fixture stubbing out classifier loading, project scanning and the run.
+        tmp_path: Temporary project directory.
+        threshold: Out-of-range value for ``--iou-threshold``.
+    """
+    result = _invoke(tmp_path, "--iou-threshold", threshold)
+    assert result.exit_code == 2, result.output
+    assert "Invalid value" in result.output
 
 
 def test_command_rejects_a_zero_min_overlap(wired, tmp_path: Path) -> None:
-    """Command rejects a zero min overlap."""
-    assert _invoke(tmp_path, "--min-overlap", "0").exit_code != 0
+    """A zero ``--min-overlap`` is a Click usage error, not a crash in the criteria."""
+    result = _invoke(tmp_path, "--min-overlap", "0")
+    assert result.exit_code == 2, result.output
+    assert "Invalid value" in result.output
 
 
 def test_out_dir_writes_all_three_files(wired, tmp_path: Path) -> None:
@@ -487,6 +533,12 @@ def test_out_dir_writes_all_three_files(wired, tmp_path: Path) -> None:
     written = sorted(p.name.rsplit("_", 1)[-1] for p in out.iterdir())
     assert written == ["bouts.csv", "evaluation.json", "evaluation.md"]
     assert all(p.name.startswith("Grooming_") for p in out.iterdir())
+
+    # each file holds its own format, not just any content
+    by_suffix = {p.name.rsplit("_", 1)[-1]: p for p in out.iterdir()}
+    assert json.loads(by_suffix["evaluation.json"].read_text())["behavior"] == "Grooming"
+    assert next(csv.reader(by_suffix["bouts.csv"].open())) == BOUT_CSV_COLUMNS
+    assert by_suffix["evaluation.md"].read_text().startswith("# Classifier Evaluation: Grooming")
 
 
 def test_explicit_output_paths_are_honored(wired, tmp_path: Path) -> None:
@@ -504,7 +556,10 @@ def test_explicit_output_paths_are_honored(wired, tmp_path: Path) -> None:
         str(report_path),
     )
     assert result.exit_code == 0, result.output
-    assert json_path.exists() and csv_path.exists() and report_path.exists()
+    # each requested path holds its own format, not just any content
+    assert json.loads(json_path.read_text())["behavior"] == "Grooming"
+    assert next(csv.reader(csv_path.open())) == BOUT_CSV_COLUMNS
+    assert report_path.read_text().startswith("# Classifier Evaluation: Grooming")
 
 
 def test_no_output_options_writes_nothing(wired, tmp_path: Path) -> None:
@@ -788,7 +843,7 @@ def test_run_evaluation_errors_when_nothing_was_evaluated(
 ) -> None:
     """An empty project is an error, not a report of zeros."""
     _fake_project(monkeypatch, {})
-    with pytest.raises(Exception, match="Nothing was evaluated"):
+    with pytest.raises(click.ClickException, match="Nothing was evaluated"):
         _run()
 
 
@@ -1145,7 +1200,7 @@ def test_plan_selects_the_behavior_from_a_dict_config() -> None:
 
 def test_plan_reports_a_grid_over_the_ceiling_as_a_click_error() -> None:
     """A ValueError from expansion must not escape as a traceback."""
-    with pytest.raises(Exception, match="above the limit of 2"):
+    with pytest.raises(click.ClickException, match="above the limit of 2"):
         _plan(_SWEEP_CONFIG, max_combinations=2)
 
 
@@ -1231,8 +1286,8 @@ def test_sweep_picks_a_best_stage(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # min_duration=9 wipes everything out; 3 keeps both fragments
     result = _run(plan=_plan(_SWEEP_CONFIG))
-    assert result.best_stage in result.sweep_stages
-    assert result.best_stage != "sweep_2"  # the one that deletes every bout
+    # sweep_0 (min_duration=3) is the only combination that keeps the labeled bout
+    assert result.best_stage == "sweep_0"
 
 
 @pytest.mark.parametrize(
@@ -1325,8 +1380,10 @@ def test_sweep_report_renders_a_table_per_criterion(monkeypatch: pytest.MonkeyPa
     assert OVERLAP.label in text
     assert IOU.label in text
     assert "min_duration" in text
-    for value in ("3", "5", "9"):
-        assert value in text
+    # the first cell of each sweep row is the swept value: every combination appears
+    # once in each criterion's table (the other tables are keyed by stage label)
+    axis_cells = re.findall(r"^[│|] (\d+)\s+[│|]", text, flags=re.MULTILINE)
+    assert sorted(axis_cells) == sorted(["3", "5", "9"] * len(result.criteria))
 
 
 def test_sweep_appears_in_the_json_summary(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest import mock
 
+import pytest
 from click.testing import CliRunner
 
 from jabs.project.project_merge import MergeStrategy
@@ -76,8 +77,25 @@ def test_invalid_source_project_rejected(tmp_path: Path) -> None:
     assert "not a valid JABS project" in result.output
 
 
-def test_merge_invoked_with_selected_strategy(tmp_path: Path) -> None:
-    """Valid inputs open both projects and forward the selected merge strategy."""
+@pytest.mark.parametrize(
+    ("option", "strategy"),
+    [
+        ("behavior-wins", MergeStrategy.BEHAVIOR_WINS),
+        ("not-behavior-wins", MergeStrategy.NOT_BEHAVIOR_WINS),
+        ("destination-wins", MergeStrategy.DESTINATION_WINS),
+    ],
+    ids=["behavior-wins", "not-behavior-wins", "destination-wins"],
+)
+def test_merge_invoked_with_selected_strategy(
+    tmp_path: Path, option: str, strategy: MergeStrategy
+) -> None:
+    """Valid inputs open both projects and forward the selected merge strategy.
+
+    Args:
+        tmp_path: Pytest temporary directory holding the two project directories.
+        option: The ``--merge-strategy`` value passed on the command line.
+        strategy: The MergeStrategy that value must map to.
+    """
     dest = _make_project_dir(tmp_path / "dest")
     source = _make_project_dir(tmp_path / "source")
 
@@ -95,7 +113,7 @@ def test_merge_invoked_with_selected_strategy(tmp_path: Path) -> None:
     ):
         result = CliRunner().invoke(
             cli,
-            ["merge", str(dest), str(source), "--merge-strategy", "behavior-wins"],
+            ["merge", str(dest), str(source), "--merge-strategy", option],
         )
 
     assert result.exit_code == 0, result.output
@@ -103,5 +121,5 @@ def test_merge_invoked_with_selected_strategy(tmp_path: Path) -> None:
     mock_merge.assert_called_once_with(
         dest_project,
         source_project,
-        MergeStrategy.BEHAVIOR_WINS,
+        strategy,
     )

@@ -67,6 +67,9 @@ def mock_projects_with_labels(tmp_path):
     src_label.get_track_labels("0", "foo").label_behavior(150, 250)
     src_label.get_track_labels("0", "foo").label_not_behavior(50, 150)
     src_label.get_track_labels("0", "foo").label_not_behavior(350, 450)
+    # source BEHAVIOR inside the destination's NOT_BEHAVIOR block: the only conflict where
+    # BEHAVIOR_WINS and DESTINATION_WINS disagree
+    src_label.get_track_labels("0", "foo").label_behavior(320, 340)
 
     dest.video_manager.load_video_labels.side_effect = (
         lambda v: dest_label if v == "video1.mp4" else None
@@ -84,8 +87,8 @@ def mock_projects_with_labels(tmp_path):
     [
         (
             MergeStrategy.BEHAVIOR_WINS,
-            [(100, 250)],  # expected_behavior
-            [(50, 99), (300, 450)],  # expected_not_behavior
+            [(100, 250), (320, 340)],  # expected_behavior
+            [(50, 99), (300, 319), (341, 450)],  # expected_not_behavior
         ),
         (
             MergeStrategy.NOT_BEHAVIOR_WINS,

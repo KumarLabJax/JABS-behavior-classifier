@@ -3,7 +3,6 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 from jabs.io.annotations import (
@@ -59,7 +58,7 @@ def video_manager(project_paths, settings_manager):
             "identity_count": 3,
             "static_objects": [],
             "lixit_keypoints": 0,
-            "has_cm_per_pixel": False,
+            "has_cm_per_pixel": True,
         },
         "video2.mp4": {
             "video": "video2.mp4",
@@ -109,11 +108,6 @@ def test_load_video_labels(video_manager, project_paths):
     annotation_file = project_paths.annotations_dir / "video1.json"
     annotation_file.write_text('{"labels": {}, "num_frames": 1000, "file": "video1.avi"}')
 
-    # Create a mock pose_est object
-    mock_pose_est = MagicMock()
-    mock_pose_est.identity_mask.return_value = np.full(1000, True, dtype=bool)
-    mock_pose_est.num_frames = 1000
-
     labels = video_manager.load_video_labels("video1.avi")
     assert labels is not None
     assert labels.filename == "video1.avi"
@@ -133,13 +127,16 @@ def test_load_video_labels_reads_through_the_annotation_store(video_manager):
     assert labels.filename == "video1.avi"
 
 
-def test_load_video_labels_returns_none_when_the_store_has_no_document(video_manager):
+def test_load_video_labels_returns_none_when_the_store_has_no_document(video_manager, monkeypatch):
     """An unlabeled video yields no VideoLabels, and no pose file is opened."""
     store = MagicMock(spec=AnnotationStore)
     store.load_document.return_value = None
     video_manager._annotation_store = store
+    open_pose_file = MagicMock()
+    monkeypatch.setattr("jabs.project.video_manager.open_pose_file", open_pose_file)
 
     assert video_manager.load_video_labels("video1.avi") is None
+    open_pose_file.assert_not_called()
 
 
 def test_load_annotations_reads_through_the_annotation_store(video_manager):
@@ -169,10 +166,20 @@ def test_annotations_path_comes_from_the_annotation_store(video_manager, project
         project_paths.annotations_dir / "video1.json"
     )
 
+    # a store reporting a location the manager could not derive on its own
+    store = MagicMock(spec=AnnotationStore)
+    store.document_path.return_value = Path("/remote/cache/video1.annotations")
+    video_manager._annotation_store = store
+
+    assert video_manager.annotations_path("video1.avi") == Path("/remote/cache/video1.annotations")
+    store.document_path.assert_called_once_with("video1.avi")
+
 
 def test_remove_video_updates_derived_state(video_manager):
     """Removing a video drops all per-video state derived from the project scan."""
     assert video_manager.total_project_identities == 8
+    assert video_manager.video_has_cm_per_pixel("video1.avi") is True
+    assert video_manager.video_has_cm_per_pixel("video2.mp4") is False
     # populate the pose path cache so we can assert it is invalidated
     assert video_manager.get_cached_pose_path("video1.avi").name == "video1_pose_est_v3.h5"
 

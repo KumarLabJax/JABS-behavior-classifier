@@ -75,7 +75,7 @@ def test_cancel_button_emits_without_dismissing(dialog, qapp) -> None:
     emitted: list[bool] = []
     dialog.canceled.connect(lambda: emitted.append(True))
 
-    dialog.on_cancel()
+    dialog._cancel_button.click()
     qapp.processEvents()
 
     assert emitted == [True]
@@ -84,8 +84,13 @@ def test_cancel_button_emits_without_dismissing(dialog, qapp) -> None:
 
 def test_set_value_tracks_progress(dialog) -> None:
     """setValue drives the embedded progress bar rather than closing at maximum."""
+    dialog.setValue(4)
+
+    assert dialog._progress.value() == 4
+
     dialog.setValue(10)
 
     assert isinstance(dialog, CustomProgressDialog)
+    assert dialog._progress.value() == 10
     assert dialog.maximum() == 10
     assert dialog.isVisible(), "unlike QProgressDialog, this one does not auto-close"

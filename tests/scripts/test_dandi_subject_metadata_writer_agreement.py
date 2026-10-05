@@ -14,12 +14,19 @@ Needs the ``nwb`` extra: ``PoseNWBAdapter._make_subject`` builds a pynwb
 """
 
 import datetime
+from pathlib import Path
 
+import numpy as np
 import pytest
 
 pytest.importorskip("pynwb")
 pytest.importorskip("ndx_pose")
+pytest.importorskip("ndx_jabs")
 
+from pynwb import NWBHDF5IO
+
+from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.types.pose import PoseData
 from jabs.io.internal.pose import PoseNWBAdapter
 from jabs.scripts.cli.dandi_subject_metadata import subject_metadata_problems
 
@@ -29,6 +36,22 @@ VALID = {
     "sex": "M",
     "age": "P70D",
 }
+
+
+def _single_identity_pose(identity: str, subjects: dict[str, dict]) -> PoseData:
+    """Build a minimal one-identity PoseData carrying the given subject metadata."""
+    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    num_keypoints = len(body_parts)
+    return PoseData(
+        points=np.zeros((1, 4, num_keypoints, 2)),
+        point_mask=np.ones((1, 4, num_keypoints), dtype=bool),
+        identity_mask=np.ones((1, 4), dtype=bool),
+        body_parts=body_parts,
+        edges=[],
+        fps=30,
+        external_ids=[identity],
+        subjects=subjects,
+    )
 
 
 @pytest.mark.parametrize(
@@ -48,7 +71,7 @@ def test_blank_agrees_with_the_writer(field: str) -> None:
         # age is unmet only because date_of_birth is absent too; the remaining
         # required fields are present, so a blank optional field is just dropped.
         assert problems == ([] if field != "age" else ["age or date_of_birth is missing"])
-    assert getattr(written, field, None) in (None, "M123", "Mus musculus", "M")
+    assert getattr(written, field) is None
 
 
 def test_blank_date_of_birth_does_not_crash_the_writer() -> None:
@@ -68,14 +91,25 @@ def test_blank_age_is_not_written_as_an_empty_age() -> None:
 
 
 @pytest.mark.parametrize("value", ["", None], ids=["blank", "null"])
-def test_blank_subject_id_falls_back_like_the_writer(value: str | None) -> None:
-    """Both halves fall back to the identity name, so no empty id is written."""
-    meta = {**VALID, "subject_id": value}
+def test_blank_subject_id_falls_back_like_the_writer(tmp_path: Path, value: str | None) -> None:
+    """Both halves fall back to the identity name, so no empty id is written.
 
-    assert subject_metadata_problems(meta, default_subject_id="subject_1") == []
-    assert PoseNWBAdapter._make_subject({**meta, "subject_id": "subject_1"}).subject_id == (
-        "subject_1"
-    )
+    The writer's fallback lives in the per-identity write loop rather than in
+    ``_make_subject``, so this writes a real file and reads the Subject back.
+
+    Args:
+        tmp_path: Pytest temporary directory the NWB file is written to.
+        value: The blank or null ``subject_id`` supplied for the identity.
+    """
+    meta = {**VALID, "subject_id": value}
+    data = _single_identity_pose("mouse_a", {"mouse_a": meta})
+
+    assert subject_metadata_problems(meta, default_subject_id="mouse_a") == []
+
+    PoseNWBAdapter().write(data, tmp_path / "pose.nwb")
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        assert io.read().subject.subject_id == "mouse_a"
 
 
 def test_datetime_date_of_birth_survives_the_writer() -> None:

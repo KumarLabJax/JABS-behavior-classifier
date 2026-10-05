@@ -215,14 +215,17 @@ def test_start_classification_ignored_when_thread_running():
 
 
 def _completion_stub(targets, loaded_video_name):
-    """Build a stub self for _classify_thread_complete with mocked collaborators."""
-    return SimpleNamespace(
+    """Build a stub self for _classify_thread_complete with mocked collaborators.
+
+    The classify cleanup clears the targets, as the real one does, so a handler that
+    reads them after the cleanup sees ``None`` (every video) instead of its own targets.
+    """
+    stub = SimpleNamespace(
         _classification_targets=targets,
         _loaded_video=(
             SimpleNamespace(name=loaded_video_name) if loaded_video_name is not None else None
         ),
         _cleanup_progress_dialog=MagicMock(),
-        _cleanup_classify_thread=MagicMock(),
         status_message=SimpleNamespace(emit=MagicMock()),
         request_video_selection=SimpleNamespace(emit=MagicMock()),
         _set_prediction_vis=MagicMock(),
@@ -233,6 +236,10 @@ def _completion_stub(targets, loaded_video_name):
         _probabilities={},
         _predictions_postprocessed={},
     )
+    stub._cleanup_classify_thread = MagicMock(
+        side_effect=lambda: setattr(stub, "_classification_targets", None)
+    )
+    return stub
 
 
 _COMPLETION_OUTPUT = {
@@ -330,8 +337,8 @@ def test_training_behaviors_multiclass_includes_none_class():
 
 
 def test_feature_window_size_binary_uses_control_value():
-    """Binary mode uses the window size shown in the controls."""
-    stub = _feature_check_stub(window_size=7)
+    """Binary mode uses the window size shown in the controls, not the saved settings."""
+    stub = _feature_check_stub(window_size=7, behavior_settings={"window_size": 99})
     assert CentralWidget._feature_window_size(stub) == 7
 
 

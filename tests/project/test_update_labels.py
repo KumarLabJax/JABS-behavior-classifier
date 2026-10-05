@@ -736,8 +736,10 @@ def test_update_project_labels_in_place_invokes_pipeline(tmp_path, monkeypatch):
     assert (total_success, total_skipped) == (3, 1)
     assert backup_path == target_dir.resolve() / ".backup" / "update_labels_test.zip"
     assert newly_added == ["Grooming"]
-    # Preflight must run before backup, seed before remap, remap before apply.
+    # Preflight must run before backup, backup before the live project is modified,
+    # seed before remap, remap before apply.
     assert sequence.index("preflight") < sequence.index("backup")
+    assert sequence.index("backup") < sequence.index("apply")
     assert sequence.index("seed") < sequence.index("remap")
     assert sequence.index("remap") < sequence.index("apply")
     # The preflighted videos and the update-labels description phrase reach the remap.

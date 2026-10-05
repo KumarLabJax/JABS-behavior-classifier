@@ -69,9 +69,24 @@ def test_conversion_writes_one_file_per_identity(converted: list[Path]) -> None:
 
 def test_output_has_no_critical_nwbinspector_findings(converted: list[Path]) -> None:
     """A CRITICAL finding is what blocks upload, so there must be none."""
+    assert converted, "no NWB files were written, so there is nothing to inspect"
+
     findings = {path.name: _critical_findings(path) for path in converted}
 
     assert findings == {name: [] for name in findings}
+
+
+def test_critical_findings_are_reported_for_bad_metadata(tmp_path, monkeypatch) -> None:
+    """Negative control: without it, a broken CRITICAL filter makes the test above pass vacuously.
+
+    The pre-flight check is bypassed so a file with metadata DANDI rejects gets written.
+    """
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.validate_subjects", lambda data: None)
+    bad_subjects = {"subject_1": {"species": "mouse", "sex": "male", "age": "70 days"}}
+
+    run_conversion(POSE_FILE, tmp_path / "session.nwb", subjects=bad_subjects)
+
+    assert _critical_findings(tmp_path / "session_subject_1.nwb")
 
 
 def test_missing_subject_metadata_is_caught_before_writing(tmp_path) -> None:
