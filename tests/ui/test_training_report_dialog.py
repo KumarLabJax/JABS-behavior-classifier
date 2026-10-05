@@ -164,7 +164,3 @@ class TestTrainingReportDialog:
         html = dialog._markdown_to_html(markdown_with_code)
 
         assert "<code>" in html or "<pre>" in html
-
-
-class TestTrainingReportDialogIntegration:
-    """Integration tests for TrainingReportDialog."""

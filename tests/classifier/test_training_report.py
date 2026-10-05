@@ -88,14 +88,6 @@ def sample_training_data(sample_cv_results):
     )
 
 
-class TestCrossValidationResult:
-    """Tests for BinaryCVResult dataclass."""
-
-
-class TestTrainingReportData:
-    """Tests for TrainingReportData dataclass."""
-
-
 class TestGenerateMarkdownReport:
     """Tests for generate_markdown_report function."""
 
@@ -273,10 +265,6 @@ class TestSaveTrainingReport:
         content = output_file.read_text(encoding="utf-8")
         assert "Old content" not in content
         assert "# Training Report: Grooming" in content
-
-
-class TestReportFormatting:
-    """Tests for report formatting details."""
 
 
 class TestMulticlassReport:
