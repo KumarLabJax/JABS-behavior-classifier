@@ -4,7 +4,6 @@ import gzip
 import json
 import logging
 import shutil
-import sys
 from collections.abc import Callable, Collection, Iterable, Mapping
 from concurrent.futures import as_completed
 from datetime import datetime
@@ -401,16 +400,6 @@ class Project:
             pose_attribute_cache.save(cache_path, updated)
 
         return results
-
-    def _validate_pose_files(self):
-        """Ensure all videos have corresponding pose files."""
-        err = False
-        for v in self._video_manager.videos:
-            if not self.__has_pose(v):
-                print(f"{v} missing pose file", file=sys.stderr)
-                err = True
-        if err:
-            raise ValueError("Project missing pose file for one or more videos")
 
     @property
     def dir(self) -> Path:
@@ -1648,14 +1637,6 @@ class Project:
                         f.unlink()
                 except OSError:
                     pass
-
-    def __has_pose(self, vid: str):
-        """check to see if a video has a corresponding pose file"""
-        try:
-            self._video_manager.get_cached_pose_path(vid)
-        except ValueError:
-            return False
-        return True
 
     def load_counts(self, video: str, behavior: str) -> dict[int, dict[str, tuple[int, int]]]:
         """load labeled frame and bout counts from json file
