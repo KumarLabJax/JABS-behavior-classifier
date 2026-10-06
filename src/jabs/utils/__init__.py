@@ -1,15 +1,13 @@
 """JABS utilities.
 
-The update-check helpers live in ``jabs-core`` and are re-exported here so that
-``from jabs.utils import check_for_update`` keeps working for the GUI.
+Everything this module exports is defined in ``jabs-core`` and re-exported here
+so that ``from jabs.utils import ...`` keeps working for the GUI. Nothing new
+should be defined in this module: the canonical home for shared constants is
+:mod:`jabs.core.constants`, and for shared helpers :mod:`jabs.core.utils`.
 """
 
+from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.utils import check_for_update, is_pypi_install
-
-# a hard coded random seed used for the final training done with all
-# training data before saving the classifier
-# the choice of random seed is arbitrary
-FINAL_TRAIN_SEED = 0xAB3BDB
 
 __all__ = [
     "FINAL_TRAIN_SEED",

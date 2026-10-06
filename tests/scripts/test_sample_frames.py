@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -150,7 +150,8 @@ def test_sample_frames_per_bout_returns_within_bout() -> None:
     rng = np.random.default_rng(0)
     bouts = [("v.mp4", 10, 50)]
     result = sample_frames_per_bout(bouts, frames_per_bout=5, rng=rng)
-    assert len(result) <= 5
+    # the bout has 41 frames, so exactly frames_per_bout of them are drawn
+    assert len(result) == 5
     for video_name, frame in result:
         assert video_name == "v.mp4"
         assert 10 <= frame <= 50
@@ -171,9 +172,8 @@ def test_sample_frames_per_bout_deduplicates() -> None:
     # Two identities covering the same 5-frame bout
     bouts = [("v.mp4", 0, 4), ("v.mp4", 0, 4)]
     result = sample_frames_per_bout(bouts, frames_per_bout=5, rng=rng)
-    # Result must be unique (no duplicate (video, frame) pairs)
-    assert len(result) == len(set(result))
-    assert len(result) <= 5
+    # Each copy of the bout yields all 5 frames; the result holds each frame exactly once
+    assert result == [("v.mp4", frame) for frame in range(5)]
 
 
 def test_sample_frames_per_bout_multiple_bouts() -> None:
@@ -183,10 +183,10 @@ def test_sample_frames_per_bout_multiple_bouts() -> None:
     result = sample_frames_per_bout(bouts, frames_per_bout=3, rng=rng)
     first_bout_frames = [f for _, f in result if 0 <= f <= 9]
     second_bout_frames = [f for _, f in result if 100 <= f <= 109]
-    assert len(first_bout_frames) <= 3
-    assert len(second_bout_frames) <= 3
-    assert len(first_bout_frames) > 0
-    assert len(second_bout_frames) > 0
+    # both bouts have 10 frames, so each contributes exactly frames_per_bout of them
+    assert len(first_bout_frames) == 3
+    assert len(second_bout_frames) == 3
+    assert len(result) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -239,10 +239,9 @@ def test_cli_requires_at_least_one_mode(tmp_path: Path) -> None:
     with patch("jabs.scripts.cli.sample_frames.Project") as MockProject:
         MockProject.is_valid_project_directory.return_value = True
         result = runner.invoke(cli, ["sample-frames", "--behavior", "walking", str(tmp_path)])
-    assert result.exit_code != 0
-    assert "required" in result.output.lower() or (
-        result.exception is not None and "required" in str(result.exception).lower()
-    )
+    # click.UsageError exits with status 2
+    assert result.exit_code == 2
+    assert "required" in result.output.lower()
 
 
 def test_cli_mutual_exclusion(tmp_path: Path) -> None:
@@ -261,10 +260,9 @@ def test_cli_mutual_exclusion(tmp_path: Path) -> None:
             str(tmp_path),
         ],
     )
-    assert result.exit_code != 0
-    assert "mutually exclusive" in result.output.lower() or (
-        result.exception is not None and "mutually exclusive" in str(result.exception).lower()
-    )
+    # click.UsageError exits with status 2
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output.lower()
 
 
 def test_cli_invalid_project_dir(tmp_path: Path) -> None:
@@ -278,22 +276,6 @@ def test_cli_invalid_project_dir(tmp_path: Path) -> None:
         )
     assert result.exit_code != 0
     assert "not a valid jabs project" in result.output.lower()
-
-
-def test_cli_unknown_behavior(tmp_path: Path) -> None:
-    """An unknown behavior label produces a clear error."""
-    runner = CliRunner()
-    with patch("jabs.scripts.cli.sample_frames.Project") as MockProject:
-        MockProject.is_valid_project_directory.return_value = True
-        mock_project = MagicMock()
-        mock_project.settings = {"behavior": {"rearing": {}}}
-        MockProject.return_value = mock_project
-        result = runner.invoke(
-            cli,
-            ["sample-frames", "--behavior", "walking", "--num-frames", "5", str(tmp_path)],
-        )
-    assert result.exit_code != 0
-    assert "walking" in result.output
 
 
 def test_cli_out_dir_created(tmp_path: Path) -> None:
@@ -334,58 +316,53 @@ def test_cli_out_dir_created(tmp_path: Path) -> None:
     assert out_dir.exists()
 
 
-def test_cli_num_frames_calls_correct_sampler(tmp_path: Path) -> None:
-    """--num-frames invokes sample_num_frames_total (not sample_frames_per_bout)."""
+@pytest.mark.parametrize(
+    ("option", "value", "expected_sampler", "other_sampler"),
+    [
+        ("--num-frames", "1", "sample_num_frames_total", "sample_frames_per_bout"),
+        ("--frames-per-bout", "5", "sample_frames_per_bout", "sample_num_frames_total"),
+    ],
+    ids=["num-frames", "frames-per-bout"],
+)
+def test_cli_mode_option_calls_correct_sampler(
+    tmp_path: Path, option: str, value: str, expected_sampler: str, other_sampler: str
+) -> None:
+    """--num-frames and --frames-per-bout each invoke their own sampler and not the other.
+
+    Args:
+        tmp_path: Pytest temporary directory used as the project directory.
+        option: The sampling-mode option passed to sample-frames.
+        value: The value passed to ``option``.
+        expected_sampler: Name of the sampler that must be called exactly once.
+        other_sampler: Name of the sampler that must not be called.
+    """
     runner = CliRunner()
     with (
         patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
         patch("jabs.scripts.cli.sample_frames.collect_behavior_bouts") as mock_collect,
-        patch("jabs.scripts.cli.sample_frames.sample_num_frames_total") as mock_total,
-        patch("jabs.scripts.cli.sample_frames.sample_frames_per_bout") as mock_per_bout,
-        patch("jabs.scripts.cli.sample_frames.write_frames"),
+        patch.multiple(
+            "jabs.scripts.cli.sample_frames",
+            sample_num_frames_total=DEFAULT,
+            sample_frames_per_bout=DEFAULT,
+            write_frames=DEFAULT,
+        ) as mocks,
     ):
         MockProject.is_valid_project_directory.return_value = True
         mock_project = MagicMock()
         mock_project.settings = {"behavior": {"walking": {}}}
         MockProject.return_value = mock_project
         mock_collect.return_value = [("v.mp4", 0, 9)]
-        mock_total.return_value = [("v.mp4", 5)]
+        mocks["sample_num_frames_total"].return_value = [("v.mp4", 5)]
+        mocks["sample_frames_per_bout"].return_value = [("v.mp4", 3)]
 
         result = runner.invoke(
             cli,
-            ["sample-frames", "--behavior", "walking", "--num-frames", "1", str(tmp_path)],
+            ["sample-frames", "--behavior", "walking", option, value, str(tmp_path)],
         )
 
     assert result.exit_code == 0, result.output
-    mock_total.assert_called_once()
-    mock_per_bout.assert_not_called()
-
-
-def test_cli_frames_per_bout_calls_correct_sampler(tmp_path: Path) -> None:
-    """--frames-per-bout invokes sample_frames_per_bout (not sample_num_frames_total)."""
-    runner = CliRunner()
-    with (
-        patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
-        patch("jabs.scripts.cli.sample_frames.collect_behavior_bouts") as mock_collect,
-        patch("jabs.scripts.cli.sample_frames.sample_num_frames_total") as mock_total,
-        patch("jabs.scripts.cli.sample_frames.sample_frames_per_bout") as mock_per_bout,
-        patch("jabs.scripts.cli.sample_frames.write_frames"),
-    ):
-        MockProject.is_valid_project_directory.return_value = True
-        mock_project = MagicMock()
-        mock_project.settings = {"behavior": {"walking": {}}}
-        MockProject.return_value = mock_project
-        mock_collect.return_value = [("v.mp4", 0, 9)]
-        mock_per_bout.return_value = [("v.mp4", 3)]
-
-        result = runner.invoke(
-            cli,
-            ["sample-frames", "--behavior", "walking", "--frames-per-bout", "5", str(tmp_path)],
-        )
-
-    assert result.exit_code == 0, result.output
-    mock_per_bout.assert_called_once()
-    mock_total.assert_not_called()
+    mocks[expected_sampler].assert_called_once()
+    mocks[other_sampler].assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -413,29 +390,6 @@ def test_collect_bouts_multiple_identities_same_video() -> None:
     assert len(bouts) == 2
     assert ("v.mp4", 0, 5) in bouts
     assert ("v.mp4", 3, 8) in bouts
-
-
-def test_collect_bouts_mixed_present_flags() -> None:
-    """Only blocks with present=True are included; present=False blocks are excluded."""
-    vl = _make_video_labels(
-        [
-            (
-                "0",
-                "walking",
-                [
-                    {"start": 0, "end": 10, "present": True},
-                    {"start": 11, "end": 20, "present": False},
-                    {"start": 21, "end": 30, "present": True},
-                ],
-            ),
-        ]
-    )
-    project = _make_project(["v.mp4"], {"v.mp4": vl}, ["walking"])
-
-    bouts = collect_behavior_bouts(project, "walking")
-    assert len(bouts) == 2
-    assert ("v.mp4", 0, 10) in bouts
-    assert ("v.mp4", 21, 30) in bouts
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,16 @@
+import json
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
+from jabs.io.annotations import (
+    UNVERSIONED,
+    AnnotationDocument,
+    AnnotationStore,
+    LocalAnnotationStore,
+)
 from jabs.project.project_paths import ProjectPaths
 from jabs.project.settings_manager import SettingsManager
 from jabs.project.video_manager import VideoManager
@@ -52,7 +58,7 @@ def video_manager(project_paths, settings_manager):
             "identity_count": 3,
             "static_objects": [],
             "lixit_keypoints": 0,
-            "has_cm_per_pixel": False,
+            "has_cm_per_pixel": True,
         },
         "video2.mp4": {
             "video": "video2.mp4",
@@ -65,16 +71,12 @@ def video_manager(project_paths, settings_manager):
         },
     }
     return VideoManager(
-        project_paths, settings_manager, enable_video_check=False, scan_results=scan_results
+        project_paths,
+        settings_manager,
+        enable_video_check=False,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(project_paths.annotations_dir),
     )
-
-
-def test_get_videos(video_manager, project_paths):
-    """Test retrieving video files from the project directory."""
-    videos = video_manager.get_videos(project_paths.project_dir)
-    assert "video1.avi" in videos
-    assert "video2.mp4" in videos
-    assert len(videos) == 2
 
 
 def test_get_videos_excludes_dotfiles(tmp_path):
@@ -106,14 +108,118 @@ def test_load_video_labels(video_manager, project_paths):
     annotation_file = project_paths.annotations_dir / "video1.json"
     annotation_file.write_text('{"labels": {}, "num_frames": 1000, "file": "video1.avi"}')
 
-    # Create a mock pose_est object
-    mock_pose_est = MagicMock()
-    mock_pose_est.identity_mask.return_value = np.full(1000, True, dtype=bool)
-    mock_pose_est.num_frames = 1000
-
     labels = video_manager.load_video_labels("video1.avi")
     assert labels is not None
     assert labels.filename == "video1.avi"
+
+
+def test_load_video_labels_reads_through_the_annotation_store(video_manager):
+    """Labels come from the store, not from a direct read of the annotations dir."""
+    document = {"labels": {}, "num_frames": 1000, "file": "video1.avi"}
+    store = MagicMock(spec=AnnotationStore)
+    store.load_document.return_value = AnnotationDocument(document, UNVERSIONED)
+    video_manager._annotation_store = store
+
+    labels = video_manager.load_video_labels("video1.avi", pose=MagicMock())
+
+    store.load_document.assert_called_once_with("video1.avi")
+    assert labels is not None
+    assert labels.filename == "video1.avi"
+
+
+def test_load_video_labels_returns_none_when_the_store_has_no_document(video_manager, monkeypatch):
+    """An unlabeled video yields no VideoLabels, and no pose file is opened."""
+    store = MagicMock(spec=AnnotationStore)
+    store.load_document.return_value = None
+    video_manager._annotation_store = store
+    open_pose_file = MagicMock()
+    monkeypatch.setattr("jabs.project.video_manager.open_pose_file", open_pose_file)
+
+    assert video_manager.load_video_labels("video1.avi") is None
+    open_pose_file.assert_not_called()
+
+
+def test_load_annotations_reads_through_the_annotation_store(video_manager):
+    """The raw-document read path is served by the store as well."""
+    document = {"labels": {}, "num_frames": 1000, "file": "video1.avi"}
+    store = MagicMock(spec=AnnotationStore)
+    store.load_document.return_value = AnnotationDocument(document, UNVERSIONED)
+    video_manager._annotation_store = store
+
+    assert video_manager.load_annotations("video1.avi") == document
+    store.load_document.assert_called_once_with("video1.avi")
+
+
+def test_load_annotations_rejects_a_video_outside_the_project(video_manager):
+    """An unknown video is still rejected before the store is consulted."""
+    store = MagicMock(spec=AnnotationStore)
+    video_manager._annotation_store = store
+
+    with pytest.raises(ValueError, match="not in project"):
+        video_manager.load_annotations("not_in_project.avi")
+    store.load_document.assert_not_called()
+
+
+def test_annotations_path_comes_from_the_annotation_store(video_manager, project_paths):
+    """The advertised annotation path is whatever the store reports."""
+    assert video_manager.annotations_path("video1.avi") == (
+        project_paths.annotations_dir / "video1.json"
+    )
+
+    # a store reporting a location the manager could not derive on its own
+    store = MagicMock(spec=AnnotationStore)
+    store.document_path.return_value = Path("/remote/cache/video1.annotations")
+    video_manager._annotation_store = store
+
+    assert video_manager.annotations_path("video1.avi") == Path("/remote/cache/video1.annotations")
+    store.document_path.assert_called_once_with("video1.avi")
+
+
+def test_remove_video_updates_derived_state(video_manager):
+    """Removing a video drops all per-video state derived from the project scan."""
+    assert video_manager.total_project_identities == 8
+    assert video_manager.video_has_cm_per_pixel("video1.avi") is True
+    assert video_manager.video_has_cm_per_pixel("video2.mp4") is False
+    # populate the pose path cache so we can assert it is invalidated
+    assert video_manager.get_cached_pose_path("video1.avi").name == "video1_pose_est_v3.h5"
+
+    video_manager.remove_video("video1.avi")
+
+    assert video_manager.videos == ["video2.mp4"]
+    assert video_manager.num_videos == 1
+    assert video_manager.total_project_identities == 5
+    assert video_manager.get_video_identity_count("video1.avi") == 0
+    assert video_manager.video_has_cm_per_pixel("video1.avi") is False
+    # the per-video caches should no longer carry an entry for the removed video
+    assert "video1.avi" not in video_manager._video_has_cm_per_pixel
+    assert "video1.avi" not in video_manager._pose_path_cache
+
+
+def test_remove_video_removes_project_file_entry(video_manager, settings_manager, project_paths):
+    """Removing a video drops its video_files entry from project.json."""
+    settings_manager.save_project_file(
+        {
+            "video_files": {
+                "video1.avi": {"identities": 3},
+                "video2.mp4": {"identities": 5},
+            }
+        }
+    )
+
+    video_manager.remove_video("video1.avi")
+
+    assert settings_manager.project_settings["video_files"] == {"video2.mp4": {"identities": 5}}
+    # the removal was persisted, not just applied in memory
+    on_disk = json.loads(project_paths.project_file.read_text())
+    assert "video1.avi" not in on_disk["video_files"]
+
+
+def test_remove_video_unknown_video_is_a_no_op(video_manager):
+    """Removing a video that is not in the project leaves state untouched."""
+    video_manager.remove_video("nonexistent_video.avi")
+
+    assert video_manager.videos == ["video1.avi", "video2.mp4"]
+    assert video_manager.total_project_identities == 8
 
 
 def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
@@ -145,9 +251,57 @@ def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
         },
     }
     manager = VideoManager(
-        paths, SettingsManager(paths), enable_video_check=False, scan_results=scan_results
+        paths,
+        SettingsManager(paths),
+        enable_video_check=False,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(paths.annotations_dir),
     )
 
     assert manager.videos == ["video1.avi"]
     assert manager.video_path("video1.avi") == video_dir / "video1.avi"
     assert manager.get_cached_pose_path("video1.avi") == pose_dir / "video1_pose_est_v6.h5"
+
+
+def test_missing_pose_file_raises_and_names_the_video(tmp_path, caplog):
+    """A video with no pose file aborts construction and is named in the log.
+
+    ``VideoManager`` is the only place this check lives: ``Project`` defers to it
+    rather than repeating the scan, so the error and the per-video log line have
+    to come from here.
+    """
+    paths = ProjectPaths(base_path=tmp_path)
+    paths.create_directories(validate=False)
+
+    # video1 has a pose file, video2 does not
+    (paths.project_dir / "video1.avi").touch()
+    (paths.project_dir / "video2.avi").touch()
+    shutil.copy(
+        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5",
+        paths.project_dir / "video1_pose_est_v6.h5",
+    )
+
+    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="missing pose file"):
+        VideoManager(
+            paths,
+            SettingsManager(paths),
+            enable_video_check=False,
+            scan_results={},
+            annotation_store=LocalAnnotationStore(paths.annotations_dir),
+        )
+
+    assert "video2.avi missing pose file" in caplog.text
+    # the video that does have a pose file must not be reported as missing one
+    assert "video1.avi missing pose file" not in caplog.text
+
+
+def test_valid_pose_files_populate_the_path_cache(video_manager, project_paths):
+    """Validation doubles as cache warm-up, so later lookups need no second scan.
+
+    The cache is read directly rather than through ``get_cached_pose_path``,
+    which would fill it on its own and hide a validation that stopped warming it.
+    """
+    assert video_manager._pose_path_cache == {
+        "video1.avi": project_paths.project_dir / "video1_pose_est_v3.h5",
+        "video2.mp4": project_paths.project_dir / "video2_pose_est_v6.h5",
+    }

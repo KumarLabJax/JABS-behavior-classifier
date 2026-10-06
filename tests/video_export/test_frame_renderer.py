@@ -1,4 +1,4 @@
-"""Tests for compositing the pose overlay onto a single frame."""
+"""Tests for compositing the JABS overlays onto a single frame."""
 
 import numpy as np
 import pytest
@@ -6,7 +6,12 @@ import pytest
 try:
     from PySide6.QtWidgets import QApplication  # noqa: F401
 
-    from jabs.video_export import render_overlay_frame
+    from jabs.overlay_drawing import (
+        BEHAVIOR_COLOR,
+        NOT_BEHAVIOR_COLOR,
+        native_label_marker_sizes,
+    )
+    from jabs.video_export import LabelMarkerOverlay, render_overlay_frame
 
     SKIP_UI_TESTS = False
     SKIP_REASON = ""
@@ -81,10 +86,268 @@ def test_segmentation_queried_when_the_pose_file_has_it(blank_frame: np.ndarray)
     assert pose.segmentation_calls == [(3, 0), (3, 1)]
 
 
-def test_segmentation_not_queried_when_switched_off(blank_frame: np.ndarray) -> None:
-    """--no-segmentation / unchecked box skips it even when the data exists."""
-    pose = StubPose(has_segmentation=True)
+def test_no_overlays_returns_an_unmodified_copy(blank_frame: np.ndarray) -> None:
+    """With every overlay switched off the frame is copied through untouched."""
+    result = render_overlay_frame(
+        blank_frame, StubPose(), 0, draw_pose=False, draw_segmentation=False
+    )
 
-    render_overlay_frame(blank_frame, pose, 0, draw_segmentation=False)
+    assert (result == blank_frame).all()
+    assert result is not blank_frame
 
+
+def test_pose_can_be_switched_off_while_predictions_are_drawn(blank_frame: np.ndarray) -> None:
+    """Prediction markers do not depend on the skeleton being drawn."""
+    overlay = LabelMarkerOverlay(predicted_labels=[np.ones(10, dtype=np.int8)])
+
+    with_pose = render_overlay_frame(
+        blank_frame, StubPose(), 0, draw_segmentation=False, label_overlay=overlay
+    )
+    without_pose = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+
+    assert (without_pose != blank_frame).any(), "marker should still be drawn"
+    changed_with_pose = int((with_pose != blank_frame).any(axis=2).sum())
+    changed_without_pose = int((without_pose != blank_frame).any(axis=2).sum())
+    assert changed_without_pose < changed_with_pose
+
+
+def test_prediction_marker_uses_the_label_color(blank_frame: np.ndarray) -> None:
+    """The marker beside an identity is colored by that identity's prediction."""
+    pose = StubPose()
+    behavior = render_overlay_frame(
+        blank_frame,
+        pose,
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=LabelMarkerOverlay(predicted_labels=[np.ones(10, dtype=np.int8)]),
+    )
+    not_behavior = render_overlay_frame(
+        blank_frame,
+        pose,
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=LabelMarkerOverlay(predicted_labels=[np.zeros(10, dtype=np.int8)]),
+    )
+
+    behavior_pixels = _marker_colors(behavior, blank_frame)
+    not_behavior_pixels = _marker_colors(not_behavior, blank_frame)
+    assert _bgr(BEHAVIOR_COLOR) in behavior_pixels
+    assert _bgr(NOT_BEHAVIOR_COLOR) in not_behavior_pixels
+
+
+def test_prediction_marker_follows_the_frame(blank_frame: np.ndarray) -> None:
+    """The marker tracks the identity's centroid rather than sitting still."""
+    overlay = LabelMarkerOverlay(predicted_labels=[np.ones(10, dtype=np.int8)])
+
+    first = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+    later = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        5,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+
+    assert (first != later).any()
+
+
+def test_identity_without_a_convex_hull_gets_no_marker(blank_frame: np.ndarray) -> None:
+    """An identity with no pose on this frame has nowhere for a marker to sit."""
+    pose = StubPose(hulls_present=False)
+
+    result = render_overlay_frame(
+        blank_frame,
+        pose,
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=LabelMarkerOverlay(predicted_labels=[np.ones(10, dtype=np.int8)]),
+    )
+
+    assert (result == blank_frame).all()
+
+
+def test_frame_beyond_the_predictions_gets_no_marker(blank_frame: np.ndarray) -> None:
+    """Predictions shorter than the video leave the remaining frames unmarked."""
+    overlay = LabelMarkerOverlay(predicted_labels=[np.ones(3, dtype=np.int8)])
+
+    within = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        2,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+    beyond = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        5,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+
+    assert (within != blank_frame).any()
+    assert (beyond == blank_frame).all()
+
+
+def test_multiclass_marker_uses_the_color_table(blank_frame: np.ndarray) -> None:
+    """Multi-class labels index the project's color table."""
+    lut = np.array([[0, 0, 0, 255], [17, 85, 153, 255]], dtype=np.uint8)
+    overlay = LabelMarkerOverlay(predicted_labels=[np.ones(10, dtype=np.int8)], color_lut=lut)
+
+    result = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+
+    assert (153, 85, 17) in _marker_colors(result, blank_frame), "BGR of the table color"
+
+
+def test_a_label_and_a_prediction_are_drawn_side_by_side(blank_frame: np.ndarray) -> None:
+    """Exporting both puts the label where the player does: left of the prediction."""
+    marker_size, _gap, pair_gap = native_label_marker_sizes(WIDTH, HEIGHT)
+    labels = [np.ones(10, dtype=np.int8)]
+    predictions = [np.zeros(10, dtype=np.int8)]
+
+    labels_only = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=LabelMarkerOverlay(manual_labels=labels),
+    )
+    predictions_only = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=LabelMarkerOverlay(predicted_labels=predictions),
+    )
+    both = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=LabelMarkerOverlay(manual_labels=labels, predicted_labels=predictions),
+    )
+
+    # A single marker sits in the same place whichever source it came from.
+    assert _changed_columns(labels_only, blank_frame) == _changed_columns(
+        predictions_only, blank_frame
+    )
+
+    single_left, single_right = _changed_columns(predictions_only, blank_frame)
+    pair_left, pair_right = _changed_columns(both, blank_frame)
+    # The prediction keeps the place it had on its own and the label is added to its
+    # left, so the pair as a whole still clears the animal's centroid.
+    assert pair_right == single_right
+    assert pair_left == single_left - (marker_size + pair_gap)
+
+    # Each marker is colored by its own source.
+    pair_colors = _marker_colors(both, blank_frame)
+    assert _bgr(BEHAVIOR_COLOR) in pair_colors
+    assert _bgr(NOT_BEHAVIOR_COLOR) in pair_colors
+
+
+def test_a_source_without_a_value_leaves_the_other_marker_in_place(
+    blank_frame: np.ndarray,
+) -> None:
+    """Labels shorter than the predictions must not slide the prediction marker over."""
+    overlay = LabelMarkerOverlay(
+        manual_labels=[np.ones(3, dtype=np.int8)],
+        predicted_labels=[np.zeros(10, dtype=np.int8)],
+    )
+
+    both_drawn = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        2,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+    prediction_only = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        5,
+        draw_pose=False,
+        draw_segmentation=False,
+        label_overlay=overlay,
+    )
+
+    # Same frame geometry: the stub's centroid moves one pixel per frame, so compare
+    # each marker's offset from the right-hand edge of what was drawn.
+    assert _bgr(BEHAVIOR_COLOR) in _marker_colors(both_drawn, blank_frame)
+    assert _bgr(BEHAVIOR_COLOR) not in _marker_colors(prediction_only, blank_frame)
+
+    pair_left, pair_right = _changed_columns(both_drawn, blank_frame)
+    single_left, single_right = _changed_columns(prediction_only, blank_frame)
+    assert single_right - single_left < pair_right - pair_left, "only one marker drawn"
+    # Frame 5 is three frames further along, and the centroid moves a pixel a frame.
+    assert single_right == pair_right + 3
+
+
+def _changed_columns(rendered: np.ndarray, source: np.ndarray) -> tuple[int, int]:
+    """Return the first and last column the overlay painted on."""
+    changed = (rendered != source).any(axis=2)
+    columns = np.flatnonzero(changed.any(axis=0))
+    return int(columns[0]), int(columns[-1])
+
+
+def _bgr(color) -> tuple[int, int, int]:
+    """Convert a QColor to the BGR tuple the rendered frame holds."""
+    return (color.blue(), color.green(), color.red())
+
+
+def _marker_colors(rendered: np.ndarray, source: np.ndarray) -> set[tuple[int, int, int]]:
+    """Return the distinct colors the overlay painted onto the frame."""
+    changed = (rendered != source).any(axis=2)
+    return {tuple(int(c) for c in pixel) for pixel in rendered[changed]}
+
+
+def test_segmentation_contours_are_drawn(blank_frame: np.ndarray) -> None:
+    """Contours reach the rendered frame, in the active color an export draws them in."""
+    pose = StubPose(has_segmentation=True, contours=True)
+
+    result = render_overlay_frame(blank_frame, pose, 0, draw_pose=False)
+
+    changed = _marker_colors(result, blank_frame)
+    assert changed, "no contour was drawn"
+    # Frames are BGR, so the red the exporter draws contours in is the last channel.
+    assert any(red > green and red > blue for blue, green, red in changed)
+
+
+def test_segmentation_contours_can_be_switched_off(blank_frame: np.ndarray) -> None:
+    """An unticked segmentation box leaves the frame alone, data or no data."""
+    pose = StubPose(has_segmentation=True, contours=True)
+
+    result = render_overlay_frame(blank_frame, pose, 0, draw_pose=False, draw_segmentation=False)
+
+    assert (result == blank_frame).all()
     assert pose.segmentation_calls == []

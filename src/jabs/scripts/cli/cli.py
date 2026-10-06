@@ -26,6 +26,7 @@ from .compute_features import compute_features_command
 from .convert_parquet import convert_parquet_command
 from .convert_to_nwb import run_conversion
 from .cross_validation import run_cross_validation
+from .evaluate import evaluate_command
 from .export_video import export_video_command
 from .merge_projects import merge_projects_command
 from .postprocessing import apply_postprocessing_command
@@ -54,6 +55,7 @@ def cli(ctx: click.Context, verbose):
 
 cli.add_command(apply_postprocessing_command)
 cli.add_command(compute_features_command)
+cli.add_command(evaluate_command)
 cli.add_command(convert_parquet_command)
 cli.add_command(merge_projects_command)
 cli.add_command(update_pose_command)
@@ -320,9 +322,10 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
 @click.option(
     "--behavior",
     type=str,
-    required=True,
-    help="Behavior to perform cross-validation on (required). Can be quoted if it contains spaces. "
-    "Must match an existing behavior in the project.",
+    default=None,
+    help="Behavior to perform cross-validation on. Required for binary projects; can be quoted "
+    "if it contains spaces and must match an existing behavior in the project. Ignored for "
+    "multi-class projects, which cross-validate all behaviors together.",
 )
 @click.option(
     "--grouping-strategy",
@@ -361,6 +364,16 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     "If not provided, a default filename will be used.",
 )
 @click.option(
+    "--postprocessing/--no-postprocessing",
+    "evaluate_postprocessing",
+    default=None,
+    help="Also report cross-validation metrics with the behavior's prediction "
+    "postprocessing pipeline applied, so raw and postprocessed performance can be "
+    "compared. This re-predicts each held-out group's full tracks, costing roughly "
+    "one classification pass over the labeled identities. Binary mode only. "
+    "Defaults to the behavior's saved project setting.",
+)
+@click.option(
     "--mlflow",
     "mlflow_env",
     is_flag=False,
@@ -383,7 +396,9 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     metavar="NAME",
     help="With --mlflow, the MLflow experiment to log the run under. If not provided, "
     "defaults to the MLFLOW_EXPERIMENT_NAME environment variable, else 'jabs-<behavior>' "
-    "(one experiment per behavior). No-op without --mlflow.",
+    "(one experiment per behavior, or per behavior set for multi-class projects, "
+    "e.g. 'jabs-Walk+Run'). "
+    "No-op without --mlflow.",
 )
 @click.option(
     "--mlflow-tag",
@@ -410,12 +425,13 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
 def cross_validation(
     ctx: click.Context,
     directory: Path,
-    behavior: str,
+    behavior: str | None,
     k: int,
     grouping_strategy: str | None,
     grouping_pattern: str | None,
     classifier: str,
     report_file: Path | None,
+    evaluate_postprocessing: bool | None,
     mlflow_env: str | None,
     mlflow_experiment: str | None,
     mlflow_tags: tuple[str, ...],
@@ -478,6 +494,7 @@ def cross_validation(
             k,
             report_file,
             grouping_regex=grouping_pattern,
+            evaluate_postprocessing=evaluate_postprocessing,
             mlflow_enabled=mlflow_enabled,
             mlflow_env_file=mlflow_env_file,
             mlflow_experiment=mlflow_experiment,
@@ -526,12 +543,15 @@ def cross_validation(
     default=None,
     help=(
         "Path to a JSON file containing per-animal biological metadata. "
+        "Required: the DANDI archive rejects output without it. "
         "Keys are identity names: use the external IDs from the pose file "
-        "if present (e.g. 'mouse_a'), or 'subject_0', 'subject_1', … if the "
-        "pose file has no external IDs. "
-        "DANDI requires species, sex, and age (ISO 8601 duration, e.g. 'P70D') "
-        "or date_of_birth (ISO 8601 datetime) on every subject. "
-        "Additional fields: subject_id, genotype, strain, weight, description."
+        "if present (e.g. 'mouse_a'), or 'subject_1', 'subject_2', … (1-based) if "
+        "the pose file has no external IDs. "
+        "Every identity needs species (Latin binomial, e.g. 'Mus musculus'), "
+        "sex ('M', 'F', 'O' or 'U'), and age (ISO 8601 duration, e.g. 'P70D') "
+        "or date_of_birth (ISO 8601 datetime). "
+        "Optional fields: subject_id (defaults to the identity name), genotype, "
+        "strain, weight ('[numeric] [unit]', e.g. '25 g'), description."
     ),
 )
 @click.option(
@@ -543,7 +563,18 @@ def cross_validation(
         "Path to a JSON file containing NWB session-level metadata. "
         "Supported keys: session_start_time (ISO 8601 string), "
         "experimenter (string or list of strings), "
-        "lab, institution, experiment_description, session_id (strings)."
+        "lab, institution, experiment_description, session_id (strings), "
+        "keywords (list of strings)."
+    ),
+)
+@click.option(
+    "--segmentation/--no-segmentation",
+    default=True,
+    help=(
+        "Whether to include instance segmentation contours alongside the pose skeleton. "
+        "Defaults to --segmentation. Segmentation needs a pose file that actually contains "
+        "it: version 6 or newer and generated with segmentation, which is optional even in "
+        "v6+. Files without it convert the same either way."
     ),
 )
 @click.pass_context
@@ -555,6 +586,7 @@ def convert_to_nwb(
     session_description: str | None,
     subjects_path: Path | None,
     session_metadata_path: Path | None,
+    segmentation: bool,
 ) -> None:
     """Convert a JABS pose estimation file to NWB format.
 
@@ -567,28 +599,35 @@ def convert_to_nwb(
     same directory. With --multisubject, a single combined file is written
     directly to OUTPUT.
 
+    --subjects is required: the conversion fails without the biological metadata
+    the DANDI archive demands, so it appears in every example below.
+
     Examples:
 
     \b
         # One NWB file per identity (default)
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
-
-    \b
-        # A single multi-subject file (ndx-multisubjects)
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --multisubject
-
-    \b
-        # Include per-animal metadata
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
 
     \b
-        # Specify session start time and other session metadata
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata session.json
+        # A single multi-subject file (ndx-multisubjects)
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json \
+            --multisubject
+
+    \b
+        # Also set session start time and other session metadata
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json \
+            --session-metadata session.json
+
+    \b
+        # Leave segmentation contours out of a pose file that has them
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json \
+            --no-segmentation
     """
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")
         click.echo(f"Output: {output}")
         click.echo(f"Multisubject: {multisubject}")
+        click.echo(f"Segmentation: {segmentation}")
         if subjects_path:
             click.echo(f"Subjects: {subjects_path}")
         if session_metadata_path:
@@ -627,6 +666,7 @@ def convert_to_nwb(
                 session_description=session_description,
                 subjects=subjects,
                 session_metadata=session_metadata,
+                segmentation=segmentation,
             )
         except Exception as e:
             raise click.ClickException(str(e)) from e

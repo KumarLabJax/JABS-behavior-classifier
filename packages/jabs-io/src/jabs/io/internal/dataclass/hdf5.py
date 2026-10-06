@@ -1,9 +1,8 @@
 """Generic HDF5 adapter for arbitrary dataclasses."""
 
 import json
-import types
 from dataclasses import fields, is_dataclass
-from typing import Any, Union, get_args, get_origin
+from typing import Any, get_args, get_origin
 
 import h5py
 import numpy as np
@@ -12,51 +11,42 @@ from jabs.core.enums import StorageFormat
 from jabs.io.base import HDF5Adapter
 from jabs.io.registry import register_adapter
 
+from .type_hints import unwrap_optional
+
 # ---------------------------------------------------------------------------
 # Type-annotation helpers
 # ---------------------------------------------------------------------------
 
 
-def _unwrap_optional(tp):
-    """Extract ``X`` from ``X | None``; returns *tp* unchanged otherwise."""
-    origin = get_origin(tp)
-    if origin is Union or origin is types.UnionType:
-        args = [a for a in get_args(tp) if a is not type(None)]
-        if len(args) == 1:
-            return args[0]
-    return tp
-
-
 def _is_ndarray_type(tp) -> bool:
-    return _unwrap_optional(tp) is np.ndarray
+    """Return True if ``tp`` is ``np.ndarray`` or an optional of it."""
+    return unwrap_optional(tp) is np.ndarray
 
 
 def _is_dict_type(tp) -> bool:
-    origin = get_origin(_unwrap_optional(tp))
-    return origin is dict or _unwrap_optional(tp) is dict
+    """Return True if ``tp`` is a dict type (bare or parameterized), or an optional of one."""
+    origin = get_origin(unwrap_optional(tp))
+    return origin is dict or unwrap_optional(tp) is dict
 
 
 def _is_list_type(tp) -> bool:
-    origin = get_origin(_unwrap_optional(tp))
-    return origin is list or _unwrap_optional(tp) is list
+    """Return True if ``tp`` is a list type (bare or parameterized), or an optional of one."""
+    origin = get_origin(unwrap_optional(tp))
+    return origin is list or unwrap_optional(tp) is list
 
 
 def _get_list_element_type(tp):
     """Return the element type of ``list[X]``, or ``None``."""
-    inner = _unwrap_optional(tp)
+    inner = unwrap_optional(tp)
     args = get_args(inner)
     if args:
         return args[0]
     return None
 
 
-def _is_dataclass_type(tp) -> bool:
-    return is_dataclass(_unwrap_optional(tp))
-
-
 def _coerce_scalar(val, tp):
     """Convert h5py numpy scalars to native Python types."""
-    unwrapped = _unwrap_optional(tp)
+    unwrapped = unwrap_optional(tp)
     if unwrapped is str:
         if isinstance(val, bytes):
             return val.decode("utf-8")
@@ -137,7 +127,7 @@ class DataclassHDF5Adapter(HDF5Adapter):
                 child = group[name]
                 if isinstance(child, h5py.Group):
                     # It's a subgroup → nested dataclass
-                    nested_type = _unwrap_optional(tp)
+                    nested_type = unwrap_optional(tp)
                     kwargs[name] = self._read_one(child, nested_type)
                 else:
                     # It's a dataset

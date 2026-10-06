@@ -189,6 +189,14 @@ def test_start_feature_cache_scan_tracks_and_starts_the_thread(monkeypatch):
     thread.start.assert_called_once()
     assert stub._feature_cache_scan_thread is thread
 
+    # the results and the end of the scan reach the window's handlers, the latter with
+    # the thread that finished (so it can tell a superseded scan from the current one)
+    thread.scan_complete.connect.assert_called_once_with(stub._feature_cache_scan_complete)
+    thread.finished.connect.assert_called_once()
+    (on_finished,) = thread.finished.connect.call_args.args
+    on_finished()
+    stub._feature_cache_scan_finished.assert_called_once_with(thread)
+
 
 def test_refresh_starts_a_scan_when_none_is_running():
     """With no scan in flight, a refresh starts one immediately."""
@@ -299,3 +307,70 @@ def test_stop_feature_cache_scan_logs_when_it_cannot_stop_the_thread(caplog):
 
     thread.terminate.assert_called_once()
     assert "could not be stopped" in caplog.text
+
+
+def _feature_menu_stub(
+    *,
+    is_cm_unit: bool,
+    can_use_social: bool,
+    can_use_segmentation: bool,
+    static_objects: set[str],
+) -> tuple[SimpleNamespace, SimpleNamespace]:
+    """Build a stub self for update_feature_availability_menus and its menu refs."""
+    menu_refs = SimpleNamespace(
+        enable_cm_units=MagicMock(),
+        enable_social_features=MagicMock(),
+        enable_segmentation_features=MagicMock(),
+        enable_landmark_features={"corners": MagicMock(), "lixit": MagicMock()},
+    )
+    feature_manager = SimpleNamespace(
+        is_cm_unit=is_cm_unit,
+        can_use_social_features=can_use_social,
+        can_use_segmentation_features=can_use_segmentation,
+        static_objects=static_objects,
+    )
+    stub = SimpleNamespace(
+        _project=SimpleNamespace(feature_manager=feature_manager),
+        _menu_refs=menu_refs,
+    )
+    return stub, menu_refs
+
+
+@pytest.mark.parametrize(
+    ("is_cm_unit", "can_use_social", "can_use_segmentation", "static_objects"),
+    [
+        (True, True, True, {"corners"}),
+        (False, False, False, set()),
+        (True, False, False, {"lixit"}),
+        (False, True, False, set()),
+        (False, False, True, {"corners", "lixit"}),
+    ],
+    ids=["all-supported", "none-supported", "only-cm-units", "only-social", "only-segmentation"],
+)
+def test_feature_menus_follow_the_projects_capabilities(
+    is_cm_unit: bool,
+    can_use_social: bool,
+    can_use_segmentation: bool,
+    static_objects: set[str],
+) -> None:
+    """Every feature the project's videos support is enabled; the rest are not.
+
+    A project whose videos support nothing extra leaves every feature disabled. Each
+    menu item follows its own capability, which the cases that enable a single feature
+    check: with every flag equal, a menu item wired to another feature's flag would
+    still look right.
+    """
+    stub, menu_refs = _feature_menu_stub(
+        is_cm_unit=is_cm_unit,
+        can_use_social=can_use_social,
+        can_use_segmentation=can_use_segmentation,
+        static_objects=static_objects,
+    )
+
+    MainWindow.update_feature_availability_menus(stub)
+
+    menu_refs.enable_cm_units.setEnabled.assert_called_once_with(is_cm_unit)
+    menu_refs.enable_social_features.setEnabled.assert_called_once_with(can_use_social)
+    menu_refs.enable_segmentation_features.setEnabled.assert_called_once_with(can_use_segmentation)
+    for landmark, menu_item in menu_refs.enable_landmark_features.items():
+        menu_item.setEnabled.assert_called_once_with(landmark in static_objects)

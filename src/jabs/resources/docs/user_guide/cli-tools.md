@@ -117,6 +117,7 @@ Commands:
   postprocess           Apply a postprocessing pipeline to a JABS prediction HDF5 file.
   convert-to-nwb        Convert a JABS pose HDF5 file to NWB format.
   cross-validation      Run leave-one-group-out cross-validation for a JABS project.
+  evaluate              Evaluate a trained JABS classifier against a densely labeled project.
   export-training       Export training data for a specified behavior and JABS project directory.
   export-video          Export a copy of a video with the JABS pose overlay drawn on every frame.
   merge                 Merge one JABS project into another.
@@ -141,10 +142,12 @@ jabs-cli <command> --help
 
 The `jabs-cli export-video` command writes a copy of a video with the JABS pose
 overlay drawn on every frame. It is the batch equivalent of the GUI's
-**File→Export Video with Pose Overlay**, and renders with the same code, so the
+**File→Export Video with Overlays**, and renders with the same code, so the
 output matches what the player shows.
 
-It works on any video and pose file pair and does not need a JABS project.
+It works on any video and pose file pair and does not need a JABS project. The
+GUI's label and prediction markers have no equivalent here: labels and
+predictions live inside a JABS project, which this command does not take.
 
 **Usage:**
 
@@ -629,30 +632,34 @@ jabs-cli convert-parquet session_poses.parquet \
 
 ## jabs-cli cross-validation
 
-The `jabs-cli cross-validation` command runs leave-one-group-out cross-validation for a single behavior in a JABS project, then trains a final model on all labeled data to report feature importance. It prints per-iteration metrics to the console and writes a training report file (the same report produced by the GUI). Use it to estimate how well a classifier generalizes before committing to a trained model.
+The `jabs-cli cross-validation` command runs leave-one-group-out cross-validation in a JABS project, then trains a final model on all labeled data to report feature importance. It prints per-iteration metrics to the console and writes a training report file (the same report produced by the GUI). Use it to estimate how well a classifier generalizes before committing to a trained model.
+
+For a binary project, cross-validation is run for a single behavior chosen with `--behavior`. For a [multi-class](multi-class.md) project, all behaviors (plus the None class) are cross-validated together as one classifier, exactly as in the GUI, and the report gives macro- and micro-averaged metrics and per-class counts. `--behavior` is not needed for multi-class projects and is ignored if given.
 
 Features must already be computed for the project (for example via [`jabs-init`](#jabs-init)); if they are missing this command will compute them, which can be slow.
 
 **Usage:**
 
 ```bash
-jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
+jabs-cli cross-validation DIRECTORY [--behavior BEHAVIOR] \
     [-k SPLITS] \
     [--grouping-strategy {video|individual|filename}] \
     [--grouping-pattern REGEX] \
     [--classifier {catboost|random_forest|xgboost}] \
+    [--postprocessing | --no-postprocessing] \
     [--report-file FILE] \
     [--mlflow [ENV_FILE]] [--mlflow-experiment NAME] [--mlflow-tag KEY=VALUE] \
     [--mlflow-no-report] [--mlflow-no-annotations]
 ```
 
 - `DIRECTORY`: Path to the JABS project directory.
-- `--behavior BEHAVIOR` (required): Behavior to evaluate. Quote it if it contains spaces; must match an existing behavior in the project.
+- `--behavior BEHAVIOR`: Behavior to evaluate. Required for binary projects; quote it if it contains spaces; must match an existing behavior in the project. Ignored for multi-class projects.
 - `-k SPLITS`: Number of cross-validation iterations. `0` (the default) uses the maximum number of splits supported by the data and grouping strategy.
 - `--grouping-strategy {video|individual|filename}`: How labeled frames are grouped into cross-validation folds (see [Grouping strategies](#grouping-strategies)). If omitted, the project's saved setting is used.
 - `--grouping-pattern REGEX`: Regular expression applied to each video filename to derive a grouping key. Only used with `--grouping-strategy filename`. If omitted, the pattern saved in the project is used.
 - `--classifier {catboost|random_forest|xgboost}`: Classifier to evaluate. Defaults to `xgboost`. The available choices depend on which classifier libraries are installed; see [Classifier Types](classifier-types.md).
-- `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`).
+- `--postprocessing` / `--no-postprocessing`: Whether to also report metrics with the behavior's prediction postprocessing pipeline applied. If omitted, the behavior's saved **Evaluate in Cross-Validation** setting is used. Evaluating postprocessing re-predicts each held-out animal's full track, so it costs roughly one extra classification pass over the labeled animals. Binary classifiers only; on a multi-class project the evaluation is skipped with a warning.
+- `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`, or `multiclass_<timestamp>_training_report.md` for a multi-class project).
 - `--mlflow`, `--mlflow-experiment`, `--mlflow-tag`, `--mlflow-no-report`, `--mlflow-no-annotations`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).
 
 ### Grouping strategies
@@ -669,11 +676,12 @@ For the `filename` strategy, the pattern is applied with `re.search`, so it matc
 
 ### Training report
 
-The report (and the console output) include:
+The report includes:
 
 - Per-iteration accuracy, precision and recall for both classes, and F1 for the behavior class, plus the held-out test group label for each iteration.
 - The top features (by importance) from a final model trained on all labeled data.
 - Labeled frame and bout counts, the window size, distance unit, classifier type, and the grouping strategy/pattern used.
+- When postprocessing evaluation is enabled, a second set of per-iteration metrics with the postprocessing pipeline applied, next to the raw ones, and the stage configuration that was evaluated. The console shows only the postprocessed accuracy and F1 per iteration; the full postprocessed metrics and the stage configuration are in the report. If the postprocessed pass does not reproduce an iteration's raw labels and predictions frame for frame, the two are not measuring the same thing, and the report and console say so rather than presenting the comparison as sound.
 
 **Examples:**
 
@@ -742,7 +750,7 @@ MLFLOW_TRACKING_PASSWORD=hunter2
 
 #### Selecting the experiment
 
-Each behavior is logged to its **own experiment** by default, named `jabs-<behavior>` (for example `jabs-grooming`). This keeps comparisons meaningful: an experiment's runs table is effectively a leaderboard, and you want to rank runs of the *same* behavior over time rather than mix behaviors, whose metrics are not comparable. The experiment is created automatically if it does not exist.
+Each behavior is logged to its **own experiment** by default, named `jabs-<behavior>` (for example `jabs-grooming`). This keeps comparisons meaningful: an experiment's runs table is effectively a leaderboard, and you want to rank runs of the *same* behavior over time rather than mix behaviors, whose metrics are not comparable. The experiment is created automatically if it does not exist. A multi-class project cross-validates all behaviors together, so its experiment is named for the whole set of behaviors joined with `+` (for example `jabs-Walk+Run`); projects with different behavior sets get different experiments.
 
 To override the experiment name, in order of precedence:
 
@@ -765,7 +773,7 @@ The aggregate scores below (`cv_f1_behavior_mean`, `cv_accuracy_mean`, etc.) are
 
 #### What gets logged
 
-Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`.
+Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`. For a multi-class project the run is named for all of its behaviors joined with `+` (for example `Walk+Run-cv-<timestamp>`).
 
 **Metrics** (aggregated across cross-validation iterations):
 
@@ -829,3 +837,184 @@ jabs-cli cross-validation /path/to/project \
     --mlflow settings.env \
     --mlflow-tag purpose=baseline
 ```
+
+## jabs-cli evaluate
+
+The `jabs-cli evaluate` command runs a trained binary classifier over every pose file in a JABS project and compares the predictions against that project's own labels. It is intended for a **densely labeled** project - one where every frame, or nearly every frame, is labeled for the behavior - so that the labels can stand in as ground truth.
+
+This is a different question from [`cross-validation`](#jabs-cli-cross-validation). Cross-validation estimates how well a classifier *would* generalize, using held-out folds of the training project. `evaluate` takes a classifier you already trained and scores it against a separate, fully labeled project.
+
+Features must already be computed for the project, or they will be computed on the fly, which can be slow. The project's own feature cache is used by default.
+
+**Usage:**
+
+```bash
+jabs-cli evaluate DIRECTORY --classifier CLASSIFIER \
+    [--behavior BEHAVIOR] \
+    [--postprocess-config FILE] \
+    [--min-overlap FRAMES] [--iou-threshold FLOAT] \
+    [--max-sweep-combinations N] \
+    [--feature-dir DIR] [--fps FPS] \
+    [--save-predictions DIR] \
+    [--out-dir DIR] [--json-out FILE] [--csv-out FILE] [--report-out FILE] \
+    [--per-video]
+```
+
+- `DIRECTORY`: Path to the JABS project holding the ground-truth labels and pose files.
+- `--classifier CLASSIFIER` (required): Trained classifier, as produced by [`jabs-classify train`](#train-command) or saved by the GUI. Multi-class classifiers are rejected; see [Limitations](#limitations).
+- `--behavior BEHAVIOR`: Behavior whose project labels are the ground truth. Defaults to the behavior name recorded in the classifier. Use this when the project names the behavior differently.
+- `--postprocess-config FILE`: JSON or YAML postprocessing pipeline config. When given, the postprocessed predictions are compared against the ground truth alongside the raw ones, and both appear side by side in every table. Same format as [`jabs-cli postprocess --config`](#config-file-format).
+- `--min-overlap FRAMES`: Frames two bouts must share to match under the frame-overlap criterion. Defaults to `1`.
+- `--iou-threshold FLOAT`: Intersection-over-union two bouts must reach to match under the IoU criterion. Defaults to `0.5`. Must be greater than 0 and at most 1.
+- `--max-sweep-combinations N`: Ceiling on the number of parameter combinations a swept config may expand to (default 256). See [Sweeping postprocessing parameters](#sweeping-postprocessing-parameters).
+- `--feature-dir DIR`: Feature cache directory. Defaults to the project's own feature cache.
+- `--fps FPS`: Frames per second to assume for every video, skipping the per-video lookup. Defaults to reading it from each video file.
+- `--save-predictions DIR`: Write one prediction HDF5 file per video into this directory, in the same format [`jabs-classify classify`](#classify-command) produces (see [Saving predictions](#saving-predictions)).
+- `--out-dir DIR`: Write all three output files into this directory using generated, timestamped filenames.
+- `--json-out FILE`, `--csv-out FILE`, `--report-out FILE`: Write individual outputs to explicit paths.
+- `--per-video`: Also print a per-video breakdown to the console. The written outputs always include per-video detail regardless of this flag.
+
+### What is compared
+
+The comparison is reported two ways.
+
+**Frame-level** agreement is a straight frame-by-frame comparison, reported as accuracy, precision, recall and F1 for the behavior class. Two kinds of frame are excluded from it rather than counted as errors, and reported as their own totals:
+
+- Frames the ground truth leaves **unlabeled**. A classifier is not wrong for predicting behavior where nothing was labeled.
+- Frames that are labeled but that the classifier could not **score**, normally because the identity has no pose there. A missing pose is not a missed detection.
+
+**Bout-level** agreement asks whether each labeled bout was found at all, allowing the predicted start and end frames to disagree with the labeled ones. A bout is a contiguous run of frames labeled (or predicted) as the behavior.
+
+### Bout match criteria
+
+Two bouts count as the same occurrence when they satisfy a match criterion. Both criteria are always reported, in their own table, so you can see how much of the detection rate survives a boundary-quality requirement:
+
+| Criterion | Matches when | Reads as |
+|---|---|---|
+| `overlap >= N frames` | the bouts share at least N frames (N = `--min-overlap`, default 1) | did the classifier notice the bout at all |
+| `IoU >= T` | intersection-over-union of the two frame ranges is at least T (T = `--iou-threshold`, default 0.5) | did it also get the extent roughly right |
+
+A classifier that fires a two-frame blip inside every labeled bout scores a perfect detection rate under the overlap criterion and a poor one under IoU. A large gap between the two tables is the signal that boundaries, not detection, are the problem.
+
+### Fragmentation and merging
+
+Matching is **many-to-many**: a labeled bout is detected when *any* predicted bout matches it, and a predicted bout is a hit when it matches *any* labeled bout. A labeled bout the classifier split into several predictions is therefore still counted as detected, and each fragment still counts as a hit, rather than the split being charged against precision.
+
+The two ways the segmentation can go wrong are reported as their own columns:
+
+- **Fragmented**: labeled bouts matched by two or more predicted bouts - the classifier broke one bout into several.
+- **Merged**: predicted bouts matching two or more labeled bouts - the classifier ran several bouts together.
+
+Bouts that cannot be judged are excluded from the rates and reported separately: a labeled bout lying entirely in unscored frames is excluded from the detection rate, and a predicted bout lying entirely in unlabeled frames is excluded from precision.
+
+### Output files
+
+| Option | Contents |
+|---|---|
+| `--json-out` | Metrics nested overall → per-video → per-identity, for each stage. Rates whose denominator is empty are `null`, not `0`. |
+| `--csv-out` | One row per labeled bout and per predicted bout: video, identity, stage, source, start/end frames, duration, whether it was evaluable, how many opposing bouts it overlaps, its best overlap and IoU, and whether it matched under each criterion. Sort by `matched_overlap` to find the bouts that were missed. |
+| `--report-out` | A Markdown report with the same tables as the console plus a per-video breakdown, in the style of the cross-validation training report. |
+
+**Examples:**
+
+```bash
+# Console report only
+jabs-cli evaluate /path/to/dense_project --classifier grooming.pickle
+
+# Compare raw and postprocessed predictions, writing all three output files
+jabs-cli evaluate /path/to/dense_project --classifier grooming.pickle \
+    --postprocess-config pipeline.yaml --out-dir results/
+
+# Require a stricter boundary match and a 5-frame minimum overlap
+jabs-cli evaluate /path/to/dense_project --classifier grooming.pickle \
+    --min-overlap 5 --iou-threshold 0.75
+
+# Find the missed bouts
+jabs-cli evaluate /path/to/dense_project --classifier grooming.pickle \
+    --csv-out bouts.csv
+```
+
+### Sweeping postprocessing parameters
+
+Tuning a postprocessing pipeline means trying several values for a parameter and comparing the results. In a config passed to **this command**, a parameter holding a *list* is a sweep axis:
+
+```yaml
+Seizure:
+  - stage_name: BoutStitchingStage
+    enabled: true
+    parameters:
+      max_stitch_gap: [15, 30, 45]
+  - stage_name: BoutDurationFilterStage
+    enabled: true
+    parameters:
+      min_duration: [5, 10, 15, 30]
+```
+
+That expands to 12 combinations. Because a pipeline is a pure function of the predictions it is given, **the project is classified once** and every combination is applied to those cached predictions - the grid costs stage arithmetic, not feature extraction. Sweeping is therefore far cheaper than invoking this command once per combination.
+
+> **The list syntax is specific to `jabs-cli evaluate`.** Everywhere else a postprocessing config is consumed - [`jabs-cli postprocess`](#jabs-cli-postprocess), the GUI - a parameter holds exactly one value, and a list is rejected. Keep a swept config separate from the single-valued one you run in production.
+
+Each swept parameter becomes a column in a sweep table, one table per match criterion, with every combination as a row sorted by that criterion's bout F1:
+
+```
+Postprocessing sweep - overlap >= 1 (sorted by bout F1)
+ max_stitch_gap  min_duration | bout F1  detect  precision  frag  merged  frame F1
+             45            10 |  0.734    0.841      0.651     2       4     0.579
+             30            10 |  0.721*   0.825      0.640     3       1     0.588
+             15            10 |  0.689    0.794      0.608     7       0     0.571
+             ...
+
+Postprocessing sweep - IoU >= 0.5 (sorted by bout F1)
+ max_stitch_gap  min_duration | bout F1  detect  precision  frag  merged  frame F1
+             30            10 |  0.612*   0.714      0.536     3       1     0.588
+             45            10 |  0.601    0.730      0.511     2       4     0.579
+             15            10 |  0.564    0.667      0.489     7       0     0.571
+             ...
+
+Each table is sorted by bout F1 under its own criterion. * marks the one combination
+the detailed tables below describe, chosen by bout F1 under IoU >= 0.5 (the strictest
+criterion) with frame F1 breaking ties - so it is not necessarily the top row of every
+table.
+```
+
+The `*` is a single global choice, not one per table. It lands on the top row of the
+strictest criterion's table by construction, but not necessarily anywhere else: above,
+`max_stitch_gap: 45` wins under `overlap >= 1`, while `30` is the combination the
+detailed sections go on to describe.
+
+Axes are taken only from **enabled** stages, so a list on a disabled stage adds no combinations. A grid larger than `--max-sweep-combinations` is refused before any classification happens, naming the axis sizes.
+
+Two things narrow when sweeping, because they have no single answer across a grid:
+
+- The detailed frame-level and bout-level tables cover the raw predictions plus the one combination marked `*`, chosen by bout F1 under the strictest criterion with frame F1 breaking ties. The sweep tables carry every combination, and so does the JSON summary.
+- `--save-predictions` writes the raw predictions only, with no postprocessed dataset. Re-run with your chosen values as scalars to save a postprocessed file.
+
+Setting the value ranges is easier from evidence than from intuition. Run once with no postprocessing and `--csv-out`, then look at the ground-truth bout durations (the floor for `min_duration`) and the gaps between consecutive predicted bouts that overlap the same true bout (the range for `max_stitch_gap`). Note that the cost of `min_duration` is only interpretable *after* stitching: fragments that a duration filter would delete on their own survive once stitching has merged them into one bout, which is why the stage order in the config matters.
+
+### Saving predictions
+
+`--save-predictions DIR` writes the predictions themselves, one HDF5 file per video named `<pose stem>_behavior.h5`, in the same format [`jabs-classify classify`](#classify-command) produces. Classifying a project is the expensive part of this command, so saving lets you reuse the result:
+
+```bash
+# classify once, keeping the predictions
+jabs-cli evaluate /path/to/dense_project --classifier grooming.pickle \
+    --save-predictions predictions/
+
+# then iterate on postprocessing without recomputing features
+jabs-cli postprocess predictions/video_behavior.h5 --config pipeline.yaml \
+    --behavior grooming
+```
+
+Notes on what gets written:
+
+- The saved vectors cover the **whole pose file**, not just the labeled region. If the labels and the pose file disagree on frame count, the comparison is truncated but the saved file is not.
+- Identities that could not be classified keep a no-prediction value (`-1`) for every frame, rather than being written as not-behavior.
+- A video where no identity could be classified is not written at all, so an all-unscored file never appears.
+- When `--postprocess-config` is also given, the file carries **both** the raw and the postprocessed predictions, the same as a file written by [`jabs-cli postprocess`](#jabs-cli-postprocess).
+- If a file cannot be written, the failure is reported at the end of the run and in the output files, but the evaluation itself still completes and its metrics are still printed and saved.
+
+### Limitations
+
+- **Binary classifiers only.** Bout comparison treats one class as the behavior and everything else as background, which has no meaning for multi-class predictions. A multi-class classifier is rejected with an error. This matches [`jabs-cli postprocess`](#jabs-cli-postprocess), which is also binary-only.
+- Videos that cannot be opened, have no annotations, or whose frame rate cannot be read are skipped and listed at the end of the report rather than aborting the run.
+- If a video's label count and pose frame count disagree, the comparison is truncated to the shorter of the two and a warning is logged.

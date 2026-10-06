@@ -4,7 +4,6 @@ import gzip
 import json
 import logging
 import shutil
-import sys
 from collections.abc import Callable, Collection, Iterable, Mapping
 from concurrent.futures import as_completed
 from datetime import datetime
@@ -26,6 +25,7 @@ from jabs.core.enums import (
     compile_grouping_regex,
     filename_group_key,
 )
+from jabs.io.annotations import AnnotationStore, LocalAnnotationStore
 from jabs.pose_estimation import (
     PoseEstimation,
     get_pose_file_major_version,
@@ -215,22 +215,32 @@ class Project:
         is_new_project = not self._paths.project_file.exists()
 
         self._settings_manager = SettingsManager(self._paths)
-        scan_results = self._run_video_scan(enable_video_check, process_pool)
+        # Every read and write of this project's behavior labels goes through this
+        # store, so that where those documents live is decided in one place.
+        self._annotation_store: AnnotationStore = LocalAnnotationStore(self._paths.annotations_dir)
+        # Retained so the FeatureManager can be rebuilt when the project's video set
+        # changes, without re-reading every pose file (see refresh_feature_manager()).
+        self._scan_results: dict[str, VideoScanResult] = self._run_video_scan(
+            enable_video_check, process_pool
+        )
         self._video_manager = VideoManager(
-            self._paths, self._settings_manager, enable_video_check, scan_results=scan_results
+            self._paths,
+            self._settings_manager,
+            enable_video_check,
+            scan_results=self._scan_results,
+            annotation_store=self._annotation_store,
         )
         self._feature_manager = FeatureManager(
             self._paths,
             self._video_manager.videos,
             self._video_manager,
-            scan_results=scan_results,
+            scan_results=self._scan_results,
         )
         self._prediction_manager = PredictionManager(self)
         self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 
         # write out the defaults to the project file
-        if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
-            self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
+        self._save_project_defaults()
 
         # Persist cache_format. New projects default to Parquet; existing projects that
         # predate this setting default to HDF5 to preserve backward compatibility.
@@ -391,16 +401,6 @@ class Project:
 
         return results
 
-    def _validate_pose_files(self):
-        """Ensure all videos have corresponding pose files."""
-        err = False
-        for v in self._video_manager.videos:
-            if not self.__has_pose(v):
-                print(f"{v} missing pose file", file=sys.stderr)
-                err = True
-        if err:
-            raise ValueError("Project missing pose file for one or more videos")
-
     @property
     def dir(self) -> Path:
         """get the project directory"""
@@ -415,6 +415,11 @@ class Project:
     def annotation_dir(self) -> Path:
         """get the annotation directory"""
         return self._paths.annotations_dir
+
+    @property
+    def annotation_store(self) -> AnnotationStore:
+        """get the store holding this project's behavior label documents"""
+        return self._annotation_store
 
     @property
     def classifier_dir(self):
@@ -695,9 +700,8 @@ class Project:
             paths.append(prediction)
 
         # Annotation file
-        annotation = self._paths.annotations_dir / f"{base}.json"
-        if annotation.exists():
-            paths.append(annotation)
+        if self._annotation_store.has_document(video_name):
+            paths.append(self._annotation_store.document_path(video_name))
 
         return paths
 
@@ -773,19 +777,15 @@ class Project:
         Returns:
             None
         """
-        path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(".json")
-
-        annotations = annotations.as_dict(
+        video_filename = annotations.filename
+        document = annotations.as_dict(
             pose,
             project_metadata=self.settings_manager.project_metadata,
-            video_metadata=self.settings_manager.video_metadata(annotations.filename),
+            video_metadata=self.settings_manager.video_metadata(video_filename),
         )
-        annotations["labeler"] = self.labeler
+        document["labeler"] = self.labeler
 
-        tmp = path.with_suffix(".json.tmp")
-        with tmp.open("w") as f:
-            json.dump(annotations, f, indent=2)
-        tmp.replace(path)
+        self._annotation_store.save_document(video_filename, document)
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
@@ -801,6 +801,41 @@ class Project:
             self._feature_manager.distance_unit,
             self._feature_manager.static_objects,
         )
+
+    def _save_project_defaults(self) -> None:
+        """Write the per-behavior defaults to project.json if they have changed."""
+        defaults = self.get_project_defaults()
+        if self._settings_manager.project_settings.get("defaults") != defaults:
+            self._settings_manager.save_project_file({"defaults": defaults})
+
+    def refresh_feature_manager(self) -> None:
+        """Rebuild the FeatureManager from the project's current set of videos.
+
+        The FeatureManager derives the project's capabilities -- minimum pose
+        version, the static objects common to every video, whether cm units are
+        available, and the enabled extended features -- once, from the videos
+        present when the project was opened. Removing a video (the GUI's
+        "Prune Project" action) leaves those values describing a video set that
+        no longer exists, so callers that change the video set must call this
+        afterwards.
+
+        The rebuild reuses the metadata collected by the project scan, so it
+        re-reads no pose files. Because pruning can only remove constraints, a
+        capability can be gained here but never lost. The refreshed defaults are
+        written to project.json when they change, which is what reopening the
+        project would do anyway.
+
+        Only removals are supported: the current videos must be a subset of the
+        ones scanned when the project was opened. Videos added to the directory
+        after that are picked up by reopening the project.
+        """
+        self._feature_manager = FeatureManager(
+            self._paths,
+            self._video_manager.videos,
+            self._video_manager,
+            scan_results=self._scan_results,
+        )
+        self._save_project_defaults()
 
     @staticmethod
     def settings_by_pose_version(
@@ -1107,12 +1142,17 @@ class Project:
         return counts
 
     def _build_feature_load_job_base(self, video: str, behavior_settings: dict) -> dict:
-        """Construct the per-video fields shared by every feature-load job spec."""
+        """Construct the per-video fields shared by every feature-load job spec.
+
+        The annotation document is hydrated before the job is dispatched: worker
+        processes read it by path and must not have to reach the store (which
+        may be backed by the network) themselves.
+        """
         return {
             "video": video,
             "video_path": self._video_manager.video_path(video),
             "pose_path": self._video_manager.get_cached_pose_path(video),
-            "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
+            "annotations_path": self._annotation_store.ensure_local(video),
             "feature_dir": self.feature_dir,
             "cache_dir": self._paths.cache_dir,
             "behavior_settings": behavior_settings,
@@ -1197,7 +1237,11 @@ class Project:
             each group id back to its source. ``INDIVIDUAL``/``VIDEO`` entries are
             ``{"video": ..., "identity": ...}``; ``FILENAME_PATTERN`` entries are
             ``{"video": None, "identity": None, "label": <key>, "videos": [...]}``
-            where ``videos`` lists the labeled videos in the group.
+            where ``videos`` lists the labeled videos in the group. Every entry
+            also carries ``"members"``: the ``(video, identity)`` pairs with
+            labeled data in that group, which callers need to re-predict a
+            held-out group's full tracks. A ``VIDEO`` group for a video with no
+            labeled identities has an empty ``members`` list.
 
         Raises:
             ValueError: If ``grouping_strategy`` is ``FILENAME_PATTERN`` and
@@ -1217,18 +1261,23 @@ class Project:
                     key = (v, ident)
                     if key not in key_to_gid:
                         key_to_gid[key] = gid
-                        group_mapping[gid] = {"video": v, "identity": ident}
+                        group_mapping[gid] = {
+                            "video": v,
+                            "identity": ident,
+                            "members": [(v, ident)],
+                        }
                         gid += 1
         elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
             video_to_gid: dict[str, int] = {}
             for v in videos:
                 if v not in video_to_gid:
                     video_to_gid[v] = gid
-                    group_mapping[gid] = {"video": v, "identity": None}
+                    group_mapping[gid] = {"video": v, "identity": None, "members": []}
                     gid += 1
                 for video_name, ident in all_group_keys:
                     if video_name == v:
                         key_to_gid[(v, ident)] = video_to_gid[v]
+                        group_mapping[video_to_gid[v]]["members"].append((v, ident))
         elif grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN:
             pattern = compile_grouping_regex(regex or "")
             label_to_gid: dict[str, int] = {}
@@ -1245,10 +1294,12 @@ class Project:
                         "identity": None,
                         "label": label,
                         "videos": [],
+                        "members": [],
                     }
                     gid += 1
                 group_gid = label_to_gid[label]
                 key_to_gid[(video_name, ident)] = group_gid
+                group_mapping[group_gid]["members"].append((video_name, ident))
                 videos_in_group = group_mapping[group_gid]["videos"]
                 if video_name not in videos_in_group:
                     videos_in_group.append(video_name)
@@ -1587,14 +1638,6 @@ class Project:
                 except OSError:
                     pass
 
-    def __has_pose(self, vid: str):
-        """check to see if a video has a corresponding pose file"""
-        try:
-            self._video_manager.get_cached_pose_path(vid)
-        except ValueError:
-            return False
-        return True
-
     def load_counts(self, video: str, behavior: str) -> dict[int, dict[str, tuple[int, int]]]:
         """load labeled frame and bout counts from json file
 
@@ -1651,37 +1694,35 @@ class Project:
                     frames_not_behavior += b["end"] - b["start"] + 1
             return (frames_behavior, frames_not_behavior), (bouts_behavior, bouts_not_behavior)
 
-        video_filename = Path(video).name
-        path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
         counts = {}
 
-        if path.exists():
-            with path.open() as f:
-                data = json.load(f)
-                unfragmented_labels = data.get("unfragmented_labels", {})
-                labels = data.get("labels", {})
+        document = self._annotation_store.load_document(Path(video).name)
+        if document is not None:
+            data = document.content
+            unfragmented_labels = data.get("unfragmented_labels", {})
+            labels = data.get("labels", {})
 
-                for identity in set(unfragmented_labels.keys()).union(labels.keys()):
-                    # an identity may be present in one of the two label sections but not
-                    # the other, so default to an empty behavior mapping (which counts as
-                    # zero frames and zero bouts) rather than assuming it is present
-                    fragmented_counts = count_labels(labels.get(identity, {}))
+            for identity in set(unfragmented_labels.keys()).union(labels.keys()):
+                # an identity may be present in one of the two label sections but not
+                # the other, so default to an empty behavior mapping (which counts as
+                # zero frames and zero bouts) rather than assuming it is present
+                fragmented_counts = count_labels(labels.get(identity, {}))
 
-                    if "unfragmented_labels" in data:
-                        unfragmented_counts = count_labels(unfragmented_labels.get(identity, {}))
-                    else:
-                        # if the file doesn't have unfragmented labels, use the fragmented counts -- they're the same
-                        # unless the user creates some new labels over frames without identity
-                        unfragmented_counts = fragmented_counts
+                if "unfragmented_labels" in data:
+                    unfragmented_counts = count_labels(unfragmented_labels.get(identity, {}))
+                else:
+                    # if the file doesn't have unfragmented labels, use the fragmented counts -- they're the same
+                    # unless the user creates some new labels over frames without identity
+                    unfragmented_counts = fragmented_counts
 
-                    # identity is stored as a string in the JSON file because it's used as a key. Turn it back
-                    # into an int as used internally by JABS
-                    counts[int(identity)] = {
-                        "fragmented_frame_counts": fragmented_counts[0],
-                        "fragmented_bout_counts": fragmented_counts[1],
-                        "unfragmented_frame_counts": unfragmented_counts[0],
-                        "unfragmented_bout_counts": unfragmented_counts[1],
-                    }
+                # identity is stored as a string in the JSON file because it's used as a key. Turn it back
+                # into an int as used internally by JABS
+                counts[int(identity)] = {
+                    "fragmented_frame_counts": fragmented_counts[0],
+                    "fragmented_bout_counts": fragmented_counts[1],
+                    "unfragmented_frame_counts": unfragmented_counts[0],
+                    "unfragmented_bout_counts": unfragmented_counts[1],
+                }
 
         return counts
 

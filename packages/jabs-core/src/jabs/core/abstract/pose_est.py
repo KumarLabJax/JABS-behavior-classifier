@@ -54,7 +54,8 @@ class PoseEstimation(ABC):
         hash (str): Hash of the pose file.
         static_objects (dict): Static objects in the pose file.
         num_lixit_keypoints (int): Number of lixit keypoints (default 0).
-        external_identities (list[int] | None): Mapping to external identities.
+        external_identities (list[str] | None): External identity names, indexed by
+            JABS identity index. None when the pose file has no external identities.
     """
 
     class KeypointIndex(enum.IntEnum):
@@ -172,7 +173,7 @@ class PoseEstimation(ABC):
         return self._cm_per_pixel
 
     @property
-    def fps(self):
+    def fps(self) -> int:
         """get frames per second"""
         return self._fps
 

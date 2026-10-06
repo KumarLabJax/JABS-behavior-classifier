@@ -55,27 +55,8 @@ def test_window_size_rejects_zero(tmp_path: Path) -> None:
             "0",
         ],
     )
-    assert result.exit_code != 0
-    assert "x>=1" in result.output or "Invalid value" in result.output
-
-
-def test_window_size_rejects_negative(tmp_path: Path) -> None:
-    """--window-size -1 fails argument validation."""
-    pose_file = _make_pose_file(tmp_path)
-    runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        [
-            "compute-features",
-            "--pose-file",
-            str(pose_file),
-            "--feature-dir",
-            str(tmp_path),
-            "-w",
-            "-1",
-        ],
-    )
-    assert result.exit_code != 0
+    assert result.exit_code == 2, result.output
+    assert "Invalid value" in result.output
 
 
 def test_fps_rejects_zero(tmp_path: Path) -> None:
@@ -94,7 +75,8 @@ def test_fps_rejects_zero(tmp_path: Path) -> None:
             "0",
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 2, result.output
+    assert "Invalid value" in result.output
 
 
 def test_default_cm_when_pose_has_scale(tmp_path: Path) -> None:

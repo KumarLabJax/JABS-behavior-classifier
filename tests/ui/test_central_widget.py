@@ -7,7 +7,7 @@ import pytest
 
 from jabs.classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ProjectDistanceUnit
+from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
 
 try:
     from jabs.core.enums import ClassifierMode
@@ -58,6 +58,63 @@ def test_included_counts_no_exclusions_returns_all():
 def test_included_counts_none_returns_empty():
     """None counts (not yet computed) return an empty dict instead of raising."""
     assert CentralWidget._included_counts(_stub_widget(set()), None) == {}
+
+
+def _train_button_stub(all_kfold: bool, kfold_value: int) -> SimpleNamespace:
+    """Stand-in for a binary project whose videos all fall in one filename-pattern group."""
+    return SimpleNamespace(
+        _project=SimpleNamespace(
+            settings_manager=SimpleNamespace(
+                classifier_mode=ClassifierMode.BINARY,
+                cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                cv_grouping_regex=r"cage_(\d+)",
+                is_video_excluded=lambda video: False,
+            )
+        ),
+        _counts={
+            "cage_1_day1.avi": {0: {"fragmented_frame_counts": (30, 30)}},
+            "cage_1_day2.avi": {0: {"fragmented_frame_counts": (30, 30)}},
+        },
+        _controls=SimpleNamespace(
+            all_kfold=all_kfold,
+            kfold_value=kfold_value,
+            train_button_enabled=None,
+        ),
+        _included_counts=lambda counts: counts,
+        export_training_status_change=SimpleNamespace(emit=MagicMock()),
+    )
+
+
+def test_train_enabled_for_one_group_when_cross_validation_is_off():
+    """k=0 trains without a held-out group, so one filename-pattern group is enough."""
+    stub = _train_button_stub(all_kfold=False, kfold_value=0)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is True
+    stub.export_training_status_change.emit.assert_called_once_with(True)
+
+
+def test_train_disabled_for_one_group_when_cross_validation_is_requested():
+    """One group cannot be split into train and test sets, so k=1 still blocks training."""
+    stub = _train_button_stub(all_kfold=False, kfold_value=1)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is False
+
+
+def test_train_disabled_for_one_group_when_all_kfold_is_checked():
+    """The all-k-fold checkbox cross-validates over every group, so it needs two.
+
+    The k slider is disabled (and may read zero) while the checkbox is checked, so
+    the checkbox, not the slider, decides whether a CV split is required.
+    """
+    stub = _train_button_stub(all_kfold=True, kfold_value=0)
+
+    CentralWidget.set_train_button_enabled_state(stub)
+
+    assert stub._controls.train_button_enabled is False
 
 
 def _bout_stub_widget(counts: dict, excluded: set[str]) -> SimpleNamespace:
@@ -158,14 +215,17 @@ def test_start_classification_ignored_when_thread_running():
 
 
 def _completion_stub(targets, loaded_video_name):
-    """Build a stub self for _classify_thread_complete with mocked collaborators."""
-    return SimpleNamespace(
+    """Build a stub self for _classify_thread_complete with mocked collaborators.
+
+    The classify cleanup clears the targets, as the real one does, so a handler that
+    reads them after the cleanup sees ``None`` (every video) instead of its own targets.
+    """
+    stub = SimpleNamespace(
         _classification_targets=targets,
         _loaded_video=(
             SimpleNamespace(name=loaded_video_name) if loaded_video_name is not None else None
         ),
         _cleanup_progress_dialog=MagicMock(),
-        _cleanup_classify_thread=MagicMock(),
         status_message=SimpleNamespace(emit=MagicMock()),
         request_video_selection=SimpleNamespace(emit=MagicMock()),
         _set_prediction_vis=MagicMock(),
@@ -176,6 +236,10 @@ def _completion_stub(targets, loaded_video_name):
         _probabilities={},
         _predictions_postprocessed={},
     )
+    stub._cleanup_classify_thread = MagicMock(
+        side_effect=lambda: setattr(stub, "_classification_targets", None)
+    )
+    return stub
 
 
 _COMPLETION_OUTPUT = {
@@ -273,8 +337,8 @@ def test_training_behaviors_multiclass_includes_none_class():
 
 
 def test_feature_window_size_binary_uses_control_value():
-    """Binary mode uses the window size shown in the controls."""
-    stub = _feature_check_stub(window_size=7)
+    """Binary mode uses the window size shown in the controls, not the saved settings."""
+    stub = _feature_check_stub(window_size=7, behavior_settings={"window_size": 99})
     assert CentralWidget._feature_window_size(stub) == 7
 
 
@@ -309,51 +373,50 @@ def test_confirm_on_demand_features_skips_dialog_when_all_cached(monkeypatch):
     confirm.assert_not_called()
 
 
-@pytest.mark.parametrize("answer", [True, False], ids=["continue", "cancel"])
-def test_confirm_on_demand_features_returns_user_choice(monkeypatch, answer):
-    """The user's answer to the warning decides whether the run proceeds."""
+@pytest.mark.parametrize(
+    ("videos", "window_size", "action", "answer", "count_text"),
+    [
+        (["a.avi", "b.avi"], 5, "classification", True, "<b>2 videos</b>"),
+        (["a.avi", "b.avi"], 5, "classification", False, "<b>2 videos</b>"),
+        (["a.avi"], 30, "training", True, "<b>1 video</b>"),
+        (["a.avi"], 5, "training", True, "<b>1 video</b>"),
+    ],
+    ids=["continue", "cancel", "window-size-in-init-hint", "singular-for-one-video"],
+)
+def test_confirm_on_demand_features_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    videos: list[str],
+    window_size: int,
+    action: str,
+    answer: bool,
+    count_text: str,
+) -> None:
+    """The warning returns the user's choice and describes what is missing.
+
+    The user's answer decides whether the run proceeds. The message names the window
+    size, the video count (a single uncached video reads as "1 video", not "1 videos"),
+    the action, and lists the videos, and it points at jabs-init with the window size
+    that is missing.
+    """
     confirm = MagicMock(return_value=answer)
     monkeypatch.setattr(
         "jabs.ui.main_window.central_widget.MessageDialog.confirm", confirm, raising=True
     )
 
     result = CentralWidget._confirm_on_demand_features(
-        _feature_check_stub(), ["a.avi", "b.avi"], 5, "classification"
+        _feature_check_stub(), videos, window_size, action
     )
 
     assert result is answer
     message = confirm.call_args.kwargs["message"]
-    assert "<b>5</b>" in message
-    assert "<b>2 videos</b>" in message
-    assert "classification" in message
-    assert "a.avi" in confirm.call_args.kwargs["details"]
-
-
-def test_confirm_on_demand_features_suggests_jabs_init(monkeypatch):
-    """The warning points at jabs-init, with the window size that is missing."""
-    confirm = MagicMock(return_value=True)
-    monkeypatch.setattr(
-        "jabs.ui.main_window.central_widget.MessageDialog.confirm", confirm, raising=True
-    )
-
-    CentralWidget._confirm_on_demand_features(_feature_check_stub(), ["a.avi"], 30, "training")
-
-    message = confirm.call_args.kwargs["message"]
+    assert f"<b>{window_size}</b>" in message
+    assert count_text in message
+    assert action in message
     assert "jabs-init" in message
-    assert "jabs-init -w 30" in message
+    assert f"jabs-init -w {window_size}" in message
     assert "jabs-features" not in message
-
-
-def test_confirm_on_demand_features_uses_singular_for_one_video(monkeypatch):
-    """A single uncached video reads as "1 video", not "1 videos"."""
-    confirm = MagicMock(return_value=True)
-    monkeypatch.setattr(
-        "jabs.ui.main_window.central_widget.MessageDialog.confirm", confirm, raising=True
-    )
-
-    CentralWidget._confirm_on_demand_features(_feature_check_stub(), ["a.avi"], 5, "training")
-
-    assert "<b>1 video</b>" in confirm.call_args.kwargs["message"]
+    for video in videos:
+        assert video in confirm.call_args.kwargs["details"]
 
 
 def _gating_stub(confirmed: bool, missing=("a.avi",), cm_units=False) -> SimpleNamespace:
@@ -453,58 +516,52 @@ def test_classify_aborted_when_user_declines_feature_computation(monkeypatch):
     assert stub._classification_targets is None
 
 
-def _cleanup_stub(*, classification_targets=None, training_cache_targets=None):
+def _cleanup_stub() -> SimpleNamespace:
     """Build a stub self for the thread cleanup handlers."""
     return SimpleNamespace(
         _training_thread=None,
         _classify_thread=None,
-        _classification_targets=classification_targets,
-        _training_cache_targets=training_cache_targets,
+        _classification_targets=None,
+        _training_cache_targets=None,
         _project=MagicMock(),
         feature_cache_changed=SimpleNamespace(emit=MagicMock()),
     )
 
 
-def test_training_cleanup_invalidates_only_the_videos_it_read():
-    """Training reads features only for labeled videos, so only those go stale."""
-    stub = _cleanup_stub(training_cache_targets=["a.avi", "b.avi"])
+@pytest.mark.parametrize(
+    ("cleanup_method", "targets_attr", "targets"),
+    [
+        ("_cleanup_training_thread", "_training_cache_targets", ["a.avi", "b.avi"]),
+        ("_cleanup_training_thread", "_training_cache_targets", None),
+        ("_cleanup_classify_thread", "_classification_targets", ["a.avi"]),
+        ("_cleanup_classify_thread", "_classification_targets", None),
+    ],
+    ids=[
+        "training-only-videos-it-read",
+        "training-without-known-targets",
+        "classify-single-video",
+        "classify-all-videos",
+    ],
+)
+def test_thread_cleanup_invalidates_only_the_videos_the_run_targeted(
+    cleanup_method: str, targets_attr: str, targets: list[str] | None
+) -> None:
+    """Cleanup drops the cache status of the targeted videos, or of all when none are known.
 
-    CentralWidget._cleanup_training_thread(stub)
-
-    stub._project.invalidate_feature_cache_status.assert_called_once_with(["a.avi", "b.avi"])
-    stub.feature_cache_changed.emit.assert_called_once()
-    # the targets are consumed so a later cleanup cannot act on a stale list
-    assert stub._training_cache_targets is None
-
-
-def test_training_cleanup_without_known_targets_invalidates_everything():
-    """With no recorded targets (no run started), nothing is assumed to be current."""
+    Training reads features only for labeled videos, and a single-video classification
+    only for that video, so only those go stale. Targets of ``None`` (no run started,
+    or every video classified) mean nothing is assumed to be current. The targets are
+    consumed, so a canceled or failed run cannot leave stale targets behind for a later
+    cleanup to act on.
+    """
     stub = _cleanup_stub()
+    setattr(stub, targets_attr, targets)
 
-    CentralWidget._cleanup_training_thread(stub)
+    getattr(CentralWidget, cleanup_method)(stub)
 
-    stub._project.invalidate_feature_cache_status.assert_called_once_with(None)
-
-
-def test_classify_cleanup_invalidates_only_classified_videos():
-    """A single-video classification only invalidates that video."""
-    stub = _cleanup_stub(classification_targets=["a.avi"])
-
-    CentralWidget._cleanup_classify_thread(stub)
-
-    stub._project.invalidate_feature_cache_status.assert_called_once_with(["a.avi"])
+    stub._project.invalidate_feature_cache_status.assert_called_once_with(targets)
     stub.feature_cache_changed.emit.assert_called_once()
-    # consumed, so a canceled or failed run cannot leave stale targets behind
-    assert stub._classification_targets is None
-
-
-def test_classify_all_cleanup_invalidates_everything():
-    """Classifying every video (targets None) invalidates every status."""
-    stub = _cleanup_stub(classification_targets=None)
-
-    CentralWidget._cleanup_classify_thread(stub)
-
-    stub._project.invalidate_feature_cache_status.assert_called_once_with(None)
+    assert getattr(stub, targets_attr) is None
 
 
 class _StopBeforeThreadStart(Exception):
@@ -606,3 +663,104 @@ def test_training_feature_check_passes_the_unit_setting(monkeypatch):
 
     for call in stub._project.videos_missing_window_features.call_args_list:
         assert call.kwargs["cm_units"] is True
+
+
+def _behavior_change_stub(mode, prediction_manager) -> SimpleNamespace:
+    """Stand-in exposing what _on_behavior_changed() reads from self."""
+    return SimpleNamespace(
+        _project=SimpleNamespace(
+            session_tracker=SimpleNamespace(behavior_selected=MagicMock()),
+            settings_manager=SimpleNamespace(classifier_mode=mode, save_project_file=MagicMock()),
+            prediction_manager=prediction_manager,
+            counts=MagicMock(return_value={}),
+        ),
+        behavior="Grooming",
+        _loaded_video=SimpleNamespace(name="clip.avi"),
+        # Predictions left over from before a classifier-mode change.
+        _predictions={0: "stale"},
+        _probabilities={0: "stale"},
+        _predictions_postprocessed={},
+        _multiclass_class_names=None,
+        _counts={},
+        _update_controls_from_project_settings=MagicMock(),
+        _load_cached_classifier=MagicMock(),
+        _update_label_counts=MagicMock(),
+        _set_label_track=MagicMock(),
+        _update_label_button_color=MagicMock(),
+        set_train_button_enabled_state=MagicMock(),
+    )
+
+
+def test_behavior_change_loads_binary_predictions_for_the_behavior():
+    """Binary mode reloads the newly selected behavior's saved predictions."""
+    manager = MagicMock()
+    manager.load_predictions.return_value = ({0: "binary"}, {0: "prob"}, {})
+    stub = _behavior_change_stub(ClassifierMode.BINARY, manager)
+
+    CentralWidget._on_behavior_changed(stub)
+
+    manager.load_predictions.assert_called_once_with("clip.avi", "Grooming")
+    manager.load_multiclass_predictions.assert_not_called()
+    assert stub._predictions == {0: "binary"}
+
+
+def test_behavior_change_replaces_predictions_left_over_from_the_other_mode():
+    """Switching an open project to multi-class must not keep the binary predictions.
+
+    The mode change reaches this method, and stale binary 0/1 values read as
+    multi-class color indices would mis-color the timeline, the label overlay and an
+    exported video.
+    """
+    manager = MagicMock()
+    manager.load_multiclass_predictions.return_value = ({}, {}, {}, None)
+    stub = _behavior_change_stub(ClassifierMode.MULTICLASS, manager)
+
+    CentralWidget._on_behavior_changed(stub)
+
+    manager.load_multiclass_predictions.assert_called_once_with("clip.avi")
+    manager.load_predictions.assert_not_called()
+    assert stub._predictions == {}, "stale binary predictions were kept"
+
+
+def _training_completion_stub(cv_warning: str | None) -> SimpleNamespace:
+    """Stand-in exposing what _training_thread_complete() reads from self."""
+    return SimpleNamespace(
+        _cleanup_training_thread=MagicMock(),
+        _cleanup_progress_dialog=MagicMock(),
+        status_message=SimpleNamespace(emit=MagicMock()),
+        _set_classify_enabled=MagicMock(),
+        _training_cv_warning=cv_warning,
+        # no report markdown, so the report-dialog branch is skipped
+        _training_report_markdown=None,
+    )
+
+
+def test_training_completion_warns_when_cross_validation_was_skipped(monkeypatch):
+    """A skipped-CV warning reaches the user as a dialog, not just a status message."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    stub = _training_completion_stub("no group could serve as a test split")
+
+    CentralWidget._training_thread_complete(stub, 1234)
+
+    assert len(warnings) == 1
+    _args, kwargs = warnings[0]
+    assert kwargs["details"] == "no group could serve as a test split"
+    # cleared so a later run does not repeat a stale warning
+    assert stub._training_cv_warning is None
+
+
+def test_training_completion_is_quiet_when_cross_validation_ran(monkeypatch):
+    """No warning dialog when there was nothing to warn about."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+
+    CentralWidget._training_thread_complete(_training_completion_stub(None), 1234)
+
+    assert warnings == []

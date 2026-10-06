@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
-from jabs.pose_drawing import KEYPOINT_SIZE, draw_identity_pose
+from jabs.overlay_drawing import KEYPOINT_SIZE, draw_identity_pose
 
 from .overlay import Overlay
 

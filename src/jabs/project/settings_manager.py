@@ -1,9 +1,16 @@
+import copy
 import json
 import logging
 import typing
 
 import jabs.feature_extraction as feature_extraction
-from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY, CV_GROUPING_REGEX_KEY
+from jabs.core.constants import (
+    CLASSIFIER_MODE_KEY,
+    CV_GROUPING_KEY,
+    CV_GROUPING_REGEX_KEY,
+    EVALUATE_POSTPROCESSING_IN_CV_KEY,
+    POSTPROCESSING_KEY,
+)
 from jabs.core.enums.classifier_mode import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 from jabs.core.enums.cv_grouping import (
     DEFAULT_CV_GROUPING_STRATEGY,
@@ -252,14 +259,22 @@ class SettingsManager:
     def save_behavior(self, behavior: str, data: dict):
         """Save a behavior to project file.
 
+        ``data`` is merged into the behavior's existing settings. A behavior
+        that has no settings yet starts from a *copy* of the project defaults:
+        merging into the stored ``defaults`` dict itself would overwrite the
+        project defaults with this behavior's settings and leave the two
+        aliased, so later edits to the behavior would keep rewriting the
+        defaults and every behavior created afterwards would inherit them.
+
         Args:
             behavior: Behavior name.
             data: Dictionary of behavior settings.
         """
-        defaults = self._project_info.get("defaults", {})
-
         all_behavior_data = self._project_info.get("behavior", {})
-        merged_data = all_behavior_data.get(behavior, defaults)
+        if behavior in all_behavior_data:
+            merged_data = all_behavior_data[behavior]
+        else:
+            merged_data = copy.deepcopy(self._project_info.get("defaults", {}))
         merged_data.update(data)
 
         all_behavior_data[behavior] = merged_data
@@ -275,6 +290,31 @@ class SettingsManager:
             Dictionary of behavior metadata.
         """
         return self._project_info.get("behavior", {}).get(behavior, {})
+
+    def postprocessing_config(self, behavior: str) -> list[dict]:
+        """Get the prediction postprocessing stage configuration for a behavior.
+
+        Args:
+            behavior: Behavior key to read.
+
+        Returns:
+            Ordered list of stage configuration dicts, suitable for
+            :class:`~jabs.behavior.postprocessing.PostprocessingPipeline`. Empty
+            when the behavior has no postprocessing configured.
+        """
+        return self.get_behavior(behavior).get(POSTPROCESSING_KEY, [])
+
+    def evaluate_postprocessing_in_cv(self, behavior: str) -> bool:
+        """Return whether cross-validation should also report postprocessed metrics.
+
+        Args:
+            behavior: Behavior key to read.
+
+        Returns:
+            True if the behavior is configured to evaluate its postprocessing
+            pipeline during cross-validation. Defaults to False.
+        """
+        return bool(self.get_behavior(behavior).get(EVALUATE_POSTPROCESSING_IN_CV_KEY, False))
 
     def remove_behavior(self, behavior: str) -> None:
         """remove behavior from project settings"""

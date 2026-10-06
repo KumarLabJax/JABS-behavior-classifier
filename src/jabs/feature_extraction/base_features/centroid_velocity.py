@@ -1,5 +1,6 @@
 import numpy as np
 
+from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -21,20 +22,9 @@ class CentroidVelocityDir(Feature):
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """compute the value of the per frame features for a specific identity"""
         bearings = self._poses.compute_all_bearings(identity)
-        frame_valid = self._poses.identity_mask(identity)
 
-        # compute the velocity of the center of mass.
-        # first, grab convex hulls for this identity
-        convex_hulls = self._poses.get_identity_convex_hulls(identity)
-
-        # get an array of the indexes of valid frames only
-        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
-
-        # get centroids for all frames where this identity is present
-        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
-        for i in indexes:
-            centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
-
+        # compute the velocity of the center of mass
+        centroid_centers = identity_centroids(self._poses, identity)
         v = np.gradient(centroid_centers, axis=0)
 
         # compute direction of velocities
@@ -68,21 +58,10 @@ class CentroidVelocityMag(Feature):
         Returns:
             np.ndarray with feature values
         """
-        values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         fps = self._poses.fps
-        frame_valid = self._poses.identity_mask(identity)
 
-        # compute the velocity of the center of mass.
-        # first, grab convex hulls for this identity
-        convex_hulls = self._poses.get_identity_convex_hulls(identity)
-
-        # get an array of the indexes of valid frames only
-        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
-
-        # get centroids for all frames where this identity is present
-        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
-        for i in indexes:
-            centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
+        # compute the velocity of the center of mass
+        centroid_centers = identity_centroids(self._poses, identity)
 
         # get change over frames
         v = np.gradient(centroid_centers, axis=0)

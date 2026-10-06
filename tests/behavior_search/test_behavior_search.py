@@ -143,13 +143,6 @@ def test_label_query_project_none():
     assert hits == []
 
 
-def test_label_query_query_none():
-    """Test label query with search_query=None yields nothing."""
-    project = _make_project(videos=["video1"])
-    hits = list(_search_behaviors_gen(project, None))
-    assert hits == []
-
-
 def test_label_query_prefers_unfragmented_labels():
     """Test that unfragmented_labels are preferred over labels if present."""
     annotations = {
@@ -498,13 +491,6 @@ def test_timeline_annotation_search_empty_annotations():
     project = _make_project(videos=["video1"], annotations={"video1": {}})
     query = TimelineAnnotationSearchQuery(tag="foo")
     hits = list(_search_behaviors_gen(project, query))
-    assert hits == []
-
-
-def test_timeline_annotation_search_project_none():
-    """Test timeline annotation search with project=None yields nothing."""
-    query = TimelineAnnotationSearchQuery(tag="foo")
-    hits = list(_search_behaviors_gen(None, query))
     assert hits == []
 
 

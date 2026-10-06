@@ -32,24 +32,33 @@ def qapp():
     yield app
 
 
-def test_default_label_button_color_is_orange() -> None:
-    """A freshly built control widget uses the default orange behavior tint."""
-    widget = MainControlWidget()
+def _assert_default_button_tint(widget: "MainControlWidget") -> None:
+    """Assert the Label Behavior button has the binary-mode default tint.
 
+    Args:
+        widget: Control widget whose Label Behavior button style to check.
+    """
     style = widget._label_behavior_button.styleSheet()
     assert f"rgba{BEHAVIOR_COLOR.getRgb()}" in style
     assert "color: white" in style
+    # the binary-mode default keeps grey disabled text
+    assert "color: grey" in style
 
 
-def test_set_behavior_button_color_none_restores_default() -> None:
-    """Passing None restores the default orange (binary-mode) tint."""
+def test_label_button_has_the_default_orange_tint_and_none_restores_it() -> None:
+    """A new widget starts with the default orange tint, and passing None restores it.
+
+    The constructor applies the default through ``set_behavior_button_color(None)``,
+    so both the freshly built widget and the restored one are checked.
+    """
     widget = MainControlWidget()
+
+    _assert_default_button_tint(widget)
 
     widget.set_behavior_button_color(QColor(10, 20, 30))
     widget.set_behavior_button_color(None)
 
-    style = widget._label_behavior_button.styleSheet()
-    assert f"rgba{BEHAVIOR_COLOR.getRgb()}" in style
+    _assert_default_button_tint(widget)
 
 
 def test_set_behavior_button_color_applies_behavior_color() -> None:
@@ -84,14 +93,6 @@ def test_set_behavior_button_color_disabled_text_contrasts() -> None:
     # light behavior color -> light disabled background -> dark disabled text
     widget.set_behavior_button_color(QColor(240, 240, 240))
     assert "color: #555555" in widget._label_behavior_button.styleSheet()
-
-
-def test_default_disabled_text_is_grey() -> None:
-    """Binary-mode default keeps grey disabled text (unchanged)."""
-    widget = MainControlWidget()
-
-    widget.set_behavior_button_color(None)
-    assert "color: grey" in widget._label_behavior_button.styleSheet()
 
 
 class _RejectedDialog:
@@ -150,3 +151,22 @@ def test_first_label_quit_does_not_exit_when_the_close_is_declined(monkeypatch) 
     MainControlWidget._get_first_label(stub)
 
     assert stub.closed == [True]
+
+
+def test_all_kfold_checkbox_reports_the_cross_validation_change() -> None:
+    """Toggling "All k-fold" emits kfold_changed so the train button is re-evaluated.
+
+    The checkbox overrides the k slider, so the number of cross-validation groups
+    the labels must support changes even though the slider value does not.
+    """
+    widget = MainControlWidget()
+    emitted = []
+    widget.kfold_changed.connect(lambda: emitted.append(widget.all_kfold))
+
+    widget._all_kfold_checkbox.setChecked(True)
+    assert not widget._kslider.isEnabled()
+
+    widget._all_kfold_checkbox.setChecked(False)
+    assert widget._kslider.isEnabled()
+
+    assert emitted == [True, False]

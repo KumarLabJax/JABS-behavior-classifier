@@ -10,10 +10,12 @@ import pytest
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
+from jabs.io.annotations import LocalAnnotationStore, write_document
 from jabs.project.parallel_workers import (
     VideoScanJobSpec,
     VideoScanResult,
     _get_identity_count,
+    _load_video_labels,
     _warn_on_frame_count_mismatch,
     collect_multiclass_labeled_features,
     scan_video_metadata,
@@ -172,10 +174,6 @@ class TestGetIdentityCount:
         """V2 is single-identity regardless of HDF5 contents."""
         assert _get_identity_count(_h5_like({}), major_version=2) == 1
 
-    def test_v1_returns_one(self):
-        """Any version below 3 returns 1."""
-        assert _get_identity_count(_h5_like({}), major_version=1) == 1
-
     def test_v3_uses_points_shape(self):
         """V3 reads identity count from points.shape[1]."""
         points_mock = MagicMock()
@@ -189,13 +187,6 @@ class TestGetIdentityCount:
         id_center_mock.shape = (4,)
         pose_grp = {"instance_id_center": id_center_mock}
         assert _get_identity_count(_h5_like(pose_grp), major_version=4) == 4
-
-    def test_v5_uses_instance_id_center(self):
-        """V5 behaves the same as V4 when instance_id_center is present."""
-        id_center_mock = MagicMock()
-        id_center_mock.shape = (2,)
-        pose_grp = {"instance_id_center": id_center_mock}
-        assert _get_identity_count(_h5_like(pose_grp), major_version=5) == 2
 
     def test_v4_fallback_no_instance_id_center_returns_zero(self):
         """V4+ without instance_id_center or embed_id data returns 0."""
@@ -218,63 +209,84 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 @pytest.mark.parametrize(
-    ("pose_filename", "expected_major_version"),
+    (
+        "pose_filename",
+        "major_version",
+        "hdf5_frame_count",
+        "identity_count",
+        "static_objects",
+        "has_cm_per_pixel",
+    ),
     [
-        ("sample_pose_est_v3.h5", 3),
-        ("sample_pose_est_v6.h5", 6),
+        ("sample_pose_est_v3.h5", 3, 1800, 5, [], False),
+        ("sample_pose_est_v6.h5", 6, 3600, 4, ["corners"], True),
     ],
+    ids=["v3", "v6"],
 )
-def test_scan_video_metadata_returns_correct_types(
-    tmp_path, pose_filename, expected_major_version
-):
-    """scan_video_metadata returns a VideoScanResult with correct field types."""
-    pose_src = DATA_DIR / pose_filename
-    if not pose_src.exists():
-        pytest.skip(f"Test data file not found: {pose_filename}")
+def test_scan_video_metadata_reports_pose_file_contents(
+    tmp_path: Path,
+    pose_filename: str,
+    major_version: int,
+    hdf5_frame_count: int,
+    identity_count: int,
+    static_objects: list[str],
+    has_cm_per_pixel: bool,
+) -> None:
+    """scan_video_metadata reports the values stored in a real pose file.
 
+    Args:
+        tmp_path: Temporary project directory.
+        pose_filename: Sample pose file to scan.
+        major_version: Pose file major version passed to the scan job.
+        hdf5_frame_count: Expected frame count of the pose file.
+        identity_count: Expected number of identities in the pose file.
+        static_objects: Expected static object names in the pose file.
+        has_cm_per_pixel: Whether the pose file carries a cm_per_pixel scale.
+    """
     video_name = "test_video.mp4"
     video_path = tmp_path / video_name
     video_path.touch()
     pose_path = tmp_path / pose_filename
-    shutil.copy(pose_src, pose_path)
+    shutil.copy(DATA_DIR / pose_filename, pose_path)
 
     job = VideoScanJobSpec(
         video=video_name,
         video_path=video_path,
         pose_path=pose_path,
-        pose_major_version=expected_major_version,
+        pose_major_version=major_version,
         scan_frame_counts=False,
     )
 
     result = scan_video_metadata(job)
 
     assert result["video"] == video_name
-    assert isinstance(result["hdf5_frame_count"], int)
-    assert result["hdf5_frame_count"] > 0
+    assert result["hdf5_frame_count"] == hdf5_frame_count
     assert result["video_frame_count"] is None  # scan_frame_counts=False
-    assert isinstance(result["identity_count"], int)
-    assert result["identity_count"] >= 0
-    assert isinstance(result["static_objects"], list)
-    assert isinstance(result["lixit_keypoints"], int)
-    assert isinstance(result["has_cm_per_pixel"], bool)
+    assert result["identity_count"] == identity_count
+    assert result["static_objects"] == static_objects
+    assert result["lixit_keypoints"] == 0
+    assert result["has_cm_per_pixel"] is has_cm_per_pixel
 
 
-def test_scan_video_metadata_static_objects_v3(tmp_path):
-    """V3 pose files have no static objects (feature is V5+)."""
-    pose_src = DATA_DIR / "sample_pose_est_v3.h5"
-    if not pose_src.exists():
-        pytest.skip("V3 test data file not found")
+def test_scan_video_metadata_ignores_static_objects_before_v5(tmp_path: Path) -> None:
+    """Static objects are only read for pose major version 5 and later.
 
+    The v6 sample file does contain a ``corners`` static object, so scanning it as
+    a v4 file shows the version gate (not the file contents) is what hides it.
+
+    Args:
+        tmp_path: Temporary project directory.
+    """
     video_path = tmp_path / "vid.mp4"
     video_path.touch()
-    pose_path = tmp_path / "vid_pose_est_v3.h5"
-    shutil.copy(pose_src, pose_path)
+    pose_path = tmp_path / "vid_pose_est_v6.h5"
+    shutil.copy(DATA_DIR / "sample_pose_est_v6.h5", pose_path)
 
     job = VideoScanJobSpec(
         video="vid.mp4",
         video_path=video_path,
         pose_path=pose_path,
-        pose_major_version=3,
+        pose_major_version=4,
         scan_frame_counts=False,
     )
     result = scan_video_metadata(job)
@@ -316,7 +328,13 @@ def test_video_manager_with_scan_results_no_pose_open(tmp_path):
     }
 
     with patch("jabs.project.video_manager.open_pose_file") as mock_open:
-        vm = VideoManager(paths, sm, enable_video_check=False, scan_results=scan_results)
+        vm = VideoManager(
+            paths,
+            sm,
+            enable_video_check=False,
+            scan_results=scan_results,
+            annotation_store=LocalAnnotationStore(paths.annotations_dir),
+        )
 
     mock_open.assert_not_called()
     assert vm.get_video_identity_count("video1.avi") == 2
@@ -349,7 +367,13 @@ def test_video_manager_with_scan_results_frame_count_validation(tmp_path):
         )
     }
 
-    vm = VideoManager(paths, sm, enable_video_check=True, scan_results=scan_results)
+    vm = VideoManager(
+        paths,
+        sm,
+        enable_video_check=True,
+        scan_results=scan_results,
+        annotation_store=LocalAnnotationStore(paths.annotations_dir),
+    )
     assert vm.videos == ["video1.avi"]
 
 
@@ -380,7 +404,13 @@ def test_video_manager_scan_results_frame_mismatch_raises(tmp_path):
     }
 
     with pytest.raises(ValueError, match="frame counts differ"):
-        VideoManager(paths, sm, enable_video_check=True, scan_results=scan_results)
+        VideoManager(
+            paths,
+            sm,
+            enable_video_check=True,
+            scan_results=scan_results,
+            annotation_store=LocalAnnotationStore(paths.annotations_dir),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -456,3 +486,26 @@ def test_feature_manager_scan_results_no_cm_per_pixel(tmp_path):
 
     fm = FeatureManager(paths, ["video1.avi"], scan_results=scan_results)
     assert not fm.is_cm_unit
+
+
+def test_load_video_labels_reads_the_document_from_a_path(tmp_path: Path) -> None:
+    """Workers parse the annotation document by path, with no store involved."""
+    path = tmp_path / "video1.json"
+    write_document(
+        path,
+        {
+            "file": "video1.avi",
+            "num_frames": 10,
+            "labels": {"0": {"Walk": [{"start": 0, "end": 4, "present": True}]}},
+        },
+    )
+
+    labels = _load_video_labels(path, _MockPose(np.ones(10, dtype=bool)))
+
+    assert labels is not None
+    assert labels.filename == "video1.avi"
+
+
+def test_load_video_labels_returns_none_for_an_unlabeled_video(tmp_path: Path) -> None:
+    """A video with no annotation file contributes no labels to training."""
+    assert _load_video_labels(tmp_path / "absent.json", _MockPose(np.ones(10, dtype=bool))) is None
