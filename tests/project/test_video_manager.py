@@ -261,3 +261,47 @@ def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
     assert manager.videos == ["video1.avi"]
     assert manager.video_path("video1.avi") == video_dir / "video1.avi"
     assert manager.get_cached_pose_path("video1.avi") == pose_dir / "video1_pose_est_v6.h5"
+
+
+def test_missing_pose_file_raises_and_names_the_video(tmp_path, caplog):
+    """A video with no pose file aborts construction and is named in the log.
+
+    ``VideoManager`` is the only place this check lives: ``Project`` defers to it
+    rather than repeating the scan, so the error and the per-video log line have
+    to come from here.
+    """
+    paths = ProjectPaths(base_path=tmp_path)
+    paths.create_directories(validate=False)
+
+    # video1 has a pose file, video2 does not
+    (paths.project_dir / "video1.avi").touch()
+    (paths.project_dir / "video2.avi").touch()
+    shutil.copy(
+        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5",
+        paths.project_dir / "video1_pose_est_v6.h5",
+    )
+
+    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="missing pose file"):
+        VideoManager(
+            paths,
+            SettingsManager(paths),
+            enable_video_check=False,
+            scan_results={},
+            annotation_store=LocalAnnotationStore(paths.annotations_dir),
+        )
+
+    assert "video2.avi missing pose file" in caplog.text
+    # the video that does have a pose file must not be reported as missing one
+    assert "video1.avi missing pose file" not in caplog.text
+
+
+def test_valid_pose_files_populate_the_path_cache(video_manager, project_paths):
+    """Validation doubles as cache warm-up, so later lookups need no second scan.
+
+    The cache is read directly rather than through ``get_cached_pose_path``,
+    which would fill it on its own and hide a validation that stopped warming it.
+    """
+    assert video_manager._pose_path_cache == {
+        "video1.avi": project_paths.project_dir / "video1_pose_est_v3.h5",
+        "video2.mp4": project_paths.project_dir / "video2_pose_est_v6.h5",
+    }
