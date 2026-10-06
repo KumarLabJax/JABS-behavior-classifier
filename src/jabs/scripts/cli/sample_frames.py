@@ -17,9 +17,30 @@ import numpy.random as npr
 from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ClassifierMode
 from jabs.project import Project
 
 logger = logging.getLogger(__name__)
+
+
+def sampleable_classes(project: Project) -> list[str]:
+    """Return the class names that frames can be sampled for in a project.
+
+    Binary projects expose the behaviors defined in the project. Multi-class projects
+    additionally expose the reserved None (background) class, which is labeled like a
+    behavior but is not one of the project's defined behaviors.
+
+    Args:
+        project: Loaded JABS project.
+
+    Returns:
+        Sorted behavior names, preceded by the None class for multi-class projects.
+    """
+    behaviors = sorted(project.settings["behavior"])
+    if project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+        return [MULTICLASS_NONE_BEHAVIOR, *behaviors]
+    return behaviors
 
 
 def collect_behavior_bouts(project: Project, behavior: str) -> list[tuple[str, int, int]]:
@@ -206,7 +227,10 @@ def write_frames(
     "--behavior",
     required=True,
     type=str,
-    help="Behavior label name to sample frames for.",
+    help=(
+        "Behavior label name to sample frames for.  In multi-class projects, 'None' "
+        "samples the None (background) class."
+    ),
 )
 @click.option(
     "--num-frames",
@@ -248,6 +272,9 @@ def sample_frames_command(
     --frames-per-bout to sample a fixed count per individual bout.
     Exactly one of these options must be provided.
 
+    In multi-class projects, BEHAVIOR may also be "None" to sample frames labeled
+    as the None (background) class.
+
     Output filenames follow the JABS GUI "Export Frame" convention:
     {video_stem}_frame{frame_number:06d}.png
 
@@ -263,6 +290,9 @@ def sample_frames_command(
         # Write frames to a specific directory
         jabs-cli sample-frames --behavior walking --num-frames 100 \\
             --out-dir /data/frames /path/to/project
+
+        # Sample None (background) frames from a multi-class project
+        jabs-cli sample-frames --behavior None --num-frames 200 /path/to/project
     """
     # Validate mutual exclusion.
     if num_frames is None and frames_per_bout is None:
@@ -281,8 +311,9 @@ def sample_frames_command(
     with console.status("Loading project...", spinner="dots"):
         project = Project(project_dir, enable_session_tracker=False)
 
-    if behavior not in project.settings["behavior"]:
-        available = ", ".join(sorted(project.settings["behavior"])) or "(none)"
+    available_classes = sampleable_classes(project)
+    if behavior not in available_classes:
+        available = ", ".join(available_classes) or "(none)"
         raise click.ClickException(
             f"Behavior '{behavior}' not found in project.  Available behaviors: {available}"
         )

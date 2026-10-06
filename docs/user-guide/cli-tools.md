@@ -361,7 +361,7 @@ jabs-cli sample-frames --behavior <label> \
 ```
 
 - `<project_dir>`: Path to the JABS project directory.
-- `--behavior`: Behavior label name to sample frames for (required). Must match a behavior defined in the project.
+- `--behavior`: Behavior label name to sample frames for (required). Must match a behavior defined in the project. In multi-class projects, `None` samples frames labeled as the None (background) class.
 - `--num-frames N`: Sample a total of N frames distributed uniformly at random across all labeled bouts in the project. Mutually exclusive with `--frames-per-bout`.
 - `--frames-per-bout N`: Sample up to N frames from each individual labeled bout. If a bout contains fewer than N frames, all frames in that bout are used. Mutually exclusive with `--num-frames`.
 - `--out-dir`: Directory to write PNG files. Defaults to the current working directory. Created (including intermediate directories) if it does not exist.
@@ -391,6 +391,9 @@ jabs-cli sample-frames --behavior walking --frames-per-bout 10 /path/to/project
 # Write frames to a specific output directory
 jabs-cli sample-frames --behavior walking --num-frames 100 \
     --out-dir /data/frames /path/to/project
+
+# Sample None (background) frames from a multi-class project
+jabs-cli sample-frames --behavior None --num-frames 200 /path/to/project
 ```
 
 ## jabs-cli sample-pose-intervals
