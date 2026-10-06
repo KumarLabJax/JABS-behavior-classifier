@@ -1,6 +1,6 @@
 [project]
 name = "jabs-io"
-version = "0.47.0"
+version = "0.47.1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
@@ -50,6 +50,7 @@ Issues = "https://github.com/KumarLabJax/JABS-behavior-classifier/issues"
 [project.optional-dependencies]
 nwb = [
     "ndx-pose>=0.2.2",
+    "ndx-jabs>=0.1.0",  # ContourSeries (segmentation contours)
     "ndx-multisubjects>=0.1.1",
     "pynwb>=3.1.3",
 ]

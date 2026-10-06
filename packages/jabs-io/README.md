@@ -25,7 +25,7 @@ save(data_instance, 'frames.parquet')
 
 | Extra     | Installs            | Enables                   |
 |-----------|---------------------|---------------------------|
-| `nwb`     | `pynwb`, `ndx-pose` | NWB pose file read/write  |
+| `nwb`     | `pynwb`, `ndx-pose`, `ndx-multisubjects`, `ndx-jabs` | NWB pose file read/write  |
 | `parquet` | `pyarrow`           | Parquet feature cache I/O |
 
 HDF5 is not an extra: `h5py` is a required dependency, since pose files, prediction
@@ -73,7 +73,3 @@ from jabs.io.registry import register_adapter
 class DataclassJSONAdapter(JSONAdapter):
     ...
 ```
-
-## Future Work
-
-- **NWB: segmentation data roundtrip** — `PoseData.segmentation_data` is not currently stored by the NWB adapter. If possible, we might want to consider writing it as an additional `TimeSeries` in the behavior processing module (similar to `jabs_identity_mask`) so it survives a write/read roundtrip.

@@ -758,7 +758,8 @@ class MainControlWidget(QtWidgets.QWidget):
         self.window_size_changed.emit(self._window_size.currentData())
 
     def _all_kfold_changed(self):
-        if self._all_kfold_checkbox.isChecked():
-            self._kslider.setEnabled(False)
-        else:
-            self._kslider.setEnabled(True)
+        """Toggle the k-fold slider and re-signal the cross-validation setting."""
+        self._kslider.setEnabled(not self._all_kfold_checkbox.isChecked())
+        # the checkbox overrides the slider value, so the number of
+        # cross-validation groups the labels must support changed too
+        self.kfold_changed.emit()

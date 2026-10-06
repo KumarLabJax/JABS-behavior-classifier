@@ -1,5 +1,7 @@
 """Unit tests for the BaseFeatureGroup class."""
 
+import pytest
+
 from jabs.feature_extraction.base_features import (
     Angles,
     AngularVelocity,
@@ -10,14 +12,7 @@ from jabs.feature_extraction.base_features import (
     PointSpeeds,
     PointVelocityDirs,
 )
-
-
-def test_base_feature_group_instantiation(pose_est_v5):
-    """Test that BaseFeatureGroup can be instantiated."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-    feature_group = BaseFeatureGroup(pose_est_v5, pixel_scale)
-
-    assert feature_group is not None
+from jabs.pose_estimation import PoseEstimation
 
 
 def test_base_feature_group_name():
@@ -40,62 +35,36 @@ def test_base_feature_group_features_dict():
     assert BaseFeatureGroup._features == expected_features
 
 
-def test_base_feature_group_init_feature_mods(pose_est_v5):
-    """Test that _init_feature_mods initializes feature modules correctly."""
-    pixel_scale = pose_est_v5.cm_per_pixel
+@pytest.mark.parametrize(
+    "enabled_features",
+    [list(BaseFeatureGroup._features), ["angles", "point_speeds"], []],
+    ids=["all-features", "subset", "none"],
+)
+def test_base_feature_group_init_feature_mods(
+    pose_est_v5: PoseEstimation, enabled_features: list[str]
+) -> None:
+    """Test that _init_feature_mods initializes exactly the enabled feature modules.
 
-    # Enable all features
-    feature_group = BaseFeatureGroup(pose_est_v5, pixel_scale)
-    feature_group._enabled_features = list(BaseFeatureGroup._features.keys())
-
-    # Initialize feature modules for identity 0
-    feature_mods = feature_group._init_feature_mods(identity=0)
-
-    # Should have one module per enabled feature
-    assert len(feature_mods) == len(BaseFeatureGroup._features)
-
-    # Check that each feature module is an instance of the correct class
-    for feature_name, feature_class in BaseFeatureGroup._features.items():
-        assert feature_name in feature_mods
-        assert isinstance(feature_mods[feature_name], feature_class)
-
-
-def test_base_feature_group_init_feature_mods_subset(pose_est_v5):
-    """Test that _init_feature_mods only initializes enabled features."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-
-    # Enable only a subset of features
-    enabled_features = ["angles", "point_speeds"]
-    feature_group = BaseFeatureGroup(pose_est_v5, pixel_scale)
+    Args:
+        pose_est_v5: Pose estimation fixture.
+        enabled_features: Names of the features enabled on the group.
+    """
+    feature_group = BaseFeatureGroup(pose_est_v5, pose_est_v5.cm_per_pixel)
     feature_group._enabled_features = enabled_features
 
     # Initialize feature modules for identity 0
     feature_mods = feature_group._init_feature_mods(identity=0)
 
-    # Should only have modules for enabled features
+    # Should have one module per enabled feature, and nothing else
     assert len(feature_mods) == len(enabled_features)
     assert set(feature_mods.keys()) == set(enabled_features)
+    if not enabled_features:
+        assert feature_mods == {}
 
     # Check that each feature module is an instance of the correct class
     for feature_name in enabled_features:
         assert feature_name in feature_mods
         assert isinstance(feature_mods[feature_name], BaseFeatureGroup._features[feature_name])
-
-
-def test_base_feature_group_init_feature_mods_empty(pose_est_v5):
-    """Test that _init_feature_mods handles empty enabled features list."""
-    pixel_scale = pose_est_v5.cm_per_pixel
-
-    # Enable no features
-    feature_group = BaseFeatureGroup(pose_est_v5, pixel_scale)
-    feature_group._enabled_features = []
-
-    # Initialize feature modules for identity 0
-    feature_mods = feature_group._init_feature_mods(identity=0)
-
-    # Should have no modules
-    assert len(feature_mods) == 0
-    assert feature_mods == {}
 
 
 def test_base_feature_group_all_features_have_correct_interface(pose_est_v5):

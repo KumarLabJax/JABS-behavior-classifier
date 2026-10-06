@@ -1,5 +1,6 @@
 """Tests for PoseNWBAdapter."""
 
+import dataclasses
 import datetime
 import json
 import logging
@@ -16,16 +17,24 @@ import pytest
 # these.
 pytest.importorskip("pynwb")
 pytest.importorskip("ndx_pose")
+pytest.importorskip("ndx_jabs")
 pytest.importorskip("ndx_multisubjects")
 
+from ndx_jabs import ContourSeries
 from ndx_multisubjects import NdxMultiSubjectsNWBFile
 from ndx_pose import PoseEstimation
 from pynwb import NWBHDF5IO
 
 from jabs.core.abstract.pose_est import PoseEstimation as JABSPoseEst
 from jabs.core.enums import StorageFormat
-from jabs.core.types import DynamicObjectData, PoseData
-from jabs.io.internal.pose.nwb import PoseNWBAdapter
+from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
+from jabs.io.internal.pose.nwb import (
+    PoseNWBAdapter,
+    _merge_segmentation,
+    _SegmentationMerger,
+    _stack_identity_datasets,
+    sanitize_identity_name,
+)
 from jabs.io.registry import get_adapter
 
 
@@ -33,6 +42,36 @@ from jabs.io.registry import get_adapter
 def adapter():
     """Return a PoseNWBAdapter instance."""
     return PoseNWBAdapter()
+
+
+def _make_segmentation_data(num_identities, num_frames, num_contours, num_vertices):
+    """Build a SegmentationData whose contours are padded the way a pose file pads them.
+
+    Every frame gets one full-length external contour. Every third frame also gets a
+    shorter internal contour (a hole), so the fixture covers both an unused contour slot
+    and a partially used one.
+    """
+    rng = np.random.default_rng(7)
+    contours = np.full(
+        (num_identities, num_frames, num_contours, num_vertices, 2), -1, dtype=np.int32
+    )
+    vertex_counts = np.zeros((num_identities, num_frames, num_contours), dtype=np.uint32)
+    is_external = np.zeros((num_identities, num_frames, num_contours), dtype=bool)
+
+    for i in range(num_identities):
+        for f in range(num_frames):
+            contours[i, f, 0] = rng.integers(0, 500, size=(num_vertices, 2))
+            vertex_counts[i, f, 0] = num_vertices
+            is_external[i, f, 0] = True
+            if num_contours > 1 and f % 3 == 0:
+                n = max(1, num_vertices // 2)
+                contours[i, f, 1, :n] = rng.integers(0, 500, size=(n, 2))
+                vertex_counts[i, f, 1] = n
+                is_external[i, f, 1] = False
+
+    return SegmentationData(
+        contours=contours, vertex_counts=vertex_counts, is_external=is_external
+    )
 
 
 def _make_pose_data(
@@ -46,6 +85,9 @@ def _make_pose_data(
     with_metadata=True,
     with_subjects=False,
     with_dynamic_objects=False,
+    with_segmentation=False,
+    num_contours=3,
+    num_vertices=7,
     edges=None,
 ):
     body_parts = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
@@ -81,6 +123,12 @@ def _make_pose_data(
     else:
         dynamic_objects = {}
 
+    segmentation_data = (
+        _make_segmentation_data(num_identities, num_frames, num_contours, num_vertices)
+        if with_segmentation
+        else None
+    )
+
     return PoseData(
         points=points,
         point_mask=point_mask,
@@ -90,6 +138,7 @@ def _make_pose_data(
         fps=fps,
         cm_per_pixel=cm_per_pixel,
         bounding_boxes=bounding_boxes,
+        segmentation_data=segmentation_data,
         static_objects=static_objects,
         dynamic_objects=dynamic_objects,
         external_ids=external_ids,
@@ -126,6 +175,17 @@ def _assert_pose_data_equal(a: PoseData, b: PoseData):
         assert b.bounding_boxes is None
     else:
         np.testing.assert_allclose(a.bounding_boxes, b.bounding_boxes, atol=1e-10)
+    if a.segmentation_data is None:
+        assert b.segmentation_data is None
+    else:
+        assert b.segmentation_data is not None
+        np.testing.assert_array_equal(a.segmentation_data.contours, b.segmentation_data.contours)
+        np.testing.assert_array_equal(
+            a.segmentation_data.vertex_counts, b.segmentation_data.vertex_counts
+        )
+        np.testing.assert_array_equal(
+            a.segmentation_data.is_external, b.segmentation_data.is_external
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -710,39 +770,39 @@ def test_can_handle():
 
 def test_sanitize_identity_name_alphanumeric():
     """Alphanumeric names and underscores/hyphens pass through unchanged."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse_A-1") == "mouse_A-1"
+    assert sanitize_identity_name("mouse_A-1") == "mouse_A-1"
 
 
 def test_sanitize_identity_name_slash():
     """Forward slash is replaced with underscore."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse/A") == "mouse_A"
+    assert sanitize_identity_name("mouse/A") == "mouse_A"
 
 
 def test_sanitize_identity_name_space():
     """Spaces within a name are replaced with underscores."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse A") == "mouse_A"
+    assert sanitize_identity_name("mouse A") == "mouse_A"
 
 
 def test_sanitize_identity_name_strips_whitespace():
     """Leading and trailing whitespace is stripped before substitution."""
-    assert PoseNWBAdapter._sanitize_identity_name("  mouse  ") == "mouse"
+    assert sanitize_identity_name("  mouse  ") == "mouse"
 
 
 def test_sanitize_identity_name_special_chars():
     """Dots, colons, and other special characters are replaced with underscores."""
-    assert PoseNWBAdapter._sanitize_identity_name("mouse.A:1") == "mouse_A_1"
+    assert sanitize_identity_name("mouse.A:1") == "mouse_A_1"
 
 
 def test_sanitize_identity_name_empty_raises():
     """Empty string raises ValueError."""
     with pytest.raises(ValueError, match="empty"):
-        PoseNWBAdapter._sanitize_identity_name("")
+        sanitize_identity_name("")
 
 
 def test_sanitize_identity_name_whitespace_only_raises():
     """Whitespace-only string raises ValueError after stripping."""
     with pytest.raises(ValueError, match="empty"):
-        PoseNWBAdapter._sanitize_identity_name("   ")
+        sanitize_identity_name("   ")
 
 
 def test_write_sanitizes_external_ids(tmp_path, adapter):
@@ -1076,3 +1136,531 @@ def test_multisubject_isolated_from_per_identity_siblings(tmp_path, adapter):
     # Reading a per-identity sibling auto-merges only the per-identity siblings;
     # the multisubject session.nwb is excluded by the glob/split_subject_count filter.
     _assert_pose_data_equal(data, adapter.read(tmp_path / "session_mouse_a.nwb"))
+
+
+@pytest.mark.parametrize(
+    ("num_frames", "fps", "expected_end"),
+    [(10, 30, 9 / 30), (300, 30, 299 / 30), (1, 30, 1 / 30)],
+    ids=["short", "longer", "single_frame"],
+)
+def test_static_object_timestamps_span_first_and_last_frame(
+    tmp_path, adapter, num_frames, fps, expected_end
+):
+    """Static object timestamps end on the last frame, not one frame period past it.
+
+    Every other series is written with rate=fps and an implicit starting_time of 0, so
+    frame k sits at k / fps and the final frame at (num_frames - 1) / fps. A single-frame
+    session is clamped to one frame period so the two timestamps stay strictly ascending.
+    """
+    path = tmp_path / "pose_static_timestamps.nwb"
+    data = _make_pose_data(num_frames=num_frames, fps=fps, with_static_objects=True)
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        nwb = io.read()
+        series = nwb.processing["behavior"].data_interfaces["lixit"].pose_estimation_series
+        timestamps = np.asarray(series["lixit_0"].timestamps)
+
+        np.testing.assert_allclose(timestamps, [0.0, expected_end])
+        # nwbinspector requires strictly ascending timestamps
+        assert np.all(np.diff(timestamps) > 0)
+        # the end timestamp must stay within the session
+        assert timestamps[-1] <= (num_frames - 1) / fps or num_frames == 1
+
+
+def test_bounding_box_description_documents_fill_value_ambiguity(tmp_path, adapter):
+    """The bounding box description must not promise a single missing-value sentinel.
+
+    Missing boxes are usually NaN: PoseEstimationV8 initializes its regrouped array with
+    NaN and fills only slots where id_mask marks the instance valid. That is not
+    guaranteed, though - convert_parquet rewrites every NaN coordinate to -1, including
+    rows it marks valid in id_mask, so -1 does reach this writer, and an integer-typed
+    poseest/bbox dataset cannot hold NaN at all (the NaN fill casts to 0). The
+    description names the alternatives instead of committing to NaN.
+    """
+    path = tmp_path / "pose_bbox_description.nwb"
+    data = _make_pose_data(num_identities=1, with_bounding_boxes=True)
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        nwb = io.read()
+        behavior = nwb.processing["behavior"]
+        bbox_keys = [k for k in behavior.data_interfaces if k.startswith("jabs_bounding_boxes")]
+        assert bbox_keys, "expected a bounding box TimeSeries"
+
+        description = behavior.data_interfaces[bbox_keys[0]].description
+        assert "NaN" in description
+        assert "-1" in description
+
+
+def test_roundtrip_segmentation_multisubject(tmp_path, adapter):
+    """Segmentation contours survive a multisubject write/read unchanged."""
+    path = tmp_path / "pose_seg_multi.nwb"
+    data = _make_pose_data(num_identities=3, num_frames=12, with_segmentation=True)
+
+    adapter.write(data, path, multisubject=True)
+    result = adapter.read(path)
+
+    _assert_pose_data_equal(data, result)
+    assert result.segmentation_data.contours.dtype == data.segmentation_data.contours.dtype
+
+
+def test_roundtrip_segmentation_per_identity(tmp_path, adapter):
+    """Segmentation contours survive a per-identity write and the sibling-file merge."""
+    path = tmp_path / "pose_seg.nwb"
+    data = _make_pose_data(
+        num_identities=3, num_frames=12, with_segmentation=True, external_ids=["a", "b", "c"]
+    )
+
+    adapter.write(data, path)
+    result = adapter.read(tmp_path / "pose_seg_a.nwb")
+
+    _assert_pose_data_equal(data, result)
+
+
+def test_narrow_contour_dtype_survives_the_roundtrip(tmp_path, adapter):
+    """A pose file's int16 contours are stored and read back as int16, not widened.
+
+    The contour dataset dominates the file and the process's memory, so neither the
+    writer nor the reader may quietly double its width.
+    """
+    path = tmp_path / "pose_seg_int16.nwb"
+    data = _make_pose_data(num_identities=2, num_frames=8, with_segmentation=True)
+    seg = data.segmentation_data
+    data = dataclasses.replace(
+        data,
+        segmentation_data=SegmentationData(
+            contours=seg.contours.astype(np.int16),
+            vertex_counts=seg.vertex_counts,
+            is_external=seg.is_external,
+        ),
+    )
+
+    adapter.write(data, path, multisubject=True)
+    with h5py.File(path, "r") as h5:
+        assert (
+            h5["processing/behavior/jabs_segmentation_contours_subject_1/data"].dtype == np.int16
+        )
+
+    result = adapter.read(path)
+    _assert_pose_data_equal(data, result)
+    assert result.segmentation_data.contours.dtype == np.int16
+
+
+def test_segmentation_absent_roundtrips_as_none(tmp_path, adapter):
+    """A pose file without segmentation reads back with segmentation_data None."""
+    path = tmp_path / "pose_no_seg.nwb"
+    data = _make_pose_data(num_identities=2, with_segmentation=False)
+    assert data.segmentation_data is None
+
+    adapter.write(data, path, multisubject=True)
+    result = adapter.read(path)
+
+    assert result.segmentation_data is None
+
+
+def test_contour_series_stored_beside_pose_estimation(tmp_path, adapter):
+    """Contours are one ContourSeries per identity in the behavior module, beside its keypoints."""
+    path = tmp_path / "pose_seg_layout.nwb"
+    data = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["m1", "m2"]
+    )
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        nwb = io.read()
+        for i, name in enumerate(["m1", "m2"]):
+            behavior = nwb.processing["behavior"]
+            pe = behavior.data_interfaces[name]
+            assert isinstance(pe, PoseEstimation)
+            series = behavior.data_interfaces[f"jabs_segmentation_contours_{name}"]
+            assert isinstance(series, ContourSeries)
+
+            np.testing.assert_array_equal(series.data[:], data.segmentation_data.contours[i])
+            np.testing.assert_array_equal(
+                series.vertex_count[:], data.segmentation_data.vertex_counts[i]
+            )
+            np.testing.assert_array_equal(
+                series.is_external[:], data.segmentation_data.is_external[i]
+            )
+            assert series.unit == "pixels"
+            assert series.rate == float(data.fps)
+            # the contours are pixel coordinates, so they must carry the same frame of
+            # reference as the keypoints they sit beside
+            keypoints = next(iter(pe.pose_estimation_series.values()))
+            assert series.reference_frame == keypoints.reference_frame
+            # the contours belong to this identity, so the description must say which
+            assert name in series.description
+
+
+def test_segmentation_contours_are_compressed(tmp_path, adapter):
+    """The contour dataset is chunked and gzipped: it is mostly padding and dominates the file."""
+    path = tmp_path / "pose_seg_compressed.nwb"
+    data = _make_pose_data(
+        num_identities=1, num_frames=200, with_segmentation=True, num_vertices=64
+    )
+
+    adapter.write(data, path, multisubject=True)
+
+    with h5py.File(path, "r") as h5:
+        dset = h5["processing/behavior/jabs_segmentation_contours_subject_1/data"]
+        assert dset.compression == "gzip"
+        assert dset.chunks is not None
+        # the chunk covers whole frames so a frame-range read need not decompress it all
+        assert dset.chunks[1:] == dset.shape[1:]
+
+
+def test_has_segmentation_recorded_in_jabs_metadata(tmp_path, adapter):
+    """jabs_metadata records whether segmentation was written, so absence is unambiguous."""
+    with_seg = tmp_path / "with_seg.nwb"
+    without_seg = tmp_path / "without_seg.nwb"
+    adapter.write(
+        _make_pose_data(num_identities=1, with_segmentation=True), with_seg, multisubject=True
+    )
+    adapter.write(
+        _make_pose_data(num_identities=1, with_segmentation=False), without_seg, multisubject=True
+    )
+
+    for path, expected in ((with_seg, True), (without_seg, False)):
+        with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+            meta = json.loads(str(io.read().scratch["jabs_metadata"].data))
+        assert meta["has_segmentation"] is expected
+
+
+def test_read_tolerates_missing_contours_despite_metadata_flag(tmp_path, adapter, caplog):
+    """A file claiming segmentation but holding none reads without it, and warns.
+
+    The flag and the contours are written together, so they can only disagree in a file
+    that was edited afterwards. Dropping the contours beats refusing to read the pose.
+    """
+    path = tmp_path / "pose_seg_stripped.nwb"
+    data = _make_pose_data(num_identities=1, num_frames=6, with_segmentation=True)
+    adapter.write(data, path, multisubject=True)
+
+    with h5py.File(path, "r+") as h5:
+        del h5["processing/behavior/jabs_segmentation_contours_subject_1"]
+
+    with caplog.at_level(logging.WARNING):
+        result = adapter.read(path)
+
+    assert result.segmentation_data is None
+    assert "claims segmentation" in caplog.text
+    assert "one or more identities have no ContourSeries" in caplog.text
+
+
+def test_read_tolerates_a_partial_set_of_contour_series(tmp_path, adapter, caplog):
+    """If only some identities lost their contours the file reads without any, and warns.
+
+    Segmentation is all-or-nothing in PoseData, so a partial set cannot be represented.
+    """
+    path = tmp_path / "pose_seg_partial.nwb"
+    data = _make_pose_data(num_identities=2, num_frames=6, with_segmentation=True)
+    adapter.write(data, path, multisubject=True)
+
+    with h5py.File(path, "r+") as h5:
+        del h5["processing/behavior/jabs_segmentation_contours_subject_2"]
+
+    with caplog.at_level(logging.WARNING):
+        result = adapter.read(path)
+
+    assert result.segmentation_data is None
+    assert "one or more identities have no ContourSeries" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Name collisions in the behavior module
+# ---------------------------------------------------------------------------
+
+
+def test_identity_named_like_a_contour_series_is_rejected(tmp_path, adapter):
+    """An identity named after another identity's contour series would overwrite it."""
+    path = tmp_path / "pose_collision.nwb"
+    data = _make_pose_data(
+        num_identities=2,
+        with_segmentation=True,
+        external_ids=["mouse", "jabs_segmentation_contours_mouse"],
+    )
+
+    with pytest.raises(ValueError, match="more than once"):
+        adapter.write(data, path, multisubject=True)
+    assert not path.exists()
+
+
+def test_identity_named_like_the_identity_mask_is_rejected(tmp_path, adapter):
+    """The identity mask has a fixed name, so an identity cannot be called that."""
+    path = tmp_path / "pose_collision.nwb"
+    data = _make_pose_data(num_identities=2, external_ids=["jabs_identity_mask", "other"])
+
+    with pytest.raises(ValueError, match="more than once"):
+        adapter.write(data, path, multisubject=True)
+
+
+def test_name_collision_is_caught_before_any_per_identity_file_is_written(tmp_path, adapter):
+    """A bad name in per-identity mode fails up front instead of leaving partial output."""
+    path = tmp_path / "pose_collision.nwb"
+    data = _make_pose_data(num_identities=2, external_ids=["ok", "jabs_identity_mask"])
+
+    with pytest.raises(ValueError, match="more than once"):
+        adapter.write(data, path)
+    assert list(tmp_path.glob("*.nwb")) == []
+
+
+def test_contour_like_identity_names_are_fine_when_nothing_clashes(tmp_path, adapter):
+    """Only real clashes are rejected: in per-identity mode the two names never share a file."""
+    path = tmp_path / "pose_no_clash.nwb"
+    data = _make_pose_data(
+        num_identities=2,
+        num_frames=6,
+        with_segmentation=True,
+        external_ids=["mouse", "jabs_segmentation_contours_mouse"],
+    )
+
+    adapter.write(data, path)
+
+    assert len(list(tmp_path.glob("*.nwb"))) == 2
+
+
+def _one_identity_segmentation(num_frames, num_contours, num_vertices, fill):
+    """Build a single-identity SegmentationData with every slot fully used."""
+    contours = np.full((1, num_frames, num_contours, num_vertices, 2), fill, dtype=np.int32)
+    return SegmentationData(
+        contours=contours,
+        vertex_counts=np.full((1, num_frames, num_contours), num_vertices, dtype=np.uint32),
+        is_external=np.ones((1, num_frames, num_contours), dtype=bool),
+    )
+
+
+def test_merge_segmentation_pads_differing_capacities():
+    """Identity files that pad to different capacities merge to the largest of each.
+
+    JABS-pose sizes a pose file's contour array to the maxima observed across that whole
+    video, so two files can legitimately disagree on how many contour slots and vertices
+    they carry. The merge must not assume they line up.
+    """
+    small = _one_identity_segmentation(num_frames=4, num_contours=1, num_vertices=3, fill=7)
+    large = _one_identity_segmentation(num_frames=4, num_contours=3, num_vertices=5, fill=9)
+
+    merged = _merge_segmentation([small, large])
+
+    assert merged.contours.shape == (2, 4, 3, 5, 2)
+    # the smaller part keeps its real vertices and is padded out with the -1 sentinel
+    np.testing.assert_array_equal(merged.contours[0, :, 0, :3, :], small.contours[0, :, 0, :, :])
+    assert (merged.contours[0, :, 0, 3:, :] == -1).all()
+    assert (merged.contours[0, :, 1:, :, :] == -1).all()
+    # the larger part is untouched
+    np.testing.assert_array_equal(merged.contours[1], large.contours[0])
+    # vertex_counts stays authoritative: the slots added by padding read as unused
+    np.testing.assert_array_equal(merged.vertex_counts[0], [[3, 0, 0]] * 4)
+    np.testing.assert_array_equal(merged.vertex_counts[1], [[5, 5, 5]] * 4)
+    assert not merged.is_external[0, :, 1:].any()
+
+
+def test_merge_segmentation_identical_capacities_is_a_plain_concatenate():
+    """The common case, where every file agrees, must not be perturbed by the padding."""
+    a = _one_identity_segmentation(num_frames=3, num_contours=2, num_vertices=4, fill=1)
+    b = _one_identity_segmentation(num_frames=3, num_contours=2, num_vertices=4, fill=2)
+
+    merged = _merge_segmentation([a, b])
+
+    assert merged.contours.shape == (2, 3, 2, 4, 2)
+    np.testing.assert_array_equal(merged.contours[0], a.contours[0])
+    np.testing.assert_array_equal(merged.contours[1], b.contours[0])
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [[], [None], [_one_identity_segmentation(2, 1, 2, 1), None]],
+    ids=["empty", "all_missing", "partial"],
+)
+def test_merge_segmentation_returns_none_when_incomplete(parts):
+    """Segmentation is all-or-nothing in PoseData, so a partial set reads as absent."""
+    assert _merge_segmentation(parts) is None
+
+
+def test_segmentation_merger_places_identities_by_slot_not_arrival_order():
+    """Identities land in the slot they are given, whatever order they are read in."""
+    a = _one_identity_segmentation(num_frames=2, num_contours=2, num_vertices=3, fill=1)
+    b = _one_identity_segmentation(num_frames=2, num_contours=2, num_vertices=3, fill=2)
+
+    merger = _SegmentationMerger(2)
+    merger.add(1, b)
+    merger.add(0, a)
+    merged = merger.result()
+
+    np.testing.assert_array_equal(merged.contours[0], a.contours[0])
+    np.testing.assert_array_equal(merged.contours[1], b.contours[0])
+
+
+def test_segmentation_merger_grows_when_a_later_identity_is_larger():
+    """Growing the destination keeps what was already written and pads the new space."""
+    small = _one_identity_segmentation(num_frames=2, num_contours=1, num_vertices=2, fill=4)
+    large = _one_identity_segmentation(num_frames=2, num_contours=3, num_vertices=5, fill=6)
+
+    merger = _SegmentationMerger(2)
+    merger.add(0, small)
+    merger.add(1, large)
+    merged = merger.result()
+
+    assert merged.contours.shape == (2, 2, 3, 5, 2)
+    np.testing.assert_array_equal(merged.contours[0, :, 0, :2], small.contours[0, :, 0])
+    assert (merged.contours[0, :, 0, 2:] == -1).all()
+    np.testing.assert_array_equal(merged.vertex_counts[0], [[2, 0, 0]] * 2)
+    np.testing.assert_array_equal(merged.contours[1], large.contours[0])
+
+
+def test_segmentation_merger_rejects_mismatched_frame_counts():
+    """Identity files describing different numbers of frames cannot be merged."""
+    merger = _SegmentationMerger(2)
+    merger.add(0, _one_identity_segmentation(3, 1, 2, 1))
+    with pytest.raises(ValueError, match="frame count mismatch"):
+        merger.add(1, _one_identity_segmentation(4, 1, 2, 1))
+
+
+def test_per_identity_read_reads_each_file_once(tmp_path, adapter, monkeypatch):
+    """Reading from one sibling reuses that read rather than opening the file again."""
+    path = tmp_path / "pose_once.nwb"
+    data = _make_pose_data(
+        num_identities=3, num_frames=12, with_segmentation=True, external_ids=["a", "b", "c"]
+    )
+    adapter.write(data, path)
+
+    reads: list[object] = []
+    original = PoseNWBAdapter._read_single
+
+    def counting(self, p):
+        reads.append(p)
+        return original(self, p)
+
+    monkeypatch.setattr(PoseNWBAdapter, "_read_single", counting)
+    result = adapter.read(tmp_path / "pose_once_a.nwb")
+
+    assert len(reads) == 3
+    assert len(set(reads)) == 3
+    _assert_pose_data_equal(data, result)
+
+
+@pytest.mark.parametrize("slot", [-1, 2], ids=["negative", "too_large"])
+def test_segmentation_merger_rejects_out_of_range_slot(slot):
+    """A slot outside the identity axis is an error, not a silent drop or wrap."""
+    with pytest.raises(ValueError, match="outside"):
+        _SegmentationMerger(2).add(slot, _one_identity_segmentation(2, 1, 2, 1))
+
+
+def test_segmentation_merger_rejects_duplicate_slot():
+    """Two files claiming the same identity would leave another slot silently empty."""
+    merger = _SegmentationMerger(2)
+    merger.add(0, _one_identity_segmentation(2, 1, 2, 1))
+    with pytest.raises(ValueError, match="duplicate"):
+        merger.add(0, _one_identity_segmentation(2, 1, 2, 2))
+
+
+def test_stack_identity_datasets_single_dataset_is_a_view():
+    """One identity gets its axis added in place instead of being copied."""
+    source = np.arange(12, dtype=np.int16).reshape(3, 4)
+
+    stacked = _stack_identity_datasets([source])
+
+    assert stacked.shape == (1, 3, 4)
+    assert np.shares_memory(stacked, source)
+
+
+def test_stack_identity_datasets_single_dataset_converts_dtype():
+    """An explicit dtype still applies when there is only one identity."""
+    stacked = _stack_identity_datasets([np.array([0, 1, 2])], dtype=bool)
+
+    assert stacked.dtype == np.bool_
+    assert stacked.shape == (1, 3)
+    np.testing.assert_array_equal(stacked[0], [False, True, True])
+
+
+def test_stack_identity_datasets_stacks_several_in_order():
+    """Several identities are stacked identity-first, in the order given."""
+    a, b = np.zeros((2, 2)), np.ones((2, 2))
+
+    np.testing.assert_array_equal(_stack_identity_datasets([a, b]), np.stack([a, b]))
+
+
+def test_per_identity_read_ignores_stale_sibling_from_another_session(tmp_path, adapter):
+    """A glob match from a different write session is skipped, not merged."""
+    path = tmp_path / "pose_stale.nwb"
+    data = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(data, path)
+
+    # a leftover from a run with a different identity count matches the glob but not the set
+    stale_data = _make_pose_data(
+        num_identities=3, num_frames=6, with_segmentation=True, external_ids=["x", "y", "z"]
+    )
+    adapter.write(stale_data, tmp_path / "pose_stale_other.nwb")
+    for stale in tmp_path.glob("pose_stale_other_*.nwb"):
+        stale.rename(tmp_path / stale.name.replace("pose_stale_other_", "pose_stale_zz_"))
+
+    result = adapter.read(tmp_path / "pose_stale_a.nwb")
+
+    _assert_pose_data_equal(data, result)
+
+
+def test_per_identity_read_ignores_stale_siblings_with_the_same_identity_count(tmp_path, adapter):
+    """Stale files from an earlier export at the same stem are skipped by write-set id.
+
+    The identity count matches, so the count alone cannot tell the two sets apart.
+    """
+    path = tmp_path / "pose_reexport.nwb"
+    old = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["x", "y"]
+    )
+    adapter.write(old, path)
+    new = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(new, path)
+
+    assert len(list(tmp_path.glob("pose_reexport_*.nwb"))) == 4
+
+    result = adapter.read(tmp_path / "pose_reexport_a.nwb")
+
+    _assert_pose_data_equal(new, result)
+
+
+def test_per_identity_read_skips_an_unreadable_stale_candidate(tmp_path, adapter):
+    """A glob match that is not a readable NWB file is ignored, not fatal."""
+    path = tmp_path / "pose_trunc.nwb"
+    data = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(data, path)
+    (tmp_path / "pose_trunc_zz.nwb").write_bytes(b"not an hdf5 file")
+
+    result = adapter.read(tmp_path / "pose_trunc_a.nwb")
+
+    _assert_pose_data_equal(data, result)
+
+
+def test_per_identity_read_does_not_parse_stale_candidates(tmp_path, adapter, monkeypatch):
+    """Stale matches are rejected on their metadata alone, without a full read."""
+    path = tmp_path / "pose_nofull.nwb"
+    old = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["x", "y"]
+    )
+    adapter.write(old, path)
+    stale = {p.name for p in tmp_path.glob("pose_nofull_*.nwb")}
+    new = _make_pose_data(
+        num_identities=2, num_frames=6, with_segmentation=True, external_ids=["a", "b"]
+    )
+    adapter.write(new, path)
+
+    fully_read: list[str] = []
+    original = PoseNWBAdapter._read_single
+
+    def spying(self, p):
+        fully_read.append(p.name)
+        return original(self, p)
+
+    monkeypatch.setattr(PoseNWBAdapter, "_read_single", spying)
+    adapter.read(tmp_path / "pose_nofull_a.nwb")
+
+    assert not stale & set(fully_read)

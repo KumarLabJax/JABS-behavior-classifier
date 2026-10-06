@@ -96,7 +96,7 @@ class BinaryClassifyStrategy(ClassifyStrategy):
         super().__init__(classifier, project, behavior)
         self._project_settings = project.settings_manager.get_behavior(behavior)
         self._postprocessing_pipeline = PostprocessingPipeline(
-            self._project_settings.get("postprocessing", [])
+            project.settings_manager.postprocessing_config(behavior)
         )
 
     def project_settings(self) -> dict:

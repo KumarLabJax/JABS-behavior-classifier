@@ -8,7 +8,9 @@ including CI runners with no graphics libraries. The real renderer and writer ar
 covered by ``tests/video_export/``.
 """
 
+import subprocess
 import sys
+import textwrap
 import types
 from pathlib import Path
 from unittest import mock
@@ -90,6 +92,8 @@ def test_missing_pose_file_is_a_clean_error(tmp_path: Path, export_spy: mock.Moc
 
     assert result.exit_code != 0
     assert not isinstance(result.exception, AttributeError)
+    # a ClickException prints its message; an uncaught exception would print nothing
+    assert "Video does not have pose file" in result.output
     export_spy.assert_not_called()
 
 
@@ -180,17 +184,35 @@ def test_unimportable_qt_fails_gracefully(video: Path, monkeypatch: pytest.Monke
     assert "libegl1" in result.output, "should name the package that fixes it"
 
 
-def test_unimportable_qt_does_not_break_other_subcommands(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unimportable_qt_does_not_break_other_subcommands() -> None:
     """Registering export-video must not make the whole CLI require Qt.
 
     Regression: importing the command module at registration time pulled in Qt, so
     every other jabs-cli subcommand died with an ImportError on headless machines.
-    """
-    monkeypatch.setitem(sys.modules, _VIDEO_EXPORT, None)
 
-    assert CliRunner().invoke(cli, ["--help"]).exit_code == 0
-    assert CliRunner().invoke(cli, ["export-video", "--help"]).exit_code == 0
-    assert CliRunner().invoke(cli, ["compute-features", "--help"]).exit_code == 0
+    This runs in a fresh interpreter: ``jabs.scripts.cli.cli`` is already imported in
+    this process, so blocking ``jabs.video_export`` here could not make a module-scope
+    import in ``export_video.py`` fail, and the test would pass whatever it did.
+    """
+    script = textwrap.dedent(f"""
+        import sys
+
+        sys.modules[{_VIDEO_EXPORT!r}] = None
+
+        from click.testing import CliRunner
+
+        from jabs.scripts.cli.cli import cli
+
+        for args in (["--help"], ["export-video", "--help"], ["compute-features", "--help"]):
+            result = CliRunner().invoke(cli, args)
+            assert result.exit_code == 0, (args, result.output)
+    """)
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_unreadable_pose_file_is_a_clean_error(

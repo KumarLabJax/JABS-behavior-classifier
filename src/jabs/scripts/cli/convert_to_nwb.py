@@ -1,16 +1,26 @@
 """Convert a JABS pose estimation file (any version) to NWB format."""
 
+import collections
+import dataclasses
 import datetime
 import logging
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from jabs.core.abstract.pose_est import PoseEstimation
-from jabs.core.types.pose import PoseData
+from jabs.core.types.pose import PoseData, SegmentationData
 from jabs.io import save
+from jabs.io.internal.pose import (
+    resolve_identity_subjects,
+    sanitize_identity_name,
+    subject_value_is_absent,
+)
 from jabs.pose_estimation import open_pose_file
+from jabs.scripts.cli.dandi_subject_metadata import validate_subjects
 
 logger = logging.getLogger(__name__)
 
@@ -97,9 +107,247 @@ def _collect_hdf5_attributes(path: Path) -> dict[str, dict[str, object]]:
     return collected
 
 
+# Padding value for unused contour points and unused contour slots in a pose file's
+# segmentation data, matching jabs.overlay_drawing.segmentation.
+_SEG_PADDING = -1
+
+
+def _identity_first_contours(pose: PoseEstimation) -> npt.NDArray[np.signedinteger[Any]] | None:
+    """Return every identity's contours as one identity-first array, avoiding a copy.
+
+    ``seg_data`` can be gigabytes for a long video and the pose object already holds it, so
+    stacking per-identity slices would double the peak. A pose object that can hand out
+    the whole array identity-first does so as a view; anything else falls back to stacking.
+
+    Args:
+        pose: A loaded PoseEstimation object with segmentation.
+
+    Returns:
+        Array of shape (num_identities, num_frames, num_contours, num_vertices, 2) in
+        ``pose.identities`` order, or None when any identity has no segmentation.
+    """
+    identities = list(pose.identities)
+    by_identity = getattr(pose, "get_segmentation_data_by_identity", None)
+    if by_identity is not None and identities == list(range(len(identities))):
+        # The view is indexed by identity, so it only lines up when the identities are
+        # 0..n-1 in order, which is what a pose file carries.
+        all_contours = by_identity()
+        if all_contours is not None and all_contours.shape[0] == len(identities):
+            return all_contours
+
+    per_identity = [pose.get_segmentation_data(identity) for identity in identities]
+    if any(contours is None for contours in per_identity):
+        logger.warning(
+            "Pose file reports segmentation but an identity has none; skipping segmentation export"
+        )
+        return None
+    return np.stack(per_identity, axis=0)
+
+
+def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
+    """Collect an identity-ordered SegmentationData from a pose file, if it has one.
+
+    Segmentation contours live in pose files v6 and newer, and even then only when the
+    file was generated with segmentation, so this returns None for most files.
+
+    Unlike ``poseest/points``, which is stored (y, x) and flipped on read, ``seg_data``
+    is already stored in (x, y) order, so the contours need no axis flip here.
+
+    Args:
+        pose: A loaded PoseEstimation object (any version).
+
+    Returns:
+        A SegmentationData covering every identity, or None when the pose file carries
+        no segmentation, or carries contours without ``seg_external_flag``. The NWB type
+        requires ``is_external`` and has no way to say "unknown", so exporting contours
+        without it would mean asserting a boundary type the file never made.
+    """
+    if not getattr(pose, "has_segmentation", False):
+        return None
+
+    # (num_identities, num_frames, num_contours, num_vertices, 2). Keep the pose file's
+    # own integer width: seg_data is int16, and this is the largest array JABS holds for a
+    # video, so widening it here would double both the peak and what the writer holds for
+    # the length of the export.
+    contour_array = _identity_first_contours(pose)
+    if contour_array is None:
+        return None
+
+    per_identity_flags = [pose.get_segmentation_flags(identity) for identity in pose.identities]
+    if any(flags is None for flags in per_identity_flags):
+        # seg_external_flag is optional even in files that have seg_data. JABS-pose
+        # writes the two together, so this should not fire for files it produced.
+        logger.warning(
+            "Pose file has segmentation but no seg_external_flag; skipping segmentation "
+            "export rather than guessing which contours are holes"
+        )
+        return None
+
+    # PoseEstimationV6 sorts the flags into identity order with an array it fills with
+    # -1, so an identity's unused slots come back as -1 rather than False. Compare
+    # against 0 instead of casting: a bool cast would read that -1 as True and mark an
+    # unused slot an external boundary.
+    is_external = np.stack(per_identity_flags, axis=0) > 0
+
+    # A vertex is real when neither of its coordinates is the padding sentinel. Padding
+    # always trails the real vertices, so counting them gives the length of each contour.
+    # One identity at a time: the comparison allocates a boolean array the size of its
+    # input, which for every identity at once is half the contour array again.
+    vertex_counts = np.stack(
+        [
+            np.all(identity_contours != _SEG_PADDING, axis=-1).sum(axis=-1).astype(np.uint32)
+            for identity_contours in contour_array
+        ],
+        axis=0,
+    )
+
+    return SegmentationData(
+        contours=contour_array,
+        vertex_counts=vertex_counts,
+        is_external=is_external,
+    )
+
+
+# Key in a --subjects entry that renames the identity it applies to. Stripped before the
+# metadata reaches PoseData.subjects: it is not a pynwb Subject field, and leaving it in
+# would also write it through to jabs_metadata.
+_IDENTITY_NAME_KEY = "name"
+
+
+def _carries_name(entry) -> bool:
+    """Whether this identity's subject entry has a ``name`` key at all, blank or not.
+
+    Metadata that is not a dict answers False: the CLI only checks that the top level of
+    the subjects JSON is an object, so a non-dict entry reaches here, and reporting it is
+    ``subject_metadata_problems``'s job. Touching it here would raise an AttributeError
+    in place of the message written for it.
+    """
+    return isinstance(entry.metadata, dict) and _IDENTITY_NAME_KEY in entry.metadata
+
+
+def _name_override(entry) -> object:
+    """The ``name`` this identity asks for, or None when its metadata is unusable."""
+    return entry.metadata.get(_IDENTITY_NAME_KEY) if isinstance(entry.metadata, dict) else None
+
+
+def _apply_identity_names(data: PoseData) -> PoseData:
+    """Name identities from the ``name`` field of their subject metadata.
+
+    A pose file without external identities leaves its animals called ``subject_1``,
+    ``subject_2``, ... , which names the NWB container, the per-identity output file and
+    the bounding box series. ``subject_id`` cannot change any of those - it only labels
+    the Subject - so a ``name`` in the subject entry sets the identity name instead. This
+    is chiefly how a pose file that has no external identities gets them; a file that
+    already carries them normally keeps what it has.
+
+    The name is applied by filling ``external_ids``, which is both what the writer reads
+    the identity name from and where the name is recorded for a reader to restore, so
+    nothing downstream needs to know this happened. An identity left unnamed keeps the id
+    it already had, which for such a file is its ``subject_N`` placeholder. ``subjects``
+    is re-keyed to match: the writer looks metadata up by identity name, so leaving the
+    old key in place would orphan the metadata the name was attached to.
+
+    Args:
+        data: Pose data whose ``subjects`` may carry ``name`` overrides.
+
+    Returns:
+        ``data`` unchanged when no entry carries a name, otherwise a copy with
+        ``subjects`` stripped of the key and, if anything was actually renamed,
+        ``external_ids`` filled in.
+
+    Raises:
+        ValueError: If a ``name`` is not a string, if the resulting identity names are
+            not unique, or if a new name collides with a ``subjects`` key belonging to
+            something else.
+    """
+    resolved = resolve_identity_subjects(data)
+    # Keyed on the key being present, not on it naming anything: a blank name renames
+    # nothing but still has to be stripped before it reaches the output metadata.
+    if not any(_carries_name(entry) for entry in resolved):
+        return data
+
+    # Resolve every name before touching subjects, so two identities renamed to the same
+    # thing are reported as the duplicate they are rather than as a key collision.
+    names: list[str] = []
+    renames: list[tuple] = []
+    for entry in resolved:
+        override = _name_override(entry)
+        if subject_value_is_absent(override):
+            # Not every identity has to be renamed; the rest keep the id they had. That
+            # is lookup_keys[0], the *raw* external ID, not the sanitized container name:
+            # the writer looks subjects up by the raw ID first, so writing the sanitized
+            # form back would orphan metadata keyed by an ID that needed sanitizing.
+            names.append(entry.lookup_keys[0])
+            continue
+        if not isinstance(override, str):
+            # str() would turn a list or a number into a plausible-looking container
+            # name and write a real file under it, with only the sanitization warning
+            # to hint that anything was wrong.
+            raise ValueError(
+                f"The 'name' for --subjects key {entry.matched_key!r} must be a string, "
+                f"got {type(override).__name__}: {override!r}."
+            )
+        name = sanitize_identity_name(override)
+        if name != override.strip():
+            logger.warning(
+                "Identity name %r is not usable as an NWB container name; using %r instead",
+                override,
+                name,
+            )
+        logger.info("Renaming identity %s to %s", entry.identity_name, name)
+        names.append(name)
+        renames.append((entry, name))
+
+    # Compare the container names the writer will derive, not the ids themselves: two
+    # ids that differ only in characters sanitization strips would collide there.
+    container_names = [sanitize_identity_name(n) for n in names]
+    duplicates = sorted(
+        n for n, count in collections.Counter(container_names).items() if count > 1
+    )
+    if duplicates:
+        raise ValueError(
+            f"Identity names must be unique, but {', '.join(repr(d) for d in duplicates)} "
+            f"is used more than once: {container_names}. "
+            "Check the 'name' fields in --subjects."
+        )
+
+    # Re-key in place rather than rebuilding from the resolved metadata: a key that
+    # matches no identity has to survive, or validate_subjects can no longer report it
+    # and a typo'd key becomes an unexplained "species is missing".
+    subjects: dict[str, dict] = dict(data.subjects or {})
+    for entry in resolved:
+        if entry.matched_key is not None and _carries_name(entry):
+            subjects[entry.matched_key] = {
+                k: v for k, v in subjects[entry.matched_key].items() if k != _IDENTITY_NAME_KEY
+            }
+
+    # Pop every renamed entry before inserting any of them, so a collision is reported
+    # only against a key that survives the pops. Swapping two identities' names is a
+    # legitimate edit, and checking as we go would reject it on the first of the pair.
+    moved = [
+        (entry, name, subjects.pop(entry.matched_key) if entry.matched_key is not None else {})
+        for entry, name in renames
+    ]
+    for entry, name, _ in moved:
+        if name in subjects:
+            raise ValueError(
+                f"Renaming identity {entry.identity_name!r} to {name!r} collides with the "
+                f"--subjects key {name!r}, which would discard one of them. Rename the "
+                "identity to something else, or drop the conflicting key."
+            )
+    for _, name, metadata in moved:
+        subjects[name] = metadata
+
+    # Only a real rename changes the identity names; a file whose only 'name' is blank
+    # keeps whatever external_ids it already had.
+    external_ids = names if renames else data.external_ids
+    return dataclasses.replace(data, external_ids=external_ids, subjects=subjects or None)
+
+
 def pose_to_pose_data(
     pose: PoseEstimation,
     subjects: dict[str, dict] | None = None,
+    segmentation: bool = True,
 ) -> PoseData:
     """Convert any PoseEstimation object to a PoseData dataclass.
 
@@ -112,8 +360,13 @@ def pose_to_pose_data(
     Args:
         pose: A loaded PoseEstimation object (any version).
         subjects: Optional per-animal biological metadata, keyed by identity
-            name (matching external_identities values).  Passed through
-            directly to PoseData.subjects.
+            name (matching external_identities values, or "subject_1",
+            "subject_2", ... when the pose file has none).  Passed through to
+            PoseData.subjects, except for a ``name`` field, which renames the
+            identity it belongs to - see :func:`_apply_identity_names`.
+        segmentation: Whether to include instance segmentation contours when the
+            pose file has them.  Pose files before v6, and v6+ files generated
+            without segmentation, carry none either way.
 
     Returns:
         A PoseData instance ready for NWB export.
@@ -145,6 +398,8 @@ def pose_to_pose_data(
     if all(b is not None for b in per_identity_boxes):
         bounding_boxes = np.stack(per_identity_boxes, axis=0)  # (num_identities, num_frames, 2, 2)
 
+    segmentation_data = _build_segmentation_data(pose) if segmentation else None
+
     file_hash = getattr(pose, "hash", None)
     metadata: dict = {
         "source_file": str(pose.pose_file),
@@ -157,19 +412,22 @@ def pose_to_pose_data(
     if hdf5_attributes:
         metadata["hdf5_attributes"] = hdf5_attributes
 
-    return PoseData(
-        points=points_array,
-        point_mask=point_mask_array,
-        identity_mask=identity_mask_array,
-        body_parts=body_parts,
-        edges=edges,
-        fps=pose.fps,
-        cm_per_pixel=cm_per_pixel,
-        bounding_boxes=bounding_boxes,
-        static_objects=static_objects,
-        external_ids=external_ids,
-        subjects=subjects,
-        metadata=metadata,
+    return _apply_identity_names(
+        PoseData(
+            points=points_array,
+            point_mask=point_mask_array,
+            identity_mask=identity_mask_array,
+            body_parts=body_parts,
+            edges=edges,
+            fps=pose.fps,
+            cm_per_pixel=cm_per_pixel,
+            bounding_boxes=bounding_boxes,
+            segmentation_data=segmentation_data,
+            static_objects=static_objects,
+            external_ids=external_ids,
+            subjects=subjects,
+            metadata=metadata,
+        )
     )
 
 
@@ -181,6 +439,7 @@ _SESSION_METADATA_FIELDS = frozenset(
         "institution",
         "experiment_description",
         "session_id",
+        "keywords",
     }
 )
 
@@ -229,6 +488,7 @@ def run_conversion(
     session_description: str | None = None,
     subjects: dict[str, dict] | None = None,
     session_metadata: dict | None = None,
+    segmentation: bool = True,
 ) -> None:
     """Convert a JABS pose HDF5 file to NWB and write to disk.
 
@@ -256,12 +516,18 @@ def run_conversion(
         session_metadata: Optional dict of NWB session-level metadata.
             Supported keys: ``session_start_time`` (ISO 8601 string),
             ``experimenter`` (str or list[str]), ``lab``, ``institution``,
-            ``experiment_description``, ``session_id``.  Unknown keys are
-            ignored with a warning.
+            ``experiment_description``, ``session_id``, ``keywords``
+            (list[str]).  Unknown keys are ignored with a warning.
+        segmentation: Whether to include instance segmentation contours when the
+            pose file has them.  Pose files before v6, and v6+ files generated
+            without segmentation, carry none either way.
 
     Raises:
-        ValueError: If the input file is not a recognized JABS pose file, or
-            if ``session_start_time`` cannot be parsed.
+        ValueError: If the input file is not a recognized JABS pose file, if
+            ``session_start_time`` cannot be parsed, or if any identity's subject
+            metadata does not meet the DANDI archive's requirements (see
+            :mod:`jabs.scripts.cli.dandi_subject_metadata`).  Subject metadata is
+            validated before any file is written.
         FileNotFoundError: If the input file does not exist.
     """
     logger.info("Loading %s", input_path)
@@ -271,7 +537,18 @@ def run_conversion(
         "%d %s, %d frames, %d fps", pose.num_identities, identity_word, pose.num_frames, pose.fps
     )
 
-    pose_data = pose_to_pose_data(pose, subjects=subjects)
+    pose_data = pose_to_pose_data(pose, subjects=subjects, segmentation=segmentation)
+    if pose_data.segmentation_data is not None:
+        logger.info(
+            "Including segmentation contours (up to %d contours of %d vertices per frame)",
+            pose_data.segmentation_data.contours.shape[2],
+            pose_data.segmentation_data.contours.shape[3],
+        )
+
+    # Validate before writing: per-identity output writes one file per identity in a
+    # loop, so failing partway would leave an incomplete set on disk, and the whole
+    # set would be unpublishable anyway.
+    validate_subjects(pose_data)
 
     write_kwargs: dict = {"multisubject": multisubject}
     if session_description is not None:

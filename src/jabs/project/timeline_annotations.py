@@ -10,6 +10,36 @@ logger = logging.getLogger(__name__)
 MAX_TAG_LEN = 32
 
 
+def _tag_length_valid(tag: str) -> bool:
+    """Whether a tag's length is within the allowed range."""
+    return 0 < len(tag) <= MAX_TAG_LEN
+
+
+def _tag_characters_valid(tag: str) -> bool:
+    """Whether a tag uses only alphanumeric characters, underscores, and hyphens."""
+    return all(c.isalnum() or c in "_-" for c in tag)
+
+
+def is_valid_tag(tag: str) -> bool:
+    """Whether a string is usable as a timeline annotation tag.
+
+    This is the single definition of the tag rule, shared by everything that
+    produces or consumes tags: the annotation edit dialog uses it to decide
+    whether what the user typed can be accepted, and
+    :meth:`TimelineAnnotations.load` applies the same two checks when reading
+    serialized annotations back. Keeping one definition is what stops the GUI
+    from accepting a tag that loading would later discard.
+
+    Args:
+        tag: Candidate tag string.
+
+    Returns:
+        True when the tag is 1 to ``MAX_TAG_LEN`` characters long and contains
+        only alphanumeric characters, underscores, and hyphens.
+    """
+    return _tag_length_valid(tag) and _tag_characters_valid(tag)
+
+
 class TimelineAnnotations:
     """A stand-alone helper class for managing timeline annotations stored in an IntervalTree.
 
@@ -84,8 +114,9 @@ class TimelineAnnotations:
                 )
                 continue
 
-            # validate the tag format:
-            if len(tag) < 1 or len(tag) > MAX_TAG_LEN:
+            # validate the tag format: these are the two checks is_valid_tag() is
+            # built from, applied separately so the warning names the rule that failed
+            if not _tag_length_valid(tag):
                 logger.warning(
                     "Annotation tag must be 1 to %d characters in length, "
                     "skipping annotation: \n\t%s",
@@ -93,8 +124,7 @@ class TimelineAnnotations:
                     entry,
                 )
                 continue
-            # only allow alphanumeric characters, underscores, and hyphens
-            if not all(c.isalnum() or c in "_-" for c in tag):
+            if not _tag_characters_valid(tag):
                 logger.warning(
                     "Annotation tag can only contain alphanumeric characters, underscores, "
                     "and hyphens. Skipping annotation: \n\t%s",
@@ -127,6 +157,19 @@ class TimelineAnnotations:
 
     def serialize(self) -> list[dict]:
         """Convert the internal IntervalTree to a JSON-serializable list of dictionaries.
+
+        Each annotation is serialized with the following fields, which are also the
+        fields :meth:`load` reads back:
+
+        - ``start``: first frame of the annotation (inclusive).
+        - ``end``: last frame of the annotation (inclusive).
+        - ``tag``: annotation tag.
+        - ``color``: color used to render the annotation.
+        - ``description``: optional description, omitted when unset.
+        - ``identity``: optional internal JABS identity index the annotation
+          applies to, omitted when the annotation is not tied to an identity.
+          The derived ``display_identity`` is not serialized: :meth:`load`
+          recomputes it from this index.
 
         Returns:
             list[dict]: A list containing a dictionary representation for each timeline annotation,

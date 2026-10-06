@@ -111,7 +111,9 @@ NdxMultiSubjectsNWBFile
 │       │
 │       ├── jabs_identity_mask             [TimeSeries] uint8 identity presence mask
 │       ├── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
-│       └── jabs_bounding_boxes_subject_2  [TimeSeries] optional, one per identity
+│       ├── jabs_bounding_boxes_subject_2  [TimeSeries] optional, one per identity
+│       ├── jabs_segmentation_contours_subject_1  [ContourSeries] optional, one per identity (ndx-jabs)
+│       └── jabs_segmentation_contours_subject_2  [ContourSeries] optional, one per identity (ndx-jabs)
 │
 └── scratch/
     └── jabs_metadata/                     [ScratchData] JSON string (see below)
@@ -174,6 +176,29 @@ The reader looks for keys `jabs_bounding_boxes_{name}` for each name in `identit
 (from `jabs_metadata`). If all are present, they are stacked in identity order to form
 the returned array. If any are missing, `bounding_boxes` is `None`.
 
+### Segmentation contours (optional)
+
+When the pose file contains instance segmentation (`poseest/seg_data`), one `ContourSeries`
+per identity is written to the `behavior` module as `jabs_segmentation_contours_{identity_name}`.
+The type comes from the [ndx-jabs](https://github.com/KumarLabJax/ndx-jabs) extension: contours
+are an intermediate step of JABS's shape features rather than something other pose tools
+consume, so they are kept out of ndx-pose. `PoseEstimation` cannot hold an ndx-jabs type, which
+is why the series sits beside it in the module, following the same per-identity naming as the
+bounding boxes.
+
+| Field             | Description                                                                 |
+|-------------------|-----------------------------------------------------------------------------|
+| `data`            | `(num_frames, num_contours, num_vertices, 2)` `(x, y)` vertices, dtype as stored in the pose file (`int16`) |
+| `vertex_count`    | `(num_frames, num_contours)` `uint32`, valid vertices per slot (authoritative; `0` = empty) |
+| `is_external`     | `(num_frames, num_contours)` `bool`, `True` for an outer boundary, `False` for a hole |
+| `reference_frame` | Same description the keypoint series carry                                  |
+
+`data` is chunked along the frame axis and gzip compressed. The reader looks up
+`jabs_segmentation_contours_{name}` for each name in `identity_names` and stacks them in identity
+order; if any identity is missing its series, `segmentation_data` is `None`.
+`jabs_metadata.has_segmentation` records whether contours were written, so a file that claims
+segmentation but holds none can be told apart from one that never had any.
+
 ---
 
 ## Static objects
@@ -191,20 +216,28 @@ Common static objects:
 
 ### NWB representation
 
-Each static object is a `PoseEstimation` container with a **single timestamp
-(`t = 0.0 s`)**, one `PoseEstimationSeries` per keypoint, and a dedicated `Skeleton`
-in the `Skeletons` container. Nodes are named `{object_name}_{i}` (zero-indexed).
+Each static object is a `PoseEstimation` container with one `PoseEstimationSeries`
+per keypoint and a dedicated `Skeleton` in the `Skeletons` container. Nodes are named
+`{object_name}_{i}` (zero-indexed).
+
+The constant value is written at **two timestamps spanning the session** (the first
+and last frame) rather than a single timestamp at `t = 0.0`. A lone-timestamp series
+has shape `(1, 2)`, whose non-time axis is longer than its time axis, which
+`nwbinspector`'s `check_data_orientation` flags regardless of the data being
+genuinely static. Repeating the constant value at both ends of the session leaves the
+value unchanged while satisfying that check - see
+`_build_static_object_pose_estimation` in `packages/jabs-io/.../pose/nwb.py`.
 
 **PoseEstimationSeries fields:**
 
 | Field                   | Value                                                                             |
 |-------------------------|-----------------------------------------------------------------------------------|
 | `name`                  | `{object_name}_{i}`                                                               |
-| `data`                  | shape `(1, 2)` — the `(x, y)` coordinate                                         |
-| `timestamps`            | `[0.0]`                                                                           |
+| `data`                  | shape `(2, 2)` — the `(x, y)` coordinate, repeated                              |
+| `timestamps`            | `[0.0, (num_frames - 1) / fps]` — first and last frame                          |
 | `unit`                  | `"pixels"`                                                                        |
 | `reference_frame`       | `"Top-left corner of video frame, x increases rightward, y increases downward"`  |
-| `confidence`            | `[1.0]`                                                                           |
+| `confidence`            | `[1.0, 1.0]`                                                                      |
 | `confidence_definition` | `"Static landmark; confidence is always 1.0"`                                    |
 
 *JABS pose files carry no confidence values for static objects; `1.0` is a placeholder.
@@ -229,21 +262,21 @@ Skeletons/
 processing/behavior/
   corners/                         PoseEstimation
     corners_0/                     PoseEstimationSeries
-      data:       [[10.0, 20.0]]   shape (1, 2)
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[10.0, 20.0], [10.0, 20.0]]   shape (2, 2)
+      timestamps: [0.0, 119.97]                 first and last frame
+      confidence: [1.0, 1.0]
     corners_1/
-      data:       [[300.0, 20.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[300.0, 20.0], [300.0, 20.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     corners_2/
-      data:       [[10.0, 300.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[10.0, 300.0], [10.0, 300.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     corners_3/
-      data:       [[300.0, 300.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[300.0, 300.0], [300.0, 300.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
 ```
 
 ### Example — `lixit` (3-keypoint variant)
@@ -256,17 +289,17 @@ Skeletons/
 processing/behavior/
   lixit/                           PoseEstimation
     lixit_0/                       tip
-      data:       [[62.0, 166.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[62.0, 166.0], [62.0, 166.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     lixit_1/                       left side
-      data:       [[65.0, 160.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[65.0, 160.0], [65.0, 160.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
     lixit_2/                       right side
-      data:       [[60.0, 172.0]]
-      timestamps: [0.0]
-      confidence: [1.0]
+      data:       [[60.0, 172.0], [60.0, 172.0]]
+      timestamps: [0.0, 119.97]
+      confidence: [1.0, 1.0]
 ```
 
 ---
@@ -439,6 +472,7 @@ otherwise scramble the keypoint ordering.
 | `external_ids`          | `list[str] \| null`     | Always                       | Original external identity names from the pose file (e.g. mouse cage IDs). `null` if the pose file had no external IDs. |
 | `subjects`              | `dict[str, dict] \| null` | Always                     | Per-identity subject metadata keyed by identity name. `null` if no subject metadata is available. Inner dict may contain `subject_id`, `sex`, `species`, `age` (ISO 8601 duration), `date_of_birth` (ISO 8601 datetime), `genotype`, `strain`, `weight`, and `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. Values are `null` when not available. |
 | `metadata`              | `dict`                  | Always                       | Provenance metadata from the source pose file. Includes `source_file`, `pose_format_version`, and optionally `source_file_hash`. |
+| `has_segmentation`      | `bool`                  | Always                       | `true` if per-identity segmentation `ContourSeries` were written to the behavior module. Absent in files written before contour export existed; readers treat a missing key as `false`. |
 | `static_object_names`   | `list[str]`             | When static objects present  | Names of all `PoseEstimation` containers that are static objects. |
 | `dynamic_object_names`  | `list[str]`             | When dynamic objects present | Names of all `PoseEstimation` containers that are dynamic objects. |
 | `dynamic_object_shapes` | `dict[str, [int, int]]` | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`. Required to reconstruct the 4-D `points` array `(n_predictions, max_count, n_keypoints, 2)` from the flat series list on read. |
@@ -446,6 +480,7 @@ otherwise scramble the keypoint ordering.
 | `per_identity_files`    | `bool`                  | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files. |
 | `source_identity_index` | `int`                   | Per-identity mode only       | Zero-based index of the identity in this file within the original multi-identity dataset. Used to restore original identity order when merging siblings. |
 | `split_subject_count`      | `int`                   | Per-identity mode only       | Total number of subjects in the session across all split files. Used to validate that all sibling files are present before merging. |
+| `write_set_id`          | `str`                   | Per-identity mode only       | Random identifier shared by every file written together. The reader only merges siblings that carry the same value, so stale files left at the same stem by an earlier export are ignored. Absent in older files, which match on `split_subject_count` alone. |
 
 ### Example — multisubject file with two identities, static objects, and dynamic objects
 
@@ -484,6 +519,7 @@ otherwise scramble the keypoint ordering.
     "pose_format_version": 7,
     "source_file_hash": "a3f1c8..."
   },
+  "has_segmentation": true,
   "static_object_names": ["corners", "lixit"],
   "dynamic_object_names": ["fecal_boli"],
   "dynamic_object_shapes": {
@@ -507,6 +543,7 @@ otherwise scramble the keypoint ordering.
     "subject_3": { "subject_id": "M125", "sex": "M", "species": "Mus musculus", "age": "P68D", "genotype": "WT" }
   },
   "metadata": { "source_file": "...", "pose_format_version": 7 },
+  "has_segmentation": true,
   "static_object_names": ["corners", "lixit"],
   "dynamic_object_names": ["fecal_boli"],
   "dynamic_object_shapes": { "fecal_boli": [3, 1] },
@@ -602,5 +639,6 @@ defaults the required columns (`subject_id` to the identity name, `sex` to `"U"`
 **Reading requires the extension.** A multisubject file is an `NdxMultiSubjectsNWBFile`,
 so pynwb must load the embedded namespace to reconstruct it; the reader opens the file
 with `load_namespaces=True`. This is why multisubject mode is opt-in: the default
-per-identity output stays a plain `NWBFile` + ndx-pose, readable by the broader NWB
-ecosystem without any extra extension installed.
+per-identity output stays a plain `NWBFile` + ndx-pose (plus ndx-jabs `ContourSeries` when the
+pose file has segmentation), readable by the broader NWB ecosystem without any extra extension
+installed, because each file embeds the specs of the extensions it uses.

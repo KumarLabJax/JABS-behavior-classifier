@@ -32,6 +32,95 @@ class DynamicObjectData:
 
 
 @dataclass(frozen=True)
+class SegmentationData:
+    """Container for instance segmentation contours read from a pose file.
+
+    Segmentation is stored as polygon contours rather than pixel masks.  An identity may
+    need more than one contour on a frame: an outer boundary plus one or more holes, or a
+    body that an occluder splits into disjoint parts.  Because different frames need
+    different numbers of contours and vertices, ``contours`` is padded out to the largest
+    of each and ``vertex_counts`` records how much of every slot is real.
+
+    Coordinates are in ``(x, y)`` order, matching :attr:`PoseData.points`.
+
+    Attributes:
+        contours: Contour vertex positions in (x, y) order, shape
+            (num_identities, num_frames, num_contours, num_vertices, 2).  Only the first
+            ``vertex_counts`` vertices of each contour slot hold a position; the rest is
+            padding.  The integer width is whatever the source carries - a pose file's
+            ``seg_data`` is int16, and widening it would double an array that is already
+            the largest thing JABS holds for a video.  It must be signed, because the
+            padding slots hold -1.
+        vertex_counts: Number of valid vertices in each contour slot, shape
+            (num_identities, num_frames, num_contours).  0 means the slot holds no
+            contour on that frame.
+        is_external: True where the contour slot is an external boundary (an outer edge
+            of the animal), False where it is an internal boundary (a hole), shape
+            (num_identities, num_frames, num_contours).  Has no meaning where
+            ``vertex_counts`` is 0.
+    """
+
+    contours: npt.NDArray[np.signedinteger[Any]]
+    vertex_counts: npt.NDArray[np.uint32]
+    is_external: npt.NDArray[np.bool_]
+
+    def __post_init__(self) -> None:
+        """Validate that the three arrays describe the same contour slots.
+
+        Raises:
+            ValueError: If the arrays have the wrong number of dimensions, if the
+                trailing axis of ``contours`` is not 2, if ``contours`` is not a signed
+                integer array, if the shapes disagree, or if ``vertex_counts`` is not a
+                uint32 array with every count at most ``num_vertices``, or if
+                ``is_external`` is not a boolean array.
+        """
+        if not np.issubdtype(self.contours.dtype, np.signedinteger):
+            # An unsigned array would wrap the -1 padding sentinel to its maximum value,
+            # which reads as a real coordinate and silently inflates every vertex count.
+            raise ValueError(f"contours must be a signed integer array, got {self.contours.dtype}")
+        if self.contours.ndim != 5:
+            raise ValueError(
+                "contours must have 5 dimensions "
+                f"(ident, frame, contour, vertex, axis), got {self.contours.ndim}"
+            )
+        if self.contours.shape[-1] != 2:
+            raise ValueError(
+                f"contours last dimension must be 2 (x, y), got {self.contours.shape[-1]}"
+            )
+
+        expected = self.contours.shape[:3]
+        if self.vertex_counts.shape != expected:
+            raise ValueError(
+                f"vertex_counts shape {self.vertex_counts.shape} must match the first "
+                f"three dimensions of contours {expected}"
+            )
+        if self.is_external.shape != expected:
+            raise ValueError(
+                f"is_external shape {self.is_external.shape} must match the first "
+                f"three dimensions of contours {expected}"
+            )
+
+        if self.is_external.dtype != np.bool_:
+            # Casting an integer flag array to bool turns the pose reader's -1 "no contour"
+            # sentinel into True, which would export a hole as an outer boundary.
+            raise ValueError(f"is_external must be a boolean array, got {self.is_external.dtype}")
+
+        # vertex_counts is authoritative for how much of each slot is real, so a count
+        # that is fractional, negative or past the slot's capacity would describe a
+        # contour that cannot exist.
+        if self.vertex_counts.dtype != np.uint32:
+            raise ValueError(
+                f"vertex_counts must be a uint32 array, got {self.vertex_counts.dtype}"
+            )
+        if self.vertex_counts.size:
+            max_vertices = self.contours.shape[3]
+            if self.vertex_counts.max() > max_vertices:
+                raise ValueError(
+                    f"vertex_counts must not exceed {max_vertices} (the contour vertex capacity)"
+                )
+
+
+@dataclass(frozen=True)
 class PoseData:
     """Canonical representation of pose estimation data.
 
@@ -47,7 +136,9 @@ class PoseData:
             Format is [[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]].
         confidence: Optional per-keypoint confidence scores, shape
             (num_identities, num_frames, num_keypoints).  None when unknown.
-        segmentation_data: Optional segmentation masks or data.
+        segmentation_data: Optional instance segmentation contours, as a
+            SegmentationData.  None when the source pose file has none (every
+            version before v6, and v6+ files generated without segmentation).
         static_objects: Dictionary of static objects (e.g., 'lixit') and their positions.
         dynamic_objects: Dictionary of dynamic objects (e.g., 'fecal_boli') and their data.
         external_ids: Optional list of external identifiers for each identity.
@@ -68,7 +159,7 @@ class PoseData:
     cm_per_pixel: float | None = None
     bounding_boxes: np.ndarray | None = None
     confidence: np.ndarray | None = None
-    segmentation_data: np.ndarray | None = None
+    segmentation_data: SegmentationData | None = None
     static_objects: dict[str, np.ndarray] = field(default_factory=dict)
     dynamic_objects: dict[str, DynamicObjectData] = field(default_factory=dict)
     external_ids: list[str] | None = None
@@ -125,6 +216,14 @@ class PoseData:
                 f"confidence shape {self.confidence.shape} must match points "
                 f"dimensions {(num_idents, num_frames, num_keypoints)}"
             )
+
+        if self.segmentation_data is not None:
+            seg_shape = self.segmentation_data.contours.shape[:2]
+            if seg_shape != (num_idents, num_frames):
+                raise ValueError(
+                    f"segmentation_data covers {seg_shape} (identities, frames) but points "
+                    f"has {(num_idents, num_frames)}"
+                )
 
         invalid_edges = [e for e in self.edges if e[0] >= num_keypoints or e[1] >= num_keypoints]
         if invalid_edges:

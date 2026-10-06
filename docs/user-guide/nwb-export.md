@@ -2,7 +2,8 @@
 
 The `jabs-cli convert-to-nwb` command converts a JABS pose estimation HDF5 file to
 [NWB (Neurodata Without Borders)](https://www.nwb.org/) format using the
-[ndx-pose](https://github.com/rly/ndx-pose) extension.
+[ndx-pose](https://github.com/rly/ndx-pose) extension (plus
+[ndx-jabs](https://github.com/KumarLabJax/ndx-jabs) for segmentation contours).
 
 !!! note "Optional dependency"
     NWB support is not installed by default. Install the `nwb` extra before use:
@@ -11,7 +12,7 @@ The `jabs-cli convert-to-nwb` command converts a JABS pose estimation HDF5 file 
 pip install "jabs-behavior-classifier[nwb]"
 ```
 
-The extra adds `pynwb`, `ndx-pose`, and `ndx-multisubjects` as dependencies.
+The extra adds `pynwb`, `ndx-pose`, `ndx-jabs`, and `ndx-multisubjects` as dependencies.
 
 Two output modes are available. **Choose the mode based on how the files will be used:**
 
@@ -34,24 +35,30 @@ jabs-cli convert-to-nwb INPUT_PATH OUTPUT [OPTIONS]
 | `OUTPUT`                     | Destination `.nwb` file. By default (per-identity), used as a naming template; the file itself is not created directly. With `--multisubject`, the single combined file is written directly to this path. |
 | `--multisubject`             | Write a single multi-subject NWB file (using the ndx-multisubjects extension) instead of the default one file per identity. |
 | `--session-description TEXT` | NWB session description string. Defaults to `'JABS PoseEstimation Data'`.                                                    |
-| `--subjects PATH`            | Path to a JSON file with per-animal biological metadata.                                                                     |
+| `--subjects PATH`            | **Required.** Path to a JSON file with per-animal biological metadata. The conversion fails without the fields DANDI requires - see [Subjects JSON format](#subjects-json-format). |
 | `--session-metadata PATH`    | Path to a JSON file with NWB session-level metadata (start time, experimenter, etc.).                                        |
+| `--segmentation` / `--no-segmentation` | Whether to include instance segmentation contours when the pose file has them. Defaults to `--segmentation`. Pose files before v6, and v6+ files generated without segmentation, carry none either way. |
 
 ### Examples
 
 ```bash
 # One NWB file per identity (default; recommended for DANDI upload)
-jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
-
-# A single multi-subject file holding every identity
-jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --multisubject
-
-# Include per-animal metadata
 jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
 
-# Specify session start time and experimenter
-jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata session.json
+# A single multi-subject file holding every identity
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json --multisubject
+
+# Also set session start time and experimenter
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
+    --subjects subjects.json --session-metadata session.json
+
+# Leave segmentation contours out of a pose file that has them
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
+    --subjects subjects.json --no-segmentation
 ```
+
+`--subjects` appears in every example because the conversion fails without it; see
+[Subjects JSON format](#subjects-json-format).
 
 ---
 
@@ -59,10 +66,23 @@ jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata se
 
 Pass a JSON file to `--subjects` to attach per-animal biological metadata to the NWB
 output. Keys are identity names: use external IDs from the pose file when present (e.g.
-`"mouse_a"`), or `subject_1`, `subject_2`, … when the pose file has no external IDs.
+`"mouse_a"`), or `subject_1`, `subject_2`, … (1-based) when the pose file has no external
+IDs. `subject_1` is identity index 0.
 
-**DANDI requires `species`, `sex`, and either `age` or `date_of_birth` on every
-subject.** All other fields are optional.
+An optional `name` field renames the identity — see
+[Naming identities](#naming-identities).
+
+!!! warning "`--subjects` is required"
+    `species`, `sex`, and either `age` or `date_of_birth` are mandatory on every
+    identity. The converter validates them before writing anything and **fails** if any
+    are missing or malformed, because the DANDI archive rejects files without them.
+
+    A key no identity reads is ignored with a warning - either because it matches
+    nothing, or because a higher-precedence key for the same identity shadows it.
+    That usually leaves an identity without metadata and fails the check, so if you
+    see the warning, compare your keys against the identity names it lists.
+
+    A blank value (`""`) counts as not supplied, exactly as the writer treats it.
 
 ```json
 {
@@ -85,24 +105,72 @@ subject.** All other fields are optional.
 }
 ```
 
-| Field            | Type   | Notes                                                                                  |
-|------------------|--------|----------------------------------------------------------------------------------------|
-| `subject_id`     | string | Lab identifier for the animal                                                          |
-| `sex`            | string | **Required by DANDI.** `"M"`, `"F"`, `"U"`, or `"O"`                                   |
-| `species`        | string | **Required by DANDI.** Latin binomial, e.g. `"Mus musculus"`                           |
-| `age`            | string | **Required by DANDI** (or `date_of_birth`). ISO 8601 duration, e.g. `"P70D"` (70 days) |
-| `date_of_birth`  | string | Alternative to `age`. ISO 8601 datetime, e.g. `"2024-01-15T00:00:00+00:00"`            |
-| `genotype`       | string | Genetic background, e.g. `"Shank3B+/-"`                                                |
-| `strain`         | string | Inbred strain, e.g. `"C57BL/6J"`                                                       |
-| `weight`         | string | Body weight, e.g. `"25g"`                                                              |
-| `description`    | string | Free-text notes                                                                        |
+| Field           | Type   | Notes                                                                                                                                                          |
+|-----------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`          | string | Renames the identity itself: the NWB container, the per-identity output filename, and the bounding box series. Defaults to the key. See [Naming identities](#naming-identities). |
+| `subject_id`    | string | Lab identifier for the animal. Defaults to the identity name when omitted or blank. Must not contain `/`, which breaks DANDI paths.                           |
+| `sex`           | string | **Required.** Exactly `"M"`, `"F"`, `"O"`, or `"U"` - case-sensitive, so `"male"` and `"m"` are both rejected. For *C. elegans*, `"XO"` or `"XX"` instead.      |
+| `species`       | string | **Required.** Latin binomial, e.g. `"Mus musculus"` - capitalized genus, lowercase epithet, so `"Mus Musculus"` and `"mouse"` are rejected. An NCBI taxonomy IRI such as `"http://purl.obolibrary.org/obo/NCBITaxon_10090"` is also accepted. |
+| `age`           | string | **Required** (or `date_of_birth`). ISO 8601 duration, e.g. `"P70D"` (70 days) or `"P2Y"`. A range is allowed: `"P1D/P3D"`, and either end may be left open (`"P90Y/"`, `"/P3D"`). A range must be strictly increasing. |
+| `date_of_birth` | string | Alternative to `age`. ISO 8601 datetime, e.g. `"2024-01-15T00:00:00+00:00"`.                                                                                   |
+| `genotype`      | string | Genetic background, e.g. `"Shank3B+/-"`                                                                                                                        |
+| `strain`        | string | Inbred strain, e.g. `"C57BL/6J"`                                                                                                                               |
+| `weight`        | string | Body weight as `[numeric] [unit]` **with a space**, e.g. `"25 g"` or `"0.025 kg"`. `"25g"` is rejected. Units: kg, g, mg, ug, μg, ng, pg. A bare number is accepted only as a JSON float, interpreted as kilograms. |
+| `description`   | string | Free-text notes                                                                                                                                                |
 
 In per-identity mode (the default), subject metadata is written to both the standard
-`NWBFile.subject` field and the `jabs_metadata` scratch field. If no `--subjects` file is
-provided, a minimal subject with `subject_id` set to the identity name is written
-automatically. In multisubject mode, subject metadata is written to a `SubjectsTable`
-(one row per subject) and to `jabs_metadata` (see
+`NWBFile.subject` field and the `jabs_metadata` scratch field. In multisubject mode it is
+written to a `SubjectsTable` (one row per subject) and to `jabs_metadata` (see
 [below](#subject-metadata-by-mode)).
+
+The validation above is a pre-flight check that mirrors `nwbinspector`'s subject checks,
+which DANDI treats as blocking. It is not a substitute for the real thing - run
+`nwbinspector` against the converted files before uploading:
+
+```bash
+nwbinspector session_subject_1.nwb --config dandi
+```
+
+### Naming identities
+
+A pose file with no external identities leaves its animals called `subject_1`,
+`subject_2`, … . That name is not cosmetic — it names the `PoseEstimation` container, the
+per-identity output file (`{stem}_{identity_name}.nwb`) and the bounding box series.
+`subject_id` does **not** change any of them; it only labels the `Subject`.
+
+The `name` field supplies the external identity such a pose file is missing. A pose file
+that already carries `external_identities` normally keeps them, and needs none of this.
+
+To name an identity, give its entry a `name`:
+
+```json
+{
+  "subject_1": {
+    "name": "NV1-B2A",
+    "subject_id": "M123",
+    "species": "Mus musculus",
+    "sex": "M",
+    "age": "P70D"
+  }
+}
+```
+
+That writes `session_NV1-B2A.nwb` holding an `NV1-B2A` container, whose `Subject` is
+`M123`. Use the same `name` and `subject_id` if you want them to agree.
+
+- The key still identifies *which* identity you mean, so it stays `subject_1` (or the
+  pose file's external ID) even though the entry renames it.
+- Renaming some identities and not others is fine; the rest keep the names they had.
+- Names must be unique, and are sanitized for use as container names — any character
+  that is not alphanumeric, `_` or `-` becomes `_`, so `NV1/B2A` is stored as `NV1_B2A`
+  and a warning says so.
+- Whatever it resolves to is recorded as that identity's `external_ids` entry in
+  `jabs_metadata`, which is the field the reader restores identity names from. Identities
+  you leave unnamed keep their `subject_N` placeholder, and that placeholder is what
+  lands in `external_ids` for them.
+- A pose file that already has external identities *can* be renamed the same way, keyed
+  by the existing external ID, but normally you would leave those names alone.
+
 
 ---
 
@@ -119,7 +187,8 @@ files and otherwise defaults to the time the export was run.
   "lab": "Kumar Lab",
   "institution": "The Jackson Laboratory",
   "experiment_description": "Open field test",
-  "session_id": "session_001"
+  "session_id": "session_001",
+  "keywords": ["open field", "mouse", "behavior"]
 }
 ```
 
@@ -131,8 +200,116 @@ files and otherwise defaults to the time the export was run.
 | `institution`            | string                    | Institution name.                                                                                                                                                                         |
 | `experiment_description` | string                    | Free-text description of the experiment.                                                                                                                                                  |
 | `session_id`             | string                    | Lab-specific session identifier.                                                                                                                                                          |
+| `keywords`               | list of strings           | Keywords/tags describing the session.                                                                                                                                                     |
 
 All fields are optional. Unknown keys are ignored with a warning.
+
+---
+
+## Publishing to the DANDI archive
+
+JABS NWB output is intended for the
+[EMBER archive](https://emberarchive.org/) — the data archive for the NIH BRAIN
+Initiative's Brain Behavior Quantification and Synchronization (BBQS) program. EMBER
+is operationally distinct from [DANDI](https://dandiarchive.org/) but runs on DANDI
+infrastructure at [dandi.emberarchive.org](https://dandi.emberarchive.org/), so
+DANDI's validation rules apply.
+
+Uploads are validated with [`nwbinspector`](https://nwbinspector.readthedocs.io/),
+and **any `CRITICAL` finding blocks the upload.** The guidance below is about
+clearing that gate.
+
+### Requirements at a glance
+
+| Requirement | Why |
+|---|---|
+| Use per-identity mode (the default) | One `Subject` per file is what DANDI's subject checks expect. `--multisubject` is **not archive-eligible** — see [Limitations](#limitations-for-archive-submission). |
+| Pass `--subjects` with complete metadata | `species`, `sex`, and `age` or `date_of_birth` are mandatory. Without them every file fails three `CRITICAL` checks. |
+| Pass `--session-metadata` | Not mandatory, but it clears the remaining best-practice warnings and records provenance the archive displays. |
+
+### 1. Prepare the metadata files
+
+Write a `subjects.json` covering **every** identity in the pose file (see
+[Subjects JSON format](#subjects-json-format)), and a `session.json` with at least
+`session_start_time` (see
+[Session metadata JSON format](#session-metadata-json-format)). Pose files do not
+record a session start time, so without it the export falls back to the time the
+conversion ran, which is not the recording time.
+
+### 2. Convert
+
+```bash
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb \
+    --subjects subjects.json \
+    --session-metadata session.json
+```
+
+The converter validates subject metadata **before writing anything**. If a required
+field is missing or malformed it reports every problem across every identity at once
+and writes no files:
+
+```
+Error: Subject metadata required by the DANDI archive is missing or malformed:
+  subject_1: species is missing; sex is missing; age or date_of_birth is missing
+  subject_2: sex 'male' must be one of 'M', 'F', 'O', 'U'
+```
+
+A `--subjects` key that matches no identity is reported as a warning naming the valid
+identity names, which is the usual explanation for an identity that looks like it was
+given metadata but reports it as missing.
+
+### 3. Validate locally before uploading
+
+JABS's pre-flight check mirrors `nwbinspector`'s subject rules, but it is not a
+substitute for running the real validator — it checks subject metadata, not the rest
+of the file. Run `nwbinspector` on each output before you upload:
+
+```bash
+pip install nwbinspector
+nwbinspector session_subject_1.nwb --config dandi
+```
+
+A clean result reports no `CRITICAL` findings. See
+[Expected warnings](#expected-warnings) for the ones that are safe to ignore.
+
+### 4. Upload
+
+Follow the [DANDI upload documentation](https://docs.dandiarchive.org/user-guide-sharing/uploading-data/),
+pointing the DANDI CLI at the EMBER instance rather than the main archive. Upload all
+per-identity files from a session together — the JABS reader needs the full set of
+siblings to reassemble the session (see [Reading per-identity files](#reading-per-identity-files)).
+
+### What JABS checks, and what it does not
+
+| Checked before writing | Left to `nwbinspector` / the archive |
+|---|---|
+| `species` present and in Latin binomial or NCBI IRI form | Everything outside `Subject` metadata |
+| `sex` present and a valid code for the species | File structure, timestamps, data orientation |
+| `age` or `date_of_birth` present, and well-formed | Dataset-level best practices |
+| `age` ranges strictly increasing | |
+| `subject_id` free of `/` | |
+| `weight` in `[numeric] [unit]` form | |
+
+Passing the JABS check is necessary but **not sufficient** — always run
+`nwbinspector` before uploading.
+
+### Expected warnings
+
+These appear in a normal, acceptable export and do not block upload:
+
+- **Missing session-level metadata**, when `--session-metadata` is omitted:
+  `check_experimenter_exists`, `check_institution`, `check_keywords`,
+  `check_experiment_description`, and a missing subject `description`. All are
+  best-practice suggestions rather than blocking findings.
+
+### Limitations for archive submission
+
+- **`--multisubject` output cannot be validated.** The file depends on the
+  `ndx-multisubjects` extension, and `nwbinspector` fails to read it, so the archive
+  cannot validate it. It also does not populate `NWBFile.subject`, which DANDI's
+  required subject checks read. Use the default per-identity mode for anything
+  destined for the archive.
+- **Segmentation data is not exported.** See [Data not exported](#data-not-exported).
 
 ---
 
@@ -151,13 +328,14 @@ session_subject_3.nwb   ← identity 2 + all objects
 ```
 
 **This is the most standard output.** Each file contains exactly one animal, so
-`NWBFile.subject` is populated with that animal's biological metadata (when provided
-via `--subjects`). Any standard NWB tool — including the DANDI archive — can read
+`NWBFile.subject` is populated with that animal's biological metadata from
+`--subjects`. Any standard NWB tool — including the DANDI archive — can read
 the subject field directly without knowing anything about JABS.
 
 Identity names in the filenames come from `external_ids` in the pose file (sanitized
-for filesystem compatibility), or fall back to `subject_1`, `subject_2`, … when no
-external IDs are present. Static and dynamic objects are written to every per-identity
+for filesystem compatibility), or from the `name` field in `--subjects` when the pose
+file has none — see [Naming identities](#naming-identities) — falling back to
+`subject_1`, `subject_2`, … when neither supplies one. Static and dynamic objects are written to every per-identity
 file identically, since they are session-level data.
 
 #### Reading per-identity files
@@ -313,6 +491,67 @@ Format: `[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]` in pixe
 
 ---
 
+### Segmentation contours (optional)
+
+When the pose file contains instance segmentation (v6 and later, and only when the file
+was generated with segmentation), one `ContourSeries` per identity is written to the
+`behavior` processing module, named `jabs_segmentation_contours_{identity_name}`. It sits
+next to that identity's `PoseEstimation`, so the contours, the keypoints, and the subject
+all describe the same animal.
+
+`ContourSeries` comes from the [ndx-jabs](https://github.com/KumarLabJax/ndx-jabs)
+extension rather than ndx-pose, because contours are an intermediate product of JABS's own
+shape features, not a representation other pose tools consume. The extension's spec is
+embedded in every file that uses it, so readers without `ndx-jabs` installed can still open
+the file.
+
+| Field             | Value                                                                              |
+|-------------------|------------------------------------------------------------------------------------|
+| `name`            | `jabs_segmentation_contours_{identity_name}` (one per identity)                    |
+| `data`            | shape `(num_frames, num_contours, num_vertices, 2)` — `(x, y)` vertices in pixels  |
+| `vertex_count`    | shape `(num_frames, num_contours)` — valid vertices in each contour slot           |
+| `is_external`     | shape `(num_frames, num_contours)` — `True` = outer boundary, `False` = hole       |
+| `reference_frame` | Top-left corner of video frame, x increases rightward, y increases downward        |
+| `rate`            | Frames per second (float)                                                          |
+| `unit`            | `"pixels"`                                                                         |
+
+An animal needs more than one contour on a frame when its outline has a hole (it curls
+around a gap) or when an occluder splits it into disjoint parts. Because different
+frames need different numbers of contours and vertices, `data` is padded out to the
+largest of each with `-1`, and **`vertex_count` is what says how much of each slot is
+real**. Read it rather than scanning for the padding value:
+
+```python
+n = contour_series.vertex_count[frame, slot]
+if n:  # 0 means this slot holds no contour on this frame
+    vertices = contour_series.data[frame, slot, :n, :]
+```
+
+`is_external` has no meaning where `vertex_count` is 0.
+
+The contour dataset is chunked along the frame axis and gzip compressed. It is mostly
+padding, which compresses well: roughly 40 MB per identity per hour of 30fps video.
+
+Segmentation presence is independent of `jabs_identity_mask`: an identity can have
+contours on a frame where its keypoints were not resolved, because JABS assigns
+contours from `longterm_seg_id` and keypoints from `instance_embed_id`. Use
+`vertex_count` to decide whether an identity has an outline on a given frame.
+
+Pass `--no-segmentation` to leave the contours out of a pose file that has them.
+`jabs_metadata.has_segmentation` records whether they were written.
+
+A pose file that has contours but no `seg_external_flag` dataset is exported without them, and
+a warning is logged. `is_external` is required and cannot say "unknown", so exporting such a
+file would mean guessing which contours are holes. JABS-pose writes the two datasets together,
+so this should only affect files produced some other way.
+
+Identity names must not collide with names JABS generates in the same container: an identity
+cannot be called `jabs_identity_mask`, and in a `--multisubject` file one identity cannot be
+named `jabs_segmentation_contours_<another identity>` or `jabs_bounding_boxes_<another identity>`.
+The export fails before writing anything if they do.
+
+---
+
 ### Static objects
 
 Static objects are fixed-position spatial landmarks that do not move during a session.
@@ -326,24 +565,16 @@ Common static objects:
 | `lixit`       | `(1, 2)` or `(3, 2)` | Water spout — single tip, or tip + left + right |
 | `food_hopper` | `(4, 2)`             | Four corners of the food hopper opening         |
 
-Each static object is a `PoseEstimation` container with a **single timestamp
-(`t = 0.0 s`)**, one `PoseEstimationSeries` per keypoint, and a dedicated `Skeleton`.
-Nodes are named `{object_name}_{i}` (zero-indexed).
+Each static object is a `PoseEstimation` container with one
+`PoseEstimationSeries` per keypoint and a dedicated `Skeleton`. Nodes are named
+`{object_name}_{i}` (zero-indexed).
 
-Each `PoseEstimationSeries` for a static object has data shape `(1, 2)` — one row for
-the single timestamp and two columns for `(x, y)`. Because the time dimension (1) is
-shorter than the spatial dimension (2), the DANDI validator will emit a
-`NWBI.check_data_orientation` warning for each static keypoint:
-
-```
-[NWBI.check_data_orientation] — Data may be in the wrong orientation. Time should be
-in the first dimension, and is usually the longest dimension. Here, another dimension
-is longer.
-```
-
-**These warnings are expected and can be ignored.** The check is a heuristic designed
-to catch transposed animal pose arrays; it fires a false positive for static objects,
-which legitimately have only one timestamp by definition.
+The constant `(x, y)` value is written at **two timestamps spanning the session** —
+the first and last frame — giving each series data shape `(2, 2)`. A single-timestamp
+series would have shape `(1, 2)`, whose non-time axis is longer than its time axis,
+which `nwbinspector`'s `check_data_orientation` flags regardless of the data being
+genuinely static. Repeating the value at both ends leaves it unchanged while keeping
+the export clean.
 
 ---
 
@@ -392,9 +623,10 @@ here; the JABS reader restores it from the canonical keypoint index.)
 | `identity_names`        | `list[str]`               | Always                       | Ordered list of animal identity container names. Defines identity order on read.                                                                                                                                    |
 | `num_identities`        | `int`                     | Always                       | Total number of animal identities in the recording session.                                                                                                                                                         |
 | `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                                          |
-| `external_ids`          | `list[str] \| null`       | Always                       | Original external identity names from the pose file. `null` if the pose file had no external IDs.                                                                                                                   |
+| `external_ids`          | `list[str] \| null`       | Always                       | External identity names: from the pose file when it has them, otherwise the ones supplied with the `name` field in `--subjects`. `null` if neither. Identities left unnamed take their `subject_N` placeholder. |
 | `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity subject metadata keyed by identity name, for all identities. `null` if no subject metadata is available. Fields: `subject_id`, `sex`, `species`, `age`, `date_of_birth`, `genotype`, `strain`, `weight`, `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. |
 | `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                                                                                      |
+| `has_segmentation`      | `bool`                    | Always                       | `true` if segmentation contours were written. Absent in older files, which carry no contours. |
 | `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                                             |
 | `dynamic_object_names`  | `list[str]`               | When dynamic objects present | Names of all dynamic object `PoseEstimation` containers.                                                                                                                                                            |
 | `dynamic_object_shapes` | `dict[str, [int, int]]`   | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`.                                                                                                                                                        |
@@ -402,6 +634,7 @@ here; the JABS reader restores it from the canonical keypoint index.)
 | `per_identity_files`    | `bool`                    | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files.                                                                                                                                                      |
 | `source_identity_index` | `int`                     | Per-identity mode only       | Zero-based index of the identity in this file.                                                                                                                                                                      |
 | `split_subject_count`      | `int`                     | Per-identity mode only       | Total number of subjects in the session across all split files.                                                                                                                                                     |
+| `write_set_id`          | `str`                     | Per-identity mode only       | Random identifier shared by every file written together; stale files at the same stem are ignored on read. Absent in older files. |
 
 #### Example — multisubject file
 
@@ -440,6 +673,7 @@ here; the JABS reader restores it from the canonical keypoint index.)
     "pose_format_version": 7,
     "source_file_hash": "a3f1c8..."
   },
+  "has_segmentation": true,
   "static_object_names": ["corners", "lixit"],
   "dynamic_object_names": ["fecal_boli"],
   "dynamic_object_shapes": {
@@ -468,8 +702,9 @@ NWB files always store coordinates in `(x, y)` order.
 
 ## Data not exported
 
-Pose files v6 and later may contain instance segmentation data. This data is **not**
-included in the NWB output. See
+Instance segmentation contours (`poseest/seg_data`) **are** exported; see
+[Segmentation contours](#segmentation-contours-optional) above. The segmentation
+bookkeeping datasets JABS uses to assign those contours to identities are not, because
+the export resolves them into per-identity contours. See
 [File Formats — Data not exported to NWB](file-formats.md#data-not-exported-to-nwb)
-for the full list of omitted fields. If you need segmentation data, read it directly
-from the source JABS pose HDF5 file.
+for the full list of omitted fields.

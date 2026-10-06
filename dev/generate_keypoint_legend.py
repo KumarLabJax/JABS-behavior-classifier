@@ -18,7 +18,7 @@ import matplotlib
 matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
 
-from jabs.pose_drawing import KEYPOINT_COLOR_MAP  # QColor map keyed by KeypointIndex
+from jabs.overlay_drawing import KEYPOINT_COLOR_MAP  # QColor map keyed by KeypointIndex
 
 # Import the actual map so colors 100% match what's used in the app
 from jabs.pose_estimation import PoseEstimation  # provides KeypointIndex

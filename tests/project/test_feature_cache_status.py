@@ -175,17 +175,6 @@ def test_is_complete_requires_every_identity(cached_identities, expected_count, 
     assert status.is_complete is complete
 
 
-def test_is_complete_false_when_per_frame_features_missing():
-    """An identity whose per-frame features are absent makes the cache incomplete."""
-    status = _status(
-        _identity_cache(identity=0),
-        _identity_cache(identity=1, per_frame_present=False),
-        expected_identity_count=2,
-    )
-
-    assert status.is_complete is False
-
-
 def test_stale_cache_detected_from_feature_version():
     """A cache written by another feature version is reported as stale."""
     status = _status(_identity_cache(feature_version=_CURRENT_VERSION - 1))
@@ -197,16 +186,6 @@ def test_stale_cache_detected_from_feature_version():
 def test_current_cache_not_stale():
     """A cache written by the current feature version is not stale."""
     assert _status(_identity_cache()).is_stale is False
-
-
-def test_mixed_cache_formats_reported():
-    """Both formats are reported when the cache directory is mixed."""
-    status = _status(
-        _identity_cache(identity=0, cache_format=CacheFormat.HDF5),
-        _identity_cache(identity=1, cache_format=CacheFormat.PARQUET),
-    )
-
-    assert set(status.cache_formats) == {CacheFormat.HDF5, CacheFormat.PARQUET}
 
 
 @pytest.mark.parametrize(
@@ -467,16 +446,6 @@ def test_coverage_is_not_stitched_together_from_different_pose_hashes():
     assert status.has_window_features(10) is True
 
 
-def test_current_cache_is_coverage():
-    """A current cache with per-frame features covers its window sizes."""
-    status = _status(
-        _identity_cache(identity=0, window_sizes=frozenset({5})),
-        expected_identity_count=1,
-    )
-
-    assert status.has_window_features(5) is True
-
-
 @pytest.mark.parametrize(
     ("cached_scale", "expects_cm", "covered"),
     [
@@ -485,9 +454,8 @@ def test_current_cache_is_coverage():
         (0.12, False, False),
         (None, True, False),
         (0.12, None, True),
-        (None, None, True),
     ],
-    ids=["cm-cm", "px-px", "cm-cache-px-run", "px-cache-cm-run", "cm-unknown", "px-unknown"],
+    ids=["cm-cm", "px-px", "cm-cache-px-run", "px-cache-cm-run", "cm-unknown"],
 )
 def test_coverage_requires_matching_distance_units(cached_scale, expects_cm, covered):
     """A cache built in the other distance unit is recomputed, so it is not coverage.

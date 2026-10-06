@@ -38,6 +38,10 @@ class TrainingThread(QThread):
             Emitted if an error occurs during training, passing the exception to the main GUI thread.
         training_report: QtCore.Signal(str)
             Emitted when training is complete, carrying the Markdown-formatted training report.
+        cv_warning: QtCore.Signal(str)
+            Emitted when cross-validation was requested but could not run, carrying the
+            reason so the GUI can warn the user instead of silently producing a report
+            with no cross-validation metrics.
 
     Args:
         classifier (Classifier): The classifier instance to train.
@@ -53,6 +57,7 @@ class TrainingThread(QThread):
     update_progress = Signal(int)
     error_callback = Signal(Exception)
     training_report = Signal(str)
+    cv_warning = Signal(str)
 
     def __init__(
         self,
@@ -71,6 +76,7 @@ class TrainingThread(QThread):
         self._should_terminate = False
         self._training_log_dir = project.project_paths.training_log_dir
         self._bout_counts = bout_counts
+        self._cv_warning: str | None = None
 
     def request_termination(self) -> None:
         """Request the thread to terminate early.
@@ -114,6 +120,12 @@ class TrainingThread(QThread):
             if self._should_terminate:
                 raise ThreadTerminatedError("Training was cancelled by the user")
 
+        def record_cv_warning(msg: str) -> None:
+            # kept for the report as well as the signal: the saved report should say
+            # why it has no cross-validation metrics
+            self._cv_warning = msg
+            self.cv_warning.emit(msg)
+
         def id_processed() -> None:
             nonlocal tasks_complete
             tasks_complete += 1
@@ -123,6 +135,7 @@ class TrainingThread(QThread):
         try:
             strategy = self._build_strategy()
             settings = strategy.effective_settings()
+            settings_manager = self._project.settings_manager
 
             self.current_status.emit("Extracting Features")
             features, group_mapping = strategy.collect_features(
@@ -141,11 +154,17 @@ class TrainingThread(QThread):
                 status_callback=self.current_status.emit,
                 progress_callback=id_processed,
                 terminate_callback=check_termination_requested,
+                warning_callback=record_cv_warning,
+                evaluate_postprocessing=strategy.evaluate_postprocessing,
+                postprocessing_config=strategy.postprocessing_config,
             )
 
             self.current_status.emit("Training Classifier")
             full_dataset = self._classifier.combine_data(features["per_frame"], features["window"])
             feature_names = full_dataset.columns.to_list()
+            # the final fit must not depend on cross-validation having run: a run
+            # with zero folds leaves the classifier unprepared otherwise
+            strategy.prepare_final_training()
             self._classifier.train(
                 strategy.final_train_data(features, full_dataset, feature_names),
                 random_seed=FINAL_TRAIN_SEED,
@@ -165,8 +184,9 @@ class TrainingThread(QThread):
                 final_top_features=final_top_features,
                 elapsed_ms=elapsed_ms,
                 timestamp=datetime.now(),
-                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
-                cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
+                cv_grouping_strategy=settings_manager.cv_grouping_strategy,
+                cv_grouping_regex=settings_manager.cv_grouping_regex,
+                cv_warning=self._cv_warning,
                 distance_unit=unit,
                 settings=settings,
             )

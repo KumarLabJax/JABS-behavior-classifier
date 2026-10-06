@@ -1524,7 +1524,7 @@ wheels = [
 
 [[package]]
 name = "hdmf"
-version = "4.3.1"
+version = "6.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -1534,9 +1534,9 @@ dependencies = [
     { name = "pandas" },
     { name = "ruamel-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b8/e9/8ccaa1c8b3c9aca25c0216ec09a0051f247283dad9be928424686f5cbaaa/hdmf-4.3.1.tar.gz", hash = "sha256:dd16335c1a2fd38c3b9f01ed2b9be8a80536cc42d7b72f49a16bad9999668b99", size = 16622252, upload-time = "2026-01-28T17:32:05.93Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ed/0d/1d41f54b7bc2232b168bdfc84d3f46958b40f086081e04d24378f2bc573d/hdmf-6.2.0.tar.gz", hash = "sha256:47dd0d0ebdf834b0cc5d1fdbe6b73d718549cffa489e47f68f638a4add20b65d", size = 16703812, upload-time = "2026-08-19T14:52:50.954Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/dd/5f86c7ac3f31cd9d959be6dec9e54d2ede02aa932fc599a7ff0e03c67758/hdmf-4.3.1-py3-none-any.whl", hash = "sha256:030e52c38adacaca62bcf39bf6bc7c7d23fe481a9ae94d2ad480f7e0e49296bd", size = 341916, upload-time = "2026-01-28T17:32:04.11Z" },
+    { url = "https://files.pythonhosted.org/packages/02/97/c6db59c49643f10bf1d9185a23263be78e54205d881a6004c898573624fa/hdmf-6.2.0-py3-none-any.whl", hash = "sha256:303e5c066a175448b3176b3377389e5d16bb4c5fc753f2dca540d6bd7b118b7c", size = 366628, upload-time = "2026-08-19T14:52:48.53Z" },
 ]
 
 [[package]]
@@ -1728,6 +1728,15 @@ wheels = [
 ]
 
 [[package]]
+name = "isodate"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/4d/e940025e2ce31a8ce1202635910747e5a87cc3a6a6bb2d00973375014749/isodate-0.7.2.tar.gz", hash = "sha256:4cd1aa0f43ca76f4a6c6c0292a85f40b35ec2e43e315b59f06e6d32171a953e6", size = 29705, upload-time = "2024-10-08T23:04:11.5Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/aa/0aca39a37d3c7eb941ba736ede56d689e7be91cab5d9ca846bde3999eba6/isodate-0.7.2-py3-none-any.whl", hash = "sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15", size = 22320, upload-time = "2024-10-08T23:04:09.501Z" },
+]
+
+[[package]]
 name = "itsdangerous"
 version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1738,7 +1747,7 @@ wheels = [
 
 [[package]]
 name = "jabs-behavior"
-version = "0.47.0"
+version = "0.47.1"
 source = { editable = "packages/jabs-behavior" }
 dependencies = [
     { name = "jsonschema" },
@@ -1782,7 +1791,7 @@ test = [
 
 [[package]]
 name = "jabs-behavior-classifier"
-version = "0.47.0"
+version = "0.47.1"
 source = { editable = "." }
 dependencies = [
     { name = "argparse-formatter" },
@@ -1827,6 +1836,7 @@ yaml = [
 [package.dev-dependencies]
 dev = [
     { name = "matplotlib" },
+    { name = "nwbinspector" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1840,6 +1850,7 @@ lint = [
     { name = "ruff" },
 ]
 test = [
+    { name = "nwbinspector" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -1879,6 +1890,7 @@ provides-extras = ["nwb", "yaml", "mlflow"]
 [package.metadata.requires-dev]
 dev = [
     { name = "matplotlib", specifier = ">=3.9.3,<4.0.0" },
+    { name = "nwbinspector", specifier = ">=0.7.2" },
     { name = "pre-commit", specifier = ">=4.2.0,<5.0.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
@@ -1890,13 +1902,14 @@ docs = [
 ]
 lint = [{ name = "ruff", specifier = ">=0.11.5,<0.12.0" }]
 test = [
+    { name = "nwbinspector", specifier = ">=0.7.2" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
 ]
 
 [[package]]
 name = "jabs-core"
-version = "0.47.0"
+version = "0.47.1"
 source = { editable = "packages/jabs-core" }
 dependencies = [
     { name = "h5py" },
@@ -1956,7 +1969,7 @@ test = [
 
 [[package]]
 name = "jabs-io"
-version = "0.47.0"
+version = "0.47.1"
 source = { editable = "packages/jabs-io" }
 dependencies = [
     { name = "h5py" },
@@ -1967,6 +1980,7 @@ dependencies = [
 
 [package.optional-dependencies]
 nwb = [
+    { name = "ndx-jabs" },
     { name = "ndx-multisubjects" },
     { name = "ndx-pose" },
     { name = "pynwb" },
@@ -1999,6 +2013,7 @@ test = [
 requires-dist = [
     { name = "h5py", specifier = ">=3.10.0,<4.0.0" },
     { name = "jabs-core", editable = "packages/jabs-core" },
+    { name = "ndx-jabs", marker = "extra == 'nwb'", specifier = ">=0.1.0" },
     { name = "ndx-multisubjects", marker = "extra == 'nwb'", specifier = ">=0.1.1" },
     { name = "ndx-pose", marker = "extra == 'nwb'", specifier = ">=0.2.2" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
@@ -2025,7 +2040,7 @@ test = [
 
 [[package]]
 name = "jabs-vision"
-version = "0.47.0"
+version = "0.47.1"
 source = { editable = "packages/jabs-vision" }
 dependencies = [
     { name = "click" },
@@ -2829,6 +2844,28 @@ wheels = [
 ]
 
 [[package]]
+name = "natsort"
+version = "8.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/a9/a0c57aee75f77794adaf35322f8b6404cbd0f89ad45c87197a937764b7d0/natsort-8.4.0.tar.gz", hash = "sha256:45312c4a0e5507593da193dedd04abb1469253b601ecaf63445ad80f0a1ea581", size = 76575, upload-time = "2023-06-20T04:17:19.925Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/82/7a9d0550484a62c6da82858ee9419f3dd1ccc9aa1c26a1e43da3ecd20b0d/natsort-8.4.0-py3-none-any.whl", hash = "sha256:4732914fb471f56b5cce04d7bae6f164a592c7712e1c85f9ef585e197299521c", size = 38268, upload-time = "2023-06-20T04:17:17.522Z" },
+]
+
+[[package]]
+name = "ndx-jabs"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hdmf" },
+    { name = "pynwb" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e4/34/edfe9b6667bf78618bf836a56a80e11ca39489d594dbf670ba89c3d37047/ndx_jabs-0.1.0.tar.gz", hash = "sha256:b957b904061e0c5061075164662a71fa938bc9d8a89a1f582597fd7dff8ced8d", size = 6842152, upload-time = "2026-10-03T00:22:07.809Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/be/e28e57dab6394cca7d2b263677593dd7ed9f89e1b87dd99cd84ada5938fd/ndx_jabs-0.1.0-py3-none-any.whl", hash = "sha256:ebd62e1549d9bd28fc740dc0f01afc6693a652068fbf5b7f7673db9914438ed3", size = 7462, upload-time = "2026-10-03T00:22:06.727Z" },
+]
+
+[[package]]
 name = "ndx-multisubjects"
 version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2843,15 +2880,15 @@ wheels = [
 
 [[package]]
 name = "ndx-pose"
-version = "0.2.2"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hdmf" },
     { name = "pynwb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/9a/137b1334efc99d8e044948b7d1c52b3ef0f6c44d39654ced1d5236a2af14/ndx_pose-0.2.2.tar.gz", hash = "sha256:69a9a139363ccf8406f36752146d345914330e69921b9734db2425fc9808a0a1", size = 99404, upload-time = "2025-05-08T15:34:38.925Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8a/46/a90fc0d993dbdb594b9b70aad504f6c632238b447399e17901e305ae3ce4/ndx_pose-0.4.0.tar.gz", hash = "sha256:5c5aaf5d56cd612e21bfee0841a14406f1414673f05d549e02170fc86e2aa75f", size = 182669, upload-time = "2026-09-30T07:42:38.703Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/0d/14e1242b3776a06ad6f93107f147e0d0630221c13a1f5e328fba62d95adf/ndx_pose-0.2.2-py3-none-any.whl", hash = "sha256:76d55ec5d363673b66cd9540dac87c92cba16f5def9836874fd4d96b29a94b90", size = 15045, upload-time = "2025-05-08T15:34:37.396Z" },
+    { url = "https://files.pythonhosted.org/packages/17/eb/a5b8de21ec44cf52c4c06b09d3d23a0dee9e47ccb7d1684ae792748b7df1/ndx_pose-0.4.0-py3-none-any.whl", hash = "sha256:5e9c77ebe7e776b3047cba38db31de004948225d1832ee314b43b16d1568da5e", size = 20468, upload-time = "2026-09-30T07:42:37.31Z" },
 ]
 
 [[package]]
@@ -3192,6 +3229,28 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/f3/d86c845465a2723ad7e1e5c36dcd75ddb82898b3f53be47ebd429fb2fa5d/nvidia_nvtx-13.0.85-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:4936d1d6780fbe68db454f5e72a42ff64d1fd6397df9f363ae786930fd5c1cd4", size = 148047, upload-time = "2025-09-04T08:29:01.761Z" },
     { url = "https://files.pythonhosted.org/packages/a8/64/3708a90d1ebe202ffdeb7185f878a3c84d15c2b2c31858da2ce0583e2def/nvidia_nvtx-13.0.85-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:cb7780edb6b14107373c835bf8b72e7a178bac7367e23da7acb108f973f157a6", size = 148878, upload-time = "2025-09-04T08:28:53.627Z" },
+]
+
+[[package]]
+name = "nwbinspector"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "click" },
+    { name = "fsspec" },
+    { name = "isodate" },
+    { name = "jsonschema" },
+    { name = "natsort" },
+    { name = "packaging" },
+    { name = "pynwb" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2e/7d/fcb4b0002445cc940dad1277e88dc840ee229cd628d404b693cf05bbafe8/nwbinspector-0.7.2.tar.gz", hash = "sha256:2e49bee5e5de9bcf2cd8e293aa88d8cf845a4a2a16387052aebd7faef8230ab4", size = 634193, upload-time = "2026-05-19T18:08:23.463Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/0b/9ed001e9d16a94ea5bd74dee2462786fcc869c4bcb3dd568c2373ac9d260/nwbinspector-0.7.2-py3-none-any.whl", hash = "sha256:40d008eedd8afdc5d6841825d6efb6891933c1fd3b8c5b599ab2db14f62db8e8", size = 86926, upload-time = "2026-05-19T18:08:22.348Z" },
 ]
 
 [[package]]
@@ -3889,7 +3948,7 @@ wheels = [
 
 [[package]]
 name = "pynwb"
-version = "3.1.3"
+version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -3900,9 +3959,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-dateutil" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/83/0c37d99d2a262ca69be2df5bf9153b7bf2d79391d668e7ec232e89129ab4/pynwb-3.1.3.tar.gz", hash = "sha256:ee75219aa241b72b10d1c6830ae6bafa7e3e44f0429715c2ef0920a19654e185", size = 35784649, upload-time = "2025-12-09T23:40:50.358Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/30/cceb14ab8ffb1702b062845e2f54358955378057660d811e973687ded1c2/pynwb-4.2.0.tar.gz", hash = "sha256:681e86b73cf21fc607003936ac9e575efdb64d3d01001bfa351862d40f9b5e7e", size = 36416898, upload-time = "2026-09-02T22:53:50.971Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/47/b5b7d5285e823a16fe7b007bce3cf79ddcd3b6d7c8b3ca15cbe8c17c0a17/pynwb-3.1.3-py3-none-any.whl", hash = "sha256:43b5d753c6c2c8f6b4fa6c784ac85675556b64b42c727d9eab27670ef529929a", size = 1396673, upload-time = "2025-12-09T23:40:48.454Z" },
+    { url = "https://files.pythonhosted.org/packages/be/be/455b569cf15d7478a36d6ca4c7d5992f6af273edd1d56f3c34ace34c01ec/pynwb-4.2.0-py3-none-any.whl", hash = "sha256:9710364ecac03b6e6b8693d9eeaeb9f3dc6e61195baa88adb251def901655445", size = 1415526, upload-time = "2026-09-02T22:53:48.082Z" },
 ]
 
 [[package]]

@@ -7,12 +7,15 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
+from click.testing import CliRunner
 
+import jabs.scripts.cli.cli as cli_module
 from jabs.core.constants import FINAL_TRAIN_SEED, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode, ClassifierType
 from jabs.project import export_training_data, export_training_data_multiclass
 from jabs.project.read_training import load_multiclass_training_data
 from jabs.project.track_labels import TrackLabels
+from jabs.scripts.cli.cli import cli
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -182,6 +185,8 @@ def test_load_multiclass_training_data_roundtrip(tmp_path: Path) -> None:
     # Identity None sentinel decoded correctly
     assert group_mapping[1]["identity"] is None
     assert group_mapping[0]["identity"] == 0
+    # Video names decode to str rather than the bytes h5py hands back
+    assert group_mapping[0]["video"] == "vid_a.mp4"
 
 
 def test_load_multiclass_rejects_binary_file(tmp_path: Path) -> None:
@@ -239,15 +244,9 @@ def test_multiclass_from_training_file_roundtrip(tmp_path: Path) -> None:
 
 def test_cli_binary_requires_behavior(tmp_path: Path) -> None:
     """export-training without --behavior on a binary project raises an error."""
-    from click.testing import CliRunner
-
-    from jabs.scripts.cli.cli import cli
-
     runner = CliRunner()
 
     # Patch Project so no real directory is needed
-    import jabs.scripts.cli.cli as cli_module
-
     fake_project = MagicMock()
     fake_project.settings_manager = SimpleNamespace(
         classifier_mode=ClassifierMode.BINARY,
@@ -264,29 +263,37 @@ def test_cli_binary_requires_behavior(tmp_path: Path) -> None:
     assert "--behavior is required" in result.output
 
 
-def test_cli_multiclass_does_not_require_behavior(tmp_path: Path) -> None:
-    """export-training without --behavior on a multiclass project succeeds."""
-    from click.testing import CliRunner
+def test_cli_multiclass_does_not_require_behavior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """export-training without --behavior on a multiclass project exports every behavior.
 
-    import jabs.scripts.cli.cli as cli_module
-    from jabs.scripts.cli.cli import cli
-
+    Args:
+        tmp_path: Temporary project directory.
+        monkeypatch: Pytest fixture used to replace the Project and the exporter.
+    """
     behavior_names = ["Walk", "Run"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     project.settings_manager.classifier_mode = ClassifierMode.MULTICLASS
     project.feature_manager.min_pose_version = 6
 
-    original_project = cli_module.Project
-    original_export = cli_module.export_training_data_multiclass
-    cli_module.Project = MagicMock(return_value=project)
     out_path = tmp_path / "mc.h5"
-    cli_module.export_training_data_multiclass = MagicMock(return_value=out_path)
-    try:
-        runner = CliRunner()
-        result = runner.invoke(cli, ["export-training", str(tmp_path)])
-    finally:
-        cli_module.Project = original_project
-        cli_module.export_training_data_multiclass = original_export
+    export = MagicMock(return_value=out_path)
+    monkeypatch.setattr(cli_module, "Project", MagicMock(return_value=project))
+    monkeypatch.setattr(cli_module, "export_training_data_multiclass", export)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "export-training",
+            str(tmp_path),
+            "--classifier",
+            "random_forest",
+            "--outfile",
+            str(out_path),
+        ],
+    )
 
     assert result.exit_code == 0, result.output
     assert "Exported training data" in result.output
+    export.assert_called_once_with(project, 6, ClassifierType.RANDOM_FOREST, out_file=out_path)

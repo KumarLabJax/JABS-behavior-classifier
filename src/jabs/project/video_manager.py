@@ -1,8 +1,8 @@
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jabs.io.annotations import AnnotationStore
 from jabs.pose_estimation import (
     PoseEstimation,
     get_pose_path,
@@ -42,6 +42,12 @@ class VideoManager:
             ``has_cm_per_pixel``. When ``enable_video_check=True``,
             ``video_frame_count`` must also be populated (i.e. the scan job
             must have been run with ``scan_frame_counts=True``).
+        annotation_store: Store this manager reads label documents from.
+            Required, and deliberately not defaulted: a project has exactly one
+            annotation store, and silently constructing a second one here would
+            let a future Hub-backed path that forgot to pass it read local JSON
+            files while appearing to work. :class:`~jabs.project.Project` passes
+            its own.
     """
 
     def __init__(
@@ -51,9 +57,11 @@ class VideoManager:
         enable_video_check: bool = False,
         *,
         scan_results: "dict[str, VideoScanResult]",
+        annotation_store: AnnotationStore,
     ):
         self._paths = paths
         self._settings_manager = settings_manager
+        self._annotation_store = annotation_store
         self._videos = []
         self._video_identity_count = {}
         # whether each video's pose file carries a cm_per_pixel scale, which decides
@@ -80,6 +88,11 @@ class VideoManager:
         self._load_video_metadata(scan_results)
 
     @property
+    def annotation_store(self) -> AnnotationStore:
+        """Store this manager reads label documents from."""
+        return self._annotation_store
+
+    @property
     def videos(self):
         """Get the list of video filenames in the project."""
         return self._videos
@@ -92,6 +105,16 @@ class VideoManager:
     def remove_video(self, video_name: str):
         """Remove a video from the project.
 
+        Drops every piece of per-video state this manager derived from the
+        project scan, so ``total_project_identities``,
+        :meth:`video_has_cm_per_pixel` and the pose path cache stay consistent
+        with the remaining videos. The video's ``video_files`` entry is also
+        removed from ``project.json`` so the persisted project matches the
+        in-memory removal.
+
+        Does nothing (other than logging a warning) if the video is not in the
+        project.
+
         Args:
             video_name: Name of the video file to remove.
         """
@@ -99,10 +122,13 @@ class VideoManager:
             self.check_video_name(video_name)
         except ValueError as e:
             logger.warning("Error removing video %s: %s", video_name, e)
-        else:
-            self._videos.remove(video_name)
-            del self._video_identity_count[video_name]
-            self._settings_manager.save_project_file()
+            return
+
+        self._videos.remove(video_name)
+        self._total_project_identities -= self._video_identity_count.pop(video_name, 0)
+        self._video_has_cm_per_pixel.pop(video_name, None)
+        self._pose_path_cache.pop(video_name, None)
+        self._settings_manager.remove_video_from_project_file(video_name)
 
     @property
     def total_project_identities(self) -> int:
@@ -124,19 +150,15 @@ class VideoManager:
         video_filename = Path(video_name).name
         self.check_video_name(video_filename)
 
-        path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
-
         # if annotations already exist for this video file in the project open them
-        if path.exists():
-            # VideoLabels.load can use pose to convert identity index to the display identity
-            if pose is None:
-                pose = open_pose_file(
-                    self.get_cached_pose_path(video_filename), self._paths.cache_dir
-                )
-            with path.open() as f:
-                return VideoLabels.load(json.load(f), pose)
-        else:
+        document = self._annotation_store.load_document(video_filename)
+        if document is None:
             return None
+
+        # VideoLabels.load can use pose to convert identity index to the display identity
+        if pose is None:
+            pose = open_pose_file(self.get_cached_pose_path(video_filename), self._paths.cache_dir)
+        return VideoLabels.load(document.content, pose)
 
     def check_video_name(self, video_filename: str):
         """check that a video name matches one in the project
@@ -276,10 +298,10 @@ class VideoManager:
         video_filename = Path(video_file).name
         self.check_video_name(video_filename)
 
-        return self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
+        return self._annotation_store.document_path(video_filename)
 
     def load_annotations(self, video_file: str) -> dict | None:
-        """Load annotations for a video file.
+        """Load the serialized annotation document for a video file.
 
         Args:
             video_file: Name of the video file
@@ -287,9 +309,8 @@ class VideoManager:
         Returns:
             Annotations dictionary if it exists, otherwise None
         """
-        path = self.annotations_path(video_file)
-        if path.exists():
-            with path.open() as f:
-                return json.load(f)
+        video_filename = Path(video_file).name
+        self.check_video_name(video_filename)
 
-        return None
+        document = self._annotation_store.load_document(video_filename)
+        return document.content if document is not None else None

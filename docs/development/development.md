@@ -264,19 +264,22 @@ JABS-behavior-classifier/
 │   │   ├── segmentation_features/  # Spatial segmentation features
 │   │   ├── social_features/    # Multi-animal social features
 │   │   └── window_operations/  # Temporal window operations
+│   ├── overlay_drawing/    # Pose/segmentation overlay rendering
 │   ├── pose_estimation/    # Pose file handling and validation
 │   ├── project/            # Project management and data organization
 │   ├── resources/          # Static resources (icons, docs, etc.)
 │   ├── schema/             # JSON schemas for validation
 │   ├── scripts/            # Command-line interface scripts
 │   ├── ui/                 # PySide6-based GUI components
-│   ├── utils/              # Utility functions and helpers
+│   ├── utils/              # Re-exports of jabs-core helpers (shim)
 │   ├── version/            # Version information
+│   ├── video_export/       # Video clip export
 │   └── video_reader/       # Video file reading and processing
 ├── packages/               # Sub-packages
-│   ├── jabs-core/          # Infrastructure & Utilities
-│   ├── jabs-io/            # Canonical Models & File I/O
-│   └── jabs-vision/        # DL Inference & Identity Tracking
+│   ├── jabs-core/          # Shared types, enums, abstract base classes
+│   ├── jabs-io/            # File I/O (HDF5, JSON, Parquet, NWB)
+│   ├── jabs-behavior/      # Event processing & postprocessing filters
+│   └── jabs-vision/        # Deep-learning inference (PyTorch, HRNet, timm)
 ├── tests/                  # Root project tests
 ├── dev/                    # Development utilities and scripts
 ├── build/                  # Build artifacts (generated)
@@ -291,15 +294,26 @@ JABS-behavior-classifier/
 We are in the process of refactoring the original monolithic codebase by migrating core
 logic into independent, headless-capable packages in the `packages/` directory.
 
-- **`jabs-core`**: Minimal shared infrastructure (Registries, Constants).
-- **`jabs-io`**: Defines the canonical data models (`PoseData`, `FeatureData`) and handles all HDF5/Parquet/JSON reading/writing.
-- **`jabs-vision`**: Handles heavy ML tasks (Pose estimation inference, Tracking).
+- **`jabs-core`**: Lightweight shared infrastructure - constants, enums, exceptions, the
+  canonical data models (e.g. `PoseData`), abstract base classes and small pure helpers.
+  Depends on no other JABS package.
+- **`jabs-io`**: The reusable file I/O layer - HDF5, JSON, Parquet and NWB - plus the
+  adapter registry that maps a storage format and data model to a reader/writer. It is not
+  yet the only I/O in the repo: parts of `src/jabs/` still read and write HDF5 and JSON
+  directly, and migrating those is part of the transition. Depends on `jabs-core`.
+- **`jabs-behavior`**: Behavior event processing (run-length encoded bouts), the
+  postprocessing filter pipeline and bout-level evaluation metrics. Depends on no other
+  JABS package.
+- **`jabs-vision`**: Heavy deep-learning work (pose estimation inference with PyTorch,
+  HRNet and timm). Depends on `jabs-core` and `jabs-io`.
 
 **Developers should prefer adding new reusable logic to the appropriate sub-package rather than the root `src/` tree.** 
 
 ### Key Directories Explained
 
-- **`src/jabs/`**: All production code lives here. This is a "src layout" which keeps source separate from tests and build artifacts.
+- **`src/jabs/`**: The GUI application, project management, feature extraction, classifiers
+  and CLI entry points. This is a "src layout" which keeps source separate from tests and
+  build artifacts. Reusable, headless library code lives in `packages/` instead.
 
 - **`feature_extraction/`**: The heart of JABS - extracts behavioral features from pose estimation data. Features are modular and extensible.
 
@@ -311,7 +325,7 @@ logic into independent, headless-capable packages in the `packages/` directory.
 
 - **`ui/`**: PySide6-based GUI components.
 
-- **`classifier/`**: Implements machine learning classifiers (currently supports scikit-learn RandomForest as well as XGBoost).
+- **`classifier/`**: Implements machine learning classifiers (currently scikit-learn Random Forest, XGBoost and CatBoost).
 
 - **`scripts/`**: Entry points for command-line tools (installed as console scripts).
 
@@ -361,6 +375,54 @@ project_directory/
     ├── session/             # Session logging
     └── cache/               # Performance cache
 ```
+
+#### Behavior Annotation Storage
+
+A project's behavior labels live one JSON document per labeled video under
+`jabs/annotations/`. Nothing outside `jabs.io` opens those files directly — every read
+and write goes through the project's `AnnotationStore`
+(`packages/jabs-io/src/jabs/io/annotations/`):
+
+```python
+store = project.annotation_store           # shared with project.video_manager
+
+document = store.load_document("video1.avi")   # -> AnnotationDocument | None
+if document is not None:
+    labels = VideoLabels.load(document.content, pose)
+
+store.save_document("video1.avi", labels.as_dict(pose))
+```
+
+`LocalAnnotationStore` is the only implementation today: it writes each document into the
+project's annotations directory through a uniquely named temporary file that is then
+renamed into place, so a reader never sees a half-written document and two writers cannot
+interleave into one. (The rename is not fsynced — the GUI saves on every label edit, and
+disk latency does not belong in that path.) Because a project directory keeps no version
+history, it reports every document at the `UNVERSIONED` sentinel and ignores the
+`base_version` argument; that argument exists so a store that *does* detect concurrent
+writes can be added without changing these signatures.
+
+The unit of storage is the **serialized document dict**, not a `VideoLabels` object.
+Building a `VideoLabels` requires pose data, so serialization stays in
+`src/jabs/project/video_labels.py` and the store only moves dicts. Keeping that boundary
+is what allows the store to live in `jabs-io` at all.
+
+Three rules when adding code that touches labels:
+
+- **Go through the store**, not through `project_paths.annotations_dir`. Use
+  `has_document()` / `document_path()` when you only need to know whether a document
+  exists or where it would be, and `load_document()` when you need its content.
+- **Delete through `delete_document()`**, never by unlinking `document_path()`. On a
+  store that is a cache over a remote authority, unlinking the local file removes the
+  copy and leaves the original to come back on the next sync.
+- **Worker processes get a path, not a store.** Call `store.ensure_local(video)` in the
+  parent to materialize the document, pass the returned path into the job spec, and parse
+  it in the child with `jabs.io.annotations.read_document()`. A store may be backed by
+  something a child process cannot reach.
+
+New implementations should be covered by adding them to the `store` fixture in
+`packages/jabs-io/tests/annotations/test_store_contract.py`, which runs the
+interface-level expectations against every backend.
 
 #### Feature Extraction
 
@@ -754,7 +816,7 @@ backend does — keeps caches consistent and easier to debug.
 
 ##### Testing New Features
 
-Add tests in `tests/feature_tests/`. See existing feature tests for examples of how to:
+Add tests in `tests/feature_extraction/`. See existing feature tests for examples of how to:
 - Test per-frame feature computation
 - Verify feature output shapes and data types
 - Test with sample pose estimation data
@@ -762,9 +824,9 @@ Add tests in `tests/feature_tests/`. See existing feature tests for examples of 
 
 #### Classifiers
 
-Classifiers wrap scikit-learn or XGBoost models:
+Classifiers wrap scikit-learn, XGBoost or CatBoost models:
 
-- Support for multiple classifier types (LogisticRegression, RandomForest, XGBoost, etc.)
+- Support for the classifier types in `ClassifierType` (Random Forest, XGBoost, CatBoost)
 - K-fold cross-validation
 - Model persistence and versioning
 

@@ -2,6 +2,8 @@ import typing
 
 import numpy as np
 
+from jabs.core.utils import signed_angle_degrees
+from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -104,7 +106,7 @@ class LixitDistanceInfo:
 
             nose_points = points[:, PoseEstimation.KeypointIndex.NOSE, :]
             base_neck_points = points[:, PoseEstimation.KeypointIndex.BASE_NECK, :]
-            self._cached_bearings[identity]["bearing to lixit"] = self.compute_angles(
+            self._cached_bearings[identity]["bearing to lixit"] = signed_angle_degrees(
                 nose_points, base_neck_points, closest_lixit_vec
             )
 
@@ -161,29 +163,8 @@ class LixitDistanceInfo:
             are NaN for frames where no centroid is available
         """
         if identity not in self._cached_centroids:
-            self._cached_centroids[identity] = self._compute_centroids(identity)
+            self._cached_centroids[identity] = identity_centroids(self._poses, identity)
         return self._cached_centroids[identity]
-
-    def _compute_centroids(self, identity: int) -> np.ndarray:
-        """compute the per-frame mouse centroid (convex hull center) in pixel units
-
-        Args:
-            identity: integer identity to compute centroids for
-
-        Returns:
-            np.ndarray of shape (#frames, 2) of centroid coordinates in pixel units; rows
-            are NaN for frames where the identity is absent or has too few valid keypoints
-            to form a convex hull
-        """
-        centroids = np.full((self._poses.num_frames, 2), np.nan, dtype=np.float32)
-        frame_valid = self._poses.identity_mask(identity)
-        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
-        convex_hulls = self._poses.get_identity_convex_hulls(identity)
-        for i in indexes:
-            hull = convex_hulls[i]
-            if hull is not None:
-                centroids[i, :] = np.asarray(hull.centroid.xy).squeeze()
-        return centroids
 
     @staticmethod
     def _closest_lixit_per_frame(alignment_distances: np.ndarray) -> np.ndarray:
@@ -223,24 +204,6 @@ class LixitDistanceInfo:
 
         source = np.where(prev_dist <= next_dist, prev_idx, next_idx)
         return closest[source]
-
-    @staticmethod
-    def compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
-        """compute angles for a set of points
-
-        Args:
-            a: array of point coordinates
-            b: array of vertex point coordinates
-            c: array of point coordinates
-
-        Returns:
-            array containing angles, in degrees, formed from the lines ab and ba for each row in a, b, and c with range [-180, 180)
-        """
-        angles = np.degrees(
-            np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0])
-            - np.arctan2(a[:, 1] - b[:, 1], a[:, 0] - b[:, 0])
-        )
-        return ((angles + 180) % 360) - 180
 
 
 class DistanceToLixit(Feature):

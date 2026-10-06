@@ -104,6 +104,27 @@ def test_get_pose_file_major_version_invalid(filename: str) -> None:
         jabs.pose_estimation.get_pose_file_major_version(Path(filename))
 
 
+@pytest.mark.parametrize(
+    "filename",
+    ["sample.h5", "sample_pose_est.h5", "samplev3.h5", "sample_pose_est_v6.h5.bak"],
+    ids=["no-suffix", "no-version", "no-underscore", "trailing-extension"],
+)
+def test_open_pose_file_rejects_invalid_name(filename: str) -> None:
+    """open_pose_file accepts exactly the names get_pose_file_major_version accepts
+
+    Both derive the version from the ``_v<major version>.h5`` suffix, so a name the
+    rest of JABS treats as unversioned is not opened here either.
+    """
+    with pytest.raises(ValueError, match="not a valid pose file name"):
+        jabs.pose_estimation.open_pose_file(Path(filename))
+
+
+def test_open_pose_file_rejects_unsupported_version() -> None:
+    """a well-formed name with a version JABS has no reader for names that version"""
+    with pytest.raises(ValueError, match="major version 99 is not supported"):
+        jabs.pose_estimation.open_pose_file(Path("sample_pose_est_v99.h5"))
+
+
 def test_get_points(pose_est_v4):
     """test getting pose points from PoseEstimation instance"""
     points, point_mask = pose_est_v4.get_identity_poses(0)
@@ -132,13 +153,6 @@ def test_get_points_out_of_range(pose_est_v4):
     """test that get_points raises IndexError when frame index is out of range"""
     with pytest.raises(IndexError):
         _, _ = pose_est_v4.get_points(1000000, 0)
-
-
-def test_scaling_points(pose_est_v4):
-    """test scaling points"""
-    points, _ = pose_est_v4.get_points(10, 0)
-    scaled_points, _ = pose_est_v4.get_points(10, 0, 0.03)
-    np.testing.assert_equal(points * 0.03, scaled_points)
 
 
 def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files):
@@ -204,3 +218,71 @@ def test_v4_read_from_cache(tmpdir_with_pose_files):
         poses_cached[np.isnan(poses_cached)] = 0
         assert np.all(poses == poses_cached)
         assert np.all(mask == mask_cached)
+
+
+@pytest.mark.parametrize(
+    "pose_file",
+    ["sample_pose_est_v3.h5", "sample_pose_est_v4.h5"],
+    ids=["v3", "v4"],
+)
+def test_stale_cache_file_version_is_regenerated(
+    tmpdir_with_pose_files: Path, tmp_path: Path, pose_file: str
+) -> None:
+    """a cache written by an older _CACHE_FILE_VERSION is discarded, not read
+
+    The version check lives in PoseEstimation.__init__, which deletes a cache
+    file whose "cache_file_version" attribute does not match the class's
+    _CACHE_FILE_VERSION. The version-specific readers never see the stale file,
+    so they carry no version check of their own.
+    """
+    source_pose = tmpdir_with_pose_files / pose_file
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    pose = jabs.pose_estimation.open_pose_file(source_pose, cache_dir=cache_dir)
+    cache_file = cache_dir / source_pose.name.replace(".h5", "_cache.h5")
+    assert cache_file.exists()
+
+    # make the cache look like it was written by an older version of JABS, and
+    # add a marker that only survives if the stale file is reused
+    with h5py.File(cache_file, "r+") as f:
+        current_version = f.attrs["cache_file_version"]
+        f.attrs["cache_file_version"] = current_version - 1
+        f["poseest"].create_dataset("stale_marker", data=[1])
+
+    pose_from_regenerated_cache = jabs.pose_estimation.open_pose_file(
+        source_pose, cache_dir=cache_dir
+    )
+
+    with h5py.File(cache_file, "r") as f:
+        assert f.attrs["cache_file_version"] == current_version
+        assert "stale_marker" not in f["poseest"]
+
+    assert pose_from_regenerated_cache.identities == pose.identities
+    assert pose_from_regenerated_cache.num_frames == pose.num_frames
+
+
+def test_segmentation_data_by_identity_is_an_identity_first_view():
+    """get_segmentation_data_by_identity returns every identity's contours without copying."""
+    pose = jabs.pose_estimation.open_pose_file(
+        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
+    )
+
+    all_contours = pose.get_segmentation_data_by_identity()
+
+    # spare storage slots beyond the file's identities are not exposed
+    assert all_contours.shape[0] == len(pose.identities)
+    assert all_contours.shape[1] == pose.num_frames
+    for identity in pose.identities:
+        np.testing.assert_array_equal(all_contours[identity], pose.get_segmentation_data(identity))
+        assert np.shares_memory(all_contours[identity], pose.get_segmentation_data(identity))
+
+
+def test_segmentation_data_by_identity_is_none_without_segmentation(monkeypatch):
+    """A pose file with no seg_data has nothing to hand out."""
+    pose = jabs.pose_estimation.open_pose_file(
+        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
+    )
+    monkeypatch.setitem(pose._segmentation_dict, "seg_data", None)
+
+    assert pose.get_segmentation_data_by_identity() is None

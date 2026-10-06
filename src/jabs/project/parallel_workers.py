@@ -5,7 +5,6 @@ and per-video metadata scanning. These functions are designed to
 be executed by ProcessPoolExecutor workers, managed by Project.
 """
 
-import json
 import logging
 import multiprocessing
 import sys
@@ -19,6 +18,7 @@ import pandas as pd
 import jabs.feature_extraction as fe
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
+from jabs.io.annotations import read_document
 from jabs.pose_estimation import open_pose_file
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps_and_nframes
@@ -205,13 +205,16 @@ def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
 
 
 def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> VideoLabels | None:
-    """Load VideoLabels from a JSON file if present; else None."""
-    ap = annotations_path
-    if not ap.exists():
+    """Load VideoLabels from a JSON file if present; else None.
+
+    Workers are handed a path rather than the project's annotation store, so
+    that this runs in a child process with no access to whatever backs that
+    store. The job builder hydrates the document before dispatch.
+    """
+    document = read_document(annotations_path)
+    if document is None:
         return None
-    with ap.open("r") as f:
-        data = json.load(f)
-    return VideoLabels.load(data, pose_est)
+    return VideoLabels.load(document, pose_est)
 
 
 def _apply_macos_fork_lapack_workaround() -> None:
@@ -343,13 +346,9 @@ def collect_binary_labeled_features(job: BinaryFeatureLoadJobSpec) -> BinaryFeat
     group_keys: list[tuple[str, int]] = []
 
     for identity in pose_est.identities:
-        identity_mask = pose_est.identity_mask(identity).astype(bool)
-        labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
-        # Exclude frames where the identity does not exist.
-        # NOTE: in the future we might want to handle this differently, since we
-        # can still predict behavior even when the identity is not detected in
-        # a frame (e.g., occluded) thanks to window features.
-        labels[~identity_mask] = TrackLabels.Label.NONE
+        labels = labels_obj.get_track_labels(
+            str(identity), behavior_name
+        ).labels_masked_to_identity(pose_est.identity_mask(identity))
 
         if (labels != TrackLabels.Label.NONE).sum() == 0:
             continue
@@ -416,10 +415,9 @@ def collect_multiclass_labeled_features(
         labels_by_behavior: dict[str, np.ndarray] = {}
         include_mask = np.zeros(identity_mask.shape, dtype=bool)
         for behavior_key in behavior_tracks:
-            behavior_labels = (
-                labels_obj.get_track_labels(str(identity), behavior_key).get_labels().copy()
-            )
-            behavior_labels[~identity_mask] = TrackLabels.Label.NONE
+            behavior_labels = labels_obj.get_track_labels(
+                str(identity), behavior_key
+            ).labels_masked_to_identity(identity_mask)
             labels_by_behavior[behavior_key] = behavior_labels
             include_mask |= behavior_labels == TrackLabels.Label.BEHAVIOR
 
