@@ -24,32 +24,13 @@ from jabs.classifier import (
     TrainingReportData,
     classifier_utils,
     enabled_stage_configs,
+    included_row_mask,
 )
 
 if TYPE_CHECKING:
     from jabs.classifier import CrossValidationResult
     from jabs.core.enums import CrossValidationGroupingStrategy
     from jabs.project import Project
-
-
-def _included_row_mask(features: dict) -> np.ndarray | None:
-    """Boolean mask selecting rows whose group is not excluded from training.
-
-    The final classifier is trained only on included videos. Excluded videos
-    still appear in ``features`` (so they can serve as cross-validation holdout
-    groups) and must be filtered out before the final fit.
-
-    Args:
-        features: Feature payload from ``Project.get_*labeled_features``.
-
-    Returns:
-        A boolean mask aligned to the feature rows, or ``None`` when no groups
-        are excluded (so callers can skip filtering entirely).
-    """
-    excluded = features.get("excluded_groups")
-    if not excluded:
-        return None
-    return ~np.isin(features["groups"], list(excluded))
 
 
 class TrainingStrategy:
@@ -215,7 +196,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
         Rows belonging to videos excluded from training are dropped here so the
         final classifier trains only on included data.
         """
-        mask = _included_row_mask(features)
+        mask = included_row_mask(features)
         if mask is None:
             training_data = full_dataset
             training_labels = features["labels"]
@@ -262,7 +243,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
         videos are filtered out. (Bout counts arrive pre-filtered via
         ``self._bout_counts``.)
         """
-        mask = _included_row_mask(features)
+        mask = included_row_mask(features)
         labels = features["labels"] if mask is None else features["labels"][mask]
         behavior_count = int(np.sum(labels == 1))
         not_behavior_count = int(np.sum(labels == 0))
@@ -337,7 +318,7 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         Rows belonging to videos excluded from training are dropped here so the
         final classifier trains only on included data.
         """
-        mask = _included_row_mask(features)
+        mask = included_row_mask(features)
         if mask is None:
             per_frame = features["per_frame"]
             window = features["window"]
@@ -394,7 +375,7 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         class_names = self._classifier.get_class_names()
         behavior_names = self._classifier.behavior_names
 
-        mask = _included_row_mask(features)
+        mask = included_row_mask(features)
         if mask is None:
             labels_by_behavior = features["labels_by_behavior"]
         else:

@@ -57,6 +57,25 @@ class CVFeatures(TypedDict):
     excluded_groups: NotRequired[set[int]]
 
 
+def included_row_mask(features: CVFeatures) -> npt.NDArray[np.bool_] | None:
+    """Select the feature rows whose group is not excluded from training.
+
+    Videos excluded from training still appear in ``features`` so they can serve as
+    held-out cross-validation groups, but the final model must not train on them.
+
+    Args:
+        features: Feature payload from ``Project.get_*labeled_features``.
+
+    Returns:
+        A boolean mask aligned to the feature rows, or None when no group is excluded
+        (so callers can skip filtering entirely).
+    """
+    excluded = features.get("excluded_groups")
+    if not excluded:
+        return None
+    return ~np.isin(features["groups"], list(excluded))
+
+
 def _prepare_cv_labels(
     classifier: "Classifier | MultiClassClassifier",
     features: CVFeatures,

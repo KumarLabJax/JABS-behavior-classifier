@@ -9,6 +9,7 @@ import pytest
 from jabs.classifier import cross_validation
 from jabs.classifier.cross_validation import (
     NO_VALID_SPLITS_WARNING,
+    included_row_mask,
     run_leave_one_group_out_cv,
 )
 
@@ -555,3 +556,16 @@ def test_postprocessed_metrics_have_no_warning_when_the_passes_agree() -> None:
     )
 
     assert metrics.consistency_warning is None
+
+
+def test_included_row_mask_none_without_exclusions() -> None:
+    """No excluded groups -> None so callers skip filtering."""
+    assert included_row_mask({"groups": np.array([0, 0, 1, 1])}) is None
+    assert included_row_mask({"groups": np.array([0, 0, 1, 1]), "excluded_groups": set()}) is None
+
+
+def test_included_row_mask_filters_excluded_rows() -> None:
+    """Rows whose group is excluded are masked out."""
+    features = {"groups": np.array([0, 0, 1, 1, 2, 2]), "excluded_groups": {1}}
+    mask = included_row_mask(features)
+    assert mask.tolist() == [True, True, False, False, True, True]
