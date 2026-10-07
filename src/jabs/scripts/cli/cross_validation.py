@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import numpy.typing as npt
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.table import Table
@@ -19,6 +18,7 @@ from jabs.classifier import (
     TrainingReportData,
     classifier_utils,
     enabled_stage_configs,
+    included_row_mask,
     log_cross_validation_to_mlflow,
     postprocessed_results,
     run_leave_one_group_out_cv,
@@ -39,24 +39,6 @@ N_JOBS = 4
 # Multi-class cross-validation covers every behavior at once, so reports and MLflow
 # runs are named for the mode rather than for a single behavior.
 MULTICLASS_REPORT_NAME = "multiclass"
-
-
-def _included_row_mask(features: CVFeatures) -> npt.NDArray[np.bool_] | None:
-    """Select the feature rows whose group is not excluded from training.
-
-    Videos excluded from training still appear in ``features`` so they can serve as
-    held-out cross-validation groups, but the final model must not train on them.
-
-    Args:
-        features: Feature payload from ``Project.get_multiclass_labeled_features``.
-
-    Returns:
-        A boolean mask aligned to the feature rows, or None when no group is excluded.
-    """
-    excluded = features.get("excluded_groups")
-    if not excluded:
-        return None
-    return ~np.isin(features["groups"], list(excluded))
 
 
 def _max_multiclass_splits(classifier: MultiClassClassifier, features: CVFeatures) -> int:
@@ -93,7 +75,7 @@ def _train_final_multiclass(
     Returns:
         The classifier's top 10 ``(feature name, importance)`` pairs.
     """
-    mask = _included_row_mask(features)
+    mask = included_row_mask(features)
     per_frame = features["per_frame"]
     window = features["window"]
     labels_by_behavior = features["labels_by_behavior"]
@@ -136,7 +118,7 @@ def _multiclass_class_counts(
         reserved None class).
     """
     class_names = classifier.get_class_names()
-    mask = _included_row_mask(features)
+    mask = included_row_mask(features)
     labels_by_behavior = features["labels_by_behavior"]
     if mask is not None:
         labels_by_behavior = {name: arr[mask] for name, arr in labels_by_behavior.items()}
