@@ -7,12 +7,15 @@ These tests exercise the Click command's translation of ``--grouping-strategy`` 
 fast and do not require a real JABS project on disk.
 """
 
+import io
 from pathlib import Path
 from unittest import mock
 
 import numpy as np
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
+from rich.progress import Progress
 
 import jabs.scripts.cli.cli as cli_module
 from jabs.classifier import (
@@ -23,7 +26,7 @@ from jabs.classifier import (
 )
 from jabs.core.enums import CrossValidationGroupingStrategy
 from jabs.scripts.cli.cli import cli
-from jabs.scripts.cli.cross_validation import _print_consistency_warnings
+from jabs.scripts.cli.cross_validation import _make_status_callback, _print_consistency_warnings
 
 
 @pytest.fixture
@@ -368,3 +371,25 @@ def test_print_consistency_warnings_ignores_multiclass_results() -> None:
     _print_consistency_warnings(console, [multiclass])
 
     console.print.assert_not_called()
+
+
+def test_status_callback_shows_each_message_on_the_progress_task() -> None:
+    """Status messages reach the live progress display instead of being discarded."""
+    progress = Progress(console=Console(file=io.StringIO()))
+    task_id = progress.add_task("Cross-validation (Walk)", total=3)
+    callback = _make_status_callback(progress, lambda: task_id, "Walk")
+
+    callback("cross validation iteration 2 of 3")
+
+    description = progress.tasks[0].description
+    assert description == "Cross-validation (Walk): cross validation iteration 2 of 3"
+
+
+def test_status_callback_before_the_task_exists_is_a_no_op() -> None:
+    """A message that arrives before the progress task is created is ignored, not an error."""
+    progress = Progress(console=Console(file=io.StringIO()))
+    callback = _make_status_callback(progress, lambda: None, "Walk")
+
+    callback("early message")
+
+    assert progress.tasks == []

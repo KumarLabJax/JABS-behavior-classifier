@@ -1,10 +1,11 @@
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 from rich.console import Console
-from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from jabs.classifier import (
@@ -192,6 +193,33 @@ def _print_multiclass_results(console: Console, cv_results: list[CrossValidation
     console.print(table)
 
 
+def _make_status_callback(
+    progress: Progress, get_task_id: Callable[[], TaskID | None], report_name: str
+) -> Callable[[str], None]:
+    """Build a callback that shows cross-validation status messages on the progress bar.
+
+    ``Console.status`` only renders when entered as a context manager, so calling it per
+    message discarded every message. The cross-validation loop already runs inside a live
+    ``Progress``, and Rich does not render two live displays on one console at once, so the
+    message is shown as the progress task's description instead.
+
+    Args:
+        progress: The live progress display.
+        get_task_id: Returns the cross-validation task's id, or None before it exists.
+        report_name: Name shown in the task description.
+
+    Returns:
+        A callback taking the status message.
+    """
+
+    def status_callback(msg: str) -> None:
+        task_id = get_task_id()
+        if task_id is not None:
+            progress.update(task_id, description=f"Cross-validation ({report_name}): {msg}")
+
+    return status_callback
+
+
 def run_cross_validation(
     project_dir: Path,
     behavior: str | None,
@@ -311,8 +339,15 @@ def run_cross_validation(
             evaluate_postprocessing = project.settings_manager.evaluate_postprocessing_in_cv(
                 behavior
             )
+        if evaluate_postprocessing and not enabled_stage_configs(
+            project.settings_manager.postprocessing_config(behavior)
+        ):
+            # a conclusion the user needs to keep, not progress that scrolls away
+            console.print(
+                "[yellow]Warning:[/yellow] postprocessing evaluation was requested but no "
+                "postprocessing stages are enabled; it will be skipped."
+            )
 
-    status_message = "Starting cross-validation..."
     progress = Progress(
         TextColumn("{task.description}"),
         BarColumn(),
@@ -321,13 +356,9 @@ def run_cross_validation(
         console=console,
         transient=True,
     )
-    task_id = None
+    task_id: TaskID | None = None
     cv_warning: str | None = None
-
-    def status_callback(msg: str):
-        nonlocal status_message
-        status_message = msg
-        console.status(msg)
+    status_callback = _make_status_callback(progress, lambda: task_id, report_name)
 
     def warning_callback(msg: str):
         nonlocal cv_warning
