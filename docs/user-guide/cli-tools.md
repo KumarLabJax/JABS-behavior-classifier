@@ -120,6 +120,7 @@ Commands:
   evaluate              Evaluate a trained JABS classifier against a densely labeled project.
   export-training       Export training data for a specified behavior and JABS project directory.
   export-video          Export a copy of a video with the JABS pose overlay drawn on every frame.
+  link-nwb-video        Link JABS pose NWB files to their source videos.
   merge                 Merge one JABS project into another.
   prune                 Prune unused videos from a JABS project directory.
   rename-behavior       Rename a behavior in a JABS project.
@@ -131,6 +132,8 @@ Commands:
 
 For full documentation of the `convert-to-nwb` command, including output modes, subjects
 and session metadata JSON formats, and NWB file structure, see [NWB Export](nwb-export.md).
+To add the videos to NWB files before uploading them to DANDI with `link-nwb-video`, see
+[Link the videos](nwb-export.md#3-link-the-videos).
 
 To get help for a specific command, run:
 

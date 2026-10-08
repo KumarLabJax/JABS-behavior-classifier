@@ -8,11 +8,23 @@ from jabs.io.internal.pose.nwb import (
     sanitize_identity_name,
     subject_value_is_absent,
 )
+from jabs.io.internal.pose.nwb_video import (
+    NWBVideoLinkInfo,
+    link_external_video,
+    read_video_link_info,
+    relative_video_path,
+    require_video_link_support,
+)
 
 __all__ = [
     "IdentitySubject",
+    "NWBVideoLinkInfo",
     "PoseHDF5Adapter",
     "PoseNWBAdapter",
+    "link_external_video",
+    "read_video_link_info",
+    "relative_video_path",
+    "require_video_link_support",
     "resolve_identity_subjects",
     "sanitize_identity_name",
     "subject_value_is_absent",
