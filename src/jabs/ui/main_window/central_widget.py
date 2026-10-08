@@ -1,4 +1,4 @@
-import sys
+import logging
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +38,8 @@ from ..player_widget import PlayerWidget
 from ..search_bar_widget import SearchBarWidget
 from ..training_thread import TrainingThread
 from . import central_widget_mode
+
+logger = logging.getLogger(__name__)
 
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
@@ -1366,7 +1368,7 @@ class CentralWidget(QtWidgets.QWidget):
         if isinstance(error, ThreadTerminatedError):
             self.status_message.emit("Training Canceled", 3000)
         else:
-            self._print_exception(error)
+            self._log_exception(error)
             self.status_message.emit("Training Failed", 3000)
             MessageDialog.error(
                 self,
@@ -1383,7 +1385,7 @@ class CentralWidget(QtWidgets.QWidget):
         if isinstance(error, ThreadTerminatedError):
             self.status_message.emit("Classification Canceled", 3000)
         else:
-            self._print_exception(error)
+            self._log_exception(error)
             self.status_message.emit("Classification Failed", 3000)
             MessageDialog.error(
                 self,
@@ -1392,16 +1394,16 @@ class CentralWidget(QtWidgets.QWidget):
             )
 
     @staticmethod
-    def _print_exception(e: Exception) -> None:
-        """Print a formatted traceback for the given exception to the terminal.
+    def _log_exception(e: Exception) -> None:
+        """Log a formatted traceback for the given exception.
 
-        This method outputs the full stack trace and exception details to help with debugging.
-        It can be extended in the future to support additional logging or error handling mechanisms.
+        The exception details are also shown to the user in a dialog; this records the
+        full stack trace for debugging.
 
         Args:
-            e (Exception): The exception instance to print.
+            e (Exception): The exception instance to log.
         """
-        traceback.print_exception(e)
+        logger.error("background worker thread failed", exc_info=e)
 
     def _cleanup_progress_dialog(self) -> None:
         """clean up the progress dialog"""
@@ -2217,9 +2219,9 @@ class CentralWidget(QtWidgets.QWidget):
         try:
             classifier_loaded = self._project.load_classifier(self._classifier, self.behavior)
         except Exception as e:
-            print("failed to load classifier:", file=sys.stderr)
-            print(f"  {e}", file=sys.stderr)
-            print("classifier will need to be retrained")
+            logger.error(
+                "failed to load classifier, it will need to be retrained: %s", e, exc_info=True
+            )
 
         if classifier_loaded:
             self._update_classifier_controls()

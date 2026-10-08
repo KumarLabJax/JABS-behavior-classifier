@@ -1,3 +1,5 @@
+import logging
+
 from PySide6 import QtCore, QtWidgets
 
 from jabs.behavior_search import (
@@ -10,6 +12,8 @@ from jabs.behavior_search import (
     search_behaviors,
 )
 from jabs.project import Project
+
+logger = logging.getLogger(__name__)
 
 
 class SearchBarWidget(QtWidgets.QWidget):
@@ -130,7 +134,7 @@ class SearchBarWidget(QtWidgets.QWidget):
             self.setVisible(True)
             self.text_label.setText(_describe_query(search_query))
             self._search_results = search_behaviors(self._project, search_query)
-            print(f"Search results: {len(self._search_results)} hits found.")
+            logger.debug("search returned %d hits", len(self._search_results))
 
         self._update_result_count_label()
         self.search_results_changed.emit(self._search_results)
