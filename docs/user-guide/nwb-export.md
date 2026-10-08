@@ -226,6 +226,7 @@ clearing that gate.
 | Use per-identity mode (the default) | One `Subject` per file is what DANDI's subject checks expect. `--multisubject` is **not archive-eligible** — see [Limitations](#limitations-for-archive-submission). |
 | Pass `--subjects` with complete metadata | `species`, `sex`, and `age` or `date_of_birth` are mandatory. Without them every file fails three `CRITICAL` checks. |
 | Pass `--session-metadata` | Not mandatory, but it clears the remaining best-practice warnings and records provenance the archive displays. |
+| Link the videos with `jabs-cli link-nwb-video` | Only needed to upload the videos. DANDI accepts a video only when an NWB file points to it. See [step 3](#3-link-the-videos). |
 
 ### 1. Prepare the metadata files
 
@@ -258,7 +259,51 @@ A `--subjects` key that matches no identity is reported as a warning naming the 
 identity names, which is the usual explanation for an identity that looks like it was
 given metadata but reports it as missing.
 
-### 3. Validate locally before uploading
+### 3. Link the videos
+
+To publish the videos the poses were estimated from, the NWB files must point to them:
+DANDI accepts a video only when an NWB file references it, and the converted pose files
+do not. Videos uploaded on their own would be disconnected from their sessions.
+
+```bash
+jabs-cli link-nwb-video /path/to/nwb_files /path/to/videos
+```
+
+Each `<name>.nwb` in the first directory is matched with the `<name>.mp4` of the same
+name in the second. The two directories can be different or the same directory;
+subdirectories are not searched. For each match the command adds an `ImageSeries` named
+`video` to `acquisition` whose `external_file` is the path to the video, relative to the
+NWB file. The video is referenced, not copied or changed, and the pose data in the NWB
+file is not touched.
+
+- Before linking, the video's frame count and frame rate are checked against the pose
+  data. A video that disagrees is reported and its NWB file is left unchanged. Use
+  `--no-verify` to skip the check.
+- A file that already links to its video is skipped, so the command is safe to re-run.
+- Use `--dry-run` to see what would be linked without modifying any file.
+- The exit status is 1 if any file could not be linked, for example because its video
+  is missing.
+- Requires pynwb 4.0 or newer.
+
+The relative path is resolved against the directory of each NWB file, both by
+`dandi organize` and by `nwbinspector`, which reports a `CRITICAL` finding for a link that
+does not resolve. Link the files once the NWB and video directories are where they will
+stay until the next step, because moving either one afterwards breaks the links.
+
+Then let DANDI gather the files into the dandiset. `--update-external-file-paths` is what
+makes `dandi organize` follow the links:
+
+```bash
+dandi organize -d /path/to/dandiset --files-mode copy \
+    --update-external-file-paths --media-files-mode copy /path/to/nwb_files
+```
+
+This copies each video into the dandiset beside its NWB file and rewrites the link inside
+the NWB file to point at that copy. Each NWB file gets its own copy of the video, and
+`dandi organize` adds an `_image` suffix to the names of NWB files that contain an
+`ImageSeries`.
+
+### 4. Validate locally before uploading
 
 JABS's pre-flight check mirrors `nwbinspector`'s subject rules, but it is not a
 substitute for running the real validator — it checks subject metadata, not the rest
@@ -272,7 +317,7 @@ nwbinspector session_subject_1.nwb --config dandi
 A clean result reports no `CRITICAL` findings. See
 [Expected warnings](#expected-warnings) for the ones that are safe to ignore.
 
-### 4. Upload
+### 5. Upload
 
 Follow the [DANDI upload documentation](https://docs.dandiarchive.org/user-guide-sharing/uploading-data/),
 pointing the DANDI CLI at the EMBER instance rather than the main archive. Upload all
