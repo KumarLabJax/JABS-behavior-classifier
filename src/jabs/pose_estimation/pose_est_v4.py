@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import h5py
@@ -8,6 +9,8 @@ from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.core.exceptions import PoseHashException, PoseIdEmbeddingException
 
 from .identity_indexed_pose import IdentityIndexedPoseMixin
+
+logger = logging.getLogger(__name__)
 
 
 class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
@@ -94,7 +97,7 @@ class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
                 elif max_instance_id > 0:
                     self._num_identities = max_instance_id
                 else:
-                    print(f"Warning: No identities found in pose file: {file_path}")
+                    logger.warning("No identities found in pose file: %s", file_path)
                     self._num_identities = 0
 
             # Validate instance_embed_id range for unmasked (id_mask == 0) data:
