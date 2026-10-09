@@ -1,6 +1,6 @@
 [project]
 name = "jabs-vision"
-version = "0.47.1"
+version = "0.48.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
