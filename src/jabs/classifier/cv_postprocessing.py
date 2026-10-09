@@ -87,9 +87,12 @@ def _identity_labels(
     """Extract one identity's ground-truth label vector for a behavior.
 
     Frames where the identity does not exist are forced to
-    ``TrackLabels.Label.NONE``, mirroring
-    :func:`~jabs.project.parallel_workers.collect_binary_labeled_features` so
-    the frames scored here are exactly the fold's test rows.
+    ``TrackLabels.Label.NONE`` by
+    :meth:`~jabs.project.track_labels.TrackLabels.labels_masked_to_identity`,
+    the same call
+    :func:`~jabs.project.parallel_workers.collect_binary_labeled_features`
+    makes, so the frames scored here are exactly the fold's test rows and the
+    two cannot drift apart.
 
     Args:
         labels_obj: The video's already-loaded annotations.
@@ -98,12 +101,14 @@ def _identity_labels(
         pose_est: Pose estimation for the video, used for the identity mask.
 
     Returns:
-        The per-frame label vector.
+        A new per-frame label vector. ``labels_obj`` is left untouched - masking
+        the array :meth:`~jabs.project.track_labels.TrackLabels.get_labels`
+        returns would edit the stored labels in place, since it hands out the
+        underlying array by reference.
     """
-    labels = labels_obj.get_track_labels(str(identity), behavior).get_labels()
-    identity_mask = pose_est.identity_mask(identity).astype(bool)
-    labels[~identity_mask] = TrackLabels.Label.NONE
-    return labels
+    return labels_obj.get_track_labels(str(identity), behavior).labels_masked_to_identity(
+        pose_est.identity_mask(identity)
+    )
 
 
 def evaluate_group_with_postprocessing(
