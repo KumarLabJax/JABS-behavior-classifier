@@ -4,7 +4,7 @@ Welcome to the JABS (JAX Animal Behavior System) development guide. This documen
 
 **📝 Looking to contribute?** See the [Contributing Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/development/contributing/) for contribution guidelines, copyright information, and how to submit pull requests.
 
-**👤 End user?** See the [User Guide](user-guide.md) for instructions on using JABS.
+**👤 End user?** See the [User Guide](../user-guide/overview.md) for instructions on using JABS.
 
 ## Quick Start (5 Minutes)
 
@@ -844,7 +844,7 @@ The GUI uses Qt's signal/slot mechanism for communication between components.
 
 JABS provides a custom `MessageDialog` class for displaying errors, warnings, and informational messages throughout the application. This dialog should be **preferred over PySide6's default dialogs** (`QMessageBox`) for consistency and enhanced functionality.
 
-**Location:** `src/jabs/ui/message_dialog.py`
+**Location:** `src/jabs/ui/dialogs/message_dialog.py`
 
 **Why use MessageDialog instead of QMessageBox?**
 
@@ -1038,18 +1038,18 @@ jabs-cli --help
 `jabs-cli` is a unified command-line interface that consolidates smaller JABS utilities under a single entry point. Instead of having many separate standalone scripts, `jabs-cli` uses Click's group/command pattern to organize related functionality.
 
 **Current commands:**
-- `jabs-cli compute-features` - Compute and cache features for a single pose file
-- `jabs-cli convert-parquet` - Convert a parquet pose file to JABS HDF5 pose format
-- `jabs-cli export-training` - Export training data from a project
-- `jabs-cli merge` - Merge one JABS project into another
-- `jabs-cli rename-behavior` - Rename a behavior across a project
-- `jabs-cli prune` - Remove videos from a project based on criteria
 
-View all available commands:
+The set of commands changes often, so this guide does not list them. The
+authoritative list is the one `jabs-cli` itself reports:
+
 ```bash
 jabs-cli --help
 jabs-cli <command> --help  # Get help for specific command
 ```
+
+In the source, every command is registered on the `cli` group in
+`src/jabs/scripts/cli/cli.py`. Each command is also documented for users in
+[CLI Tools](../user-guide/cli-tools.md).
 
 **Why use `jabs-cli` for new utilities?**
 
@@ -1063,21 +1063,30 @@ When adding new command-line functionality, prefer adding it to `jabs-cli` rathe
 
 **How to add a new command to `jabs-cli`:**
 
-1. Open `src/jabs/scripts/cli.py`
-2. Add a new command function decorated with `@cli.command()`:
+`jabs-cli` lives in the `src/jabs/scripts/cli/` package, not in a single module.
+Each command gets its own module there, and `cli.py` is the group that ties them
+together.
+
+1. Create `src/jabs/scripts/cli/my_command.py` with a `click.command()`:
    ```python
-   @cli.command(name="my-command")
+   @click.command(name="my-command")
    @click.argument("project_dir", type=click.Path(...))
    @click.option("--my-option", help="Description")
-   @click.pass_context
-   def my_command(ctx, project_dir, my_option):
+   def my_command_entry(project_dir: str, my_option: str) -> None:
        """Brief description of what this command does."""
        # Implementation here
-       pass
+   ```
+2. Import it in `src/jabs/scripts/cli/cli.py` and register it on the group:
+   ```python
+   from .my_command import my_command_entry
+
+   cli.add_command(my_command_entry)
    ```
 3. The command is now available as `jabs-cli my-command`
 
-See existing commands in `cli.py` for complete examples.
+See `src/jabs/scripts/cli/compute_features.py` and its registration in `cli.py`
+for a complete example. A few small commands are still defined inline in `cli.py`
+with `@cli.command()`; prefer a separate module for new ones.
 
 **Future direction:**
 
@@ -1238,7 +1247,7 @@ Ruff's isort integration automatically organizes imports into three groups:
 2. Third-party imports
 3. Local application imports
 
-See `.ruff.toml` for configuration details.
+See `ruff.toml` for configuration details.
 
 
 ## Building and Distribution
@@ -1345,7 +1354,7 @@ See the detailed [Feature Extraction](#feature-extraction) section in Software A
 1. Create a new class inheriting from `Feature` in `src/jabs/feature_extraction/`
 2. Implement `per_frame(identity)` method to compute feature values
 3. Register the feature in its `FeatureGroup` (e.g., `BaseFeatureGroup`)
-4. Add tests in `tests/feature_tests/`
+4. Add tests in `tests/feature_extraction/`
 5. Bump `FEATURE_VERSION` in `src/jabs/feature_extraction/features.py`
 
 **Example locations:**
@@ -1378,9 +1387,9 @@ See the detailed [`jabs-cli` section](#about-jabs-cli-the-unified-command-line-i
 - When standalone scripts are appropriate
 
 **Quick example:**
-1. Edit `src/jabs/scripts/cli.py`
-2. Add a new `@cli.command()` decorated function
-3. Use Click decorators for arguments and options
+1. Add a module under `src/jabs/scripts/cli/` holding a `@click.command()` function
+2. Use Click decorators for arguments and options
+3. Register it with `cli.add_command()` in `src/jabs/scripts/cli/cli.py`
 4. Command is immediately available as `jabs-cli <your-command>`
 
 ## Getting Help
@@ -1389,7 +1398,7 @@ See the detailed [`jabs-cli` section](#about-jabs-cli-the-unified-command-line-i
 
 - **Main Repository**: https://github.com/KumarLabJax/JABS-behavior-classifier
 - **Issue Tracker**: https://github.com/KumarLabJax/JABS-behavior-classifier/issues
-- **User Guide**: [User Guide (Markdown)](docs/user-guide.md)
+- **User Guide**: [User Guide (Markdown)](../user-guide/overview.md)
 - **Contact**: jabs@jax.org
 
 ### How to Get Support
@@ -1401,7 +1410,7 @@ See the detailed [`jabs-cli` section](#about-jabs-cli-the-unified-command-line-i
 
 ---
 
-**Last Updated**: December 30, 2024  
-**JABS Version**: 0.38.1
+This guide is maintained alongside the code; `git log docs/development/development.md`
+shows when it last changed.
 
 
