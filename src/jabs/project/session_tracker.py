@@ -119,26 +119,7 @@ class SessionTracker:
 
         # get the ending counts for each behavior
         for behavior in self._session["starting_label_counts"]:
-            counts = self._project.counts(behavior)
-
-            frames_behavior = 0
-            frames_not_behavior = 0
-            bouts_behavior = 0
-            bouts_not_behavior = 0
-
-            for video_counts in counts.values():
-                for identity_count in video_counts.values():
-                    frames_behavior += identity_count["unfragmented_frame_counts"][0]
-                    frames_not_behavior += identity_count["unfragmented_frame_counts"][1]
-                    bouts_behavior += identity_count["unfragmented_bout_counts"][0]
-                    bouts_not_behavior += identity_count["unfragmented_bout_counts"][1]
-
-            self._session["ending_label_counts"][behavior] = {
-                "frames_behavior": frames_behavior,
-                "frames_not_behavior": frames_not_behavior,
-                "bouts_behavior": bouts_behavior,
-                "bouts_not_behavior": bouts_not_behavior,
-            }
+            self._session["ending_label_counts"][behavior] = self._project_label_counts(behavior)
 
         self._flush_session()
         self._session = None
@@ -161,26 +142,9 @@ class SessionTracker:
         self._session["activity_log"].append(activity)
 
         if behavior_name not in self._session["starting_label_counts"]:
-            counts = self._project.counts(behavior_name)
-
-            frames_behavior = 0
-            frames_not_behavior = 0
-            bouts_behavior = 0
-            bouts_not_behavior = 0
-
-            for video in counts:
-                for _, identity_count in counts[video].items():
-                    frames_behavior += identity_count["unfragmented_frame_counts"][0]
-                    frames_not_behavior += identity_count["unfragmented_frame_counts"][1]
-                    bouts_behavior += identity_count["unfragmented_bout_counts"][0]
-                    bouts_not_behavior += identity_count["unfragmented_bout_counts"][1]
-
-            self._session["starting_label_counts"][behavior_name] = {
-                "frames_behavior": frames_behavior,
-                "frames_not_behavior": frames_not_behavior,
-                "bouts_behavior": bouts_behavior,
-                "bouts_not_behavior": bouts_not_behavior,
-            }
+            self._session["starting_label_counts"][behavior_name] = self._project_label_counts(
+                behavior_name
+            )
 
         self._flush_session()
 
@@ -196,7 +160,7 @@ class SessionTracker:
         """Log the creation of a label.
 
         Args:
-            video_path (str): The video file where the label was created.
+            video_path (Path): The video file where the label was created.
             identity (int): The identity of the individual being labeled.
             behavior_name (str): The name of the behavior being labeled.
             present (bool): Whether the behavior is present in the specified frame range
@@ -248,7 +212,7 @@ class SessionTracker:
         self._session["activity_log"].append(activity)
         self._flush_session()
 
-    def video_opened(self, video_path: Path):
+    def video_opened(self, video_path: Path) -> None:
         """Log the opening of a video file."""
         if not self._tracking_enabled or not self._session:
             return
@@ -261,7 +225,7 @@ class SessionTracker:
         self._session["activity_log"].append(activity)
         self._flush_session()
 
-    def video_closed(self, video_path: Path):
+    def video_closed(self, video_path: Path) -> None:
         """Log the closing of a video file."""
         if not self._tracking_enabled or not self._session:
             return
@@ -269,7 +233,7 @@ class SessionTracker:
         activity = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.VIDEO_CLOSED.name,
-            "video_path": video_path.name,
+            "video": video_path.name,
         }
         self._session["activity_log"].append(activity)
         self._flush_session()
@@ -325,6 +289,41 @@ class SessionTracker:
         }
         self._session["activity_log"].append(activity)
         self._flush_session()
+
+    def _project_label_counts(self, behavior: str) -> dict[str, int]:
+        """Total the project's unfragmented label counts for one behavior.
+
+        The session log records these totals twice: once when a behavior is first
+        selected (``starting_label_counts``) and again when the session ends
+        (``ending_label_counts``). Both come from here so the two snapshots are
+        always totaled the same way and stay comparable.
+
+        Args:
+            behavior: Name of the behavior to total counts for.
+
+        Returns:
+            Mapping with ``frames_behavior``, ``frames_not_behavior``,
+            ``bouts_behavior`` and ``bouts_not_behavior`` totals, summed over
+            every video and identity in the project.
+        """
+        frames_behavior = 0
+        frames_not_behavior = 0
+        bouts_behavior = 0
+        bouts_not_behavior = 0
+
+        for video_counts in self._project.counts(behavior).values():
+            for identity_count in video_counts.values():
+                frames_behavior += identity_count["unfragmented_frame_counts"][0]
+                frames_not_behavior += identity_count["unfragmented_frame_counts"][1]
+                bouts_behavior += identity_count["unfragmented_bout_counts"][0]
+                bouts_not_behavior += identity_count["unfragmented_bout_counts"][1]
+
+        return {
+            "frames_behavior": frames_behavior,
+            "frames_not_behavior": frames_not_behavior,
+            "bouts_behavior": bouts_behavior,
+            "bouts_not_behavior": bouts_not_behavior,
+        }
 
     def _flush_session(self):
         """Flush the current session data to the session file."""
