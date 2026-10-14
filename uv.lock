@@ -1974,6 +1974,7 @@ source = { editable = "packages/jabs-io" }
 dependencies = [
     { name = "h5py" },
     { name = "jabs-core" },
+    { name = "jsonschema" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
@@ -2013,6 +2014,7 @@ test = [
 requires-dist = [
     { name = "h5py", specifier = ">=3.10.0,<4.0.0" },
     { name = "jabs-core", editable = "packages/jabs-core" },
+    { name = "jsonschema", specifier = ">=4.25.1,<5.0.0" },
     { name = "ndx-jabs", marker = "extra == 'nwb'", specifier = ">=0.1.0" },
     { name = "ndx-multisubjects", marker = "extra == 'nwb'", specifier = ">=0.1.1" },
     { name = "ndx-pose", marker = "extra == 'nwb'", specifier = ">=0.2.2" },

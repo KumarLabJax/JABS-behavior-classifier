@@ -51,9 +51,19 @@ class PoseHDF5Adapter(HDF5Adapter):
         data: PoseData,
         path: str | Path,
         *,
-        legacy: JabsPoseVersion = JabsPoseVersion.V2,
+        legacy: JabsPoseVersion | None = JabsPoseVersion.V2,
         **kwargs,
     ) -> None:
+        if legacy is None:
+            # The revision-1 format (ADR 0002) is implemented in
+            # jabs.io.internal.pose_file. What is missing is the mapping between
+            # PoseData -- identity-major, with no slots and no provenance -- and
+            # PoseFile, which lands with the JABS integration.
+            raise NotImplementedError(
+                "writing the revision-1 pose format needs the PoseData <-> PoseFile "
+                "mapping, which lands with the JABS integration; use "
+                "jabs.io.internal.pose_file.write_pose_file directly in the meantime"
+            )
         if legacy is not JabsPoseVersion.V2:
             raise ValueError(f"Unsupported legacy pose version: {legacy!r} (only V2 is supported)")
         # Validate and prepare BEFORE opening the file: h5py.File(path, "w") truncates
@@ -72,7 +82,9 @@ class PoseHDF5Adapter(HDF5Adapter):
     def read(self, path: str | Path, data_type: type | None = None, **kwargs):  # noqa: D102
         raise NotImplementedError(
             "Reading pose HDF5 into PoseData is not implemented; use "
-            "jabs.pose_estimation.PoseEstimationV2 for legacy v2 reads."
+            "jabs.pose_estimation.PoseEstimationV2 for legacy v2 reads, or "
+            "jabs.io.internal.pose_file.read_pose_file for revision-1 files, which "
+            "returns a PoseFile rather than PoseData."
         )
 
     @staticmethod
