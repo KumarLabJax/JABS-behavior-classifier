@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from shapely.geometry import MultiPoint
 
-from jabs.core.utils.pose_util import identity_centroids
+from jabs.core.utils.pose_util import build_identity_mask, identity_centroids
 
 
 class _StubPose:
@@ -78,3 +78,62 @@ def test_identity_centroids_no_frames() -> None:
     centroids = identity_centroids(poses, 0)
 
     assert centroids.shape == (0, 2)
+
+
+def test_build_identity_mask_ignores_tail_keypoints() -> None:
+    """Only the body keypoints count; the two tail keypoints never do."""
+    # three valid body keypoints -> present; tail-only -> absent
+    point_mask = np.array(
+        [
+            [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+        ],
+        dtype=np.uint16,
+    )
+
+    mask = build_identity_mask(point_mask, min_valid_keypoints=3)
+
+    np.testing.assert_array_equal(mask, [1, 0])
+
+
+def test_build_identity_mask_applies_threshold() -> None:
+    """A frame is present only once it reaches ``min_valid_keypoints``."""
+    point_mask = np.zeros((4, 12), dtype=np.uint16)
+    for frame in range(4):
+        point_mask[frame, :frame] = 1
+
+    np.testing.assert_array_equal(
+        build_identity_mask(point_mask, min_valid_keypoints=1), [0, 1, 1, 1]
+    )
+    np.testing.assert_array_equal(
+        build_identity_mask(point_mask, min_valid_keypoints=3), [0, 0, 0, 1]
+    )
+
+
+def test_build_identity_mask_identity_indexed_input() -> None:
+    """An ``(#identities, #frames, #keypoints)`` mask keeps its leading axes."""
+    point_mask = np.zeros((2, 3, 12), dtype=bool)
+    point_mask[0, 1, :3] = True
+    point_mask[1, 2, :5] = True
+
+    mask = build_identity_mask(point_mask, min_valid_keypoints=3)
+
+    assert mask.shape == (2, 3)
+    np.testing.assert_array_equal(mask, [[0, 1, 0], [0, 0, 1]])
+
+
+def test_build_identity_mask_returns_uint8() -> None:
+    """The mask is uint8 0/1, the dtype the pose readers cache to HDF5."""
+    point_mask = np.ones((2, 12), dtype=np.uint16)
+
+    mask = build_identity_mask(point_mask, min_valid_keypoints=3)
+
+    assert mask.dtype == np.uint8
+    assert set(np.unique(mask)) <= {0, 1}
+
+
+def test_build_identity_mask_no_frames() -> None:
+    """An empty frame axis yields an empty mask rather than raising."""
+    mask = build_identity_mask(np.zeros((0, 12), dtype=np.uint16), min_valid_keypoints=3)
+
+    assert mask.shape == (0,)
