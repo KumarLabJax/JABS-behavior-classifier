@@ -20,7 +20,7 @@ pytest.importorskip("ndx_pose")
 pytest.importorskip("ndx_jabs")
 pytest.importorskip("ndx_multisubjects")
 
-from ndx_jabs import ContourSeries
+from ndx_jabs import ContourSeries, JaxAgingSubject, JaxStudySubject
 from ndx_multisubjects import NdxMultiSubjectsNWBFile
 from ndx_pose import PoseEstimation
 from pynwb import NWBHDF5IO
@@ -603,6 +603,119 @@ def test_per_identity_nwbfile_subject_minimal_without_subjects(tmp_path, adapter
         nwb = io.read()
         assert nwb.subject is not None
         assert nwb.subject.subject_id == "mouse_a"
+
+
+def _with_subjects(data: PoseData, subjects: dict) -> PoseData:
+    """Return a copy of ``data`` carrying ``subjects``."""
+    return dataclasses.replace(data, subjects=subjects)
+
+
+def test_per_identity_jax_aging_subject_fields(tmp_path, adapter):
+    """Aging study keys produce a JaxAgingSubject that keeps the standard and study fields."""
+    subjects = {
+        "mouse_a": {
+            "subject_id": "M001",
+            "sex": "M",
+            "species": "Mus musculus",
+            "age": "P55W",
+            "weight": "47.72 g",
+            "cfi": 7.5,
+            "cfi_norm": "0.267857143",
+            "pll": 0.82,
+            "diet": "40",
+            "batch": "Batch1",
+            "tester": "Scorer3",
+            "housing_id": "cage-42",
+            "test_chamber": "chamber-A",
+        },
+    }
+    data = _with_subjects(_make_pose_data(external_ids=["mouse_a", "mouse_b"]), subjects)
+
+    adapter.write(data, tmp_path / "pose.nwb", per_identity_files=True)
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        subject = io.read().subject
+        assert isinstance(subject, JaxAgingSubject)
+        assert subject.subject_id == "M001"
+        assert subject.age == "P55W"
+        assert subject.weight == "47.72 g"
+        assert subject.cfi == pytest.approx(7.5)
+        assert subject.cfi_norm == pytest.approx(0.267857143)
+        assert subject.pll == pytest.approx(0.82)
+        assert subject.diet == "40"
+        assert subject.batch == "Batch1"
+        assert subject.tester == "Scorer3"
+        assert subject.housing_id == "cage-42"
+        assert subject.test_chamber == "chamber-A"
+
+
+def test_per_identity_jax_aging_subject_omits_absent_fields(tmp_path, adapter):
+    """None and blank study values are left off the subject, not written as empty fields."""
+    subjects = {
+        "mouse_a": {
+            "sex": "F",
+            "species": "Mus musculus",
+            "cfi": 3.0,
+            "pll": None,
+            "tester": "  ",
+            "diet": "AL",
+        },
+    }
+    data = _with_subjects(_make_pose_data(external_ids=["mouse_a", "mouse_b"]), subjects)
+
+    adapter.write(data, tmp_path / "pose.nwb", per_identity_files=True)
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        subject = io.read().subject
+        assert isinstance(subject, JaxAgingSubject)
+        assert subject.cfi == pytest.approx(3.0)
+        assert subject.diet == "AL"
+        assert subject.pll is None
+        assert subject.tester is None
+        assert subject.batch is None
+
+
+def test_per_identity_jax_study_subject_for_generic_fields_only(tmp_path, adapter):
+    """housing_id / test_chamber alone give a JaxStudySubject, not a JaxAgingSubject."""
+    subjects = {
+        "mouse_a": {
+            "sex": "M",
+            "species": "Mus musculus",
+            "housing_id": "cage-42",
+            "test_chamber": "chamber-A",
+            "cfi": None,
+        },
+    }
+    data = _with_subjects(_make_pose_data(external_ids=["mouse_a", "mouse_b"]), subjects)
+
+    adapter.write(data, tmp_path / "pose.nwb", per_identity_files=True)
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        subject = io.read().subject
+        assert type(subject) is JaxStudySubject
+        assert subject.housing_id == "cage-42"
+        assert subject.test_chamber == "chamber-A"
+
+
+def test_per_identity_plain_subject_without_study_fields(tmp_path, adapter):
+    """Without any study-specific key the subject stays a plain pynwb Subject."""
+    subjects = {"mouse_a": {"sex": "M", "species": "Mus musculus", "pll": None}}
+    data = _with_subjects(_make_pose_data(external_ids=["mouse_a", "mouse_b"]), subjects)
+
+    adapter.write(data, tmp_path / "pose.nwb", per_identity_files=True)
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        assert type(io.read().subject).__name__ == "Subject"
+
+
+@pytest.mark.parametrize("field", ["cfi", "cfi_norm", "pll"])
+def test_per_identity_non_numeric_study_field_rejected(tmp_path, adapter, field):
+    """A numeric study field that is not a number is rejected with the field named."""
+    subjects = {"mouse_a": {"sex": "M", "species": "Mus musculus", field: "NA"}}
+    data = _with_subjects(_make_pose_data(external_ids=["mouse_a", "mouse_b"]), subjects)
+
+    with pytest.raises(ValueError, match=field):
+        adapter.write(data, tmp_path / "pose.nwb", per_identity_files=True)
 
 
 def test_per_identity_subjects_keyed_by_raw_external_id(tmp_path, adapter):

@@ -2013,7 +2013,7 @@ test = [
 requires-dist = [
     { name = "h5py", specifier = ">=3.10.0,<4.0.0" },
     { name = "jabs-core", editable = "packages/jabs-core" },
-    { name = "ndx-jabs", marker = "extra == 'nwb'", specifier = ">=0.1.0" },
+    { name = "ndx-jabs", marker = "extra == 'nwb'", specifier = ">=0.2.0" },
     { name = "ndx-multisubjects", marker = "extra == 'nwb'", specifier = ">=0.1.1" },
     { name = "ndx-pose", marker = "extra == 'nwb'", specifier = ">=0.2.2" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
@@ -2854,15 +2854,15 @@ wheels = [
 
 [[package]]
 name = "ndx-jabs"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hdmf" },
     { name = "pynwb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/34/edfe9b6667bf78618bf836a56a80e11ca39489d594dbf670ba89c3d37047/ndx_jabs-0.1.0.tar.gz", hash = "sha256:b957b904061e0c5061075164662a71fa938bc9d8a89a1f582597fd7dff8ced8d", size = 6842152, upload-time = "2026-10-03T00:22:07.809Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/21/d4e9d53706c56584423199e86e6ef809b917ca567248bfa69c412f8b9484/ndx_jabs-0.2.0.tar.gz", hash = "sha256:b9d4d3053cf186cb423a92b367d740dcdaf62d2544e214d177d768b8314e3caf", size = 6846822, upload-time = "2026-10-14T21:29:59.911Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6b/be/e28e57dab6394cca7d2b263677593dd7ed9f89e1b87dd99cd84ada5938fd/ndx_jabs-0.1.0-py3-none-any.whl", hash = "sha256:ebd62e1549d9bd28fc740dc0f01afc6693a652068fbf5b7f7673db9914438ed3", size = 7462, upload-time = "2026-10-03T00:22:06.727Z" },
+    { url = "https://files.pythonhosted.org/packages/49/f8/dbe3a6fbf7b33a98cdc77140b2929e0d914648c60ab89aa23f863a7fe011/ndx_jabs-0.2.0-py3-none-any.whl", hash = "sha256:67a90f9bb6a103d69b9d502c9e477e7c243d59807ec6dc35e6a5a6fcccc3a8c0", size = 10968, upload-time = "2026-10-14T21:29:58.783Z" },
 ]
 
 [[package]]
