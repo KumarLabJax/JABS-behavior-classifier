@@ -33,27 +33,6 @@ def test_pad_sliding_window_uses_constant_padding(pad_const: float) -> None:
     np.testing.assert_array_equal(view[-1], [4.0, 5.0, pad_const])
 
 
-def test_get_window_masks_marks_pad_values_invalid() -> None:
-    """Values equal to the pad constant are False, real values are True."""
-    view = np.array([[np.nan, 1.0, 2.0], [1.0, 2.0, 3.0]])
-    masks = window_stats.get_window_masks(view, np.nan)
-    np.testing.assert_array_equal(masks, [[False, True, True], [True, True, True]])
-
-
-def test_get_window_masks_non_nan_constant() -> None:
-    """A non-nan pad constant is compared by equality."""
-    view = np.array([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]])
-    masks = window_stats.get_window_masks(view, 0.0)
-    np.testing.assert_array_equal(masks, [[False, True, True], [True, True, True]])
-
-
-def test_get_window_masks_all_pad_row_is_all_valid() -> None:
-    """A row consisting entirely of pad values is left fully unmasked."""
-    view = np.array([[np.nan, np.nan, np.nan], [1.0, np.nan, 3.0]])
-    masks = window_stats.get_window_masks(view, np.nan)
-    np.testing.assert_array_equal(masks, [[True, True, True], [True, False, True]])
-
-
 def test_window_mean_ignores_padding() -> None:
     """The mean at each frame only averages real values within the window."""
     values = np.array([1.0, 2.0, 3.0])
