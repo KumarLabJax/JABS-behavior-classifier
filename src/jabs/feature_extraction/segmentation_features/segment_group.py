@@ -27,9 +27,13 @@ class SegmentationFeatureGroup(FeatureGroup):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
         self._moments_cache = None
+        self._moments_cache_identity = None
 
     def _init_feature_mods(self, identity: int):
         """initialize all of the feature modules specified in the current config
+
+        The MomentInfo for the most recent identity is kept, so computing per-frame and
+        then window features for the same identity only builds it once.
 
         Args:
             identity: subject identity to use when computing segmentation features
@@ -37,7 +41,9 @@ class SegmentationFeatureGroup(FeatureGroup):
         Returns:
             dictionary of initialized feature modules for this group
         """
-        self._moments_cache = MomentInfo(self._poses, identity, self._pixel_scale)
+        if self._moments_cache is None or self._moments_cache_identity != identity:
+            self._moments_cache = MomentInfo(self._poses, identity, self._pixel_scale)
+            self._moments_cache_identity = identity
 
         return {
             feature: self._features[feature](self._poses, self._pixel_scale, self._moments_cache)
