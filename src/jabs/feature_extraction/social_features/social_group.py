@@ -40,6 +40,7 @@ class SocialFeatureGroup(FeatureGroup):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
         self._closest_identities_cache = None
+        self._closest_identities_cache_identity = None
 
     def _init_feature_mods(self, identity: int):
         """initialize all of the feature modules specified in the current config
@@ -53,10 +54,16 @@ class SocialFeatureGroup(FeatureGroup):
         """
         # cache the most recent ClosestIdentityInfo, it's needed by
         # the IdentityFeatures class when saving the social features to the
-        # h5 file
-        self._closest_identities_cache = ClosestIdentityInfo(
-            self._poses, identity, self._pixel_scale
-        )
+        # h5 file. It is only rebuilt when the identity changes, so computing
+        # per-frame and then window features for one identity builds it once.
+        if (
+            self._closest_identities_cache is None
+            or self._closest_identities_cache_identity != identity
+        ):
+            self._closest_identities_cache = ClosestIdentityInfo(
+                self._poses, identity, self._pixel_scale
+            )
+            self._closest_identities_cache_identity = identity
 
         # initialize all the feature modules specified in the current config
         return {
