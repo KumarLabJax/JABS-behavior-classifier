@@ -1,7 +1,6 @@
 """Unit tests for the Angles feature class."""
 
 import numpy as np
-import pytest
 
 from jabs.feature_extraction.angle_index import AngleIndex
 from jabs.feature_extraction.base_features import Angles
@@ -103,18 +102,13 @@ def test_angles_compute_angles_multiple_points():
     assert np.all(angles < 360)
 
 
-def test_angles_circular_window_operations_use_a_0_360_range() -> None:
-    """Angles overrides the circular window operations to report angles in [0, 360).
+def test_angles_circular_range_is_0_360() -> None:
+    """Angles overrides the circular range to report angles in [0, 360).
 
-    The default circular operations use [-180, 180), where the mean of 170 and 190
-    degrees is -180. The Angles override reports it as 180.
+    The default range is [-180, 180), where the mean of 170 and 190 degrees is -180.
+    The Angles override reports it as 180.
     """
-    mean = Angles._circular_window_operations["mean"]
-    std_dev = Angles._circular_window_operations["std_dev"]
-
-    assert mean(np.array([170.0, 190.0])) == pytest.approx(180.0)
-    assert mean(np.array([10.0, 20.0])) == pytest.approx(15.0)
-    assert std_dev(np.array([45.0, 45.0])) == pytest.approx(0.0, abs=1e-6)
+    assert Angles._circular_range == (0.0, 360.0)
 
 
 def test_angles_window_means_are_never_negative(pose_est_v5_short) -> None:

@@ -3,7 +3,7 @@ import typing
 import warnings
 
 import numpy as np
-from scipy import signal, stats
+from scipy import signal
 
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
@@ -94,10 +94,7 @@ class Feature(abc.ABC):
 
     # most angles are bearings in the range [-180, 180)
     # if an angle feature is in a different range, the subclass needs to override this
-    _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
-        "std_dev": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
-    }
+    _circular_range: typing.ClassVar[tuple[float, float]] = (-180.0, 180.0)
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
@@ -312,12 +309,9 @@ class Feature(abc.ABC):
         Returns:
             a dictionary of the circular window features.
         """
-        values = {}
-        for op_name, op in self._circular_window_operations.items():
-            values[op_name] = self._compute_window_features_circular(
-                per_frame_values, self._poses.identity_mask(identity), window_size, op
-            )
-        return values
+        return self._compute_window_features_circular(
+            per_frame_values, self._poses.identity_mask(identity), window_size
+        )
 
     def _compute_window_feature(
         self,
@@ -370,45 +364,47 @@ class Feature(abc.ABC):
         feature_values: dict,
         frame_mask: np.ndarray,
         window_size: int,
-        op: typing.Callable,
     ) -> dict:
         """special case compute_window_features for circular measurements
+
+        Computes the circular mean and standard deviation of every window at once from
+        sliding-window sums of sin and cos. Frames where the identity is absent, and nan
+        values, are omitted from each window. Windows with no valid values are nan.
 
         Args:
             feature_values: dict of per-frame feature values
             frame_mask: numpy array that indicates if the frame is valid for the specific identity we are computing features for
             window_size: number of frames (in each direction) to include in the window. The actual number of frames is 2 * window_size + 1
-            op: function to perform the actual computation, such as scipy.stats.circmean or scipy.stats.circstd
 
         Returns:
-            dict with circular feature values
+            dict mapping each circular window operation name ("mean", "std_dev") to a dict
+            of per-frame feature name to window values
         """
-        nframes = self._poses.num_frames
-        values = {}
+        low, high = self._circular_range
+        period = high - low
+        present = np.asarray(frame_mask, dtype=bool)
+        width = 2 * window_size + 1
 
+        def window_sum(x: np.ndarray) -> np.ndarray:
+            padded = np.pad(x, window_size)
+            return np.lib.stride_tricks.sliding_window_view(padded, width).sum(axis=1)
+
+        means = {}
+        std_devs = {}
         for key, val in feature_values.items():
-            op_result = np.full(val.shape, np.nan)
+            valid = present & ~np.isnan(val)
+            theta = np.where(valid, (val - low) * (2 * np.pi / period), 0.0)
+            count = window_sum(valid.astype(np.float64))
+            has_values = present & (count > 0)
 
-            # unfortunately the scipy.stats.circmean/circstd functions don't work
-            # with numpy masked arrays, so we need to iterate over each window and
-            # create a view with only the valid values
+            with np.errstate(invalid="ignore", divide="ignore"):
+                mean_sin = window_sum(np.where(valid, np.sin(theta), 0.0)) / count
+                mean_cos = window_sum(np.where(valid, np.cos(theta), 0.0)) / count
+                resultant = np.minimum(1.0, np.hypot(mean_sin, mean_cos))
+                mean = np.mod(np.arctan2(mean_sin, mean_cos), 2 * np.pi) * (period / (2 * np.pi))
+                std_dev = np.sqrt(-2.0 * np.log(resultant)) * (period / (2 * np.pi))
 
-            for i in range(nframes):
-                # identity doesn't exist for this frame don't bother to compute
-                if not frame_mask[i]:
-                    continue
+            means[key] = np.where(has_values, mean + low, np.nan)
+            std_devs[key] = np.where(has_values, std_dev, np.nan)
 
-                slice_start = max(0, i - window_size)
-                slice_end = min(i + window_size + 1, nframes)
-
-                slice_frames_valid = frame_mask[slice_start:slice_end]
-
-                window_values = val[slice_start:slice_end][slice_frames_valid == 1]
-
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=RuntimeWarning)
-                    op_result[i] = op(window_values)
-
-            values[f"{key}"] = op_result
-
-        return values
+        return {"mean": means, "std_dev": std_devs}
