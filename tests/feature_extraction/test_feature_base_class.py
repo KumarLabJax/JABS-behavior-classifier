@@ -1,11 +1,14 @@
 """Tests for module-level helpers in feature_base_class."""
 
+import warnings
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
-from scipy import signal
+from scipy import signal, stats
 from scipy.signal import detrend
 
-from jabs.feature_extraction.feature_base_class import _linear_detrend_numpy
+from jabs.feature_extraction.feature_base_class import Feature, _linear_detrend_numpy
 
 
 class TestLinearDetrendNumpy:
@@ -130,3 +133,148 @@ class TestLinearDetrendNumpy:
         _, _, zxx_numpy = signal.stft(x, detrend=_linear_detrend_numpy, **common_kwargs)
 
         assert np.abs(zxx_numpy) == pytest.approx(np.abs(zxx_scipy), rel=1e-9, abs=1e-14)
+
+
+def _reference_circular(
+    values: np.ndarray, mask: np.ndarray, window_size: int, low: float, high: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-frame scipy circmean/circstd, the implementation the vectorized path replaced."""
+    n = len(values)
+    mean = np.full(n, np.nan)
+    std = np.full(n, np.nan)
+    for i in range(n):
+        if not mask[i]:
+            continue
+        start = max(0, i - window_size)
+        window = values[start : i + window_size + 1][mask[start : i + window_size + 1]]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            mean[i] = stats.circmean(window, low=low, high=high, nan_policy="omit")
+            std[i] = stats.circstd(window, low=low, high=high, nan_policy="omit")
+    return mean, std
+
+
+@pytest.mark.parametrize(
+    ("low", "high"), [(-180.0, 180.0), (0.0, 360.0)], ids=["bearing", "zero_to_360"]
+)
+@pytest.mark.parametrize("window_size", [1, 5, 40], ids=["w1", "w5", "w40"])
+def test_circular_window_features_match_scipy(low: float, high: float, window_size: int) -> None:
+    """The vectorized circular window features agree with per-window scipy calls."""
+    rng = np.random.default_rng(seed=0)
+    n = 300
+    values = rng.uniform(low, high, n)
+    values[rng.random(n) < 0.15] = np.nan
+    values[100:120] = np.nan  # a run of nan wider than some windows
+    mask = rng.random(n) > 0.1
+    mask[200:210] = False  # identity absent
+
+    feature = SimpleNamespace(_circular_range=(low, high))
+    result = Feature._compute_window_features_circular(
+        feature, {"angle": values}, mask, window_size
+    )
+
+    expected_mean, expected_std = _reference_circular(values, mask, window_size, low, high)
+    np.testing.assert_allclose(result["mean"]["angle"], expected_mean, atol=1e-6, equal_nan=True)
+    np.testing.assert_allclose(result["std_dev"]["angle"], expected_std, atol=1e-4, equal_nan=True)
+
+
+def test_circular_window_mean_stays_below_high() -> None:
+    """A tiny negative angle must not wrap to exactly `high`."""
+    feature = SimpleNamespace(_circular_range=(0.0, 360.0))
+    values = np.full(5, -1e-14)
+
+    result = Feature._compute_window_features_circular(
+        feature, {"a": values}, np.ones(5, dtype=bool), 1
+    )
+
+    assert np.all(result["mean"]["a"] < 360.0)
+    assert result["mean"]["a"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_circular_window_features_float32_input_keeps_precision() -> None:
+    """float32 per-frame values (e.g. lixit and corner bearings) are summed in float64."""
+    rng = np.random.default_rng(seed=2)
+    n = 300
+    feature = SimpleNamespace(_circular_range=(-180.0, 180.0))
+    mask = np.ones(n, dtype=bool)
+
+    # a constant bearing has a std of 0; float32 sums would leave an error of ~1e-2 degrees
+    constant = np.full(n, 37.3, dtype=np.float32)
+    result = Feature._compute_window_features_circular(feature, {"a": constant}, mask, 5)
+    assert np.max(result["std_dev"]["a"]) < 1e-5
+    np.testing.assert_allclose(result["mean"]["a"], float(constant[0]), atol=1e-9)
+
+    # random bearings agree with the float64 reference far more tightly than float32 would allow
+    bearings = rng.uniform(-180.0, 180.0, n).astype(np.float32)
+    result = Feature._compute_window_features_circular(feature, {"a": bearings}, mask, 5)
+    expected_mean, expected_std = _reference_circular(
+        bearings.astype(np.float64), mask, 5, -180.0, 180.0
+    )
+    np.testing.assert_allclose(result["mean"]["a"], expected_mean, atol=1e-9)
+    np.testing.assert_allclose(result["std_dev"]["a"], expected_std, atol=1e-6)
+
+
+def test_circular_window_features_ignore_inf() -> None:
+    """An inf value is omitted from the window instead of turning it into nan."""
+    feature = SimpleNamespace(_circular_range=(-180.0, 180.0))
+    values = np.array([10.0, np.inf, 10.0, 10.0, 10.0])
+
+    result = Feature._compute_window_features_circular(
+        feature, {"a": values}, np.ones(5, dtype=bool), 1
+    )
+
+    assert result["mean"]["a"] == pytest.approx(10.0)
+    assert not np.isnan(result["std_dev"]["a"]).any()
+
+
+class _CircularStubFeature(Feature):
+    """Minimal circular Feature for exercising `Feature.window` without a pose file."""
+
+    _name = "stub"
+    _use_circular = True
+
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """Not used: the tests pass per-frame values to `window` directly."""
+        return {}
+
+
+def test_window_merges_circular_and_non_circular_features() -> None:
+    """`Feature.window` computes circular stats for angles and plain stats for sine columns."""
+    n = 60
+    rng = np.random.default_rng(seed=3)
+    angle = rng.uniform(-180.0, 180.0, n)
+    mask = np.ones(n, dtype=np.int8)
+    poses = SimpleNamespace(fps=30, identity_mask=lambda _identity: mask)
+    feature = _CircularStubFeature(poses, 1.0)
+
+    result = feature.window(0, 2, {"angle": angle, "angle sine": np.sin(np.radians(angle))})
+
+    # circular ops cover only the angle column; sine only gets the standard ops
+    assert set(result["mean"]) == {"angle", "angle sine"}
+    assert set(result["std_dev"]) == {"angle", "angle sine"}
+    assert set(result["max"]) == {"angle sine"}
+
+    centered = slice(2, n - 2)  # frames whose window is not clipped by the edges
+    expected_mean = [
+        stats.circmean(angle[i - 2 : i + 3], low=-180, high=180) for i in range(2, n - 2)
+    ]
+    np.testing.assert_allclose(result["mean"]["angle"][centered], expected_mean, atol=1e-6)
+    expected_sine_mean = np.convolve(np.sin(np.radians(angle)), np.ones(5) / 5, mode="valid")
+    np.testing.assert_allclose(result["mean"]["angle sine"][centered], expected_sine_mean)
+
+
+def test_circular_window_features_edge_cases() -> None:
+    """All-nan windows are nan, constant windows have zero std, and the wrap is handled."""
+    feature = SimpleNamespace(_circular_range=(-180.0, 180.0))
+    mask = np.ones(6, dtype=bool)
+    values = np.array([np.nan, np.nan, 10.0, 10.0, 170.0, -170.0])
+
+    result = Feature._compute_window_features_circular(feature, {"a": values}, mask, 0)
+
+    assert np.isnan(result["mean"]["a"][:2]).all()
+    assert np.isnan(result["std_dev"]["a"][:2]).all()
+    assert result["std_dev"]["a"][2] == pytest.approx(0.0, abs=1e-6)
+
+    result = Feature._compute_window_features_circular(feature, {"a": values}, mask, 1)
+    # window around the last frame holds 170 and -170, whose circular mean is +-180
+    assert abs(result["mean"]["a"][5]) == pytest.approx(180.0)

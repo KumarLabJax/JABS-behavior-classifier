@@ -1,7 +1,6 @@
 import typing
 
 import numpy as np
-from scipy import stats
 
 from jabs.feature_extraction.angle_index import AngleIndex
 from jabs.feature_extraction.feature_base_class import Feature
@@ -15,10 +14,7 @@ class Angles(Feature):
     _use_circular = True
 
     # need to override to set the correct range for circular operations
-    _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: stats.circmean(x, low=0, high=360, nan_policy="omit"),
-        "std_dev": lambda x: stats.circstd(x, low=0, high=360, nan_policy="omit"),
-    }
+    _circular_range: typing.ClassVar[tuple[float, float]] = (0.0, 360.0)
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)

@@ -532,7 +532,7 @@ To create an entirely new feature group:
 For features that represent angles, set `_use_circular = True`. See `src/jabs/feature_extraction/base_features/angles.py` for a complete example.
 
 Key points:
-- Override `_circular_window_operations` if your angles are in a different range than the default `[-180, 180)`
+- Override `_circular_range` (a `(low, high)` tuple) if your angles are in a different range than the default `[-180, 180)`
 - Provide sine/cosine transformations for non-circular window operations
 - Example: The `Angles` class uses `[0, 360)` for joint angles
 
