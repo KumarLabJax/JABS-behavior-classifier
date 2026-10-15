@@ -18,7 +18,7 @@ import numpy.typing as npt
 
 try:
     from hdmf.backends.hdf5 import H5DataIO
-    from ndx_jabs import ContourSeries
+    from ndx_jabs import ContourSeries, JaxAgingStudyMetaData, JaxAgingSubject, JaxStudySubject
     from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
     from pynwb import NWBHDF5IO, NWBFile, TimeSeries
     from pynwb.core import ScratchData
@@ -47,6 +47,15 @@ from jabs.io.registry import register_adapter
 logger = logging.getLogger(__name__)
 
 _JABS_NWB_FORMAT_VERSION = 1
+
+# Subject fields stored by ndx-jabs' JaxStudySubject (generic JAX study identifiers) and
+# JaxAgingSubject (aging study measurements, which extends JaxStudySubject). Numeric ones
+# are coerced with float(); the rest are written as text.
+_JAX_STUDY_TEXT_FIELDS = ("housing_id", "test_chamber")
+_JAX_AGING_FLOAT_FIELDS = ("cfi", "cfi_norm", "pll")
+_JAX_AGING_TEXT_FIELDS = ("diet",)
+# Session-level aging study fields, stored by ndx-jabs' JaxAgingStudyMetaData.
+_JAX_AGING_SESSION_TEXT_FIELDS = ("batch", "tester")
 
 # Maps canonical keypoint name → its integer index in KeypointIndex.
 # Used by _sort_body_parts to recover the correct keypoint order from
@@ -1127,10 +1136,18 @@ class PoseNWBAdapter(Adapter):
         # NdxMultiSubjectsNWBFile is a drop-in NWBFile subclass (identical
         # constructor kwargs); only referenced when the extension is present.
         nwb_cls = NdxMultiSubjectsNWBFile if kwargs.get("multisubject") else NWBFile
-        return nwb_cls(**nwb_kwargs)
+        nwbfile = nwb_cls(**nwb_kwargs)
+        aging_session = {
+            name: str(kwargs[name])
+            for name in _JAX_AGING_SESSION_TEXT_FIELDS
+            if not subject_value_is_absent(kwargs.get(name))
+        }
+        if aging_session:
+            nwbfile.add_lab_meta_data(JaxAgingStudyMetaData(**aging_session))
+        return nwbfile
 
     @staticmethod
-    def _make_subject(subject_meta: dict) -> Subject:
+    def _make_subject(subject_meta: dict) -> Subject | JaxStudySubject | JaxAgingSubject:
         """Build a pynwb Subject from a subject metadata dict.
 
         DANDI requires ``species``, ``sex``, and either ``age`` or
@@ -1142,15 +1159,26 @@ class PoseNWBAdapter(Adapter):
 
         Args:
             subject_meta: Dict with optional keys subject_id, sex, species,
-                age, date_of_birth, genotype, strain, weight, description.
+                age, date_of_birth, genotype, strain, weight, description, plus the
+                JAX study keys housing_id, test_chamber (text) and the aging study
+                keys cfi, cfi_norm, pll (numeric) and diet (text).
                 Absent values - ``None`` or a blank string, per
                 :func:`subject_value_is_absent` - are omitted so pynwb uses its own
                 defaults, rather than written through as an empty field that the
                 DANDI validator then rejects.  ``date_of_birth`` accepts either an
                 ISO 8601 string or a :class:`datetime.datetime`.
 
+        When any aging study key is present the result is an ndx-jabs
+        :class:`JaxAgingSubject`; otherwise when only housing_id or test_chamber is
+        present it is a :class:`JaxStudySubject`; otherwise it is a plain Subject, so
+        files without those keys do not depend on the extra types.
+
         Returns:
-            A pynwb Subject object populated from the non-None fields.
+            A pynwb Subject (or JaxStudySubject / JaxAgingSubject) populated from the
+            non-None fields.
+
+        Raises:
+            ValueError: If a numeric study-specific field is not a number.
         """
         _SUBJECT_FIELDS = (
             "subject_id",
@@ -1179,6 +1207,33 @@ class PoseNWBAdapter(Adapter):
             if dob.tzinfo is None:
                 dob = dob.replace(tzinfo=datetime.timezone.utc)
             kwargs["date_of_birth"] = dob
+
+        study_kwargs: dict = {}
+        for name in _JAX_STUDY_TEXT_FIELDS:
+            value = subject_meta.get(name)
+            if not subject_value_is_absent(value):
+                study_kwargs[name] = str(value)
+
+        aging_kwargs: dict = {}
+        for name in _JAX_AGING_FLOAT_FIELDS:
+            value = subject_meta.get(name)
+            if subject_value_is_absent(value):
+                continue
+            try:
+                aging_kwargs[name] = float(value)
+            except (TypeError, ValueError) as err:
+                raise ValueError(
+                    f"subject field {name!r} must be a number, got {value!r}"
+                ) from err
+        for name in _JAX_AGING_TEXT_FIELDS:
+            value = subject_meta.get(name)
+            if not subject_value_is_absent(value):
+                aging_kwargs[name] = str(value)
+
+        if aging_kwargs:
+            return JaxAgingSubject(**kwargs, **study_kwargs, **aging_kwargs)
+        if study_kwargs:
+            return JaxStudySubject(**kwargs, **study_kwargs)
         return Subject(**kwargs)
 
     @staticmethod
