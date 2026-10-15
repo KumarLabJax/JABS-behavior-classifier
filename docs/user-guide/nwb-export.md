@@ -121,19 +121,17 @@ An optional `name` field renames the identity — see
 | `cfi_norm`      | number | `cfi` divided by the number of items (28), 0 to 1. |
 | `pll`           | number | Proportion of life lived: age at the open-field test divided by age at death, 0 to 1. Leave out for animals not followed to death. |
 | `diet`          | string | Diet intervention group: `AL` (ad libitum), `1D`/`2D` (fasting one day or two consecutive days per week), `20`/`40` (caloric restriction at 20% or 40% of baseline ad libitum intake). |
-| `batch`         | string | Data-collection batch of the frailty assessment. |
-| `tester`        | string | Anonymized ID of the trained expert who assigned the manual frailty-index score. IDs are only comparable within one numbering. |
 | `housing_id`    | string | Identifier of the housing (for example the cage) the animal was kept in. |
 | `test_chamber`  | string | Identifier of the test chamber the animal was tested in. |
 
-`housing_id` and `test_chamber` are generic JAX study identifiers. The remaining study fields
-(`cfi`, `cfi_norm`, `pll`, `diet`, `batch`, `tester`) are specific to the JAX aging study. All
-eight are optional. When any aging field is present the file's `NWBFile.subject` is written as
-an ndx-jabs `JaxAgingSubject`; when only `housing_id` or `test_chamber` is present it is a
-`JaxStudySubject`; otherwise it is a plain `Subject`. `None` and blank values are left out,
-and a non-numeric `cfi`, `cfi_norm` or `pll` is rejected. In multisubject mode these fields
-are not added to the `SubjectsTable`; they are kept only in the `jabs_metadata` copy of the
-subject.
+`housing_id` and `test_chamber` are generic JAX study identifiers. `cfi`, `cfi_norm`, `pll` and
+`diet` are specific to the JAX aging study. All are optional. When any aging field is present
+the file's `NWBFile.subject` is written as an ndx-jabs `JaxAgingSubject`; when only `housing_id`
+or `test_chamber` is present it is a `JaxStudySubject`; otherwise it is a plain `Subject`.
+`None` and blank values are left out, and a non-numeric `cfi`, `cfi_norm` or `pll` is rejected.
+In multisubject mode these fields are not added to the `SubjectsTable`; they are kept only in
+the `jabs_metadata` copy of the subject. The aging study's `batch` and `tester` are session-level
+fields; see [Session metadata JSON format](#session-metadata-json-format).
 
 In per-identity mode (the default), subject metadata is written to both the standard
 `NWBFile.subject` field and the `jabs_metadata` scratch field. In multisubject mode it is
@@ -218,6 +216,8 @@ files and otherwise defaults to the time the export was run.
 | `experiment_description` | string                    | Free-text description of the experiment.                                                                                                                                                  |
 | `session_id`             | string                    | Lab-specific session identifier.                                                                                                                                                          |
 | `keywords`               | list of strings           | Keywords/tags describing the session.                                                                                                                                                     |
+| `batch`                  | string                    | Aging study: data-collection batch of the frailty assessment. Stored in an ndx-jabs `JaxAgingStudyMetaData`. |
+| `tester`                 | string                    | Aging study: anonymized ID of the trained expert who assigned the manual frailty-index score. Stored in the same `JaxAgingStudyMetaData`. |
 
 All fields are optional. Unknown keys are ignored with a warning.
 

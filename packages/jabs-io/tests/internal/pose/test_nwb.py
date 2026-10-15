@@ -20,7 +20,7 @@ pytest.importorskip("ndx_pose")
 pytest.importorskip("ndx_jabs")
 pytest.importorskip("ndx_multisubjects")
 
-from ndx_jabs import ContourSeries, JaxAgingSubject, JaxStudySubject
+from ndx_jabs import ContourSeries, JaxAgingStudyMetaData, JaxAgingSubject, JaxStudySubject
 from ndx_multisubjects import NdxMultiSubjectsNWBFile
 from ndx_pose import PoseEstimation
 from pynwb import NWBHDF5IO
@@ -623,8 +623,6 @@ def test_per_identity_jax_aging_subject_fields(tmp_path, adapter):
             "cfi_norm": "0.267857143",
             "pll": 0.82,
             "diet": "40",
-            "batch": "Batch1",
-            "tester": "Scorer3",
             "housing_id": "cage-42",
             "test_chamber": "chamber-A",
         },
@@ -643,8 +641,6 @@ def test_per_identity_jax_aging_subject_fields(tmp_path, adapter):
         assert subject.cfi_norm == pytest.approx(0.267857143)
         assert subject.pll == pytest.approx(0.82)
         assert subject.diet == "40"
-        assert subject.batch == "Batch1"
-        assert subject.tester == "Scorer3"
         assert subject.housing_id == "cage-42"
         assert subject.test_chamber == "chamber-A"
 
@@ -657,7 +653,7 @@ def test_per_identity_jax_aging_subject_omits_absent_fields(tmp_path, adapter):
             "species": "Mus musculus",
             "cfi": 3.0,
             "pll": None,
-            "tester": "  ",
+            "cfi_norm": "  ",
             "diet": "AL",
         },
     }
@@ -671,8 +667,7 @@ def test_per_identity_jax_aging_subject_omits_absent_fields(tmp_path, adapter):
         assert subject.cfi == pytest.approx(3.0)
         assert subject.diet == "AL"
         assert subject.pll is None
-        assert subject.tester is None
-        assert subject.batch is None
+        assert subject.cfi_norm is None
 
 
 def test_per_identity_jax_study_subject_for_generic_fields_only(tmp_path, adapter):
@@ -1087,6 +1082,46 @@ def test_session_metadata_fields_written_to_nwb(tmp_path, adapter):
         assert list(nwb.experimenter) == ["Jane Smith", "John Doe"]
         assert nwb.experiment_description == "Open field test"
         assert nwb.session_id == "session_001"
+
+
+def test_aging_session_fields_written_as_lab_metadata(tmp_path, adapter):
+    """batch and tester go to a session-level JaxAgingStudyMetaData, not the Subject."""
+    subjects = {"mouse_a": {"sex": "M", "species": "Mus musculus", "cfi": 3.0}}
+    data = _with_subjects(_make_pose_data(external_ids=["mouse_a", "mouse_b"]), subjects)
+
+    adapter.write(
+        data, tmp_path / "pose.nwb", per_identity_files=True, batch="Batch1", tester="Scorer3"
+    )
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        nwb = io.read()
+        meta = nwb.lab_meta_data["jax_aging"]
+        assert isinstance(meta, JaxAgingStudyMetaData)
+        assert (meta.batch, meta.tester) == ("Batch1", "Scorer3")
+        assert isinstance(nwb.subject, JaxAgingSubject)
+        assert not hasattr(nwb.subject, "batch")
+
+
+def test_aging_session_fields_omitted_when_absent(tmp_path, adapter):
+    """No batch/tester, or blank values, means no JaxAgingStudyMetaData at all."""
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+
+    adapter.write(data, tmp_path / "pose.nwb", per_identity_files=True, batch="", tester=None)
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        assert "jax_aging" not in io.read().lab_meta_data
+
+
+def test_aging_session_fields_multisubject(tmp_path, adapter):
+    """The multisubject file carries the same session-level metadata."""
+    path = tmp_path / "pose_multi.nwb"
+
+    adapter.write(_make_pose_data(), path, multisubject=True, tester="Scorer7")
+
+    with NWBHDF5IO(str(path), mode="r", load_namespaces=True) as io:
+        meta = io.read().lab_meta_data["jax_aging"]
+        assert meta.tester == "Scorer7"
+        assert meta.batch is None
 
 
 # ---------------------------------------------------------------------------

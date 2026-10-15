@@ -18,7 +18,7 @@ import numpy.typing as npt
 
 try:
     from hdmf.backends.hdf5 import H5DataIO
-    from ndx_jabs import ContourSeries, JaxAgingSubject, JaxStudySubject
+    from ndx_jabs import ContourSeries, JaxAgingStudyMetaData, JaxAgingSubject, JaxStudySubject
     from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
     from pynwb import NWBHDF5IO, NWBFile, TimeSeries
     from pynwb.core import ScratchData
@@ -53,7 +53,9 @@ _JABS_NWB_FORMAT_VERSION = 1
 # are coerced with float(); the rest are written as text.
 _JAX_STUDY_TEXT_FIELDS = ("housing_id", "test_chamber")
 _JAX_AGING_FLOAT_FIELDS = ("cfi", "cfi_norm", "pll")
-_JAX_AGING_TEXT_FIELDS = ("diet", "batch", "tester")
+_JAX_AGING_TEXT_FIELDS = ("diet",)
+# Session-level aging study fields, stored by ndx-jabs' JaxAgingStudyMetaData.
+_JAX_AGING_SESSION_TEXT_FIELDS = ("batch", "tester")
 
 # Maps canonical keypoint name → its integer index in KeypointIndex.
 # Used by _sort_body_parts to recover the correct keypoint order from
@@ -1134,7 +1136,15 @@ class PoseNWBAdapter(Adapter):
         # NdxMultiSubjectsNWBFile is a drop-in NWBFile subclass (identical
         # constructor kwargs); only referenced when the extension is present.
         nwb_cls = NdxMultiSubjectsNWBFile if kwargs.get("multisubject") else NWBFile
-        return nwb_cls(**nwb_kwargs)
+        nwbfile = nwb_cls(**nwb_kwargs)
+        aging_session = {
+            name: str(kwargs[name])
+            for name in _JAX_AGING_SESSION_TEXT_FIELDS
+            if not subject_value_is_absent(kwargs.get(name))
+        }
+        if aging_session:
+            nwbfile.add_lab_meta_data(JaxAgingStudyMetaData(**aging_session))
+        return nwbfile
 
     @staticmethod
     def _make_subject(subject_meta: dict) -> Subject | JaxStudySubject | JaxAgingSubject:
@@ -1151,7 +1161,7 @@ class PoseNWBAdapter(Adapter):
             subject_meta: Dict with optional keys subject_id, sex, species,
                 age, date_of_birth, genotype, strain, weight, description, plus the
                 JAX study keys housing_id, test_chamber (text) and the aging study
-                keys cfi, cfi_norm, pll (numeric) and diet, batch, tester (text).
+                keys cfi, cfi_norm, pll (numeric) and diet (text).
                 Absent values - ``None`` or a blank string, per
                 :func:`subject_value_is_absent` - are omitted so pynwb uses its own
                 defaults, rather than written through as an empty field that the
