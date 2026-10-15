@@ -110,6 +110,31 @@ def psd_std_dev(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     return np.std(psd, axis=0)
 
 
+def _standardized_moment(psd: np.ndarray, order: int) -> np.ndarray:
+    """Calculates the biased standardized central moment (skew or Pearson kurtosis) of each column
+
+    This is what ``scipy.stats.skew`` (order 3) and ``scipy.stats.kurtosis`` with
+    ``fisher=False`` (order 4) compute, without scipy's per-call argument handling, which
+    dominates the cost on the small matrices used here. Like scipy, a column whose
+    variance is negligible relative to its mean is nan.
+
+    Args:
+        psd: power spectral density matrix with no nan values
+        order: 3 for skew or 4 for Pearson kurtosis
+
+    Returns:
+        standardized moment of each column
+    """
+    mean = psd.mean(axis=0)
+    centered = psd - mean
+    squared = centered * centered
+    variance = squared.mean(axis=0)
+    moment = (squared * centered if order == 3 else squared * squared).mean(axis=0)
+    negligible_variance = variance <= (np.finfo(variance.dtype).eps * mean) ** 2
+    with np.errstate(all="ignore"):
+        return np.where(negligible_variance, np.nan, moment / variance ** (order / 2))
+
+
 def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """Calculates the kurtosis power spectral density
 
@@ -126,7 +151,10 @@ def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        return_values = kurtosis(psd, axis=0, nan_policy="omit")
+        if np.isnan(psd).any():
+            return_values = kurtosis(psd, axis=0, nan_policy="omit")
+        else:
+            return_values = _standardized_moment(psd, 4) - 3.0
         # If infinity shows up, convert to nan
         return_values = np.nan_to_num(return_values, nan=np.nan, posinf=np.nan, neginf=np.nan)
     return return_values
@@ -144,7 +172,10 @@ def psd_skew(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        return_values = skew(psd, axis=0, nan_policy="omit")
+        if np.isnan(psd).any():
+            return_values = skew(psd, axis=0, nan_policy="omit")
+        else:
+            return_values = _standardized_moment(psd, 3)
         # If infinity shows up, convert to nan
         return_values = np.nan_to_num(return_values, nan=np.nan, posinf=np.nan, neginf=np.nan)
     return return_values
