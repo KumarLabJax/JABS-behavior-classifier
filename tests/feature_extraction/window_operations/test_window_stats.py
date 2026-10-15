@@ -1,5 +1,7 @@
 """Unit tests for the sliding window statistics helpers."""
 
+import warnings
+
 import numpy as np
 import pytest
 from scipy import stats
@@ -126,3 +128,61 @@ def test_np_kurtosis_is_pearson_not_fisher() -> None:
         result, stats.kurtosis(view, axis=1, nan_policy="omit", fisher=False)
     )
     np.testing.assert_allclose(result - 3.0, stats.kurtosis(view, axis=1, nan_policy="omit"))
+
+
+def _sliding_window_oracle(values: np.ndarray, window: int, op) -> np.ndarray:
+    """Apply ``op`` to the non-nan values of each (edge-clipped) window, one frame at a time."""
+    result = np.full(values.shape, np.nan)
+    for i in range(values.size):
+        in_window = values[max(0, i - window) : i + window + 1]
+        valid = in_window[~np.isnan(in_window)]
+        if valid.size:
+            result[i] = op(valid)
+    return result
+
+
+def _window_test_series() -> dict[str, np.ndarray]:
+    """Series exercising nan gaps, nan runs wider than the window, constants and all-nan."""
+    rng = np.random.default_rng(seed=7)
+    n = 120
+    scattered_nan = rng.normal(0.0, 20.0, n)
+    scattered_nan[rng.random(n) < 0.2] = np.nan
+    nan_runs = rng.normal(0.0, 20.0, n)
+    nan_runs[:15] = np.nan
+    nan_runs[60:80] = np.nan
+    mostly_zero = np.zeros(n)
+    mostly_zero[40:55] = rng.random(15)
+    return {
+        "scattered_nan": scattered_nan,
+        "nan_runs": nan_runs,
+        "constant": np.full(n, 3.0),
+        "all_nan": np.full(n, np.nan),
+        "mostly_zero": mostly_zero,
+    }
+
+
+@pytest.mark.parametrize("window", [1, 3, 10], ids=["w1", "w3", "w10"])
+@pytest.mark.parametrize("case", list(_window_test_series()))
+@pytest.mark.parametrize(
+    ("op_name", "oracle_op"),
+    [
+        ("window_median", np.median),
+        ("window_min", np.min),
+        ("window_max", np.max),
+        ("window_skew", stats.skew),
+        ("window_kurtosis", lambda x: stats.kurtosis(x, fisher=False)),
+    ],
+)
+def test_window_ops_match_per_window_reference(
+    op_name: str, oracle_op, case: str, window: int
+) -> None:
+    """Each sliding window op agrees with applying the numpy/scipy op to one window at a time."""
+    values = _window_test_series()[case]
+
+    with np.errstate(all="ignore"):
+        result = getattr(window_stats, op_name)(values, window)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        expected = _sliding_window_oracle(values, window, oracle_op)
+
+    np.testing.assert_allclose(result, expected, rtol=1e-9, atol=1e-9, equal_nan=True)
