@@ -392,7 +392,7 @@ class Feature(abc.ABC):
         means = {}
         std_devs = {}
         for key, val in feature_values.items():
-            valid = present & ~np.isnan(val)
+            valid = present & np.isfinite(val)
             theta = np.where(valid, (val - low) * (2 * np.pi / period), 0.0)
             count = window_sum(valid.astype(np.float64))
             has_values = present & (count > 0)
@@ -404,7 +404,11 @@ class Feature(abc.ABC):
                 mean = np.mod(np.arctan2(mean_sin, mean_cos), 2 * np.pi) * (period / (2 * np.pi))
                 std_dev = np.sqrt(-2.0 * np.log(resultant)) * (period / (2 * np.pi))
 
-            means[key] = np.where(has_values, mean + low, np.nan)
+            # np.mod can round a tiny negative angle up to exactly 2*pi, which would put the
+            # mean on `high`; fold it back to `low` to keep the result in [low, high)
+            mean = np.where(mean + low >= high, low, mean + low)
+
+            means[key] = np.where(has_values, mean, np.nan)
             std_devs[key] = np.where(has_values, std_dev, np.nan)
 
         return {"mean": means, "std_dev": std_devs}

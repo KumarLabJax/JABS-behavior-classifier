@@ -102,13 +102,19 @@ def test_angles_compute_angles_multiple_points():
     assert np.all(angles < 360)
 
 
-def test_angles_circular_range_is_0_360() -> None:
-    """Angles overrides the circular range to report angles in [0, 360).
+def test_angles_circular_window_mean_uses_0_360_range(pose_est_v5_short) -> None:
+    """Angles reports a window mean of 180 degrees as 180, not -180.
 
-    The default range is [-180, 180), where the mean of 170 and 190 degrees is -180.
-    The Angles override reports it as 180.
+    The default [-180, 180) range would report the mean of constant 180 degree angles as -180.
     """
-    assert Angles._circular_range == (0.0, 360.0)
+    angles_feature = Angles(pose_est_v5_short, pose_est_v5_short.cm_per_pixel)
+    values = np.full(pose_est_v5_short.num_frames, 180.0)
+
+    means = angles_feature._window_circular(0, 1, {"angle": values})["mean"]["angle"]
+
+    present = pose_est_v5_short.identity_mask(0).astype(bool)
+    assert present.any()
+    np.testing.assert_allclose(means[present], 180.0)
 
 
 def test_angles_window_means_are_never_negative(pose_est_v5_short) -> None:

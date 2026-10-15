@@ -178,6 +178,68 @@ def test_circular_window_features_match_scipy(low: float, high: float, window_si
     np.testing.assert_allclose(result["std_dev"]["angle"], expected_std, atol=1e-4, equal_nan=True)
 
 
+def test_circular_window_mean_stays_below_high() -> None:
+    """A tiny negative angle must not wrap to exactly `high`."""
+    feature = SimpleNamespace(_circular_range=(0.0, 360.0))
+    values = np.full(5, -1e-14)
+
+    result = Feature._compute_window_features_circular(
+        feature, {"a": values}, np.ones(5, dtype=bool), 1
+    )
+
+    assert np.all(result["mean"]["a"] < 360.0)
+    assert result["mean"]["a"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_circular_window_features_ignore_inf() -> None:
+    """An inf value is omitted from the window instead of turning it into nan."""
+    feature = SimpleNamespace(_circular_range=(-180.0, 180.0))
+    values = np.array([10.0, np.inf, 10.0, 10.0, 10.0])
+
+    result = Feature._compute_window_features_circular(
+        feature, {"a": values}, np.ones(5, dtype=bool), 1
+    )
+
+    assert result["mean"]["a"] == pytest.approx(10.0)
+    assert not np.isnan(result["std_dev"]["a"]).any()
+
+
+class _CircularStubFeature(Feature):
+    """Minimal circular Feature for exercising `Feature.window` without a pose file."""
+
+    _name = "stub"
+    _use_circular = True
+
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """Not used: the tests pass per-frame values to `window` directly."""
+        return {}
+
+
+def test_window_merges_circular_and_non_circular_features() -> None:
+    """`Feature.window` computes circular stats for angles and plain stats for sine columns."""
+    n = 60
+    rng = np.random.default_rng(seed=3)
+    angle = rng.uniform(-180.0, 180.0, n)
+    mask = np.ones(n, dtype=np.int8)
+    poses = SimpleNamespace(fps=30, identity_mask=lambda _identity: mask)
+    feature = _CircularStubFeature(poses, 1.0)
+
+    result = feature.window(0, 2, {"angle": angle, "angle sine": np.sin(np.radians(angle))})
+
+    # circular ops cover only the angle column; sine only gets the standard ops
+    assert set(result["mean"]) == {"angle", "angle sine"}
+    assert set(result["std_dev"]) == {"angle", "angle sine"}
+    assert set(result["max"]) == {"angle sine"}
+
+    centered = slice(2, n - 2)  # frames whose window is not clipped by the edges
+    expected_mean = [
+        stats.circmean(angle[i - 2 : i + 3], low=-180, high=180) for i in range(2, n - 2)
+    ]
+    np.testing.assert_allclose(result["mean"]["angle"][centered], expected_mean, atol=1e-6)
+    expected_sine_mean = np.convolve(np.sin(np.radians(angle)), np.ones(5) / 5, mode="valid")
+    np.testing.assert_allclose(result["mean"]["angle sine"][centered], expected_sine_mean)
+
+
 def test_circular_window_features_edge_cases() -> None:
     """All-nan windows are nan, constant windows have zero std, and the wrap is handled."""
     feature = SimpleNamespace(_circular_range=(-180.0, 180.0))
