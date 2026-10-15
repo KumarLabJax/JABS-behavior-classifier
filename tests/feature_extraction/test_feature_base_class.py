@@ -191,6 +191,29 @@ def test_circular_window_mean_stays_below_high() -> None:
     assert result["mean"]["a"] == pytest.approx(0.0, abs=1e-9)
 
 
+def test_circular_window_features_float32_input_keeps_precision() -> None:
+    """float32 per-frame values (e.g. lixit and corner bearings) are summed in float64."""
+    rng = np.random.default_rng(seed=2)
+    n = 300
+    feature = SimpleNamespace(_circular_range=(-180.0, 180.0))
+    mask = np.ones(n, dtype=bool)
+
+    # a constant bearing has a std of 0; float32 sums would leave an error of ~1e-2 degrees
+    constant = np.full(n, 37.3, dtype=np.float32)
+    result = Feature._compute_window_features_circular(feature, {"a": constant}, mask, 5)
+    assert np.max(result["std_dev"]["a"]) < 1e-5
+    np.testing.assert_allclose(result["mean"]["a"], float(constant[0]), atol=1e-9)
+
+    # random bearings agree with the float64 reference far more tightly than float32 would allow
+    bearings = rng.uniform(-180.0, 180.0, n).astype(np.float32)
+    result = Feature._compute_window_features_circular(feature, {"a": bearings}, mask, 5)
+    expected_mean, expected_std = _reference_circular(
+        bearings.astype(np.float64), mask, 5, -180.0, 180.0
+    )
+    np.testing.assert_allclose(result["mean"]["a"], expected_mean, atol=1e-9)
+    np.testing.assert_allclose(result["std_dev"]["a"], expected_std, atol=1e-6)
+
+
 def test_circular_window_features_ignore_inf() -> None:
     """An inf value is omitted from the window instead of turning it into nan."""
     feature = SimpleNamespace(_circular_range=(-180.0, 180.0))

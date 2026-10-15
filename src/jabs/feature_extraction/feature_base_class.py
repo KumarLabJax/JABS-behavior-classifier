@@ -392,6 +392,9 @@ class Feature(abc.ABC):
         means = {}
         std_devs = {}
         for key, val in feature_values.items():
+            # some features (e.g. lixit and corner bearings) are float32; the sliding sums
+            # of sin and cos lose too much precision if they accumulate in float32
+            val = np.asarray(val, dtype=np.float64)
             valid = present & np.isfinite(val)
             theta = np.where(valid, (val - low) * (2 * np.pi / period), 0.0)
             count = window_sum(valid.astype(np.float64))
