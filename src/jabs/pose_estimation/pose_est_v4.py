@@ -7,6 +7,7 @@ import numpy as np
 from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.core.exceptions import PoseHashException, PoseIdEmbeddingException
+from jabs.core.utils.pose_util import build_identity_mask
 
 from .identity_indexed_pose import IdentityIndexedPoseMixin
 
@@ -153,16 +154,9 @@ class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
 
                 # build a mask for each identity that indicates if it exists or not
                 # in the frame
-                # require a minimum number of points to be > 3
-                # this is because the convex hull requires 3 points
-                init_func = np.vectorize(
-                    lambda x, y: np.sum(self._point_mask[x][y][:-2]) >= 3,
-                    otypes=[np.uint8],
-                )
-
-                self._identity_mask = np.fromfunction(
-                    init_func, (self._num_identities, self._num_frames), dtype=np.int_
-                )
+                # require at least 3 body points, since that is the minimum a convex
+                # hull can be built from
+                self._identity_mask = build_identity_mask(self._point_mask, min_valid_keypoints=3)
             else:
                 self._identities = []
                 self._point_mask = None

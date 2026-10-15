@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 
 from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
+from jabs.core.utils.pose_util import build_identity_mask
 
 
 class PoseEstimationV2(PoseEstimation):
@@ -17,7 +18,7 @@ class PoseEstimationV2(PoseEstimation):
             cache_dir: optional cache directory, used to cache convex
                 hulls for faster loading
             fps: frames per second, used for scaling time series
-                featuresfrom "per frame" to "per second"
+                features from "per frame" to "per second"
         """
         super().__init__(file_path, cache_dir, fps)
 
@@ -45,12 +46,9 @@ class PoseEstimationV2(PoseEstimation):
         self._num_frames = self._points.shape[0]
 
         # build an array that indicates if the identity exists for a each frame
-        # require at least 3 body points, not just tail
-        init_func = np.vectorize(
-            lambda x: 0 if np.sum(self._point_mask[x][:-2]) < 3 else 1,
-            otypes=[np.uint8],
-        )
-        self._identity_mask = np.fromfunction(init_func, (self._num_frames,), dtype=np.int_)
+        # require at least 3 body points, not just tail, since that is the minimum
+        # a convex hull can be built from
+        self._identity_mask = build_identity_mask(self._point_mask, min_valid_keypoints=3)
 
     @property
     def identity_to_track(self):
