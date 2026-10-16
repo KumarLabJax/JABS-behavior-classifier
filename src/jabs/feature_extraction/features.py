@@ -635,8 +635,16 @@ class IdentityFeatures:
     def get_features(self, window_size: int) -> dict:
         """get features and corresponding frame indexes for classification
 
-        omits frames where the identity is not valid, so 'frame_indexes' array
-        may not be consecutive
+        The feature arrays are not filtered: they carry one row per frame of the
+        video, including the frames where this identity does not exist, so row
+        ``i`` is always frame ``i``. ``frame_indexes`` is the separate list of
+        frames the identity *is* valid in, which is what makes it useful here -
+        :meth:`~jabs.classifier.Classifier.predict_proba` and its ``predict``
+        sibling index their result rows with it to keep the frames where the
+        identity has no pose and zero the rest.
+
+        So ``len(frame_indexes)`` equals the feature array length only when the
+        identity is present in every frame; do not use it as the row count.
 
         Args:
             window_size: window size to use
@@ -644,10 +652,12 @@ class IdentityFeatures:
         Returns:
             dictionary with the following keys:
 
-            'per_frame': flat dict with ``"module feature"`` keys, numpy array values
-            'window': flat dict with ``"module op feature"`` keys, numpy array values
-            'frame_indexes': 1D np array, maps elements of per frame and window
-               feature arrays back to global frame indexes
+            'per_frame': flat dict with ``"module feature"`` keys, numpy arrays
+               of length ``num_frames``
+            'window': flat dict with ``"module op feature"`` keys, numpy arrays
+               of length ``num_frames``
+            'frame_indexes': 1D np array of the global frame indexes where this
+               identity is valid, ascending but not necessarily consecutive
 
             features are filtered by self.op_settings
         """
