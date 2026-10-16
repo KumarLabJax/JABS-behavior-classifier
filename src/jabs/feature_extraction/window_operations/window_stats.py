@@ -22,30 +22,6 @@ def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float | None = N
     return np.lib.stride_tricks.sliding_window_view(arr_ext, window_shape=window * 2 + 1)
 
 
-def get_window_masks(sliding_window_view: np.ndarray, const: float) -> np.ndarray:
-    """Creates a mask identifying the usable values in a sliding window matrix.
-
-    Args:
-        sliding_window_view: sliding window matrix from `pad_sliding_window`
-        const: constant pad value
-
-    Returns:
-        boolean matrix that is True for valid window values and False for values
-        equal to the pad constant. Rows where every value is the pad constant are
-        returned as all True, since masking them entirely would leave the
-        downstream reduction with no data to operate on.
-    """
-    if np.isnan(const):
-        window_masks = ~np.isnan(sliding_window_view)
-    else:
-        window_masks = sliding_window_view != const
-
-    no_data_rows = np.all(~window_masks, axis=1)
-    window_masks[no_data_rows] = True
-
-    return window_masks
-
-
 def window_mean(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked mean of a window
 
