@@ -30,19 +30,43 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROCESSES = os.cpu_count() or 1
 
+# Feature generation runs one task per identity by default, which keeps every worker busy on a
+# small project. Each task has to open the video's pose file though, and for a project with
+# plenty of videos that repeated work costs more than the extra parallelism is worth. Once there
+# are at least this many videos per worker, a task is a whole video instead.
+MIN_VIDEOS_PER_PROCESS_FOR_VIDEO_TASKS = 4
 
-def generate_files_worker(params: dict):
-    """worker function used for generating project feature and cache files"""
-    project = params["project"]
-    pose_est = project.load_pose_est(project.video_manager.video_path(params["video"]))
-    cache_format = CacheFormat(params["cache_format"])
 
+def use_video_tasks(num_videos: int, processes: int) -> bool:
+    """Decide whether feature generation should use one task per video.
+
+    Args:
+        num_videos: number of videos in the project.
+        processes: number of worker processes.
+
+    Returns:
+        True if there are enough videos per worker that each task should handle all the
+        identities in one video, False if each task should handle a single identity.
+    """
+    return num_videos >= MIN_VIDEOS_PER_PROCESS_FOR_VIDEO_TASKS * processes
+
+
+def _generate_identity_files(
+    project: jabs.project.Project,
+    pose_est: jabs.pose_estimation.PoseEstimation,
+    video: str,
+    identity: int,
+    window_sizes: list[int],
+    force: bool,
+    cache_format: CacheFormat,
+) -> None:
+    """Compute and cache the per-frame and window features for one identity."""
     features = jabs.feature_extraction.IdentityFeatures(
-        params["video"],
-        params["identity"],
+        video,
+        identity,
         project.feature_dir,
         pose_est,
-        force=params["force"],
+        force=force,
         op_settings=project.get_project_defaults(),
         cache_format=cache_format,
     )
@@ -51,16 +75,46 @@ def generate_files_worker(params: dict):
     # generated when opening the file. They are computed as needed based
     # on the requested window size. Force each window size to be
     # pre-computed by fetching it
-    for w in params["window_sizes"]:
+    for w in window_sizes:
         # get the social features if they are supported, although this doesn't
         # matter with current implementation, as they are always computed if
         # the file supports them, they are just not included in the returned
         # features if this param is false
         use_social = pose_est.format_major_version > 2
-        _ = features.get_window_features(w, use_social, force=params["force"])
+        _ = features.get_window_features(w, use_social, force=force)
+
+
+def generate_files_worker(params: dict) -> int:
+    """worker function used for generating project feature and cache files
+
+    Args:
+        params: job description. ``identities`` is the list of identities to compute
+            features for, or None to compute them for every identity in the video.
+
+    Returns:
+        number of identities that features were computed for
+    """
+    project = params["project"]
+    pose_est = project.load_pose_est(project.video_manager.video_path(params["video"]))
+    cache_format = CacheFormat(params["cache_format"])
+    identities = pose_est.identities if params["identities"] is None else params["identities"]
+
+    # a separate function so that each identity's features are released before the next
+    for identity in identities:
+        _generate_identity_files(
+            project,
+            pose_est,
+            params["video"],
+            identity,
+            params["window_sizes"],
+            params["force"],
+            cache_format,
+        )
 
     for identity in pose_est.identities:
         _ = pose_est.get_identity_convex_hulls(identity)
+
+    return len(identities)
 
 
 def validate_video_worker(params: dict):
@@ -138,18 +192,43 @@ def compute_project_features(
     window_sizes: list[int],
     force: bool,
     pool: Pool,
+    processes: int,
     cache_format: CacheFormat = CacheFormat.PARQUET,
 ) -> None:
-    """Compute features for all identities in the project."""
+    """Compute features for all identities in the project.
+
+    Jobs are one per identity, or one per video when the project has enough videos for every
+    worker to get several (see `use_video_tasks`), so that each video's pose file is only
+    opened once.
+
+    Args:
+        project: project to compute features for.
+        window_sizes: window sizes to compute window features for.
+        force: recompute features even if they already exist.
+        pool: worker pool to run the jobs on.
+        processes: number of workers in ``pool``.
+        cache_format: format of the feature cache.
+    """
+    videos = project.video_manager.videos
+    per_video = use_video_tasks(len(videos), processes)
 
     def feature_job_producer():
-        for video in project.video_manager.videos:
-            for identity in project.load_pose_est(
-                project.video_manager.video_path(video)
-            ).identities:
+        for video in videos:
+            if per_video:
+                # the worker looks up the video's identities, so there is no need to open
+                # the pose file here
+                job_identities = [None]
+            else:
+                job_identities = [
+                    [identity]
+                    for identity in project.load_pose_est(
+                        project.video_manager.video_path(video)
+                    ).identities
+                ]
+            for identities in job_identities:
                 yield {
                     "video": video,
-                    "identity": identity,
+                    "identities": identities,
                     "project": project,
                     "force": force,
                     "window_sizes": window_sizes,
@@ -159,8 +238,8 @@ def compute_project_features(
     total_identities = project.total_project_identities
     with Progress() as progress:
         task = progress.add_task(" Computing Features", total=total_identities)
-        for _ in pool.imap_unordered(generate_files_worker, feature_job_producer()):
-            progress.update(task, advance=1)
+        for num_identities in pool.imap_unordered(generate_files_worker, feature_job_producer()):
+            progress.update(task, advance=num_identities)
 
 
 def _exit_with_message(message: str) -> None:
@@ -303,7 +382,9 @@ def run_initialize_project(
 
         # compute features in parallel, this might take a while
         if not skip_feature_generation:
-            compute_project_features(project, resolved_window_sizes, force, pool, cache_format)
+            compute_project_features(
+                project, resolved_window_sizes, force, pool, processes, cache_format
+            )
 
         # save window sizes to project settings
         deduped_window_sizes = set(
