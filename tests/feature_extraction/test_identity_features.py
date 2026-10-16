@@ -219,6 +219,32 @@ def test_window_compute_after_flat_per_frame_cache_hit(
     assert len({values.shape for values in window_flat.values()}) == 1
 
 
+def test_get_features_arrays_cover_every_frame(
+    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+) -> None:
+    """get_features() returns frame-aligned arrays plus the valid-frame indexes.
+
+    The feature arrays hold one row per frame of the video, including frames the
+    identity is absent from, and ``frame_indexes`` separately lists the frames it
+    is present in. ``Classifier.predict_proba()`` depends on that split: it indexes
+    its result rows with ``frame_indexes`` directly, which is only correct while
+    both use the same frame numbering.
+    """
+    features = _make_identity_features(pose_est_v5_short, tmp_path, force=True)
+    result = features.get_features(_WINDOW_SIZE)
+
+    identity_mask = pose_est_v5_short.identity_mask(_IDENTITY)
+    # the shortened sample keeps a gap in identity 0, so the indexes are a real subset
+    assert np.count_nonzero(identity_mask == 0) > 0
+
+    for group in ("per_frame", "window"):
+        assert result[group]
+        for name, values in result[group].items():
+            assert values.shape[0] == pose_est_v5_short.num_frames, f"{group} {name}"
+
+    np.testing.assert_array_equal(result["frame_indexes"], np.flatnonzero(identity_mask == 1))
+
+
 def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) -> None:
     """force=True with a different cache_format removes the old sentinel before writing.
 
