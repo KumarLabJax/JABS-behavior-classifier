@@ -158,8 +158,10 @@ class Classifier(BaseClassifier):
                 group, but never part of a training fold)
 
         Yields:
-            Dict with training_data, test_data, training_labels, test_labels,
-            and feature_names.
+            Dict with training_data, training_labels, training_idx, test_data,
+            test_labels, test_idx, test_group, and feature_names. See
+            :func:`jabs.classifier.classifier_utils.leave_one_group_out` for what
+            the index arrays contain.
         """
         yield from classifier_utils.leave_one_group_out(
             per_frame_features,

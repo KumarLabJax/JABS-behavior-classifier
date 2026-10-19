@@ -371,7 +371,10 @@ class MultiClassClassifier(BaseClassifier):
 
         Yields:
             Split dictionaries with keys: training_data, training_labels,
-            test_data, test_labels, test_group, feature_names.
+            training_idx, test_data, test_labels, test_idx, test_group,
+            feature_names. See
+            :func:`jabs.classifier.classifier_utils.leave_one_group_out` for what
+            the index arrays contain.
 
         Raises:
             ValueError: If no valid split can be found.
