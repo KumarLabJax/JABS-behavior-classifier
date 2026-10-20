@@ -194,8 +194,12 @@ def leave_one_group_out(
             are never included in any training fold.
 
     Yields:
-        Dictionary with keys: training_data, training_labels, test_data,
-        test_labels, test_group, feature_names.
+        Dictionary with keys: training_data, training_labels, training_idx,
+        test_data, test_labels, test_idx, test_group, feature_names.
+        ``training_idx`` and ``test_idx`` are the row indices each split was taken
+        from, so a caller holding the full-length ``labels`` or ``groups`` arrays can
+        line them back up with the split. ``training_idx`` already has the excluded
+        groups' rows removed, so it is not simply the complement of ``test_idx``.
 
     Raises:
         ValueError: If no valid split satisfying the threshold can be found.
