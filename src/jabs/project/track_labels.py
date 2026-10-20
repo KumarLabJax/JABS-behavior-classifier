@@ -120,17 +120,25 @@ class TrackLabels:
                 bouts_not_behavior += 1
         return bouts_behavior, bouts_not_behavior
 
-    def get_blocks(self, mask: np.ndarray | None = None):
-        """get blocks for entire label array
+    def get_blocks(
+        self, mask: npt.NDArray[np.bool_] | npt.NDArray[np.integer] | None = None
+    ) -> list[dict]:
+        """Return the labeled blocks covering the entire label array.
 
-        see _array_to_blocks() for return type
+        Args:
+            mask: Optional per-frame identity-presence mask, truthy where the
+                identity exists, as returned by ``PoseEstimation.identity_mask``.
+                When given, frames the identity is absent from are cleared first,
+                so a block is split wherever the identity is missing from the pose
+                file. The clearing is delegated to
+                :meth:`labels_masked_to_identity` so this shares the one definition
+                of that rule. Omit it to get the blocks the user actually labeled.
+
+        Returns:
+            One dict per contiguous labeled block; see :meth:`_array_to_blocks`
+            for the fields. The stored labels are never modified.
         """
-        if mask is not None:
-            labels = np.copy(self._labels)
-            labels[mask == 0] = self.Label.NONE
-        else:
-            labels = self._labels
-
+        labels = self._labels if mask is None else self.labels_masked_to_identity(mask)
         return self._array_to_blocks(labels)
 
     def get_slice_blocks(self, start, end):

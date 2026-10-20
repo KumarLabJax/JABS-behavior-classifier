@@ -183,5 +183,45 @@ def test_labels_masked_to_identity_leaves_a_fully_present_identity_alone() -> No
     assert masked.tolist() == track.get_labels().tolist()
 
 
+def test_get_blocks_without_a_mask_returns_what_the_user_labeled() -> None:
+    """With no mask the blocks are the stored labels, unsplit."""
+    track = TrackLabels(6)
+    track.label_behavior(1, 4)
+
+    assert track.get_blocks() == [{"start": 1, "end": 4, "present": True}]
+
+
+def test_get_blocks_splits_a_block_where_the_identity_is_absent() -> None:
+    """A labeled run is broken up by the frames the identity is missing from."""
+    track = TrackLabels(6)
+    track.label_behavior(0, 5)
+    identity_mask = np.array([1, 1, 0, 0, 1, 1])
+
+    assert track.get_blocks(mask=identity_mask) == [
+        {"start": 0, "end": 1, "present": True},
+        {"start": 4, "end": 5, "present": True},
+    ]
+
+
+def test_get_blocks_applies_the_same_rule_as_labels_masked_to_identity() -> None:
+    """The masked blocks are the blocks of the masked label array, not a second rule."""
+    track = _labelled_track(6)
+    identity_mask = np.array([1, 0, 1, 1, 0, 1])
+
+    expected = TrackLabels._array_to_blocks(track.labels_masked_to_identity(identity_mask))
+
+    assert track.get_blocks(mask=identity_mask) == expected
+
+
+def test_get_blocks_does_not_mutate_the_stored_labels() -> None:
+    """Masking for export must not clear the annotations being exported."""
+    track = _labelled_track(6)
+    before = track.get_labels().copy()
+
+    track.get_blocks(mask=np.zeros(6, dtype=bool))
+
+    assert track.get_labels().tolist() == before.tolist()
+
+
 if __name__ == "__main__":
     unittest.main()
