@@ -703,6 +703,9 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
   On write the client also sends a compact **behavior summary** (per behavior/identity:
   labeled-frame + bout counts, which it already computes) that Hub folds into its
   `project_video_behaviors` search index — keeping the annotation document itself opaque (D9).
+  Every Hub response field that names a person — the annotation's recorded `labeler` included — is a
+  `User` object, `{subject, displayName?, email?}`, never a bare OIDC subject (jabs-hub ADR-0014
+  Decision 3, amended 2026-10-22). Appendix A.1's client-side `labeler` display string is unaffected.
 - **Auth:** OIDC access token (Auth Code + PKCE) sent as `Bearer` JWT.
 - **Opaque annotation document:** the client owns the schema (Appendix A.1) and evolves it via
   `SERIALIZED_VERSION` without Hub redeploys.
