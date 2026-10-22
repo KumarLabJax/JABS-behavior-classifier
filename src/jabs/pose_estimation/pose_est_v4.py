@@ -234,8 +234,7 @@ class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
         Returns:
             None
         """
-        filename = self._path.name.replace(".h5", "_cache.h5")
-        cache_file_path = self._cache_dir / filename
+        cache_file_path = self._cache_file_path()
 
         with h5py.File(cache_file_path, "w") as cache_h5:
             cache_h5.attrs["cache_file_version"] = self._CACHE_FILE_VERSION
