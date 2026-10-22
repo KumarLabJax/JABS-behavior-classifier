@@ -14,13 +14,7 @@ class BoutDurationFilterStage(PostprocessingStage):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        if "min_duration" not in kwargs:
-            raise ValueError("min_duration must be specified for BoutDurationFilterStage.")
-
-        if not isinstance(kwargs["min_duration"], int) or kwargs["min_duration"] <= 0:
-            raise ValueError("min_duration must be a positive integer.")
-
-        self._config["min_duration"] = kwargs["min_duration"]
+        self._config["min_duration"] = self._require_positive_int(kwargs, "min_duration")
 
     def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply the duration filter to the predictions.
@@ -61,7 +55,7 @@ class BoutDurationFilterStage(PostprocessingStage):
         """Get help information about the stage.
 
         Returns:
-            FilterHelp: Dataclass with a general description and kwarg descriptions.
+            StageHelp: Dataclass with a general description and kwarg descriptions.
         """
         return StageHelp(
             description="Removes predictions shorter than a specified duration.",
