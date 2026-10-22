@@ -12,16 +12,9 @@ class GapInterpolationStage(PostprocessingStage):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        if "max_interpolation_gap" not in kwargs:
-            raise ValueError("max_interpolation_gap must be specified for GapInterpolationStage.")
-
-        if (
-            not isinstance(kwargs["max_interpolation_gap"], int)
-            or kwargs["max_interpolation_gap"] <= 0
-        ):
-            raise ValueError("max_interpolation_gap must be a positive integer.")
-
-        self._config = {"max_interpolation_gap": kwargs["max_interpolation_gap"]}
+        self._config["max_interpolation_gap"] = self._require_positive_int(
+            kwargs, "max_interpolation_gap"
+        )
 
     def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply gap interpolation to the predictions.
@@ -49,7 +42,7 @@ class GapInterpolationStage(PostprocessingStage):
         """Get help information about the stage.
 
         Returns:
-            FilterHelp: Dataclass with a general description and kwarg descriptions.
+            StageHelp: Dataclass with a general description and kwarg descriptions.
         """
         return StageHelp(
             description="Fill short gaps in predicted behavior bouts by interpolating missing frames.",
