@@ -18,6 +18,7 @@ import pandas as pd
 import jabs.feature_extraction as fe
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
+from jabs.core.utils.static_objects import lixit_keypoint_count
 from jabs.io.annotations import read_document
 from jabs.pose_estimation import open_pose_file
 from jabs.video_reader import VideoReader
@@ -181,10 +182,15 @@ def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
         if major_version >= 5 and "static_objects" in pose_h5:
             static_objects = list(pose_h5["static_objects"].keys())
 
-        # Lixit keypoint count (0 if no lixit present).
+        # Lixit keypoint count (0 if no lixit present). An empty lixit dataset is
+        # not a usable static object -- the v5+ readers drop it -- so it is dropped
+        # here too, otherwise the project would advertise lixit landmark features
+        # that no pose file can produce.
         lixit_keypoints: int = 0
         if "lixit" in static_objects:
-            lixit_keypoints = 3 if pose_h5["static_objects"]["lixit"].ndim == 3 else 1
+            lixit_keypoints = lixit_keypoint_count(pose_h5["static_objects"]["lixit"].shape)
+            if lixit_keypoints == 0:
+                static_objects.remove("lixit")
 
         # Distance unit: check for cm_per_pixel in poseest group attributes.
         has_cm_per_pixel: bool = pose_h5["poseest"].attrs.get("cm_per_pixel") is not None
