@@ -43,6 +43,35 @@ class PostprocessingStage(abc.ABC):
         """Get the filter configuration."""
         return self._config
 
+    def _require_positive_int(self, kwargs: dict[str, Any], name: str) -> int:
+        """Return a required positive-integer keyword argument.
+
+        Every stage's constructor takes its tuning parameter as a keyword
+        argument that must be present and must be a positive integer, so the
+        check lives here rather than being repeated in each stage. Keeping one
+        definition is what stops the stages from drifting into reporting the
+        same mistake differently.
+
+        Args:
+            kwargs: The keyword arguments the stage was constructed with.
+            name: Name of the keyword argument to read.
+
+        Returns:
+            The validated value.
+
+        Raises:
+            ValueError: If ``name`` is absent from ``kwargs``, or its value is
+                not an integer greater than zero.
+        """
+        if name not in kwargs:
+            raise ValueError(f"{name} must be specified for {type(self).__name__}.")
+
+        value = kwargs[name]
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer.")
+
+        return value
+
     @abc.abstractmethod
     def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply the stage to the predictions.

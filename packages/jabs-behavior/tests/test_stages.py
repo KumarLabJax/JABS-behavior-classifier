@@ -61,6 +61,42 @@ class TestPostprocessingStage:
             PostprocessingStage()
 
 
+# every stage and the positive-integer kwarg its constructor requires
+_EVERY_STAGE_AND_ITS_KWARG = pytest.mark.parametrize(
+    ("stage_class", "kwarg"),
+    [
+        (BoutDurationFilterStage, "min_duration"),
+        (GapInterpolationStage, "max_interpolation_gap"),
+        (BoutStitchingStage, "max_stitch_gap"),
+    ],
+    ids=["duration", "interpolation", "stitching"],
+)
+
+
+class TestRequirePositiveInt:
+    """Tests for the shared positive-integer kwarg validation on the base class."""
+
+    @_EVERY_STAGE_AND_ITS_KWARG
+    def test_missing_kwarg_names_the_stage(self, stage_class, kwarg):
+        """Test that a missing parameter is reported with the stage that needed it."""
+        with pytest.raises(
+            ValueError, match=f"{kwarg} must be specified for {stage_class.__name__}\\."
+        ):
+            stage_class()
+
+    @_EVERY_STAGE_AND_ITS_KWARG
+    @pytest.mark.parametrize("value", [0, -5, 5.5, "5", None], ids=str)
+    def test_non_positive_int_rejected(self, stage_class, kwarg, value):
+        """Test that every stage rejects a value that is not a positive integer."""
+        with pytest.raises(ValueError, match=f"{kwarg} must be a positive integer"):
+            stage_class(**{kwarg: value})
+
+    @_EVERY_STAGE_AND_ITS_KWARG
+    def test_valid_value_stored_in_config(self, stage_class, kwarg):
+        """Test that a valid value ends up in the stage's config."""
+        assert stage_class(**{kwarg: 4}).config == {kwarg: 4}
+
+
 class TestConcreteStageImplementations:
     """Tests to ensure concrete stages properly implement PostprocessingStage."""
 
