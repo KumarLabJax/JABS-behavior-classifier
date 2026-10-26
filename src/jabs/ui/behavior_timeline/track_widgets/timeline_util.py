@@ -1,14 +1,158 @@
 import math
+from dataclasses import dataclass
 from random import Random
 
 import numpy as np
 import numpy.typing as npt
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QImage, QPainter, QPen, QPolygonF
 
 from jabs.project import TrackLabels
 
 from ...colors import SEARCH_HIT_COLOR
+
+
+@dataclass(frozen=True)
+class WindowGeometry:
+    """Frame and pixel extents of a detail bar's sliding window.
+
+    A detail bar centers a fixed-size window on the current frame, so near the
+    start or end of a video part of that window falls outside the video. The
+    out-of-bounds frames are drawn with a padding pattern and the rest with the
+    bar's content, which means every detail bar needs the same set of numbers:
+    which frames are in bounds, how many padding frames precede them, and where
+    the in-bounds region lands in widget pixels.
+
+    Attributes:
+        start: First frame of the window. Negative when the window extends past
+            the beginning of the video.
+        end: Last frame of the window, inclusive. May exceed the last frame of
+            the video.
+        slice_start: First in-bounds frame, inclusive.
+        slice_end: Last in-bounds frame, inclusive. ``slice_start - 1`` when no
+            frame of the window is in bounds.
+        n_in_bounds: Number of in-bounds frames; ``0`` or less when none are.
+        n_start_pad: Number of padding frames before the in-bounds frames.
+        x0: Left pixel edge of the in-bounds region.
+        width_px: Pixel width of the in-bounds region.
+    """
+
+    start: int
+    end: int
+    slice_start: int
+    slice_end: int
+    n_in_bounds: int
+    n_start_pad: int
+    x0: int
+    width_px: int
+
+    @property
+    def has_in_bounds_content(self) -> bool:
+        """Whether the window has in-bounds frames that occupy at least one pixel."""
+        return self.n_in_bounds > 0 and self.width_px > 0
+
+
+def window_geometry(
+    current_frame: int, window_size: int, num_frames: int, frame_width: float
+) -> WindowGeometry:
+    """Compute the extents of the window a detail bar is about to paint.
+
+    Args:
+        current_frame: Frame the window is centered on.
+        window_size: Number of frames on each side of ``current_frame``, so the
+            window spans ``2 * window_size + 1`` frames.
+        num_frames: Number of frames in the video.
+        frame_width: Pixels per frame; fractional, since the window is scaled to
+            the widget width.
+
+    Returns:
+        The window's frame and pixel extents.
+    """
+    start = current_frame - window_size
+    end = current_frame + window_size
+
+    slice_start = max(start, 0)
+    slice_end = min(end, num_frames - 1)
+    n_start_pad = max(0, -start)
+
+    n_in_bounds = slice_end - slice_start + 1
+    x0 = math.floor(n_start_pad * frame_width)
+    x1 = math.floor((n_start_pad + n_in_bounds) * frame_width)
+
+    return WindowGeometry(
+        start=start,
+        end=end,
+        slice_start=slice_start,
+        slice_end=slice_end,
+        n_in_bounds=n_in_bounds,
+        n_start_pad=n_start_pad,
+        x0=x0,
+        width_px=x1 - x0,
+    )
+
+
+def frame_pixel_widths(geometry: WindowGeometry, frame_width: float) -> npt.NDArray[np.int_]:
+    """Compute how many pixels each in-bounds frame occupies.
+
+    Widths come from the difference between consecutive floored pixel edges,
+    so they sum to :attr:`WindowGeometry.width_px` and no pixel is painted
+    twice or skipped. Individual frames get a width of zero when the window
+    holds more frames than the widget has pixels.
+
+    Args:
+        geometry: Window extents, as returned by :func:`window_geometry`. Must
+            have in-bounds content.
+        frame_width: Pixels per frame; the same value passed to
+            :func:`window_geometry`.
+
+    Returns:
+        Array of shape ``(geometry.n_in_bounds,)`` holding each frame's width
+        in pixels.
+    """
+    edges = np.arange(
+        geometry.n_start_pad,
+        geometry.n_start_pad + geometry.n_in_bounds + 1,
+        dtype=np.float64,
+    )
+    return np.diff(np.floor(edges * frame_width)).astype(int)
+
+
+def draw_frame_colors(
+    painter: QPainter,
+    colors: npt.NDArray[np.uint8],
+    geometry: WindowGeometry,
+    frame_width: float,
+    bar_height: int,
+) -> None:
+    """Draw one RGBA color per in-bounds frame as the bar's content image.
+
+    Each frame's color is expanded to the full bar height and to the frame's
+    pixel width, and the result is blitted at the left edge of the in-bounds
+    region.
+
+    Args:
+        painter: Active painter for the bar widget.
+        colors: RGBA color per in-bounds frame, shape
+            ``(geometry.n_in_bounds, 4)`` with dtype ``uint8``.
+        geometry: Window extents, as returned by :func:`window_geometry`. Must
+            have in-bounds content.
+        frame_width: Pixels per frame; the same value passed to
+            :func:`window_geometry`.
+        bar_height: Height of the bar in pixels.
+    """
+    # shape (bar_height, n_in_bounds, 4), then (bar_height, geometry.width_px, 4)
+    colors_bar = np.repeat(colors[np.newaxis, :, :], bar_height, axis=0)
+    colors_bar = np.repeat(colors_bar, frame_pixel_widths(geometry, frame_width), axis=1)
+
+    # colors_bar backs the QImage rather than being copied into it, so it has to
+    # outlive the draw; it does, since drawImage renders before this returns.
+    image = QImage(
+        colors_bar.data,
+        colors_bar.shape[1],
+        colors_bar.shape[0],
+        QImage.Format.Format_RGBA8888,
+    )
+    painter.drawImage(geometry.x0, 0, image)
 
 
 def track_labels_to_lut_indices(labels: TrackLabels) -> npt.NDArray[np.int16]:

@@ -8,7 +8,6 @@ from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
     QColor,
-    QImage,
     QPainter,
     QPaintEvent,
     QPen,
@@ -25,7 +24,7 @@ from ...colors import (
     POSITION_MARKER_COLOR,
     SELECTION_COLOR,
 )
-from .timeline_util import render_search_hits
+from .timeline_util import draw_frame_colors, render_search_hits, window_geometry
 
 
 class LabelDetailBar(QWidget):
@@ -175,24 +174,9 @@ class LabelDetailBar(QWidget):
         self._frame_width = widget_width / self._window_frames_total
         fw = self._frame_width
 
-        # starting and ending frames of the current view
-        # since the current frame is centered start might be negative and end might be > num_frames
-        # out of bounds frames will be padded with a pattern
-        start = self._current_frame - self._window_size
-        end = self._current_frame + self._window_size
-
-        # slice size for grabbing label blocks
-        slice_start = max(start, 0)
-        slice_end = min(end, self._num_frames - 1)
-        n_in_bounds = slice_end - slice_start + 1
-
-        # Number of padding frames before the in-bounds content
-        n_start_pad = max(0, -start)
-
-        # Pixel edges of the in-bounds region using floating-point frame positions
-        in_bounds_x0 = math.floor(n_start_pad * fw)
-        in_bounds_x1 = math.floor((n_start_pad + n_in_bounds) * fw)
-        in_bounds_px = in_bounds_x1 - in_bounds_x0
+        # the current frame is centered, so near either end of the video part of
+        # the window falls outside it; those frames are drawn with a padding pattern
+        geometry = window_geometry(self._current_frame, self._window_size, self._num_frames, fw)
 
         qp = QPainter(self)
         qp.setPen(Qt.PenStyle.NoPen)
@@ -202,34 +186,18 @@ class LabelDetailBar(QWidget):
         qp.drawRect(0, 0, widget_width, self._bar_height)
 
         # Draw the main bar image
-        if self._labels is not None and n_in_bounds > 0 and in_bounds_px > 0:
+        if self._labels is not None and geometry.has_in_bounds_content:
             # _labels stores direct LUT indices (binary labels are pre-offset on set_labels)
-            color_indices = self._labels[slice_start : slice_end + 1]
+            color_indices = self._labels[geometry.slice_start : geometry.slice_end + 1]
 
             # Map indices to RGBA colors
             colors = self._color_lut[color_indices]
 
             # set alpha for frames with dropped identity to make them semi-transparent
-            gap_mask = self._identity_mask[slice_start : slice_end + 1] == 0
+            gap_mask = self._identity_mask[geometry.slice_start : geometry.slice_end + 1] == 0
             colors[gap_mask, 3] = self.GAP_ALPHA
 
-            # Per-frame pixel widths: floor((i+1)*fw) - floor(i*fw) for each frame
-            win_indices = np.arange(n_start_pad, n_start_pad + n_in_bounds + 1, dtype=np.float64)
-            frame_px_widths = np.diff(np.floor(win_indices * fw)).astype(int)
-
-            # expand color array to bar height: shape (bar_height, n_in_bounds, 4)
-            colors_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
-
-            # Expand each frame to its pixel width: shape (bar_height, in_bounds_px, 4)
-            colors_bar = np.repeat(colors_bar, frame_px_widths, axis=1)
-
-            img = QImage(
-                colors_bar.data,
-                colors_bar.shape[1],
-                colors_bar.shape[0],
-                QImage.Format.Format_RGBA8888,
-            )
-            qp.drawImage(in_bounds_x0, 0, img)
+            draw_frame_colors(qp, colors, geometry, fw, self._bar_height)
 
         # Draw selection overlay if in select mode
         if self._selection_start is not None:
@@ -239,7 +207,7 @@ class LabelDetailBar(QWidget):
             qp,
             self._search_results,
             0,
-            start,
+            geometry.start,
             self._frame_width,
             self._bar_height,
             self._window_frames_total,
@@ -247,7 +215,7 @@ class LabelDetailBar(QWidget):
 
         self._draw_position_marker(qp)
         self._draw_bounding_box(qp)
-        self._draw_second_ticks(qp, start, end)
+        self._draw_second_ticks(qp, geometry.start, geometry.end)
 
         # done drawing
         qp.end()
