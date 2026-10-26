@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 
 from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.utils.static_objects import lixit_keypoint_count
 
 from .pose_est_v4 import PoseEstimationV4
 
@@ -61,20 +62,13 @@ class PoseEstimationV5(PoseEstimationV4):
                         self._static_objects[d] = static_object_data
 
         if "lixit" in self._static_objects:
-            # drop "lixit" from the static objects if it is an empty array
-            if self._static_objects["lixit"].shape[0] == 0:
+            # the keypoint count is 3 when the lixit data is #lixit x 3 x 2 (tip,
+            # left side, right side -- in that order) and 1 when it is #lixit x 2
+            # (tip only). A count of 0 means the dataset is empty, so "lixit" is
+            # dropped rather than offered as a static object.
+            self._lixit_keypoints = lixit_keypoint_count(self._static_objects["lixit"].shape)
+            if self._lixit_keypoints == 0:
                 del self._static_objects["lixit"]
-            else:
-                # if the lixit data is not empty, we need to get the number of
-                # keypoints in the lixit data
-                if self._static_objects["lixit"].ndim == 3:
-                    # if the lixit data is 3D, it means we have 3 points per
-                    # lixit (tip, left side, right side -- in that order) and the shape is #lixit x 3 x 2
-                    self._lixit_keypoints = 3
-                else:
-                    # if the lixit data is 2D, it means we have 1 point per
-                    # lixit (tip) and the shape is #lixit x 2
-                    self._lixit_keypoints = 1
 
     def get_connected_segments(self):
         """Get the segments to use for rendering connections between the keypoints
