@@ -19,8 +19,7 @@ from jabs.behavior_search import SearchHit
 
 from ...colors import (
     BACKGROUND_COLOR,
-    BEHAVIOR_COLOR,
-    NOT_BEHAVIOR_COLOR,
+    BINARY_LABEL_COLOR_LUT,
     POSITION_MARKER_COLOR,
     SELECTION_COLOR,
 )
@@ -47,14 +46,9 @@ class LabelDetailBar(QWidget):
     _DEFAULT_WINDOW_SIZE = 100
     _TICK_HEIGHT = 4
 
-    COLOR_LUT: np.ndarray = np.array(
-        [
-            BACKGROUND_COLOR.getRgb(),
-            NOT_BEHAVIOR_COLOR.getRgb(),
-            BEHAVIOR_COLOR.getRgb(),
-        ],
-        dtype=np.uint8,
-    )
+    #: Binary label palette; see :data:`jabs.ui.colors.BINARY_LABEL_COLOR_LUT`
+    #: for the index layout.
+    COLOR_LUT: np.ndarray = BINARY_LABEL_COLOR_LUT
     GAP_ALPHA = 128  # semi-transparent for gaps
 
     def __init__(self, *args, **kwargs) -> None:

@@ -158,9 +158,9 @@ def draw_frame_colors(
 def track_labels_to_lut_indices(labels: TrackLabels) -> npt.NDArray[np.int16]:
     """Convert a binary ``TrackLabels`` to a direct color-LUT index array.
 
-    Shifts raw label values by +1 so they map to the standard binary
-    ``COLOR_LUT`` layout used by the timeline widgets: NONE(-1)→0,
-    NOT_BEHAVIOR(0)→1, BEHAVIOR(1)→2.
+    Shifts raw label values by +1 so they map to
+    :data:`jabs.ui.colors.BINARY_LABEL_COLOR_LUT`, the palette the timeline
+    widgets use in binary mode: NONE(-1)→0, NOT_BEHAVIOR(0)→1, BEHAVIOR(1)→2.
 
     Args:
         labels: Binary label track to convert.
@@ -176,8 +176,9 @@ def binary_predictions_to_lut_indices(
 ) -> npt.NDArray[np.int16]:
     """Convert a binary prediction array to a direct color-LUT index array.
 
-    Shifts raw prediction values by +1 so they map to the standard binary
-    ``COLOR_LUT`` layout: no-prediction(-1)→0, not-behavior(0)→1, behavior(1)→2.
+    Shifts raw prediction values by +1 so they map to
+    :data:`jabs.ui.colors.BINARY_LABEL_COLOR_LUT`: no-prediction(-1)→0,
+    not-behavior(0)→1, behavior(1)→2.
 
     Args:
         predictions: Raw binary prediction array with values in ``{-1, 0, 1}``.

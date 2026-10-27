@@ -15,6 +15,7 @@ try:
     from jabs.ui.colors import (
         BACKGROUND_COLOR,
         BEHAVIOR_COLOR,
+        BINARY_LABEL_COLOR_LUT,
         NOT_BEHAVIOR_COLOR,
         build_multiclass_color_lut,
         is_color_light,
@@ -109,6 +110,27 @@ def test_build_multiclass_color_lut_layout(behavior_names: list[str], expected_r
     assert lut.dtype == np.uint8
     assert tuple(lut[0]) == BACKGROUND_COLOR.getRgb()
     assert tuple(lut[1]) == NOT_BEHAVIOR_COLOR.getRgb()
+
+
+def test_binary_label_color_lut_layout() -> None:
+    """The binary LUT is three RGBA rows: background, not-behavior, behavior."""
+    assert BINARY_LABEL_COLOR_LUT.shape == (3, 4)
+    assert BINARY_LABEL_COLOR_LUT.dtype == np.uint8
+    assert tuple(BINARY_LABEL_COLOR_LUT[0]) == BACKGROUND_COLOR.getRgb()
+    assert tuple(BINARY_LABEL_COLOR_LUT[1]) == NOT_BEHAVIOR_COLOR.getRgb()
+    assert tuple(BINARY_LABEL_COLOR_LUT[2]) == BEHAVIOR_COLOR.getRgb()
+
+
+def test_binary_label_color_lut_is_read_only() -> None:
+    """The shared binary LUT cannot be mutated by one of its users."""
+    with pytest.raises(ValueError):
+        BINARY_LABEL_COLOR_LUT[0] = 0
+
+
+def test_binary_label_color_lut_matches_multiclass_prefix() -> None:
+    """Indices 0 and 1 agree with the multi-class table built by the same module."""
+    multiclass = build_multiclass_color_lut([], {})
+    assert np.array_equal(BINARY_LABEL_COLOR_LUT[:2], multiclass)
 
 
 def test_build_multiclass_color_lut_behavior_indices():
