@@ -24,7 +24,10 @@ try:
         CrossValidationSettingsGroup,
     )
     from jabs.ui.settings_dialog.postprocessing_group import (
+        DurationStageSettingsGroup,
+        InterpolationStageSettingsGroup,
         PostprocessingEvaluationSettingsGroup,
+        StitchingStageSettingsGroup,
     )
     from jabs.ui.settings_dialog.settings_dialog import (
         PostprocessingSettingsDialog,
@@ -353,3 +356,37 @@ def test_postprocessing_dialog_loads_saved_flag() -> None:
     )
     assert stitching["enabled"] is True
     assert stitching["parameters"]["max_stitch_gap"] == 7
+
+
+def test_stage_groups_round_trip_and_reset_to_stage_default() -> None:
+    """Every stage group loads its saved parameter and resets when none is saved.
+
+    Loading a configuration with no entry for a stage must leave that stage's
+    controls showing the stage's own default rather than whatever the previous
+    configuration happened to put there.
+    """
+    for group_class in (
+        InterpolationStageSettingsGroup,
+        StitchingStageSettingsGroup,
+        DurationStageSettingsGroup,
+    ):
+        group = group_class()
+        values = group.get_values()
+        stage_name = values["stage_name"]
+        parameter = next(iter(values["parameters"]))
+        default = values["parameters"][parameter]
+
+        group.set_values({stage_name: {"enabled": True, "parameters": {parameter: 42}}})
+        assert group.get_values() == {
+            "stage_name": stage_name,
+            "enabled": True,
+            "parameters": {parameter: 42},
+        }, f"{group_class.__name__} did not load its saved parameter"
+
+        # a saved configuration with no entry for this stage falls back to the default
+        group.set_values({})
+        assert group.get_values() == {
+            "stage_name": stage_name,
+            "enabled": False,
+            "parameters": {parameter: default},
+        }, f"{group_class.__name__} did not reset to the stage default"
