@@ -60,4 +60,10 @@ class ClosestDistances(Feature):
             "closest social segmentation distance": (
                 self._social_distance_info.closest_segmentation_distances.copy()
             ),
+            "second closest social segmentation distance": (
+                self._social_distance_info.second_closest_segmentation_distances.copy()
+            ),
+            "closest social distance body units": (
+                self._social_distance_info.closest_distances_body_units.copy()
+            ),
         }

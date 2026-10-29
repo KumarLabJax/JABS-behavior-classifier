@@ -55,5 +55,11 @@ class HuddleFeatures(Feature):
             "social connected group size": (
                 self._social_distance_info.social_connected_group_sizes.copy()
             ),
+            "social chain bottleneck distance": (
+                self._social_distance_info.social_chain_bottleneck_distances.copy()
+            ),
             "closest neighbor speed": self._social_distance_info.closest_neighbor_speeds.copy(),
+            "second closest neighbor speed": (
+                self._social_distance_info.second_closest_neighbor_speeds.copy()
+            ),
         }

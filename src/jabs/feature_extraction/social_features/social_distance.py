@@ -8,6 +8,7 @@ from collections import deque
 import numpy as np
 import numpy.typing as npt
 from scipy.spatial import cKDTree
+from shapely.geometry import MultiPoint
 
 from jabs.core.utils import signed_angle_degrees
 from jabs.pose_estimation import PoseEstimation
@@ -64,6 +65,42 @@ def _extract_valid_contour_points(
         step = max(1, len(pts) // _MAX_SEG_CONTOUR_VERTICES)
         pts = pts[::step]
     return pts
+
+
+def _contour_min_distance(
+    pts_a: npt.NDArray[np.float32] | None,
+    pts_b: npt.NDArray[np.float32] | None,
+    hull_dist_fallback: float,
+) -> float:
+    """Compute minimum Euclidean distance between two contour point sets, bounded by hull distance."""
+    if hull_dist_fallback <= 0.0 or pts_a is None or pts_b is None:
+        return hull_dist_fallback
+    d_vals, _ = cKDTree(pts_a).query(pts_b, k=1)
+    return min(float(np.min(d_vals)), hull_dist_fallback)
+
+
+def _populate_segmentation_fallback_hulls(
+    hulls: list[object],
+    seg_arr: npt.NDArray[np.generic] | None,
+) -> list[object]:
+    """Fill missing skeletal convex hulls from segmentation contours when ``< 3`` keypoints are valid.
+
+    During deep multi-animal huddling, a buried animal may have fewer than 3 skeletal
+    keypoints above the confidence threshold even though its segmentation mask remains
+    visible. Constructing a fallback convex hull from the contour vertices preserves
+    social distance, group topology, and centroid velocity features on those frames.
+    """
+    if seg_arr is None:
+        return hulls
+    updated = list(hulls)
+    for frame_idx, hull in enumerate(updated):
+        if hull is None and frame_idx < len(seg_arr):
+            pts = _extract_valid_contour_points(seg_arr[frame_idx])
+            if pts is not None and len(pts) >= 3:
+                cand_hull = MultiPoint(pts).convex_hull
+                if getattr(cand_hull, "area", 0.0) > 0.0:
+                    updated[frame_idx] = cand_hull
+    return updated
 
 
 def _compute_identity_centroid_speeds(
@@ -129,6 +166,7 @@ class ClosestIdentityInfo:
         other_identities = [curr_id for curr_id in identities if curr_id != identity]
 
         self._closest_identities = np.full(num_frames, -1, dtype=np.int16)
+        self._second_closest_identities = np.full(num_frames, -1, dtype=np.int16)
         self._closest_fov_identities = np.full(num_frames, -1, dtype=np.int16)
         self._fov_angles = np.full(num_frames, np.nan, dtype=np.float32)
 
@@ -136,22 +174,13 @@ class ClosestIdentityInfo:
         self._closest_fov_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._second_closest_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._closest_segmentation_distances = np.full(num_frames, np.nan, dtype=np.float32)
+        self._second_closest_segmentation_distances = np.full(num_frames, np.nan, dtype=np.float32)
+        self._closest_distances_body_units = np.full(num_frames, np.nan, dtype=np.float32)
         self._social_contact_counts = np.full(num_frames, np.nan, dtype=np.float32)
         self._social_connected_group_sizes = np.full(num_frames, np.nan, dtype=np.float32)
+        self._social_chain_bottleneck_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._closest_neighbor_speeds = np.full(num_frames, np.nan, dtype=np.float32)
-
-        hulls_by_id: dict[int, list[object]] = {
-            curr_id: poses.get_identity_convex_hulls(curr_id) for curr_id in identities
-        }
-        self_hulls = hulls_by_id[identity]
-
-        fps = float(getattr(poses, "fps", 30))
-        speeds_by_id: dict[int, npt.NDArray[np.float32]] = {
-            curr_id: _compute_identity_centroid_speeds(
-                hulls_by_id[curr_id], num_frames, fps, pixel_scale
-            )
-            for curr_id in other_identities
-        }
+        self._second_closest_neighbor_speeds = np.full(num_frames, np.nan, dtype=np.float32)
 
         has_seg = bool(
             getattr(poses, "format_major_version", 0) >= 6
@@ -163,14 +192,28 @@ class ClosestIdentityInfo:
                 get_seg = getattr(poses, "get_segmentation_data", None)
                 seg_by_id[curr_id] = get_seg(curr_id) if get_seg is not None else None
 
+        hulls_by_id: dict[int, list[object]] = {
+            curr_id: _populate_segmentation_fallback_hulls(
+                poses.get_identity_convex_hulls(curr_id),
+                seg_by_id.get(curr_id) if has_seg else None,
+            )
+            for curr_id in identities
+        }
+        self_hulls = hulls_by_id[identity]
+
+        fps = float(getattr(poses, "fps", 30))
+        speeds_by_id: dict[int, npt.NDArray[np.float32]] = {
+            curr_id: _compute_identity_centroid_speeds(
+                hulls_by_id[curr_id], num_frames, fps, pixel_scale
+            )
+            for curr_id in other_identities
+        }
+
         for frame in range(num_frames):
             points, mask = poses.get_points(frame, identity, pixel_scale)
-
-            # Skip this frame if the identity is not present.
-            if points is None:
-                continue
-
             self_shape = self_hulls[frame]
+
+            # Skip this frame if neither valid keypoints nor a fallback segmentation hull exist.
             if self_shape is None:
                 continue
 
@@ -178,7 +221,12 @@ class ClosestIdentityInfo:
             # field-of-view (FoV) features, whereas body-hull proximity depends only
             # on valid convex hulls so nose occlusion during huddling does not drop
             # closest-neighbor identity or distance measurements.
-            has_fov_keypoints = mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1
+            has_fov_keypoints = (
+                points is not None
+                and mask is not None
+                and mask[idx.NOSE] == 1
+                and mask[idx.BASE_NECK] == 1
+            )
             if has_fov_keypoints:
                 self_base_neck_point = points[idx.BASE_NECK, :]
                 self_nose_point = points[idx.NOSE, :]
@@ -204,10 +252,12 @@ class ClosestIdentityInfo:
 
                 if closest_dist is None or curr_dist < closest_dist:
                     second_closest_dist = closest_dist
+                    self._second_closest_identities[frame] = self._closest_identities[frame]
                     closest_dist = curr_dist
                     self._closest_identities[frame] = curr_id
                 elif second_closest_dist is None or curr_dist < second_closest_dist:
                     second_closest_dist = curr_dist
+                    self._second_closest_identities[frame] = curr_id
 
                 if has_fov_keypoints:
                     other_centroid = (
@@ -223,6 +273,10 @@ class ClosestIdentityInfo:
                         self._fov_angles[frame] = view_angle
                         closest_fov_dist = curr_dist
 
+            pts_self: npt.NDArray[np.float32] | None = None
+            pts_closest: npt.NDArray[np.float32] | None = None
+            seg_dist_px: float | None = None
+
             if closest_dist is not None:
                 scaled_closest = closest_dist * self._pixel_scale
                 self._closest_distances[frame] = scaled_closest
@@ -230,25 +284,64 @@ class ClosestIdentityInfo:
                 self._closest_neighbor_speeds[frame] = speeds_by_id[closest_id][frame]
 
                 seg_dist_px = closest_dist
-                if has_seg and closest_dist > 0.0:
+                if has_seg:
                     self_seg_arr = seg_by_id.get(identity)
                     other_seg_arr = seg_by_id.get(closest_id)
-                    if self_seg_arr is not None and other_seg_arr is not None:
+                    if self_seg_arr is not None:
                         pts_self = _extract_valid_contour_points(self_seg_arr[frame])
-                        pts_other = _extract_valid_contour_points(other_seg_arr[frame])
-                        if pts_self is not None and pts_other is not None:
-                            d_vals, _ = cKDTree(pts_self).query(pts_other, k=1)
-                            seg_dist_px = min(float(np.min(d_vals)), closest_dist)
-                            if (
-                                seg_dist_px <= _SEG_CONTACT_TOLERANCE_PX
-                                and closest_id not in direct_contacts
-                            ):
-                                direct_contacts.append(closest_id)
+                    if other_seg_arr is not None:
+                        pts_closest = _extract_valid_contour_points(other_seg_arr[frame])
+                    seg_dist_px = _contour_min_distance(pts_self, pts_closest, closest_dist)
+                    if (
+                        seg_dist_px <= _SEG_CONTACT_TOLERANCE_PX
+                        and closest_id not in direct_contacts
+                    ):
+                        direct_contacts.append(closest_id)
 
                 self._closest_segmentation_distances[frame] = seg_dist_px * self._pixel_scale
+                body_char_len = max(
+                    math.sqrt(max(float(getattr(self_shape, "area", 0.0)), 0.0)),
+                    0.25 * float(getattr(self_shape, "length", 0.0)),
+                    1.0,
+                )
+                self._closest_distances_body_units[frame] = seg_dist_px / body_char_len
 
-            if second_closest_dist is not None:
+            if second_closest_dist is not None and seg_dist_px is not None:
                 self._second_closest_distances[frame] = second_closest_dist * self._pixel_scale
+                second_id = int(self._second_closest_identities[frame])
+                self._second_closest_neighbor_speeds[frame] = speeds_by_id[second_id][frame]
+
+                seg_dist_2_px = second_closest_dist
+                pts_second: npt.NDArray[np.float32] | None = None
+                if has_seg:
+                    second_seg_arr = seg_by_id.get(second_id)
+                    if second_seg_arr is not None:
+                        pts_second = _extract_valid_contour_points(second_seg_arr[frame])
+                    seg_dist_2_px = _contour_min_distance(
+                        pts_self, pts_second, second_closest_dist
+                    )
+                    if (
+                        seg_dist_2_px <= _SEG_CONTACT_TOLERANCE_PX
+                        and second_id not in direct_contacts
+                    ):
+                        direct_contacts.append(second_id)
+
+                self._second_closest_segmentation_distances[frame] = (
+                    seg_dist_2_px * self._pixel_scale
+                )
+
+                # Continuous single-linkage bottleneck distance connecting the triad
+                # (identity, closest_id, second_id), capturing both triangular heaps and
+                # transitive A-B-C chains without any fixed contact threshold.
+                closest_id = int(self._closest_identities[frame])
+                hull_12 = float(
+                    hulls_by_id[closest_id][frame].distance(hulls_by_id[second_id][frame])
+                )
+                dist_12_px = (
+                    _contour_min_distance(pts_closest, pts_second, hull_12) if has_seg else hull_12
+                )
+                bottleneck_px = max(seg_dist_px, min(seg_dist_2_px, dist_12_px))
+                self._social_chain_bottleneck_distances[frame] = bottleneck_px * self._pixel_scale
 
             if closest_fov_dist is not None:
                 self._closest_fov_distances[frame] = closest_fov_dist * self._pixel_scale
@@ -319,6 +412,16 @@ class ClosestIdentityInfo:
         return self._closest_segmentation_distances
 
     @property
+    def second_closest_segmentation_distances(self) -> npt.NDArray[np.float32]:
+        """Return the segmentation contour distances to the second-closest identity per frame."""
+        return self._second_closest_segmentation_distances
+
+    @property
+    def closest_distances_body_units(self) -> npt.NDArray[np.float32]:
+        """Return the closest distance normalized by the subject's characteristic body size."""
+        return self._closest_distances_body_units
+
+    @property
     def social_contact_counts(self) -> npt.NDArray[np.float32]:
         """Return the number of other identities directly in body contact per frame."""
         return self._social_contact_counts
@@ -329,9 +432,19 @@ class ClosestIdentityInfo:
         return self._social_connected_group_sizes
 
     @property
+    def social_chain_bottleneck_distances(self) -> npt.NDArray[np.float32]:
+        """Return the single-linkage minimax distance connecting the 3 nearest animals per frame."""
+        return self._social_chain_bottleneck_distances
+
+    @property
     def closest_neighbor_speeds(self) -> npt.NDArray[np.float32]:
         """Return the centroid speed of the closest identity per frame."""
         return self._closest_neighbor_speeds
+
+    @property
+    def second_closest_neighbor_speeds(self) -> npt.NDArray[np.float32]:
+        """Return the centroid speed of the second-closest identity per frame."""
+        return self._second_closest_neighbor_speeds
 
     def compute_distances(
         self, closest_identities: npt.NDArray[np.integer]
