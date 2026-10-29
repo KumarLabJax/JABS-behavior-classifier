@@ -2,6 +2,8 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
+from .track_widgets.timeline_util import DETAIL_WINDOW_SIZE
+
 
 class FrameRulerWidget(QWidget):
     """Widget for drawing frame ticks and labels below the identity track rows.
@@ -14,6 +16,10 @@ class FrameRulerWidget(QWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
+    # number of frames shown on either side of the current frame by the detail
+    # bars; the ticks drawn here number the frames inside that window
+    _WINDOW_SIZE = DETAIL_WINDOW_SIZE
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -22,9 +28,7 @@ class FrameRulerWidget(QWidget):
 
         # number of frames on each side of current frame to include in
         # sliding window
-        # this needs to match what is set in LabelDetailBar, so once
-        # we make this configurable, it needs to get set in both locations
-        self._window_size = 100
+        self._window_size = self._WINDOW_SIZE
 
         # total number of frames being displayed in sliding window
         self._nframes = self._window_size * 2 + 1

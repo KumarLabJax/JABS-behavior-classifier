@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from jabs.behavior_search import SearchHit
 
 from ...colors import BINARY_LABEL_COLOR_LUT, POSITION_MARKER_COLOR
-from .timeline_util import diamond_at
+from .timeline_util import DETAIL_WINDOW_SIZE, diamond_at
 
 
 def _srgb_to_linear(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
@@ -133,7 +133,9 @@ class LabelOverviewBar(QWidget):
     COLOR_LUT: np.ndarray = BINARY_LABEL_COLOR_LUT
     _BAR_HEIGHT = 6  # height of the bar in pixels
     _BAR_PADDING = 2  # padding around the bar in pixels
-    _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
+    # number of frames shown on either side of the current frame by the detail
+    # bars; the highlight box drawn here marks that window on the overview
+    _WINDOW_SIZE = DETAIL_WINDOW_SIZE
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

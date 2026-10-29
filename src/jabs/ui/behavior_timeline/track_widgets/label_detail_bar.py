@@ -23,7 +23,12 @@ from ...colors import (
     POSITION_MARKER_COLOR,
     SELECTION_COLOR,
 )
-from .timeline_util import draw_frame_colors, render_search_hits, window_geometry
+from .timeline_util import (
+    DETAIL_WINDOW_SIZE,
+    draw_frame_colors,
+    render_search_hits,
+    window_geometry,
+)
 
 
 class LabelDetailBar(QWidget):
@@ -43,7 +48,7 @@ class LabelDetailBar(QWidget):
     _BAR_HEIGHT = 30
     _BAR_HEIGHT_COMPACT = 18
     _DEFAULT_WIDTH = 400
-    _DEFAULT_WINDOW_SIZE = 100
+    _DEFAULT_WINDOW_SIZE = DETAIL_WINDOW_SIZE
     _TICK_HEIGHT = 4
 
     #: Binary label palette; see :data:`jabs.ui.colors.BINARY_LABEL_COLOR_LUT`

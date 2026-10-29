@@ -11,6 +11,20 @@ from jabs.project import TrackLabels
 
 from ...colors import SEARCH_HIT_COLOR
 
+#: Number of frames shown on each side of the current frame by the timeline's
+#: sliding-window widgets, so a window spans ``2 * DETAIL_WINDOW_SIZE + 1``
+#: frames.
+#:
+#: The detail bars, the overview bar's window highlight, and the frame ruler all
+#: describe the same window, so they have to agree on its size: the overview bar
+#: draws the box marking which slice of the video the detail bars are showing,
+#: and the ruler numbers the frames inside it. Keeping one definition here means
+#: making the window configurable later only has to change one place.
+#:
+#: Unrelated to ``jabs.feature_extraction.DEFAULT_WINDOW_SIZE``, which is the
+#: number of frames used to compute window features.
+DETAIL_WINDOW_SIZE = 100
+
 
 @dataclass(frozen=True)
 class WindowGeometry:
