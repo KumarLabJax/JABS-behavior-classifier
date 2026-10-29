@@ -20,12 +20,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from jabs.behavior_search import SearchHit
 
-from ...colors import (
-    BACKGROUND_COLOR,
-    BEHAVIOR_COLOR,
-    NOT_BEHAVIOR_COLOR,
-    POSITION_MARKER_COLOR,
-)
+from ...colors import BINARY_LABEL_COLOR_LUT, POSITION_MARKER_COLOR
 from .timeline_util import diamond_at
 
 
@@ -133,14 +128,9 @@ class LabelOverviewBar(QWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    COLOR_LUT: np.ndarray = np.array(
-        [
-            BACKGROUND_COLOR.getRgb(),
-            NOT_BEHAVIOR_COLOR.getRgb(),
-            BEHAVIOR_COLOR.getRgb(),
-        ],
-        dtype=np.uint8,
-    )
+    #: Binary label palette; see :data:`jabs.ui.colors.BINARY_LABEL_COLOR_LUT`
+    #: for the index layout.
+    COLOR_LUT: np.ndarray = BINARY_LABEL_COLOR_LUT
     _BAR_HEIGHT = 6  # height of the bar in pixels
     _BAR_PADDING = 2  # padding around the bar in pixels
     _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
