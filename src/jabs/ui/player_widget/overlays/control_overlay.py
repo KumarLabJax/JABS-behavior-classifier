@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from qt_material_icons import MaterialIcon
@@ -7,6 +7,65 @@ from .overlay import Overlay
 
 if TYPE_CHECKING:
     from ..frame_with_overlays import FrameWithOverlaysWidget
+
+
+class _ImageAdjustment:
+    """State for one image-adjustment control of a :class:`ControlOverlay`.
+
+    Brightness and contrast are the same control: a badge carrying an icon that
+    toggles a vertical slider, whose value is emitted as a multiplier for the
+    parent widget to apply to the frame. Only the icon, the slider's range and
+    the signal differ, so ControlOverlay keeps one of these per adjustment and
+    drives both through the same draw/show/hide methods.
+
+    Args:
+        name: Identifier used for the slider container's Qt object name, which
+            is what its stylesheet rule selects on. Must be unique within the
+            overlay and usable in a stylesheet selector.
+        icon_name: Material icon drawn on the badge.
+        minimum: Smallest slider value, as a percentage.
+        maximum: Largest slider value, as a percentage.
+        signal: Overlay signal emitted with the new multiplier when the slider
+            moves.
+
+    Attributes:
+        badge: Widget-coordinate rectangle the badge was last drawn at. Empty
+            until the overlay has painted once, so a click cannot land in it
+            before then.
+        slider_open: Whether the badge is toggled on. Tracked separately from
+            ``slider`` because the badge click handler toggles it before the
+            slider widget exists.
+        slider: The open slider, or ``None`` when it is hidden.
+        container: Widget holding the slider and its reset button, or ``None``
+            when the slider is hidden.
+        value: Last slider value, kept so reopening the slider restores it
+            rather than resetting to :attr:`NEUTRAL_VALUE`.
+    """
+
+    #: Slider value that leaves the frame unchanged, and what the reset button
+    #: restores. The slider reports a percentage, so it is also the divisor that
+    #: turns a slider value into the emitted multiplier.
+    NEUTRAL_VALUE: Final[int] = 100
+
+    def __init__(
+        self,
+        name: str,
+        icon_name: str,
+        minimum: int,
+        maximum: int,
+        signal: QtCore.SignalInstance,
+    ) -> None:
+        self.name = name
+        self.minimum = minimum
+        self.maximum = maximum
+        self.signal = signal
+        self.icon = MaterialIcon(icon_name).pixmap(16, color=QtGui.QColor(0, 0, 0))
+
+        self.badge = QtCore.QRect()
+        self.slider_open = False
+        self.slider: QtWidgets.QSlider | None = None
+        self.container: QtWidgets.QWidget | None = None
+        self.value: int = self.NEUTRAL_VALUE
 
 
 class ControlOverlay(Overlay):
@@ -31,6 +90,10 @@ class ControlOverlay(Overlay):
         that allows the user to adjust the brightness of the video frame. The slider
         value is emitted as a signal to the parent widget, which can then apply the
         brightness adjustment to the video frame.
+
+    * contrast adjustment:
+        The same control as the brightness badge, for contrast. Both are
+        :class:`_ImageAdjustment` instances and share one implementation.
     """
 
     playback_speed_changed = QtCore.Signal(float)
@@ -67,23 +130,22 @@ class ControlOverlay(Overlay):
         self._speeds = [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
         self._playback_speed_menu: QtWidgets.QMenu | None = None
 
-        self._brightness_badge = QtCore.QRect()
-        self._brightness_slider_open = False
-        self._brightness_slider = None
-        self._brightness_slider_bg = None
-        self._brightness_value: int = 100
-        self._brightness_icon = MaterialIcon("brightness_6").pixmap(
-            16, color=QtGui.QColor(0, 0, 0)
+        self._brightness = _ImageAdjustment(
+            name="brightness",
+            icon_name="brightness_6",
+            minimum=50,
+            maximum=200,
+            signal=self.brightness_changed,
         )
-
-        self._contrast_badge = QtCore.QRect()
-        self._contrast_slider_open = False
-        self._contrast_slider = None
-        self._contrast_slider_bg = None
-        self._contrast_value: int = 100
-        self._contrast_icon = MaterialIcon("contrast_circle").pixmap(
-            16, color=QtGui.QColor(0, 0, 0)
+        self._contrast = _ImageAdjustment(
+            name="contrast",
+            icon_name="contrast_circle",
+            minimum=100,
+            maximum=200,
+            signal=self.contrast_changed,
         )
+        # Drawn, hit-tested and closed in this order.
+        self._adjustments: tuple[_ImageAdjustment, ...] = (self._brightness, self._contrast)
 
         self._cropping_badge = QtCore.QRect()
         self._select_mode = False
@@ -131,7 +193,7 @@ class ControlOverlay(Overlay):
                 - self._BRIGHTNESS_BADGE_X_OFFSET
             )
             y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_Y_OFFSET
-            self._draw_brightness_badge(painter, x, y)
+            self._draw_adjustment_badge(painter, x, y, self._brightness)
 
             x = (
                 self.parent.scaled_pix_x
@@ -139,7 +201,7 @@ class ControlOverlay(Overlay):
                 - self._CONTRAST_BADGE_X_OFFSET
             )
             y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_Y_OFFSET
-            self._draw_contrast_badge(painter, x, y)
+            self._draw_adjustment_badge(painter, x, y, self._contrast)
 
         # if user is actively selecting a crop area, draw the selection rectangle
         if self._select_start is not None and self._select_end is not None:
@@ -179,11 +241,9 @@ class ControlOverlay(Overlay):
         if self._playback_speed_menu_open and self._playback_speed_menu and not self._over_pixmap:
             self._playback_speed_menu.close()
 
-        if self._brightness_slider_open and self._brightness_slider and not self._over_pixmap:
-            self._hide_brightness_slider()
-
-        if self._contrast_slider_open and self._contrast_slider and not self._over_pixmap:
-            self._hide_contrast_slider()
+        for adjustment in self._adjustments:
+            if adjustment.slider_open and adjustment.slider and not self._over_pixmap:
+                self._hide_adjustment_slider(adjustment)
 
         self.parent.update()
 
@@ -194,8 +254,8 @@ class ControlOverlay(Overlay):
             event (QtCore.QEvent): The leave event.
         """
         self._over_pixmap = False
-        self._hide_brightness_slider()
-        self._hide_contrast_slider()
+        for adjustment in self._adjustments:
+            self._hide_adjustment_slider(adjustment)
         self.parent.update()
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
@@ -223,15 +283,12 @@ class ControlOverlay(Overlay):
             < self.parent.scaled_pix_y + self.parent.scaled_pix_height
         )
 
-        if self._brightness_slider_open and not self._brightness_badge.contains(point):
-            # if the user clicks outside the brightness badge while the slider is open, close the slider
-            # don't return True, so that the parent widget can handle the event if needed
-            self._hide_brightness_slider()
-
-        if self._contrast_slider_open and not self._contrast_badge.contains(point):
-            # if the user clicks outside the contrast badge while the slider is open, close the slider
-            # don't return True, so that the parent widget can handle the event if needed
-            self._hide_contrast_slider()
+        for adjustment in self._adjustments:
+            # if the user clicks outside an adjustment's badge while its slider is open,
+            # close the slider. don't return True, so that the parent widget can handle
+            # the event if needed
+            if adjustment.slider_open and not adjustment.badge.contains(point):
+                self._hide_adjustment_slider(adjustment)
 
         if self._cropping_badge.contains(point):
             if self.parent.is_cropped:
@@ -255,21 +312,14 @@ class ControlOverlay(Overlay):
             self._show_speed_menu()
             return True
 
-        if self._brightness_badge.contains(point):
-            self._brightness_slider_open = not self._brightness_slider_open
-            if self._brightness_slider_open:
-                self._show_brightness_slider()
-            else:
-                self._hide_brightness_slider()
-            return True
-
-        if self._contrast_badge.contains(point):
-            self._contrast_slider_open = not self._contrast_slider_open
-            if self._contrast_slider_open:
-                self._show_contrast_slider()
-            else:
-                self._hide_contrast_slider()
-            return True
+        for adjustment in self._adjustments:
+            if adjustment.badge.contains(point):
+                adjustment.slider_open = not adjustment.slider_open
+                if adjustment.slider_open:
+                    self._show_adjustment_slider(adjustment)
+                else:
+                    self._hide_adjustment_slider(adjustment)
+                return True
 
         return False
 
@@ -384,41 +434,34 @@ class ControlOverlay(Overlay):
         icon_y = self._cropping_badge.top() + (h - icon_size) // 2
         painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, icon)
 
-    def _draw_brightness_badge(self, painter: QtGui.QPainter, x: int, y: int) -> None:
-        """Draw a brightness badge as part of the control overlay."""
+    def _draw_adjustment_badge(
+        self, painter: QtGui.QPainter, x: int, y: int, adjustment: _ImageAdjustment
+    ) -> None:
+        """Draw an image-adjustment badge as part of the control overlay.
+
+        Args:
+            painter (QtGui.QPainter): The painter used to draw the badge.
+            x (int): Left edge of the badge, in widget coordinates.
+            y (int): Bottom edge of the badge, in widget coordinates.
+            adjustment (_ImageAdjustment): Adjustment to draw. Its
+                :attr:`~_ImageAdjustment.badge` is updated to the rectangle drawn,
+                which is what later clicks are hit-tested against.
+        """
         # make the badge the same height as the playback speed badge, which will already have been created.
         w = self._ICON_BADGE_WIDTH
         h = self._playback_speed_badge.height()
-        self._brightness_badge = QtCore.QRect(x, y - h, w, h)
+        adjustment.badge = QtCore.QRect(x, y - h, w, h)
 
         painter.setBrush(self._BADGE_BACKGROUND_COLOR)
         painter.setPen(QtCore.Qt.PenStyle.NoPen)
         painter.drawRoundedRect(
-            self._brightness_badge, self._BADGE_CORNER_RADIUS, self._BADGE_CORNER_RADIUS
+            adjustment.badge, self._BADGE_CORNER_RADIUS, self._BADGE_CORNER_RADIUS
         )
 
         icon_size = min(w, h) - self._BADGE_PADDING_VERTICAL
-        icon_x = self._brightness_badge.left() + (w - icon_size) // 2
-        icon_y = self._brightness_badge.top() + (h - icon_size) // 2
-        painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, self._brightness_icon)
-
-    def _draw_contrast_badge(self, painter: QtGui.QPainter, x: int, y: int) -> None:
-        """Draw a contrast badge as part of the control overlay."""
-        # make the badge the same height as the playback speed badge, which will already have been created.
-        w = self._ICON_BADGE_WIDTH
-        h = self._playback_speed_badge.height()
-        self._contrast_badge = QtCore.QRect(x, y - h, w, h)
-
-        painter.setBrush(self._BADGE_BACKGROUND_COLOR)
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(
-            self._contrast_badge, self._BADGE_CORNER_RADIUS, self._BADGE_CORNER_RADIUS
-        )
-
-        icon_size = min(w, h) - self._BADGE_PADDING_VERTICAL
-        icon_x = self._contrast_badge.left() + (w - icon_size) // 2
-        icon_y = self._contrast_badge.top() + (h - icon_size) // 2
-        painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, self._contrast_icon)
+        icon_x = adjustment.badge.left() + (w - icon_size) // 2
+        icon_y = adjustment.badge.top() + (h - icon_size) // 2
+        painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, adjustment.icon)
 
     def _show_speed_menu(self) -> None:
         """Displays the playback speed selection menu anchored to the playback speed badge.
@@ -500,19 +543,25 @@ class ControlOverlay(Overlay):
         self.parent.mouseMoveEvent(mouse_event)
         self.parent.update()
 
-    def _show_brightness_slider(self) -> None:
-        """Displays a brightness slider for adjusting the video brightness.
+    def _show_adjustment_slider(self, adjustment: _ImageAdjustment) -> None:
+        """Displays an adjustment's slider, anchored above its badge.
 
         Creates a container with a reset button above the slider. The slider is
-        restored to its last-used value rather than resetting to the default.
+        restored to the adjustment's last-used value rather than resetting to
+        :attr:`_ImageAdjustment.NEUTRAL_VALUE`.
+
+        Args:
+            adjustment (_ImageAdjustment): Adjustment whose slider to show. Does
+                nothing if its slider is already visible.
         """
-        if self._brightness_slider and self._brightness_slider.isVisible():
+        if adjustment.slider and adjustment.slider.isVisible():
             return
 
         container = QtWidgets.QWidget(self.parent)
-        container.setObjectName("brightnessSliderContainer")
+        object_name = f"{adjustment.name}SliderContainer"
+        container.setObjectName(object_name)
         container.setStyleSheet(
-            "#brightnessSliderContainer { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
+            f"#{object_name} {{ background-color: rgba(60, 60, 60, 180); border-radius: 8px; }}"
         )
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -526,98 +575,49 @@ class ControlOverlay(Overlay):
         reset_btn.setFlat(True)
         layout.addWidget(reset_btn, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
 
-        self._brightness_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, container)
-        self._brightness_slider.setRange(50, 200)
-        self._brightness_slider.setValue(self._brightness_value)
-        self._brightness_slider.valueChanged.connect(self._on_brightness_slider_value_changed)
-        layout.addWidget(self._brightness_slider)
+        slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, container)
+        slider.setRange(adjustment.minimum, adjustment.maximum)
+        slider.setValue(adjustment.value)
+        slider.valueChanged.connect(
+            lambda value: self._on_adjustment_slider_value_changed(adjustment, value)
+        )
+        layout.addWidget(slider)
+        adjustment.slider = slider
 
-        reset_btn.clicked.connect(lambda: self._brightness_slider.setValue(100))
+        reset_btn.clicked.connect(lambda: slider.setValue(adjustment.NEUTRAL_VALUE))
 
         container.adjustSize()
-        badge_top_left = self.parent.mapToGlobal(self._brightness_badge.topLeft())
+        badge_top_left = self.parent.mapToGlobal(adjustment.badge.topLeft())
         pos = badge_top_left - QtCore.QPoint(0, container.sizeHint().height())
         container.move(self.parent.mapFromGlobal(pos))
         container.show()
 
-        self._brightness_slider_bg = container
+        adjustment.container = container
 
-    def _hide_brightness_slider(self) -> None:
-        """Hides the brightness slider container."""
-        if self._brightness_slider_bg:
-            self._brightness_slider_bg.deleteLater()
-            self._brightness_slider_bg = None
-        self._brightness_slider = None
-        self._brightness_slider_open = False
-
-    def _on_brightness_slider_value_changed(self, value: int) -> None:
-        """Handles the brightness slider value change event.
-
-        Emits the brightness_changed signal with the new brightness value.
+    def _hide_adjustment_slider(self, adjustment: _ImageAdjustment) -> None:
+        """Hides an adjustment's slider container.
 
         Args:
-            value (int): The new brightness value from the slider.
+            adjustment (_ImageAdjustment): Adjustment whose slider to hide. Safe
+                to call when the slider is already hidden.
         """
-        self._brightness_value = value
-        self.brightness_changed.emit(value / 100.0)
+        if adjustment.container:
+            adjustment.container.deleteLater()
+            adjustment.container = None
+        adjustment.slider = None
+        adjustment.slider_open = False
 
-    def _show_contrast_slider(self) -> None:
-        """Displays a contrast slider for adjusting the video contrast.
+    def _on_adjustment_slider_value_changed(
+        self, adjustment: _ImageAdjustment, value: int
+    ) -> None:
+        """Handles an adjustment slider's value change event.
 
-        Creates a container with a reset button above the slider. The slider is
-        restored to its last-used value rather than resetting to the default.
-        """
-        if self._contrast_slider and self._contrast_slider.isVisible():
-            return
-
-        container = QtWidgets.QWidget(self.parent)
-        container.setObjectName("contrastSliderContainer")
-        container.setStyleSheet(
-            "#contrastSliderContainer { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
-        )
-        layout = QtWidgets.QVBoxLayout(container)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(2)
-
-        reset_btn = QtWidgets.QPushButton(container)
-        reset_btn.setIcon(
-            MaterialIcon("restart_alt").pixmap(14, color=QtGui.QColor(255, 255, 255))
-        )
-        reset_btn.setFixedSize(20, 20)
-        reset_btn.setFlat(True)
-        layout.addWidget(reset_btn, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
-
-        self._contrast_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, container)
-        self._contrast_slider.setRange(100, 200)
-        self._contrast_slider.setValue(self._contrast_value)
-        self._contrast_slider.valueChanged.connect(self._on_contrast_slider_value_changed)
-        layout.addWidget(self._contrast_slider)
-
-        reset_btn.clicked.connect(lambda: self._contrast_slider.setValue(100))
-
-        container.adjustSize()
-        badge_top_left = self.parent.mapToGlobal(self._contrast_badge.topLeft())
-        pos = badge_top_left - QtCore.QPoint(0, container.sizeHint().height())
-        container.move(self.parent.mapFromGlobal(pos))
-        container.show()
-
-        self._contrast_slider_bg = container
-
-    def _hide_contrast_slider(self) -> None:
-        """Hides the contrast slider container."""
-        if self._contrast_slider_bg:
-            self._contrast_slider_bg.deleteLater()
-            self._contrast_slider_bg = None
-        self._contrast_slider = None
-        self._contrast_slider_open = False
-
-    def _on_contrast_slider_value_changed(self, value: int) -> None:
-        """Handles the contrast slider value change event.
-
-        Emits the contrast_changed signal with the new contrast value.
+        Records the value so reopening the slider restores it, and emits the
+        adjustment's signal with the value as a multiplier.
 
         Args:
-            value (int): The new contrast value from the slider.
+            adjustment (_ImageAdjustment): Adjustment the slider belongs to.
+            value (int): The new value from the slider, as a percentage.
         """
-        self._contrast_value = value
-        self.contrast_changed.emit(value / 100.0)
+        adjustment.value = value
+        adjustment.signal.emit(value / adjustment.NEUTRAL_VALUE)
