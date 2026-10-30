@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +19,7 @@ from jabs.feature_extraction.social_features import (
     ClosestFovDistances,
     HuddleFeatures,
     SocialFeatureGroup,
+    social_distance,
 )
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 from jabs.pose_estimation import PoseEstimation
@@ -399,3 +401,43 @@ def test_segmentation_contour_fallback_hull_when_skeletal_keypoints_drop_out() -
         dists["closest social segmentation distance body units"], [0.2, 0.2]
     )
     np.testing.assert_allclose(huddle["social connected group size"], [2.0, 2.0])
+
+
+def test_video_social_cache_is_built_once_per_pose(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every identity on one pose object shares a single video-level social cache.
+
+    ``IdentityFeatures`` builds a new ``SocialFeatureGroup`` per identity, so the
+    cache must be keyed on the pose object rather than held by the feature group.
+    """
+    build_spy = mock.Mock(wraps=social_distance._VideoSocialCache.build)
+    monkeypatch.setattr(social_distance._VideoSocialCache, "build", build_spy)
+
+    pose = _MultiFrameStubPose(
+        {
+            0: [(0.0, 0.0), (0.0, 0.0)],
+            1: [(12.0, 0.0), (12.0, 0.0)],
+            2: [(24.0, 0.0), (24.0, 0.0)],
+        }
+    )
+    for identity in pose.identities:
+        SocialFeatureGroup(pose, 1.0)._init_feature_mods(identity)
+    assert build_spy.call_count == 1
+
+    other_pose = _MultiFrameStubPose({0: [(0.0, 0.0)], 1: [(12.0, 0.0)]})
+    ClosestIdentityInfo(other_pose, identity=0, pixel_scale=1.0)
+    assert build_spy.call_count == 2
+
+
+def test_neighbor_speed_scales_with_pixel_scale_on_shared_cache() -> None:
+    """The shared cache stores unscaled speeds, so each pixel_scale gets its own units."""
+    pose = _MultiFrameStubPose(
+        {
+            0: [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+            1: [(20.0, 0.0), (21.0, 0.0), (22.0, 0.0)],
+        },
+        fps=30,
+    )
+    speeds_px = ClosestIdentityInfo(pose, 0, 1.0).closest_neighbor_speeds
+    speeds_cm = ClosestIdentityInfo(pose, 0, 0.5).closest_neighbor_speeds
+    np.testing.assert_allclose(speeds_px, [30.0, 30.0, 30.0])
+    np.testing.assert_allclose(speeds_cm, [15.0, 15.0, 15.0])

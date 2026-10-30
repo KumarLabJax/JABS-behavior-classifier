@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import weakref
 from collections import deque
 from dataclasses import dataclass
 
@@ -174,19 +175,18 @@ def _populate_segmentation_fallback_hulls(
 def _compute_identity_centroid_speeds(
     poses: PoseEstimation,
     identity: int,
-    pixel_scale: float,
 ) -> npt.NDArray[np.float32]:
-    """Compute per-frame convex-hull centroid speed for one identity.
+    """Compute per-frame convex-hull centroid speed for one identity, in pixels per second.
 
     Matches ``CentroidVelocityMag`` in ``base_features`` by delegating centroid
     computation to ``identity_centroids(poses, identity)``, ensuring identical
     ``identity_mask`` handling and avoiding centroid jumps on frames that use a
-    segmentation fallback hull.
+    segmentation fallback hull. Speeds are left unscaled so the cache holding them
+    does not depend on ``pixel_scale``.
 
     Args:
         poses: Pose estimation object for the video.
         identity: Identity index to compute speeds for.
-        pixel_scale: Scale factor converting pixels to target distance units.
 
     Returns:
         1-D ``float32`` array of centroid speeds of length ``poses.num_frames``.
@@ -197,7 +197,7 @@ def _compute_identity_centroid_speeds(
 
     centroid_centers = identity_centroids(poses, identity)
     velocity = np.gradient(centroid_centers, axis=0)
-    speed = np.linalg.norm(velocity, axis=-1) * float(poses.fps) * pixel_scale
+    speed = np.linalg.norm(velocity, axis=-1) * float(poses.fps)
     return speed.astype(np.float32, copy=False)
 
 
@@ -250,27 +250,70 @@ def _frame_contact_graph(
     return adjacency
 
 
+def _frame_contour_points(
+    seg_arr: npt.NDArray[np.generic] | None, frame: int
+) -> npt.NDArray[np.float32] | None:
+    """Return one frame's valid contour vertices, or None if there are none."""
+    if seg_arr is None or frame >= len(seg_arr):
+        return None
+    return _extract_valid_contour_points(seg_arr[frame])
+
+
+def _connected_component_sizes(adjacency: dict[int, set[int]]) -> dict[int, int]:
+    """Return the size of the connected component containing each identity."""
+    sizes: dict[int, int] = {}
+    for start in adjacency:
+        if start in sizes:
+            continue
+        visited = {start}
+        queue: deque[int] = deque([start])
+        while queue:
+            for neighbor in adjacency[queue.popleft()] - visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+        for member in visited:
+            sizes[member] = len(visited)
+    return sizes
+
+
 @dataclass
 class _VideoSocialCache:
-    """Video-level pre-computed hulls, speeds, contour vertices, and symmetric contact graphs.
+    """Video-level pre-computed hulls, speeds, and contact topology for all identities.
 
-    Shared across subject identities within ``SocialFeatureGroup`` so per-identity speeds,
-    segmentation contour extraction, and frame contact graphs are computed once per video
-    rather than repeated for each subject animal.
+    ``IdentityFeatures`` builds a new ``SocialFeatureGroup`` (and ``ClosestIdentityInfo``)
+    for each identity, but callers reuse the same ``PoseEstimation`` object across
+    identities. ``for_pose()`` keys the cache on that object so the per-video work is
+    done once rather than once per subject animal. Only compact per-identity arrays are
+    kept; contour vertices are re-extracted on demand.
     """
 
     has_seg: bool
     hulls_by_id: dict[int, list[BaseGeometry | None]]
     is_fallback_by_id: dict[int, npt.NDArray[np.bool_]]
-    speeds_by_id: dict[int, npt.NDArray[np.float32]]
-    seg_points_by_id_frame: dict[int, list[npt.NDArray[np.float32] | None]]
-    contact_graphs: list[dict[int, set[int]]]
+    seg_by_id: dict[int, npt.NDArray[np.generic] | None]
+    speeds_px_by_id: dict[int, npt.NDArray[np.float32]]
+    contact_counts_by_id: dict[int, npt.NDArray[np.float32]]
+    group_sizes_by_id: dict[int, npt.NDArray[np.float32]]
 
     @classmethod
-    def build(cls, poses: PoseEstimation, pixel_scale: float) -> _VideoSocialCache:
+    def for_pose(cls, poses: PoseEstimation) -> _VideoSocialCache:
+        """Return the shared cache for ``poses``, building it on first use."""
+        cache = _VIDEO_SOCIAL_CACHES.get(poses)
+        if cache is None:
+            cache = cls.build(poses)
+            _VIDEO_SOCIAL_CACHES[poses] = cache
+        return cache
+
+    @classmethod
+    def build(cls, poses: PoseEstimation) -> _VideoSocialCache:
         """Build shared social geometry and contact caches for all identities in ``poses``."""
         num_frames = poses.num_frames
         identities = list(poses.identities)
+        logger.debug(
+            "Building social feature cache for %d identities, %d frames",
+            len(identities),
+            num_frames,
+        )
         has_seg = bool(poses.format_major_version >= 6 and poses.has_segmentation)
 
         seg_by_id: dict[int, npt.NDArray[np.generic] | None] = {}
@@ -280,45 +323,49 @@ class _VideoSocialCache:
 
         hulls_by_id: dict[int, list[BaseGeometry | None]] = {}
         is_fallback_by_id: dict[int, npt.NDArray[np.bool_]] = {}
-        seg_points_by_id_frame: dict[int, list[npt.NDArray[np.float32] | None]] = {}
-
         for curr_id in identities:
             raw_hulls: list[BaseGeometry | None] = list(poses.get_identity_convex_hulls(curr_id))
-            seg_arr = seg_by_id.get(curr_id) if has_seg else None
-            updated_hulls, is_fallback = _populate_segmentation_fallback_hulls(raw_hulls, seg_arr)
-            hulls_by_id[curr_id] = updated_hulls
-            is_fallback_by_id[curr_id] = is_fallback
+            hulls_by_id[curr_id], is_fallback_by_id[curr_id] = (
+                _populate_segmentation_fallback_hulls(raw_hulls, seg_by_id.get(curr_id))
+            )
 
-            if has_seg and seg_arr is not None:
-                seg_points_by_id_frame[curr_id] = [
-                    _extract_valid_contour_points(seg_arr[f]) if f < len(seg_arr) else None
-                    for f in range(num_frames)
-                ]
-            else:
-                seg_points_by_id_frame[curr_id] = [None] * num_frames
-
-        speeds_by_id: dict[int, npt.NDArray[np.float32]] = {
-            curr_id: _compute_identity_centroid_speeds(poses, curr_id, pixel_scale)
-            for curr_id in identities
+        speeds_px_by_id: dict[int, npt.NDArray[np.float32]] = {
+            curr_id: _compute_identity_centroid_speeds(poses, curr_id) for curr_id in identities
         }
 
-        contact_graphs: list[dict[int, set[int]]] = []
+        contact_counts_by_id = {
+            curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
+        }
+        group_sizes_by_id = {
+            curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
+        }
         for frame in range(num_frames):
             frame_seg_pts = {
-                curr_id: seg_points_by_id_frame[curr_id][frame] for curr_id in identities
+                curr_id: _frame_contour_points(seg_by_id.get(curr_id), frame)
+                for curr_id in identities
             }
-            contact_graphs.append(
-                _frame_contact_graph(frame, hulls_by_id, is_fallback_by_id, frame_seg_pts)
-            )
+            adjacency = _frame_contact_graph(frame, hulls_by_id, is_fallback_by_id, frame_seg_pts)
+            for curr_id, neighbors in adjacency.items():
+                contact_counts_by_id[curr_id][frame] = len(neighbors)
+            for curr_id, size in _connected_component_sizes(adjacency).items():
+                group_sizes_by_id[curr_id][frame] = size
 
         return cls(
             has_seg=has_seg,
             hulls_by_id=hulls_by_id,
             is_fallback_by_id=is_fallback_by_id,
-            speeds_by_id=speeds_by_id,
-            seg_points_by_id_frame=seg_points_by_id_frame,
-            contact_graphs=contact_graphs,
+            seg_by_id=seg_by_id,
+            speeds_px_by_id=speeds_px_by_id,
+            contact_counts_by_id=contact_counts_by_id,
+            group_sizes_by_id=group_sizes_by_id,
         )
+
+
+# Shared caches keyed weakly on the PoseEstimation object, so a cache is released
+# together with the pose data it was built from.
+_VIDEO_SOCIAL_CACHES: weakref.WeakKeyDictionary[PoseEstimation, _VideoSocialCache] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 class ClosestIdentityInfo:
@@ -333,19 +380,12 @@ class ClosestIdentityInfo:
         poses: Pose estimation data for the video.
         identity: Subject identity index.
         pixel_scale: Scale factor to convert pixel distances to real-world units (cm).
-        video_cache: Optional shared video-level cache built by ``SocialFeatureGroup``.
     """
 
     # Taken from the ICY paper where the full field of view is 240 degrees.
     HALF_FOV_DEGREE = 120
 
-    def __init__(
-        self,
-        poses: PoseEstimation,
-        identity: int,
-        pixel_scale: float,
-        video_cache: _VideoSocialCache | None = None,
-    ) -> None:
+    def __init__(self, poses: PoseEstimation, identity: int, pixel_scale: float) -> None:
         idx = PoseEstimation.KeypointIndex
 
         self._poses = poses
@@ -369,21 +409,23 @@ class ClosestIdentityInfo:
         self._closest_segmentation_distances_body_units = np.full(
             num_frames, np.nan, dtype=np.float32
         )
-        self._social_contact_counts = np.full(num_frames, np.nan, dtype=np.float32)
-        self._social_connected_group_sizes = np.full(num_frames, np.nan, dtype=np.float32)
         self._social_chain_bottleneck_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._closest_neighbor_speeds = np.full(num_frames, np.nan, dtype=np.float32)
         self._second_closest_neighbor_speeds = np.full(num_frames, np.nan, dtype=np.float32)
 
-        cache = (
-            video_cache if video_cache is not None else _VideoSocialCache.build(poses, pixel_scale)
-        )
+        cache = _VideoSocialCache.for_pose(poses)
         has_seg = cache.has_seg
         hulls_by_id = cache.hulls_by_id
-        speeds_by_id = cache.speeds_by_id
-        seg_points_by_id_frame = cache.seg_points_by_id_frame
-        contact_graphs = cache.contact_graphs
+        seg_by_id = cache.seg_by_id
+        speeds_by_id = {
+            curr_id: speeds * pixel_scale for curr_id, speeds in cache.speeds_px_by_id.items()
+        }
         self_hulls = hulls_by_id[identity]
+
+        # Contact count and connected group size come from the video's symmetric
+        # per-frame contact graph, so all animals in a huddle cluster agree.
+        self._social_contact_counts = cache.contact_counts_by_id[identity].copy()
+        self._social_connected_group_sizes = cache.group_sizes_by_id[identity].copy()
 
         for frame in range(num_frames):
             points, mask = poses.get_points(frame, identity, pixel_scale)
@@ -441,7 +483,7 @@ class ClosestIdentityInfo:
                         self._fov_angles[frame] = view_angle
                         closest_fov_dist = curr_dist
 
-            pts_self = seg_points_by_id_frame[identity][frame]
+            pts_self = _frame_contour_points(seg_by_id.get(identity), frame)
             pts_closest: npt.NDArray[np.float32] | None = None
             seg_dist_px: float | None = None
 
@@ -452,7 +494,7 @@ class ClosestIdentityInfo:
 
                 seg_dist_px = closest_dist
                 if has_seg:
-                    pts_closest = seg_points_by_id_frame[closest_id][frame]
+                    pts_closest = _frame_contour_points(seg_by_id.get(closest_id), frame)
                     seg_dist_px = _contour_min_distance(pts_self, pts_closest, closest_dist)
 
                 self._closest_segmentation_distances[frame] = seg_dist_px * self._pixel_scale
@@ -469,7 +511,7 @@ class ClosestIdentityInfo:
                 seg_dist_2_px = second_closest_dist
                 pts_second: npt.NDArray[np.float32] | None = None
                 if has_seg:
-                    pts_second = seg_points_by_id_frame[second_id][frame]
+                    pts_second = _frame_contour_points(seg_by_id.get(second_id), frame)
                     seg_dist_2_px = _contour_min_distance(
                         pts_self, pts_second, second_closest_dist
                     )
@@ -495,20 +537,6 @@ class ClosestIdentityInfo:
 
             if closest_fov_dist is not None:
                 self._closest_fov_distances[frame] = closest_fov_dist * self._pixel_scale
-
-            # Derive direct contact count and connected component size from the
-            # frame's symmetric pairwise contact graph so all animals in a huddle
-            # cluster receive consistent counts and group sizes.
-            adjacency = contact_graphs[frame]
-            self._social_contact_counts[frame] = float(len(adjacency.get(identity, set())))
-
-            visited: set[int] = {identity}
-            queue: deque[int] = deque([identity])
-            while queue:
-                for neighbor in adjacency.get(queue.popleft(), set()) - visited:
-                    visited.add(neighbor)
-                    queue.append(neighbor)
-            self._social_connected_group_sizes[frame] = float(len(visited))
 
     @property
     def closest_identities(self) -> npt.NDArray[np.int16]:
