@@ -55,7 +55,11 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
     # the maximum is the largest value a QSpinBox holds; a lower cap would silently
     # rewrite larger saved values (e.g. set from the CLI) when the dialog is saved.
     _PARAMETER_MINIMUM = 1
-    _PARAMETER_MAXIMUM = 2**31 - 1
+    _QSPINBOX_INT_MAX = 2**31 - 1
+
+    # The spin box is sized to show values up to this one; a QSpinBox otherwise sizes
+    # itself for its maximum, which would make it more than twice as wide.
+    _PARAMETER_DISPLAY_MAXIMUM = 999_999
 
     _REQUIRED_ATTRIBUTES = (
         "_stage",
@@ -105,7 +109,10 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
         self.add_control_row(self._enable_row_label, self._enable_checkbox)
 
         self._parameter_spinbox = QSpinBox()
-        self._parameter_spinbox.setRange(self._PARAMETER_MINIMUM, self._PARAMETER_MAXIMUM)
+        self._parameter_spinbox.setRange(self._PARAMETER_MINIMUM, self._QSPINBOX_INT_MAX)
+        width_reference = QSpinBox()
+        width_reference.setRange(self._PARAMETER_MINIMUM, self._PARAMETER_DISPLAY_MAXIMUM)
+        self._parameter_spinbox.setFixedWidth(width_reference.sizeHint().width())
         self._parameter_spinbox.setValue(kwarg_help.default)
         self._parameter_spinbox.setToolTip(kwarg_help.description)
         self.add_control_row(self._parameter_row_label, self._parameter_spinbox)
@@ -159,11 +166,20 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
             logger.debug("No saved settings for %s; using stage defaults", stage_name)
         stage_config = values.get(stage_name, {})
         self._enable_checkbox.setChecked(stage_config.get("enabled", False))
-        self._parameter_spinbox.setValue(
-            stage_config.get("parameters", {}).get(
-                self._parameter, self._stage_help.kwargs[self._parameter].default
-            )
+        value = stage_config.get("parameters", {}).get(
+            self._parameter, self._stage_help.kwargs[self._parameter].default
         )
+        # QSpinBox.setValue raises OverflowError beyond the C int range, so clamp first
+        clamped = min(max(value, self._PARAMETER_MINIMUM), self._QSPINBOX_INT_MAX)
+        if clamped != value:
+            logger.warning(
+                "%s %s=%s is outside the range the settings dialog supports; using %s",
+                stage_name,
+                self._parameter,
+                value,
+                clamped,
+            )
+        self._parameter_spinbox.setValue(clamped)
 
 
 class InterpolationStageSettingsGroup(SingleParameterStageSettingsGroup):

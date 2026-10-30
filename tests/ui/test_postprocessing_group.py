@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from jabs.behavior.postprocessing.stages import BoutStitchingStage
@@ -46,7 +48,9 @@ def qapp():
 @pytest.mark.parametrize(
     "group_class", _STAGE_GROUP_CLASSES, ids=lambda group_class: group_class.__name__
 )
-def test_stage_group_round_trips_and_resets_to_stage_default(group_class) -> None:
+def test_stage_group_round_trips_and_resets_to_stage_default(
+    group_class: type[SingleParameterStageSettingsGroup],
+) -> None:
     """A stage group loads its saved parameter and resets when none is saved.
 
     Loading a configuration with no entry for a stage must leave that stage's
@@ -83,14 +87,40 @@ def test_stage_group_round_trips_and_resets_to_stage_default(group_class) -> Non
 @pytest.mark.parametrize(
     "group_class", _STAGE_GROUP_CLASSES, ids=lambda group_class: group_class.__name__
 )
-def test_stage_group_keeps_large_saved_parameter(group_class) -> None:
-    """A saved parameter above the old 100-frame cap round-trips unchanged."""
+@pytest.mark.parametrize("value", [900, 2**31 - 1], ids=["above_old_cap", "spinbox_maximum"])
+def test_stage_group_keeps_large_saved_parameter(
+    group_class: type[SingleParameterStageSettingsGroup], value: int
+) -> None:
+    """A saved parameter above the old 100-frame cap, up to the spin box maximum, round-trips."""
     stage_name = group_class._stage.__name__
     parameter = group_class._parameter
     group = group_class()
 
-    group.set_values({stage_name: {"enabled": True, "parameters": {parameter: 900}}})
-    assert group.get_values()["parameters"] == {parameter: 900}
+    group.set_values({stage_name: {"enabled": True, "parameters": {parameter: value}}})
+    assert group.get_values() == {
+        "stage_name": stage_name,
+        "enabled": True,
+        "parameters": {parameter: value},
+    }
+
+
+@pytest.mark.parametrize(
+    "group_class", _STAGE_GROUP_CLASSES, ids=lambda group_class: group_class.__name__
+)
+def test_stage_group_clamps_parameter_beyond_spinbox_range(
+    group_class: type[SingleParameterStageSettingsGroup],
+) -> None:
+    """A saved parameter too large for a QSpinBox is clamped instead of raising."""
+    stage_name = group_class._stage.__name__
+    parameter = group_class._parameter
+    group = group_class()
+
+    group.set_values({stage_name: {"enabled": True, "parameters": {parameter: 2**31}}})
+    assert group.get_values() == {
+        "stage_name": stage_name,
+        "enabled": True,
+        "parameters": {parameter: 2**31 - 1},
+    }
 
 
 def test_stage_group_missing_attribute_fails_at_definition() -> None:
