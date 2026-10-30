@@ -51,9 +51,11 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
     _parameter_row_label: str
 
     # Bounds of the parameter spin box. Every stage counts frames, so the same
-    # range applies to all of them.
+    # range applies to all of them. The stages only require a positive integer, so
+    # the maximum is the largest value a QSpinBox holds; a lower cap would silently
+    # rewrite larger saved values (e.g. set from the CLI) when the dialog is saved.
     _PARAMETER_MINIMUM = 1
-    _PARAMETER_MAXIMUM = 100
+    _PARAMETER_MAXIMUM = 2**31 - 1
 
     _REQUIRED_ATTRIBUTES = (
         "_stage",

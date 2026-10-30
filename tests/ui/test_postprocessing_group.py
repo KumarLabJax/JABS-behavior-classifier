@@ -80,6 +80,19 @@ def test_stage_group_round_trips_and_resets_to_stage_default(group_class) -> Non
     }
 
 
+@pytest.mark.parametrize(
+    "group_class", _STAGE_GROUP_CLASSES, ids=lambda group_class: group_class.__name__
+)
+def test_stage_group_keeps_large_saved_parameter(group_class) -> None:
+    """A saved parameter above the old 100-frame cap round-trips unchanged."""
+    stage_name = group_class._stage.__name__
+    parameter = group_class._parameter
+    group = group_class()
+
+    group.set_values({stage_name: {"enabled": True, "parameters": {parameter: 900}}})
+    assert group.get_values()["parameters"] == {parameter: 900}
+
+
 def test_stage_group_missing_attribute_fails_at_definition() -> None:
     """A subclass that leaves a required attribute unset is rejected when defined."""
     with pytest.raises(TypeError, match="_doc_heading"):
