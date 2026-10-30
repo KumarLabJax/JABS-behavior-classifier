@@ -38,11 +38,6 @@ class FrameRulerWidget(QWidget):
         # information about the video needed to properly render widget
         self._num_frames = 0
 
-        # size each frame takes up in the bar in pixels
-        self._frame_width = self.size().width() // self._nframes
-        self._adjusted_width = self._nframes * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) / 2
-
         self._font = QFont("Arial", 12)
         self._font_metrics = QFontMetrics(self._font)
         self._font_height = self._font_metrics.height()
@@ -55,12 +50,6 @@ class FrameRulerWidget(QWidget):
         so the value used here sets the height of the widget.
         """
         return QSize(400, self._font_height + 10)
-
-    def resizeEvent(self, event):
-        """handle resize events"""
-        self._frame_width = self.size().width() // self._nframes
-        self._adjusted_width = self._nframes * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) / 2
 
     def paintEvent(self, event):
         """override QWidget paintEvent
@@ -91,7 +80,7 @@ class FrameRulerWidget(QWidget):
         """
         for i in range(start, end + 1):
             if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
-                offset = self._offset + ((i - start + 0.5) * self._frame_width) - 1
+                offset = self._frame_center_x(i, start) - 1
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
 
@@ -99,6 +88,22 @@ class FrameRulerWidget(QWidget):
                 label_width = self._font_metrics.horizontalAdvance(label_text)
                 painter.setPen(QApplication.palette().text().color())
                 painter.drawText(offset - label_width / 2 + 1, self._font_height + 8, label_text)
+
+    def _frame_center_x(self, frame: int, start: int) -> float:
+        """Return the x coordinate of the center of a frame in the sliding window.
+
+        Uses the same fractional pixels-per-frame mapping as LabelDetailBar, with
+        no centering offset, so the ticks line up with the frames drawn in the bars.
+
+        Args:
+            frame: Frame number to locate.
+            start: First frame number in the sliding window.
+
+        Returns:
+            The x coordinate, in pixels, of the center of ``frame``.
+        """
+        frame_width = self.size().width() / self._nframes
+        return (frame - start + 0.5) * frame_width
 
     def set_current_frame(self, current_frame):
         """called to reposition the view around new current frame"""
