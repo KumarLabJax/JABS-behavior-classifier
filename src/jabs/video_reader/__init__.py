@@ -9,8 +9,10 @@ imported by the process-pool workers in ``jabs.project.parallel_workers``, so an
 behind it is paid for on every worker spawn. Qt in particular must not end up here.
 """
 
+from .blank_frame_reader import BlankFrameReader
 from .video_reader import VideoReader
 
 __all__ = [
+    "BlankFrameReader",
     "VideoReader",
 ]

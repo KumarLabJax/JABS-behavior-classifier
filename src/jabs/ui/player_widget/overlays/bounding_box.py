@@ -57,6 +57,7 @@ class BoundingBoxOverlay(Overlay):
         """
         if (
             not self._enabled
+            or self.parent.pose is None
             or self.parent.pose.format_major_version < 8
             or self.parent.pixmap().isNull()
             or self.parent.identity_overlay_mode != self.parent.IdentityOverlayMode.BBOX

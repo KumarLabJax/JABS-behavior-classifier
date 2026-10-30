@@ -3,7 +3,7 @@ import time
 import numpy as np
 from PySide6 import QtCore, QtGui
 
-from jabs.video_reader import VideoReader
+from jabs.video_reader import BlankFrameReader, VideoReader
 
 
 class PlayerThread(QtCore.QThread):
@@ -37,7 +37,7 @@ class PlayerThread(QtCore.QThread):
     # signals used to update the properties of PlayerThread in a thread-safe manner
     setPlaybackSpeed = QtCore.Signal(float)
 
-    def __init__(self, video_reader: VideoReader, playback_speed: float = 1.0):
+    def __init__(self, video_reader: VideoReader | BlankFrameReader, playback_speed: float = 1.0):
         super().__init__()
 
         self._video_reader = video_reader

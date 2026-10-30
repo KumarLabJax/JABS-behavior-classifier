@@ -48,5 +48,5 @@ class SegmentationOverlay(Overlay):
                 identity,
                 to_output=lambda x, y: self.parent.image_to_widget_coords_cropped(x, y, crop_rect),
                 line_width=line_width,
-                active=(identity == self.parent.active_identity),
+                active=self.parent.is_drawn_active(identity),
             )

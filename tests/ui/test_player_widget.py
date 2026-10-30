@@ -70,3 +70,31 @@ def test_the_display_slot_is_declared_with_both_arguments():
     meta = widget.metaObject()
     assert meta.indexOfSlot("_display_image(QImage,int)") != -1
     assert meta.indexOfSlot("_display_image(QImage)") == -1
+
+
+def test_frame_paints_without_a_pose_file():
+    """A video opened without pose must paint; the bbox overlay used to assume a pose."""
+    widget = PlayerWidget()
+    frame_widget = widget._frame_widget
+    frame_widget.set_pose(None)
+    frame_widget.identity_overlay_mode = PlayerWidget.IdentityOverlayMode.BBOX
+    image = QtGui.QImage(8, 8, QtGui.QImage.Format.Format_RGB888)
+    image.fill(QtGui.QColor(60, 60, 60))
+    widget._display_image(image, 0)
+    frame_widget.resize(64, 64)
+
+    frame_widget.grab()
+
+
+def test_only_the_active_identity_is_emphasized_by_default():
+    """The labeling GUI highlights the selected animal and fades the rest."""
+    widget = PlayerWidget()
+    frame_widget = widget._frame_widget
+    frame_widget.set_active_identity(1)
+
+    assert widget.emphasize_active_identity
+    assert frame_widget.is_drawn_active(1)
+    assert not frame_widget.is_drawn_active(0)
+
+    widget.emphasize_active_identity = False
+    assert frame_widget.is_drawn_active(0)

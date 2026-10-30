@@ -8,7 +8,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation
 from jabs.project import VideoLabels
 from jabs.video_export import render_overlay_frame
-from jabs.video_reader import VideoReader
+from jabs.video_reader import BlankFrameReader, VideoReader
 
 from .frame_with_overlays import FrameWithOverlaysWidget
 from .player_thread import PlayerThread
@@ -214,6 +214,16 @@ class PlayerWidget(QtWidgets.QWidget):
         """set the overlay annotations in the frame widget"""
         self._frame_widget.overlay_annotations_enabled = enabled
 
+    @property
+    def emphasize_active_identity(self) -> bool:
+        """return whether pose and segmentation overlays emphasize the active identity"""
+        return self._frame_widget.emphasize_active_identity
+
+    @emphasize_active_identity.setter
+    def emphasize_active_identity(self, enabled: bool) -> None:
+        """set whether pose and segmentation overlays emphasize the active identity"""
+        self._frame_widget.emphasize_active_identity = enabled
+
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""
         if self._player_thread is not None:
@@ -245,13 +255,46 @@ class PlayerWidget(QtWidgets.QWidget):
         self._time_label.setText("")
         self._frame_widget.reset()
 
-    def load_video(self, path: Path, pose_est: PoseEstimation, video_labels: VideoLabels) -> None:
+    def load_video(
+        self,
+        path: Path,
+        pose_est: PoseEstimation | None = None,
+        video_labels: VideoLabels | None = None,
+    ) -> None:
         """load a new video source
 
         Args:
             path: path to video file
-            pose_est: pose file for this video
-            video_labels: video labels (behavior and interval annotations) for this video
+            pose_est: pose file for this video, or None to play the video without
+                pose-based overlays
+            video_labels: video labels (behavior and interval annotations) for this
+                video, or None to play it without annotation overlays
+        """
+        self._load_stream(VideoReader(path), path, pose_est, video_labels)
+
+    def load_blank_frames(self, frames: BlankFrameReader, pose_est: PoseEstimation) -> None:
+        """load solid-color frames, to play back pose data that has no video
+
+        Args:
+            frames: source of the solid-color frames, sized and timed for the pose
+            pose_est: pose to draw over the frames
+        """
+        self._load_stream(frames, None, pose_est, None)
+
+    def _load_stream(
+        self,
+        stream: VideoReader | BlankFrameReader,
+        path: Path | None,
+        pose_est: PoseEstimation | None,
+        video_labels: VideoLabels | None,
+    ) -> None:
+        """replace the loaded frame source and set up playback for it
+
+        Args:
+            stream: source of the frames to play
+            path: path of the video file, or None when the frames are not from one
+            pose_est: pose to draw over the frames, or None
+            video_labels: annotations to draw over the frames, or None
         """
         # cleanup the old player thread if it exists
         self._cleanup_player_thread()
@@ -264,11 +307,13 @@ class PlayerWidget(QtWidgets.QWidget):
         self.stop()
         self.reset()
 
-        self._video_stream = VideoReader(path)
+        self._video_stream = stream
         self._video_path = path
         self._pose_est = pose_est
         self._frame_widget.set_pose(pose_est)
-        self._frame_widget.annotations = video_labels.timeline_annotations
+        self._frame_widget.annotations = (
+            video_labels.timeline_annotations if video_labels is not None else None
+        )
 
         self._player_thread = PlayerThread(
             self._video_stream, playback_speed=self._frame_widget.playback_speed
