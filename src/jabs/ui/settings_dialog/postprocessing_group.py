@@ -1,5 +1,7 @@
 """Settings groups for the per-behavior prediction postprocessing stages."""
 
+from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox, QWidget
 
@@ -24,7 +26,8 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
     construction, documentation and the save/load round trip live here so the groups
     cannot drift apart.
 
-    Subclasses must set every class attribute listed below.
+    Subclasses must set every class attribute listed below; a subclass that leaves one
+    unset, or names a parameter its stage does not document, fails when it is defined.
 
     Attributes:
         _stage: Stage class this group configures.
@@ -48,6 +51,33 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
     # range applies to all of them.
     _PARAMETER_MINIMUM = 1
     _PARAMETER_MAXIMUM = 100
+
+    _REQUIRED_ATTRIBUTES = (
+        "_stage",
+        "_parameter",
+        "_group_title",
+        "_doc_heading",
+        "_enable_row_label",
+        "_enable_checkbox_label",
+        "_parameter_row_label",
+    )
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Check that a subclass sets every required attribute and a documented parameter.
+
+        Raises:
+            TypeError: If a required class attribute is unset, or the stage's help does
+                not document ``_parameter``.
+        """
+        super().__init_subclass__(**kwargs)
+        missing = [name for name in cls._REQUIRED_ATTRIBUTES if not hasattr(cls, name)]
+        if missing:
+            raise TypeError(f"{cls.__name__} must define {', '.join(missing)}")
+        if cls._parameter not in (cls._stage.help().kwargs or {}):
+            raise TypeError(
+                f"{cls.__name__}: {cls._stage.__name__}.help() does not document "
+                f"parameter {cls._parameter!r}"
+            )
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the settings group.
