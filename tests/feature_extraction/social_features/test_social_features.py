@@ -61,7 +61,9 @@ class _MultiFrameStubPose:
 
         self._hulls: dict[int, list[Polygon | None]] = {
             ident: [
-                None if center is None else _square_hull(center[0], center[1], size=hull_size)
+                None
+                if center is None
+                else _square_hull(center[0], center[1], size=hull_size)
                 for center in frame_centers
             ]
             for ident, frame_centers in centers_by_id.items()
@@ -125,8 +127,12 @@ def test_nose_occlusion_preserves_closest_social_distance_while_masking_fov() ->
     )
 
     info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
-    np.testing.assert_array_equal(info.closest_identities, np.array([1, 1], dtype=np.int16))
-    np.testing.assert_array_equal(info.closest_fov_identities, np.array([-1, -1], dtype=np.int16))
+    np.testing.assert_array_equal(
+        info.closest_identities, np.array([1, 1], dtype=np.int16)
+    )
+    np.testing.assert_array_equal(
+        info.closest_fov_identities, np.array([-1, -1], dtype=np.int16)
+    )
 
     closest_feat = ClosestDistances(pose, 1.0, info).per_frame(0)
     fov_dist_feat = ClosestFovDistances(pose, 1.0, info).per_frame(0)
@@ -135,13 +141,15 @@ def test_nose_occlusion_preserves_closest_social_distance_while_masking_fov() ->
     # Hulls of size 10 centered at x=0 and x=20 have gap 20 - (5 + 5) = 10.
     np.testing.assert_allclose(closest_feat["closest social distance"], [10.0, 10.0])
     # Second closest is identity 2 at x=50, gap 50 - (5 + 5) = 40.
-    np.testing.assert_allclose(closest_feat["second closest social distance"], [40.0, 40.0])
+    np.testing.assert_allclose(
+        closest_feat["second closest social distance"], [40.0, 40.0]
+    )
     assert np.all(np.isnan(fov_dist_feat["closest social distance in FoV"]))
     assert np.all(np.isnan(fov_angle_feat["angle of closest social distance in FoV"]))
 
 
-def test_compute_distances_uses_cached_arrays_and_supports_custom_identities() -> None:
-    """compute_distances returns cached arrays for standard identities and computes custom ones."""
+def test_compute_distances_and_cached_properties() -> None:
+    """closest_distances/closest_fov_distances properties and compute_distances agree."""
     pose = _MultiFrameStubPose(
         {
             0: [(0.0, 0.0), (0.0, 0.0)],
@@ -155,13 +163,19 @@ def test_compute_distances_uses_cached_arrays_and_supports_custom_identities() -
 
     # Nearest overall is identity 1 (gap 10 px * scale 2.0 = 20.0).
     np.testing.assert_array_equal(info.closest_identities, [1, 1])
-    np.testing.assert_allclose(info.compute_distances(info.closest_identities), [20.0, 20.0])
+    np.testing.assert_allclose(info.closest_distances, [20.0, 20.0])
+    np.testing.assert_allclose(
+        info.compute_distances(info.closest_identities), [20.0, 20.0]
+    )
 
     # Nearest in FoV is identity 2 (gap 30 px * scale 2.0 = 60.0).
     np.testing.assert_array_equal(info.closest_fov_identities, [2, 2])
-    np.testing.assert_allclose(info.compute_distances(info.closest_fov_identities), [60.0, 60.0])
+    np.testing.assert_allclose(info.closest_fov_distances, [60.0, 60.0])
+    np.testing.assert_allclose(
+        info.compute_distances(info.closest_fov_identities), [60.0, 60.0]
+    )
 
-    # Custom identity array [2, -1] exercises the fallback path.
+    # Custom identity array [2, -1] exercises general frame-wise distance calculation.
     custom = np.array([2, -1], dtype=np.int16)
     custom_dists = info.compute_distances(custom)
     assert custom_dists[0] == pytest.approx(60.0)
@@ -193,11 +207,13 @@ def test_huddle_features_distinguish_isolated_dyad_triangle_and_chain() -> None:
     huddle_0 = HuddleFeatures(pose, 1.0, info_0).per_frame(0)
 
     np.testing.assert_allclose(huddle_0["social contact count"], [0.0, 1.0, 2.0, 1.0])
-    np.testing.assert_allclose(huddle_0["social connected group size"], [1.0, 2.0, 3.0, 3.0])
+    np.testing.assert_allclose(
+        huddle_0["social connected group size"], [1.0, 2.0, 3.0, 3.0]
+    )
     # Threshold-free single-linkage bottleneck distance connecting the 3 animals:
-    # Frame 0 (0@0, 1@100, 2@200): d01=90, d02=190, d12=90 -> max(90, min(190, 90)) = 90.0
-    # Frame 1 (0@0, 1@12, 2@200): d01=2, d02=190, d12=178 -> max(2, min(190, 178)) = 178.0
-    # Frame 3 (chain 0@0, 1@12, 2@24): d01=2, d02=14, d12=2 -> max(2, min(14, 2)) = 2.0!
+    # Frame 0 (0@0, 1@100, 2@200): d01=90, d02=190, d12=90 -> sorted(90, 190, 90)[1] = 90.0
+    # Frame 1 (0@0, 1@12, 2@200): d01=2, d02=190, d12=178 -> sorted(2, 190, 178)[1] = 178.0
+    # Frame 3 (chain 0@0, 1@12, 2@24): d01=2, d02=14, d12=2 -> sorted(2, 14, 2)[1] = 2.0!
     assert huddle_0["social chain bottleneck distance"][0] == pytest.approx(90.0)
     assert huddle_0["social chain bottleneck distance"][1] == pytest.approx(178.0)
     assert huddle_0["social chain bottleneck distance"][3] == pytest.approx(2.0)
@@ -209,12 +225,73 @@ def test_huddle_features_distinguish_isolated_dyad_triangle_and_chain() -> None:
     assert huddle_1["social connected group size"][3] == pytest.approx(3.0)
 
 
-def test_closest_neighbor_speed_distinguishes_still_partner_from_moving_partner() -> None:
+def test_symmetric_contact_graph_and_order_independent_bottleneck_in_mixed_chain() -> (
+    None
+):
+    """All animals in a mixed hull+fur chain agree on group size, and bottleneck is order-independent.
+
+    Tests two edge cases:
+    1. Mixed contact chain (Frame 0):
+       - 0 at (0, 0), 1 at (12, 0), 2 at (42, 0) with 10x10 skeletal hulls.
+       - 0 and 1 touch by skeletal hull margin (hull gap = 2.0 <= 7.0).
+       - 1 and 2 have skeletal hull gap = 20.0 (> 7.0), but their outer fur contours
+         touch (contour gap = 1.0 px <= 2.0 px).
+       - Every subject (0, 1, and 2) must report connected_group_size = 3.0 and
+         symmetric contact counts (1.0, 2.0, 1.0).
+    2. Order-independent bottleneck when contour order reverses hull order (Frame 1):
+       - Subject 0 at (0, 0), identity 1 at (20, 0) (hull gap = 10.0),
+         identity 2 at (0, 22) (hull gap = 12.0).
+       - Identity 1 is closer by skeletal hull (10.0 < 12.0), but identity 2's outer
+         fur contour touches both 0 and 1 at 1.0 px (seg_dist_px = 10.0, seg_dist_2_px = 1.0,
+         dist_12_px = 1.0).
+       - The true 3-animal bottleneck is sorted((10.0, 1.0, 1.0))[1] == 1.0.
+    """
+    # Frame 0: 1 and 2 have fur contours touching at x=26..27
+    # Frame 1: 2's fur contour extends to touch both 0 (at y=5..6) and 1 (at x=14..15)
+    seg_0 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_0[0, 0] = np.array([[-5, -5], [5, -5], [5, 5], [-5, 5]], dtype=np.int16)
+    seg_0[1, 0] = np.array([[-5, -5], [5, -5], [5, 5], [-5, 5]], dtype=np.int16)
+
+    seg_1 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_1[0, 0] = np.array([[7, -5], [26, -5], [26, 5], [7, 5]], dtype=np.int16)
+    seg_1[1, 0] = np.array([[15, -5], [25, -5], [25, 5], [15, 5]], dtype=np.int16)
+
+    seg_2 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_2[0, 0] = np.array([[27, -5], [47, -5], [47, 5], [27, 5]], dtype=np.int16)
+    seg_2[1, 0] = np.array([[-5, 6], [14, 5], [14, 27], [-5, 27]], dtype=np.int16)
+
+    pose = _MultiFrameStubPose(
+        {
+            0: [(0.0, 0.0), (0.0, 0.0)],
+            1: [(12.0, 0.0), (20.0, 0.0)],
+            2: [(42.0, 0.0), (0.0, 22.0)],
+        },
+        hull_size=10.0,
+        format_major_version=6,
+        seg_contours_by_id={0: seg_0, 1: seg_1, 2: seg_2},
+    )
+
+    group = SocialFeatureGroup(pose, pixel_scale=1.0)
+    h0 = group.per_frame(0)["huddle_features"]
+    h1 = group.per_frame(1)["huddle_features"]
+    h2 = group.per_frame(2)["huddle_features"]
+
+    # Frame 0: symmetric contact counts (1, 2, 1) and identical group size (3, 3, 3)
+    assert h0["social contact count"][0] == pytest.approx(1.0)
+    assert h1["social contact count"][0] == pytest.approx(2.0)
+    assert h2["social contact count"][0] == pytest.approx(1.0)
+    assert h0["social connected group size"][0] == pytest.approx(3.0)
+    assert h1["social connected group size"][0] == pytest.approx(3.0)
+    assert h2["social connected group size"][0] == pytest.approx(3.0)
+
+    # Frame 1: order-independent bottleneck is 1.0 even though seg_dist_px (10.0) > seg_dist_2_px (1.0)
+    assert h0["social chain bottleneck distance"][1] == pytest.approx(1.0)
+
+
+def test_closest_neighbor_speed_distinguishes_still_partner_from_moving_partner() -> (
+    None
+):
     """closest neighbor speed reflects the velocity of the nearest animal."""
-    # 3 frames at 30 fps:
-    # Identity 0 is stationary at (0, 0).
-    # Identity 1 is nearest and stationary at (15, 0) on frames 0-2 in pose_still,
-    # and moves along +y by 4 px/frame (120 px/s) in pose_moving.
     pose_still = _MultiFrameStubPose(
         {
             0: [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
@@ -236,18 +313,24 @@ def test_closest_neighbor_speed_distinguishes_still_partner_from_moving_partner(
     info_moving = ClosestIdentityInfo(pose_moving, identity=0, pixel_scale=0.5)
     feat_moving = HuddleFeatures(pose_moving, 0.5, info_moving).per_frame(0)
     # 4 px/frame * 30 fps * 0.5 cm/px = 60.0 cm/s
-    np.testing.assert_allclose(feat_moving["closest neighbor speed"], [60.0, 60.0, 60.0])
+    np.testing.assert_allclose(
+        feat_moving["closest neighbor speed"], [60.0, 60.0, 60.0]
+    )
 
 
-def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5() -> None:
+def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5() -> (
+    None
+):
     """Segmentation contours extending outside skeletal hulls reduce the coat distance."""
-    # Two animals with 10x10 skeletal hulls centered at x=0 and x=30 (skeletal hull gap = 20).
-    # Their outer fur segmentation contours extend to x=14 and x=15 (coat gap = 1.0 px).
     seg_0 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
-    seg_0[:, 0, :, :] = np.array([[[-10, -8], [14, -8], [14, 8], [-10, 8]]], dtype=np.int16)
+    seg_0[:, 0, :, :] = np.array(
+        [[[-10, -8], [14, -8], [14, 8], [-10, 8]]], dtype=np.int16
+    )
 
     seg_1 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
-    seg_1[:, 0, :, :] = np.array([[[15, -8], [40, -8], [40, 8], [15, 8]]], dtype=np.int16)
+    seg_1[:, 0, :, :] = np.array(
+        [[[15, -8], [40, -8], [40, 8], [15, 8]]], dtype=np.int16
+    )
 
     pose_v6 = _MultiFrameStubPose(
         {
@@ -263,9 +346,9 @@ def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5(
     huddle_v6 = HuddleFeatures(pose_v6, 1.0, info_v6).per_frame(0)
 
     np.testing.assert_allclose(dists_v6["closest social distance"], [20.0, 20.0])
-    np.testing.assert_allclose(dists_v6["closest social segmentation distance"], [1.0, 1.0])
-    # Coat gap 1.0 px <= _SEG_CONTACT_TOLERANCE_PX (2.0 px), so contact is registered
-    # even though skeletal hulls are 20.0 px apart.
+    np.testing.assert_allclose(
+        dists_v6["closest social segmentation distance"], [1.0, 1.0]
+    )
     np.testing.assert_allclose(huddle_v6["social contact count"], [1.0, 1.0])
 
     # Without segmentation (v5), segmentation distance falls back to hull distance (20.0).
@@ -279,7 +362,9 @@ def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5(
     )
     info_v5 = ClosestIdentityInfo(pose_v5, identity=0, pixel_scale=1.0)
     dists_v5 = ClosestDistances(pose_v5, 1.0, info_v5).per_frame(0)
-    np.testing.assert_allclose(dists_v5["closest social segmentation distance"], [20.0, 20.0])
+    np.testing.assert_allclose(
+        dists_v5["closest social segmentation distance"], [20.0, 20.0]
+    )
 
 
 def test_social_feature_group_on_real_pose_v6_slice() -> None:
@@ -300,7 +385,7 @@ def test_social_feature_group_on_real_pose_v6_slice() -> None:
             "second closest social distance",
             "closest social segmentation distance",
             "second closest social segmentation distance",
-            "closest social distance body units",
+            "closest social segmentation distance body units",
         } == set(per_frame["closest_distances"].keys())
         assert {
             "social contact count",
@@ -310,8 +395,6 @@ def test_social_feature_group_on_real_pose_v6_slice() -> None:
             "second closest neighbor speed",
         } == set(per_frame["huddle_features"].keys())
 
-        # Segmentation contour distance should never exceed the internal skeletal hull distance
-        # on frames where both are finite.
         hull_d = per_frame["closest_distances"]["closest social distance"]
         seg_d = per_frame["closest_distances"]["closest social segmentation distance"]
         both_valid = np.isfinite(hull_d) & np.isfinite(seg_d)
@@ -325,10 +408,10 @@ def test_segmentation_contour_fallback_hull_when_skeletal_keypoints_drop_out() -
     seg_0[:, 0, :, :] = np.array([[[0, 0], [10, 0], [10, 10], [0, 10]]], dtype=np.int16)
 
     seg_1 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
-    seg_1[:, 0, :, :] = np.array([[[12, 0], [22, 0], [22, 10], [12, 10]]], dtype=np.int16)
+    seg_1[:, 0, :, :] = np.array(
+        [[[12, 0], [22, 0], [22, 10], [12, 10]]], dtype=np.int16
+    )
 
-    # Identity 0 has None center on frame 0 (simulating < 3 confident keypoints in a deep pile),
-    # but has a valid segmentation contour on both frames.
     pose_occluded = _MultiFrameStubPose(
         {
             0: [None, (5.0, 5.0)],
@@ -343,6 +426,10 @@ def test_segmentation_contour_fallback_hull_when_skeletal_keypoints_drop_out() -
     huddle = HuddleFeatures(pose_occluded, 1.0, info).per_frame(0)
 
     # Frame 0 recovers a valid 2.0 px distance and connected group size 2 from seg_0!
-    np.testing.assert_allclose(dists["closest social segmentation distance"], [2.0, 2.0])
-    np.testing.assert_allclose(dists["closest social distance body units"], [0.2, 0.2])
+    np.testing.assert_allclose(
+        dists["closest social segmentation distance"], [2.0, 2.0]
+    )
+    np.testing.assert_allclose(
+        dists["closest social segmentation distance body units"], [0.2, 0.2]
+    )
     np.testing.assert_allclose(huddle["social connected group size"], [2.0, 2.0])

@@ -23,19 +23,39 @@
     * centroid
     * 12 keypoints
 
-## Social features (v3 pose files)
+## Social features (v3+ pose files)
 
-23 features from social context
+32 features from social context (available when multi-animal tracking is present in v3+ pose files, with automatic segmentation-contour refinement when `seg_data` masks are present in v6+ pose files):
 
-* distance to closest mouse
-* distance to closest in field of view (fov)
-* fov angle
-* fov angle sine
-* fov angle cosine
-* pairwise distances (9 values)
-    * pairwise distances between (nose, base neck, tail) points of subject and closest mouse
-* pairwise distances fov (9 values)
-    * pairwise distances between (nose, base neck, tail) points of subject and closest fov mouse
+* **Nearest-neighbor & coat-contact distances (`closest_distances`, 5 values):**
+    * `closest social distance`: Euclidean distance between the subject's skeletal body convex hull and the nearest cagemate's skeletal convex hull (scaled by `pixel_scale` to `cm` when `cm_per_pixel` is set, or `px` otherwise).
+    * `second closest social distance`: Euclidean distance between the subject's skeletal convex hull and the second-nearest cagemate's skeletal convex hull (distinguishes 2-animal pairs from 3-animal groups).
+    * `closest social segmentation distance`: Minimum fur-to-fur boundary distance between the subject's outer segmentation mask contour (`seg_data` in v6+ pose files) and the nearest cagemate's segmentation contour (falls back to `closest social distance` when segmentation masks are absent). Because skeletal keypoints sit *inside* the body while huddling animals press their outer soft flanks together, measuring the outer coat contour captures physical fur contact directly.
+    * `second closest social segmentation distance`: Minimum outer segmentation contour distance to the second-nearest cagemate.
+    * `closest social segmentation distance body units`: Dimensionless, camera-height-invariant coat distance normalized by the subject's characteristic body size ($\text{closest segmentation distance} / \max(\sqrt{\text{Hull Area}}, 0.25 \times \text{Perimeter}, 1.0)$), expressed in units of animal body widths so classifiers generalize across arena zoom levels and juvenile vs. adult body sizes without requiring `cm_per_pixel` calibration.
+* **Multi-animal huddling topology & partner quiescence (`huddle_features`, 5 values):**
+    * `social contact count`: Number of other animals currently in physical body contact with the subject (`0`, `1`, `2`, ...), evaluated on a symmetric per-frame pairwise contact graph so all animals in a cluster agree.
+    * `social connected group size`: Total number of animals in the subject's connected contact cluster (`1` = isolated, `2` = dyadic pair, `3` = 3-animal group), computed via breadth-first search (BFS) on the symmetric frame contact graph so both triangular piles and side-by-side linear chains (`A–B–C`, where outer mice `A` and `C` touch opposite flanks of middle mouse `B`) are recognized as a 3-animal group by every member.
+    * `social chain bottleneck distance`: Threshold-free continuous single-linkage (minimax) coat distance connecting the subject and its two nearest cagemates into a 3-animal cluster, computed as the second-smallest edge of the 3-animal triangle (`sorted(d_1, d_2, d_12)[1]`, the maximum edge of the 3-node minimum spanning tree). Across 298 three-mouse huddles (`71.1%` triangular heaps + `28.9%` linear `A–B–C` chains), `99.7%` have a chain bottleneck distance $\le 3\text{ px}$, allowing tree classifiers (`XGBoost` / `RandomForest`) to learn 3-animal huddling without any hard-coded pixel threshold.
+    * `closest neighbor speed`: Centroid speed of the nearest cagemate (via `identity_centroids`), allowing classifiers to separate **mutual quiescence** (both partners sleeping/resting in a huddle) from **unilateral contact** (an active cagemate walking past or sniffing a stationary mouse).
+    * `second closest neighbor speed`: Centroid speed of the second-nearest cagemate, allowing classifiers to distinguish 3-animal huddles where all 3 animals are asleep from piles where 2 animals sleep while the 3rd grooms or shifts posture.
+* **Field-of-view (FoV) social metrics (4 values):**
+    * `closest social distance in FoV`: Distance to the nearest cagemate within the subject's $240^\circ$ visual field of view ($\pm 120^\circ$ from the `BASE_NECK` $\to$ `NOSE` heading vector; scaled by `pixel_scale` to `cm` when `cm_per_pixel` is set).
+    * `angle of closest social distance in FoV` (plus `sine` and `cosine` components).
+* **Pairwise keypoint social distances (18 values):**
+    * `pairwise_social_distances` (9 values): All $3 \times 3$ pairwise distances between (`NOSE`, `BASE_NECK`, `BASE_TAIL`) of the subject and the closest cagemate.
+    * `pairwise_social_fov_distances` (9 values): All $3 \times 3$ pairwise distances between (`NOSE`, `BASE_NECK`, `BASE_TAIL`) of the subject and the closest cagemate inside the field of view.
+
+> **Unit Consistency & Occlusion Resilience (`FEATURE_VERSION = 18`):**
+> 1. **Unit Alignment (`pixel_scale`):** `closest social distance` and `closest social distance in FoV` now apply `pixel_scale` (`cm` when `cm_per_pixel` is configured, `px` otherwise), matching `pairwise_social_distances`. Existing classifiers using these features will see `cm`-scaled values when retrained on calibrated projects.
+> 2. **Nose Occlusion Decoupling:** Nearest-neighbor identity and body-hull distances depend only on valid body hulls (`>= 3` body keypoints), while `NOSE` and `BASE_NECK` are required only for directional Field-of-View (`FoV`) features. When a sleeping mouse tucks its nose under a cagemate, social distance and huddling features remain valid instead of dropping to `NaN`.
+> 3. **Segmentation-Contour Hull Fallback (v6+):** If a mouse buried at the bottom of a 3-animal pile has fewer than 3 confident skeletal keypoints (`confidence > 0.30`), hull-based social distance and group features use a fallback convex hull built from its visible segmentation contour (`seg_data`), with zero additional fur margin so the coat is not double-counted, while centroid speeds continue to use skeletal `identity_centroids` to avoid boundary jumps.
+
+![Visual Guide to Multi-Animal Social & Huddle Features](imgs/social_huddle_features_explainer.png)
+
+![Social Chain Bottleneck Distance: Solving the 3-Mouse Sandwich Row Problem](imgs/social_chain_bottleneck_explainer.png)
+
+![Empirical Bimodal Valleys & Parameter Sensitivity Across 465 Videos](imgs/social_huddle_sensitivity_analysis.png)
 
 ## Static object features (v5 pose files)
 

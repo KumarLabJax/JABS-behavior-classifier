@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from jabs.pose_estimation import PoseEstimation
 
     from .social_distance import ClosestIdentityInfo
+
+logger = logging.getLogger(__name__)
 
 
 class HuddleFeatures(Feature):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from jabs.pose_estimation import PoseEstimation
 
     from .social_distance import ClosestIdentityInfo
+
+logger = logging.getLogger(__name__)
 
 
 class ClosestDistances(Feature):
@@ -51,9 +54,7 @@ class ClosestDistances(Feature):
             Dictionary mapping distance feature names to per-frame ``float32`` arrays.
         """
         return {
-            "closest social distance": self._social_distance_info.compute_distances(
-                self._social_distance_info.closest_identities
-            ),
+            "closest social distance": self._social_distance_info.closest_distances.copy(),
             "second closest social distance": (
                 self._social_distance_info.second_closest_distances.copy()
             ),
@@ -63,7 +64,7 @@ class ClosestDistances(Feature):
             "second closest social segmentation distance": (
                 self._social_distance_info.second_closest_segmentation_distances.copy()
             ),
-            "closest social distance body units": (
-                self._social_distance_info.closest_distances_body_units.copy()
+            "closest social segmentation distance body units": (
+                self._social_distance_info.closest_segmentation_distances_body_units.copy()
             ),
         }

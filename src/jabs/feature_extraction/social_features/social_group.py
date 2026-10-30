@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import typing
 
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
@@ -16,7 +17,9 @@ from .pairwise_social_distances import (
     PairwiseSocialDistances,
     PairwiseSocialFovDistances,
 )
-from .social_distance import ClosestIdentityInfo
+from .social_distance import ClosestIdentityInfo, _VideoSocialCache
+
+logger = logging.getLogger(__name__)
 
 
 class SocialFeatureGroup(FeatureGroup):
@@ -45,6 +48,7 @@ class SocialFeatureGroup(FeatureGroup):
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float) -> None:
         super().__init__(poses, pixel_scale)
+        self._video_cache: _VideoSocialCache | None = None
         self._closest_identities_cache: ClosestIdentityInfo | None = None
         self._closest_identities_cache_identity: int | None = None
 
@@ -57,6 +61,9 @@ class SocialFeatureGroup(FeatureGroup):
         Returns:
             Dictionary of initialized feature modules for this group.
         """
+        if self._video_cache is None:
+            self._video_cache = _VideoSocialCache.build(self._poses, self._pixel_scale)
+
         # cache the most recent ClosestIdentityInfo, it's needed by
         # the IdentityFeatures class when saving the social features to the
         # h5 file. It is only rebuilt when the identity changes, so computing
@@ -66,7 +73,10 @@ class SocialFeatureGroup(FeatureGroup):
             or self._closest_identities_cache_identity != identity
         ):
             self._closest_identities_cache = ClosestIdentityInfo(
-                self._poses, identity, self._pixel_scale
+                self._poses,
+                identity,
+                self._pixel_scale,
+                video_cache=self._video_cache,
             )
             self._closest_identities_cache_identity = identity
 
