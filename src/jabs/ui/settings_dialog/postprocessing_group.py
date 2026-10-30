@@ -1,5 +1,6 @@
 """Settings groups for the per-behavior prediction postprocessing stages."""
 
+import logging
 from typing import Any
 
 from PySide6.QtCore import Qt
@@ -14,6 +15,8 @@ from jabs.behavior.postprocessing.stages import (
 from jabs.core.constants import EVALUATE_POSTPROCESSING_IN_CV_KEY
 
 from .settings_group import SettingsGroup
+
+logger = logging.getLogger(__name__)
 
 
 class SingleParameterStageSettingsGroup(SettingsGroup):
@@ -89,7 +92,10 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
 
     def _create_controls(self) -> None:
         """Create the enable checkbox and the parameter spin box."""
-        stage_help = self._stage.help()
+        # SettingsGroup builds the controls before the documentation, so the help
+        # fetched here is reused by _create_documentation() and set_values().
+        self._stage_help = self._stage.help()
+        stage_help = self._stage_help
         kwarg_help = stage_help.kwargs[self._parameter]
 
         self._enable_checkbox = QCheckBox(self._enable_checkbox_label)
@@ -104,7 +110,7 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
 
     def _create_documentation(self) -> QLabel:
         """Create help documentation describing the stage and its parameter."""
-        stage_help = self._stage.help()
+        stage_help = self._stage_help
         help_label = QLabel(self)
         help_label.setTextFormat(Qt.TextFormat.RichText)
         help_label.setWordWrap(True)
@@ -146,11 +152,14 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
             values: Postprocessing settings keyed by stage name. Entries for other
                 stages are ignored.
         """
-        stage_config = values.get(self._stage.__name__, {})
+        stage_name = self._stage.__name__
+        if stage_name not in values:
+            logger.debug("No saved settings for %s; using stage defaults", stage_name)
+        stage_config = values.get(stage_name, {})
         self._enable_checkbox.setChecked(stage_config.get("enabled", False))
         self._parameter_spinbox.setValue(
             stage_config.get("parameters", {}).get(
-                self._parameter, self._stage.help().kwargs[self._parameter].default
+                self._parameter, self._stage_help.kwargs[self._parameter].default
             )
         )
 
