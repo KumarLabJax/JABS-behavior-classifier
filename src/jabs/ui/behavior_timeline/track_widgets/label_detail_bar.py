@@ -49,7 +49,6 @@ class LabelDetailBar(QWidget):
     _BAR_HEIGHT = 30
     _BAR_HEIGHT_COMPACT = 18
     _DEFAULT_WIDTH = 400
-    _DEFAULT_WINDOW_SIZE = DETAIL_WINDOW_SIZE
     _TICK_HEIGHT = 4
 
     #: Binary label palette; see :data:`jabs.ui.colors.BINARY_LABEL_COLOR_LUT`
@@ -68,7 +67,7 @@ class LabelDetailBar(QWidget):
 
         # number of frames on each side of current frame to include in
         # sliding window
-        self._window_size = self._DEFAULT_WINDOW_SIZE
+        self._window_size: int = DETAIL_WINDOW_SIZE
         self._window_frames_total = window_frame_count(self._window_size)
 
         # current position

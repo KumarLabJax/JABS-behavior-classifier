@@ -16,19 +16,15 @@ class FrameRulerWidget(QWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    # number of frames shown on either side of the current frame by the detail
-    # bars; the ticks drawn here number the frames inside that window
-    _WINDOW_SIZE = DETAIL_WINDOW_SIZE
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # number of frames on each side of current frame to include in
-        # sliding window
-        self._window_size = self._WINDOW_SIZE
+        # number of frames shown on either side of the current frame by the detail
+        # bars; the ticks drawn here number the frames inside that window
+        self._window_size: int = DETAIL_WINDOW_SIZE
 
         # total number of frames being displayed in sliding window
         self._nframes = window_frame_count(self._window_size)

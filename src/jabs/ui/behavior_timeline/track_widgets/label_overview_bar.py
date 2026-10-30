@@ -133,9 +133,6 @@ class LabelOverviewBar(QWidget):
     COLOR_LUT: np.ndarray = BINARY_LABEL_COLOR_LUT
     _BAR_HEIGHT = 6  # height of the bar in pixels
     _BAR_PADDING = 2  # padding around the bar in pixels
-    # number of frames shown on either side of the current frame by the detail
-    # bars; the highlight box drawn here marks that window on the overview
-    _WINDOW_SIZE = DETAIL_WINDOW_SIZE
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -143,7 +140,9 @@ class LabelOverviewBar(QWidget):
         self._bar_height = self._BAR_HEIGHT
         self._bar_padding = self._BAR_PADDING
         self._height = self._bar_height + 2 * self._bar_padding
-        self._window_size = self._WINDOW_SIZE
+        # number of frames shown on either side of the current frame by the detail
+        # bars; the highlight box drawn here marks that window on the overview
+        self._window_size: int = DETAIL_WINDOW_SIZE
         self._frames_in_view = window_frame_count(self._window_size)
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)

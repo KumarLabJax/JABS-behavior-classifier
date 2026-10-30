@@ -4,11 +4,7 @@ import numpy as np
 import pytest
 
 try:
-    from jabs.ui.behavior_timeline.frame_ruler_widget import FrameRulerWidget
-    from jabs.ui.behavior_timeline.track_widgets.label_detail_bar import LabelDetailBar
-    from jabs.ui.behavior_timeline.track_widgets.label_overview_bar import LabelOverviewBar
     from jabs.ui.behavior_timeline.track_widgets.timeline_util import (
-        DETAIL_WINDOW_SIZE,
         frame_pixel_widths,
         window_frame_count,
         window_geometry,
@@ -104,18 +100,6 @@ def test_frame_pixel_widths_uniform_when_frame_width_is_integral() -> None:
     )
 
     assert np.all(frame_pixel_widths(geometry, 3.0) == 3)
-
-
-def test_sliding_window_widgets_share_one_window_size() -> None:
-    """The widgets that render the same sliding window agree on its size.
-
-    The overview bar's highlight marks the slice of the video the detail bars
-    show and the ruler numbers the frames inside it, so a value that drifts in
-    one of them would misdescribe the others.
-    """
-    assert LabelDetailBar._DEFAULT_WINDOW_SIZE == DETAIL_WINDOW_SIZE
-    assert LabelOverviewBar._WINDOW_SIZE == DETAIL_WINDOW_SIZE
-    assert FrameRulerWidget._WINDOW_SIZE == DETAIL_WINDOW_SIZE
 
 
 @pytest.mark.parametrize(("window_size", "expected"), [(0, 1), (1, 3), (100, 201)])

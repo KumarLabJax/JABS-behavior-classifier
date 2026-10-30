@@ -1,6 +1,7 @@
 import math
 from dataclasses import dataclass
 from random import Random
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
@@ -23,7 +24,7 @@ from ...colors import SEARCH_HIT_COLOR
 #:
 #: Unrelated to ``jabs.feature_extraction.DEFAULT_WINDOW_SIZE``, which is the
 #: number of frames used to compute window features.
-DETAIL_WINDOW_SIZE = 100
+DETAIL_WINDOW_SIZE: Final[int] = 100
 
 
 def window_frame_count(window_size: int) -> int:
