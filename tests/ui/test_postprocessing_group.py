@@ -168,21 +168,42 @@ def test_stage_group_non_integer_parameter_uses_default(
 @pytest.mark.parametrize(
     "group_class", _STAGE_GROUP_CLASSES, ids=lambda group_class: group_class.__name__
 )
-def test_stage_group_null_parameters_uses_default(
-    group_class: type[SingleParameterStageSettingsGroup],
+@pytest.mark.parametrize("parameters", [None, [5], "5"], ids=["null", "list", "string"])
+def test_stage_group_non_dict_parameters_uses_default(
+    group_class: type[SingleParameterStageSettingsGroup], parameters: object
 ) -> None:
-    """A stage saved with ``"parameters": null``, which the pipeline schema allows, loads."""
+    """A stage whose ``parameters`` isn't a dict (``null`` is schema-valid) loads its default."""
     stage_name = group_class._stage.__name__
     parameter = group_class._parameter
     default = group_class._stage.help().kwargs[parameter].default
     group = group_class()
 
-    group.set_values({stage_name: {"enabled": True, "parameters": None}})
+    group.set_values({stage_name: {"enabled": True, "parameters": parameters}})
 
     assert group.get_values() == {
         "stage_name": stage_name,
         "enabled": True,
         "parameters": {parameter: default},
+    }
+
+
+@pytest.mark.parametrize(
+    "group_class", _STAGE_GROUP_CLASSES, ids=lambda group_class: group_class.__name__
+)
+def test_stage_group_entry_without_enabled_is_enabled(
+    group_class: type[SingleParameterStageSettingsGroup],
+) -> None:
+    """A stage entry with no ``enabled`` key shows as enabled, as PostprocessingPipeline runs it."""
+    stage_name = group_class._stage.__name__
+    parameter = group_class._parameter
+    group = group_class()
+
+    group.set_values({stage_name: {"parameters": {parameter: 5}}})
+
+    assert group.get_values() == {
+        "stage_name": stage_name,
+        "enabled": True,
+        "parameters": {parameter: 5},
     }
 
 

@@ -189,10 +189,14 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
         if stage_name not in values:
             logger.debug("No saved settings for %s; using stage defaults", stage_name)
         stage_config = values.get(stage_name, {})
-        self._enable_checkbox.setChecked(stage_config.get("enabled", False))
+        # match PostprocessingPipeline: an entry without "enabled" runs, a missing entry doesn't
+        self._enable_checkbox.setChecked(stage_config.get("enabled", stage_name in values))
         default = self._stage_help.kwargs[self._parameter].default
-        # the pipeline schema allows "parameters": null
-        value = (stage_config.get("parameters") or {}).get(self._parameter, default)
+        # the pipeline schema allows "parameters": null; hand-edited JSON may hold anything
+        parameters = stage_config.get("parameters")
+        if not isinstance(parameters, dict):
+            parameters = {}
+        value = parameters.get(self._parameter, default)
         # bool is an int subclass, but True is not a frame count
         if not isinstance(value, int) or isinstance(value, bool):
             logger.warning(
