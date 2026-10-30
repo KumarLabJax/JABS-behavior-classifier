@@ -1,8 +1,8 @@
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
-from .track_widgets.timeline_util import DETAIL_WINDOW_SIZE, window_frame_count
+from .track_widgets.timeline_util import DETAIL_WINDOW_SIZE, frame_edge_x, window_frame_count
 
 
 class FrameRulerWidget(QWidget):
@@ -38,10 +38,8 @@ class FrameRulerWidget(QWidget):
         # information about the video needed to properly render widget
         self._num_frames = 0
 
-        # size each frame takes up in the bar in pixels
-        self._frame_width = self.size().width() // self._nframes
-        self._adjusted_width = self._nframes * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) / 2
+        # detail bar whose frames the ticks line up with; see set_reference_bar()
+        self._reference_bar: QWidget | None = None
 
         self._font = QFont("Arial", 12)
         self._font_metrics = QFontMetrics(self._font)
@@ -55,12 +53,6 @@ class FrameRulerWidget(QWidget):
         so the value used here sets the height of the widget.
         """
         return QSize(400, self._font_height + 10)
-
-    def resizeEvent(self, event):
-        """handle resize events"""
-        self._frame_width = self.size().width() // self._nframes
-        self._adjusted_width = self._nframes * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) / 2
 
     def paintEvent(self, event):
         """override QWidget paintEvent
@@ -91,7 +83,7 @@ class FrameRulerWidget(QWidget):
         """
         for i in range(start, end + 1):
             if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
-                offset = self._offset + ((i - start + 0.5) * self._frame_width) - 1
+                offset = self._frame_center_x(i, start) - 1
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
 
@@ -99,6 +91,48 @@ class FrameRulerWidget(QWidget):
                 label_width = self._font_metrics.horizontalAdvance(label_text)
                 painter.setPen(QApplication.palette().text().color())
                 painter.drawText(offset - label_width / 2 + 1, self._font_height + 8, label_text)
+
+    def set_reference_bar(self, bar: QWidget | None) -> None:
+        """Line the ticks up with a detail bar.
+
+        The detail bars sit inside identity frames and track widgets with their own
+        margins, so they are narrower than the ruler and start further right. The
+        ruler maps frames across the reference bar's span instead of its own width.
+        Every detail bar has the same horizontal geometry, so any visible one works.
+
+        Args:
+            bar: Detail bar to follow, or ``None`` to span the ruler's full width.
+        """
+        self._reference_bar = bar
+        self.update()
+
+    def _bar_span(self) -> tuple[int, int]:
+        """Return the x offset and width of the reference bar in ruler coordinates."""
+        bar = self._reference_bar
+        if bar is None or not bar.isVisible():
+            return 0, self.size().width()
+        x = self.mapFromGlobal(bar.mapToGlobal(QPoint(0, 0))).x()
+        return x, bar.width()
+
+    def _frame_center_x(self, frame: int, start: int) -> float:
+        """Return the x coordinate of the center of a frame in the sliding window.
+
+        Uses the detail bars' frame-to-pixel mapping across the reference bar's span,
+        so the ticks line up with the frames drawn in the bars.
+
+        Args:
+            frame: Frame number to locate.
+            start: First frame number in the sliding window.
+
+        Returns:
+            The x coordinate, in pixels, of the center of ``frame``.
+        """
+        x0, width = self._bar_span()
+        frame_width = width / self._nframes
+        window_index = frame - start
+        left = frame_edge_x(window_index, frame_width)
+        right = frame_edge_x(window_index + 1, frame_width)
+        return x0 + (left + right) / 2
 
     def set_current_frame(self, current_frame):
         """called to reposition the view around new current frame"""

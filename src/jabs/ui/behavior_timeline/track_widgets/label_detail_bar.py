@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import numpy.typing as npt
 from PySide6.QtCore import QSize, Qt, Slot
@@ -26,6 +24,7 @@ from ...colors import (
 from .timeline_util import (
     DETAIL_WINDOW_SIZE,
     draw_frame_colors,
+    frame_edge_x,
     render_search_hits,
     window_frame_count,
     window_geometry,
@@ -269,8 +268,8 @@ class LabelDetailBar(QWidget):
         if vis_end <= vis_start:
             return
 
-        x0 = math.floor(vis_start * fw)
-        x1 = math.floor(vis_end * fw)
+        x0 = frame_edge_x(vis_start, fw)
+        x1 = frame_edge_x(vis_end, fw)
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self._selection_brush)
@@ -295,8 +294,8 @@ class LabelDetailBar(QWidget):
         for i in range(start, end + 1):
             if i % self._framerate == 0:
                 win_i = i - start
-                x0 = math.floor(win_i * fw)
-                x1 = math.floor((win_i + 1) * fw)
+                x0 = frame_edge_x(win_i, fw)
+                x1 = frame_edge_x(win_i + 1, fw)
                 painter.drawRect(x0, 0, max(x1 - x0, 1), self._TICK_HEIGHT)
 
     def set_labels(self, labels: npt.NDArray[np.int16], mask: npt.NDArray[np.int16]) -> None:
