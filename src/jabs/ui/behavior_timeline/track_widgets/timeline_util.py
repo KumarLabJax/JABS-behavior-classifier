@@ -26,6 +26,18 @@ from ...colors import SEARCH_HIT_COLOR
 DETAIL_WINDOW_SIZE = 100
 
 
+def window_frame_count(window_size: int) -> int:
+    """Return the number of frames a sliding window spans.
+
+    Args:
+        window_size: Number of frames on each side of the current frame.
+
+    Returns:
+        ``2 * window_size + 1``: the frames on both sides plus the current frame.
+    """
+    return 2 * window_size + 1
+
+
 @dataclass(frozen=True)
 class WindowGeometry:
     """Frame and pixel extents of a detail bar's sliding window.

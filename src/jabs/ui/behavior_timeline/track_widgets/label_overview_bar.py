@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from jabs.behavior_search import SearchHit
 
 from ...colors import BINARY_LABEL_COLOR_LUT, POSITION_MARKER_COLOR
-from .timeline_util import DETAIL_WINDOW_SIZE, diamond_at
+from .timeline_util import DETAIL_WINDOW_SIZE, diamond_at, window_frame_count
 
 
 def _srgb_to_linear(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
@@ -144,7 +144,7 @@ class LabelOverviewBar(QWidget):
         self._bar_padding = self._BAR_PADDING
         self._height = self._bar_height + 2 * self._bar_padding
         self._window_size = self._WINDOW_SIZE
-        self._frames_in_view = 2 * self._window_size + 1
+        self._frames_in_view = window_frame_count(self._window_size)
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 

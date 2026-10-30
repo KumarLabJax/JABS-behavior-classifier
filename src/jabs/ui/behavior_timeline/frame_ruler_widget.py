@@ -2,7 +2,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
-from .track_widgets.timeline_util import DETAIL_WINDOW_SIZE
+from .track_widgets.timeline_util import DETAIL_WINDOW_SIZE, window_frame_count
 
 
 class FrameRulerWidget(QWidget):
@@ -31,7 +31,7 @@ class FrameRulerWidget(QWidget):
         self._window_size = self._WINDOW_SIZE
 
         # total number of frames being displayed in sliding window
-        self._nframes = self._window_size * 2 + 1
+        self._nframes = window_frame_count(self._window_size)
 
         # number of frames between ticks/labels
         self._tick_interval = 50

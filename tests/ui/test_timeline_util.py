@@ -10,6 +10,7 @@ try:
     from jabs.ui.behavior_timeline.track_widgets.timeline_util import (
         DETAIL_WINDOW_SIZE,
         frame_pixel_widths,
+        window_frame_count,
         window_geometry,
     )
 
@@ -115,3 +116,9 @@ def test_sliding_window_widgets_share_one_window_size() -> None:
     assert LabelDetailBar._DEFAULT_WINDOW_SIZE == DETAIL_WINDOW_SIZE
     assert LabelOverviewBar._WINDOW_SIZE == DETAIL_WINDOW_SIZE
     assert FrameRulerWidget._WINDOW_SIZE == DETAIL_WINDOW_SIZE
+
+
+@pytest.mark.parametrize(("window_size", "expected"), [(0, 1), (1, 3), (100, 201)])
+def test_window_frame_count_includes_current_frame(window_size: int, expected: int) -> None:
+    """A window spans its frames on both sides plus the current frame."""
+    assert window_frame_count(window_size) == expected
