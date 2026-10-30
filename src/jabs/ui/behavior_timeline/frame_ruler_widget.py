@@ -82,7 +82,7 @@ class FrameRulerWidget(QWidget):
             end: ending frame number
         """
         for i in range(start, end + 1):
-            if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
+            if self._has_tick(i):
                 offset = self._frame_center_x(i, start) - 1
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
@@ -91,6 +91,20 @@ class FrameRulerWidget(QWidget):
                 label_width = self._font_metrics.horizontalAdvance(label_text)
                 painter.setPen(QApplication.palette().text().color())
                 painter.drawText(offset - label_width / 2 + 1, self._font_height + 8, label_text)
+
+    def _has_tick(self, frame: int) -> bool:
+        """Return whether a tick is drawn for a frame.
+
+        Ticks fall every ``_tick_interval`` frames, and only on frames that exist in
+        the video (``0`` through ``num_frames - 1``).
+
+        Args:
+            frame: Frame number to check.
+
+        Returns:
+            True if the ruler draws a tick and label for ``frame``.
+        """
+        return 0 <= frame < self._num_frames and frame % self._tick_interval == 0
 
     def set_reference_bar(self, bar: QWidget | None) -> None:
         """Line the ticks up with a detail bar.

@@ -94,3 +94,16 @@ def test_ticks_stay_distinct_below_window_frame_count() -> None:
     positions = [ruler._frame_center_x(frame, 400) for frame in (400, 450, 500, 550, 600)]
     assert positions == sorted(positions)
     assert len(set(positions)) == len(positions)
+
+
+@pytest.mark.parametrize(
+    ("frame", "expected"),
+    [(-50, False), (0, True), (25, False), (950, True), (999, False), (1000, False)],
+    ids=["before_start", "first_frame", "between_ticks", "last_tick", "last_frame", "past_end"],
+)
+def test_has_tick_only_on_existing_frames(frame: int, expected: bool) -> None:
+    """Ticks fall every 50 frames and never past the last frame of the video."""
+    ruler = FrameRulerWidget()
+    ruler.set_num_frames(1000)
+
+    assert ruler._has_tick(frame) is expected
