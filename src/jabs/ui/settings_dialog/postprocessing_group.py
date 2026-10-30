@@ -1,232 +1,203 @@
+"""Settings groups for the per-behavior prediction postprocessing stages."""
+
+import logging
+from typing import Any
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox
+from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox, QWidget
 
 from jabs.behavior.postprocessing.stages import (
     BoutDurationFilterStage,
     BoutStitchingStage,
     GapInterpolationStage,
+    PostprocessingStage,
 )
 from jabs.core.constants import EVALUATE_POSTPROCESSING_IN_CV_KEY
 
 from .settings_group import SettingsGroup
 
+logger = logging.getLogger(__name__)
 
-class InterpolationStageSettingsGroup(SettingsGroup):
+
+class SingleParameterStageSettingsGroup(SettingsGroup):
+    """Settings group for a postprocessing stage with one integer parameter.
+
+    Every stage in the pipeline is configured the same way: a checkbox that enables
+    it and a spin box holding its single integer tuning parameter, both described by
+    the stage's own :meth:`~jabs.behavior.postprocessing.stages.PostprocessingStage.help`.
+    Subclasses supply the stage class, the parameter name and the labels; the widget
+    construction, documentation and the save/load round trip live here so the groups
+    cannot drift apart.
+
+    Subclasses must set every class attribute listed below; a subclass that leaves one
+    unset, or names a parameter its stage does not document, fails when it is defined.
+
+    Attributes:
+        _stage: Stage class this group configures.
+        _parameter: Name of the stage's single integer keyword argument.
+        _group_title: Title shown in the group box header.
+        _doc_heading: Heading of the collapsible documentation section.
+        _enable_row_label: Label of the row holding the enable checkbox.
+        _enable_checkbox_label: Text shown beside the enable checkbox.
+        _parameter_row_label: Label of the row holding the parameter spin box.
+    """
+
+    _stage: type[PostprocessingStage]
+    _parameter: str
+    _group_title: str
+    _doc_heading: str
+    _enable_row_label: str
+    _enable_checkbox_label: str
+    _parameter_row_label: str
+
+    # Bounds of the parameter spin box. Every stage counts frames, so the same
+    # range applies to all of them.
+    _PARAMETER_MINIMUM = 1
+    _PARAMETER_MAXIMUM = 100
+
+    _REQUIRED_ATTRIBUTES = (
+        "_stage",
+        "_parameter",
+        "_group_title",
+        "_doc_heading",
+        "_enable_row_label",
+        "_enable_checkbox_label",
+        "_parameter_row_label",
+    )
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Check that a subclass sets every required attribute and a documented parameter.
+
+        Raises:
+            TypeError: If a required class attribute is unset, or the stage's help does
+                not document ``_parameter``.
+        """
+        super().__init_subclass__(**kwargs)
+        missing = [name for name in cls._REQUIRED_ATTRIBUTES if not hasattr(cls, name)]
+        if missing:
+            raise TypeError(f"{cls.__name__} must define {', '.join(missing)}")
+        if cls._parameter not in (cls._stage.help().kwargs or {}):
+            raise TypeError(
+                f"{cls.__name__}: {cls._stage.__name__}.help() does not document "
+                f"parameter {cls._parameter!r}"
+            )
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the settings group.
+
+        Args:
+            parent: Parent widget for this settings group.
+        """
+        super().__init__(self._group_title, parent)
+
+    def _create_controls(self) -> None:
+        """Create the enable checkbox and the parameter spin box."""
+        # SettingsGroup builds the controls before the documentation, so the help
+        # fetched here is reused by _create_documentation() and set_values().
+        self._stage_help = self._stage.help()
+        stage_help = self._stage_help
+        kwarg_help = stage_help.kwargs[self._parameter]
+
+        self._enable_checkbox = QCheckBox(self._enable_checkbox_label)
+        self._enable_checkbox.setToolTip(stage_help.description)
+        self.add_control_row(self._enable_row_label, self._enable_checkbox)
+
+        self._parameter_spinbox = QSpinBox()
+        self._parameter_spinbox.setRange(self._PARAMETER_MINIMUM, self._PARAMETER_MAXIMUM)
+        self._parameter_spinbox.setValue(kwarg_help.default)
+        self._parameter_spinbox.setToolTip(kwarg_help.description)
+        self.add_control_row(self._parameter_row_label, self._parameter_spinbox)
+
+    def _create_documentation(self) -> QLabel:
+        """Create help documentation describing the stage and its parameter."""
+        stage_help = self._stage_help
+        help_label = QLabel(self)
+        help_label.setTextFormat(Qt.TextFormat.RichText)
+        help_label.setWordWrap(True)
+        help_label.setText(
+            f"""
+            <h3>{self._doc_heading}</h3>
+
+            <p>{stage_help.description_long}</p>
+
+            <ul>
+              <li><b>{self._parameter_row_label}</b>
+                {stage_help.kwargs[self._parameter].description}</li>
+            </ul>
+            """
+        )
+        return help_label
+
+    def get_values(self) -> dict:
+        """Get the current settings for this stage.
+
+        Returns:
+            Dictionary with the stage name, whether the stage is enabled, and its
+            parameter value.
+        """
+        return {
+            "stage_name": self._stage.__name__,
+            "enabled": self._enable_checkbox.isChecked(),
+            "parameters": {self._parameter: self._parameter_spinbox.value()},
+        }
+
+    def set_values(self, values: dict) -> None:
+        """Set this stage's controls from a saved postprocessing configuration.
+
+        Settings this stage has no saved entry for fall back to the stage's own
+        defaults, so loading a configuration always leaves the controls describing
+        that configuration rather than whatever was shown before.
+
+        Args:
+            values: Postprocessing settings keyed by stage name. Entries for other
+                stages are ignored.
+        """
+        stage_name = self._stage.__name__
+        if stage_name not in values:
+            logger.debug("No saved settings for %s; using stage defaults", stage_name)
+        stage_config = values.get(stage_name, {})
+        self._enable_checkbox.setChecked(stage_config.get("enabled", False))
+        self._parameter_spinbox.setValue(
+            stage_config.get("parameters", {}).get(
+                self._parameter, self._stage_help.kwargs[self._parameter].default
+            )
+        )
+
+
+class InterpolationStageSettingsGroup(SingleParameterStageSettingsGroup):
     """Settings group for the Bout Gap Interpolation stage."""
 
-    def __init__(self, parent=None):
-        """Initialize the Interpolation settings group."""
-        super().__init__("Interpolation", parent)
-
-    def _create_controls(self) -> None:
-        """Create the settings controls."""
-        stage_help = GapInterpolationStage.help()
-        self._interpolation_checkbox = QCheckBox("Enable Interpolation Stage")
-        self._interpolation_checkbox.setToolTip(stage_help.description)
-        self.add_control_row("Enable Interpolation Filter:", self._interpolation_checkbox)
-
-        self._interpolation_max_frames_spinbox = QSpinBox()
-        self._interpolation_max_frames_spinbox.setRange(1, 100)
-        self._interpolation_max_frames_spinbox.setValue(
-            stage_help.kwargs["max_interpolation_gap"].default
-        )
-        self._interpolation_max_frames_spinbox.setToolTip(
-            stage_help.kwargs["max_interpolation_gap"].description
-        )
-        self.add_control_row("Max Frames to Interpolate:", self._interpolation_max_frames_spinbox)
-
-    def _create_documentation(self) -> QLabel:
-        """Create help documentation for post-processing settings."""
-        stage_help = GapInterpolationStage.help()
-        help_label = QLabel(self)
-        help_label.setTextFormat(Qt.TextFormat.RichText)
-        help_label.setWordWrap(True)
-        help_label.setText(
-            f"""
-            <h3>Interpolation Stage</h3>
-
-            <p>{stage_help.description_long}</p>
- 
-            <ul>
-              <li><b>Max Frames to Interpolate:</b> {stage_help.kwargs["max_interpolation_gap"].description}</li>
-            </ul>
-            """
-        )
-        return help_label
-
-    def get_values(self) -> dict:
-        """
-        Get current postprocessing settings values.
-
-        Returns:
-            Dictionary with setting names and their current values.
-        """
-        return {
-            "stage_name": GapInterpolationStage.__name__,
-            "enabled": self._interpolation_checkbox.isChecked(),
-            "parameters": {
-                "max_interpolation_gap": self._interpolation_max_frames_spinbox.value(),
-            },
-        }
-
-    def set_values(self, values: dict) -> None:
-        """
-        Set postprocessing settings values.
-
-        Args:
-            values: Dictionary with setting names and their desired values.
-        """
-        stage_config = values.get(GapInterpolationStage.__name__, {})
-        self._interpolation_checkbox.setChecked(stage_config.get("enabled", False))
-        self._interpolation_max_frames_spinbox.setValue(
-            stage_config.get("parameters", {}).get(
-                "max_interpolation_gap",
-                GapInterpolationStage.help().kwargs["max_interpolation_gap"].default,
-            )
-        )
+    _stage = GapInterpolationStage
+    _parameter = "max_interpolation_gap"
+    _group_title = "Interpolation"
+    _doc_heading = "Interpolation Stage"
+    _enable_row_label = "Enable Interpolation Filter:"
+    _enable_checkbox_label = "Enable Interpolation Stage"
+    _parameter_row_label = "Max Frames to Interpolate:"
 
 
-class StitchingStageSettingsGroup(SettingsGroup):
+class StitchingStageSettingsGroup(SingleParameterStageSettingsGroup):
     """Settings group for the Bout Stitching stage."""
 
-    def __init__(self, parent=None):
-        """Initialize the Stitching settings group."""
-        super().__init__("Stitching Stage", parent)
-
-    def _create_controls(self) -> None:
-        """Create the settings controls."""
-        stage_help = BoutStitchingStage.help()
-        self._stitching_checkbox = QCheckBox("Enable Stitching Stage")
-        self._stitching_checkbox.setToolTip(stage_help.description)
-        self.add_control_row("Enable Stitching Stage:", self._stitching_checkbox)
-
-        self._stitching_max_gap = QSpinBox()
-        self._stitching_max_gap.setRange(1, 100)
-        self._stitching_max_gap.setValue(stage_help.kwargs["max_stitch_gap"].default)
-        self._stitching_max_gap.setToolTip(stage_help.kwargs["max_stitch_gap"].description)
-        self.add_control_row("Max Stitch Gap:", self._stitching_max_gap)
-
-    def _create_documentation(self) -> QLabel:
-        """Create help documentation for post-processing settings."""
-        stage_help = BoutStitchingStage.help()
-        help_label = QLabel(self)
-        help_label.setTextFormat(Qt.TextFormat.RichText)
-        help_label.setWordWrap(True)
-        help_label.setText(
-            f"""
-            <h3>Stitching Stage</h3>
-
-            <p>{stage_help.description_long}</p>
-
-            <ul>
-              <li>
-                <b>Max Stitch Gap:</b> {stage_help.kwargs["max_stitch_gap"].description}
-              </li>
-            </ul>
-            """
-        )
-        return help_label
-
-    def get_values(self) -> dict:
-        """
-        Get current postprocessing settings values.
-
-        Returns:
-            Dictionary with setting names and their current values.
-        """
-        return {
-            "stage_name": BoutStitchingStage.__name__,
-            "enabled": self._stitching_checkbox.isChecked(),
-            "parameters": {
-                "max_stitch_gap": self._stitching_max_gap.value(),
-            },
-        }
-
-    def set_values(self, values: dict) -> None:
-        """
-        Set postprocessing settings values.
-
-        Args:
-            values: Dictionary with setting names and their desired values.
-        """
-        stage_config = values.get(BoutStitchingStage.__name__, {})
-        self._stitching_checkbox.setChecked(stage_config.get("enabled", False))
-        self._stitching_max_gap.setValue(
-            stage_config.get("parameters", {}).get(
-                "max_stitch_gap", self._stitching_max_gap.value()
-            )
-        )
+    _stage = BoutStitchingStage
+    _parameter = "max_stitch_gap"
+    _group_title = "Stitching Stage"
+    _doc_heading = "Stitching Stage"
+    _enable_row_label = "Enable Stitching Stage:"
+    _enable_checkbox_label = "Enable Stitching Stage"
+    _parameter_row_label = "Max Stitch Gap:"
 
 
-class DurationStageSettingsGroup(SettingsGroup):
+class DurationStageSettingsGroup(SingleParameterStageSettingsGroup):
     """Settings group for the Duration Filtering stage."""
 
-    def __init__(self, parent=None):
-        """Initialize the Duration Filtering settings group."""
-        super().__init__("Duration Stage", parent)
-
-    def _create_controls(self) -> None:
-        """Create the settings controls."""
-        stage_help = BoutDurationFilterStage.help()
-        self._duration_checkbox = QCheckBox("Enable Duration Stage")
-        self._duration_checkbox.setToolTip(stage_help.description)
-        self.add_control_row("Enable Duration Stage:", self._duration_checkbox)
-
-        self._duration_min_frames_spinbox = QSpinBox()
-        self._duration_min_frames_spinbox.setRange(1, 100)
-        self._duration_min_frames_spinbox.setValue(stage_help.kwargs["min_duration"].default)
-        self._duration_min_frames_spinbox.setToolTip(stage_help.kwargs["min_duration"].description)
-        self.add_control_row("Minimum Bout Duration:", self._duration_min_frames_spinbox)
-
-    def _create_documentation(self) -> QLabel:
-        """Create help documentation for post-processing settings."""
-        stage_help = BoutDurationFilterStage.help()
-        help_label = QLabel(self)
-        help_label.setTextFormat(Qt.TextFormat.RichText)
-        help_label.setWordWrap(True)
-        help_label.setText(
-            f"""
-            <h3>Duration Stage</h3>
-
-            <p>{stage_help.description_long}</p>
-
-            <ul>
-              <li><b>Minimum Bout Duration:</b> {stage_help.kwargs["min_duration"].description}</li>
-            </ul>
-            """
-        )
-        return help_label
-
-    def get_values(self) -> dict:
-        """
-        Get current postprocessing settings values.
-
-        Returns:
-            Dictionary with setting names and their current values.
-        """
-        return {
-            "stage_name": BoutDurationFilterStage.__name__,
-            "enabled": self._duration_checkbox.isChecked(),
-            "parameters": {
-                "min_duration": self._duration_min_frames_spinbox.value(),
-            },
-        }
-
-    def set_values(self, values: dict) -> None:
-        """
-        Set postprocessing settings values.
-
-        Args:
-            values: Dictionary with setting names and their desired values.
-        """
-        stage_config = values.get(BoutDurationFilterStage.__name__, {})
-        self._duration_checkbox.setChecked(stage_config.get("enabled", False))
-        self._duration_min_frames_spinbox.setValue(
-            stage_config.get("parameters", {}).get(
-                "min_duration",
-                BoutDurationFilterStage.help().kwargs["min_duration"].default,
-            )
-        )
+    _stage = BoutDurationFilterStage
+    _parameter = "min_duration"
+    _group_title = "Duration Stage"
+    _doc_heading = "Duration Stage"
+    _enable_row_label = "Enable Duration Stage:"
+    _enable_checkbox_label = "Enable Duration Stage"
+    _parameter_row_label = "Minimum Bout Duration:"
 
 
 class PostprocessingEvaluationSettingsGroup(SettingsGroup):
