@@ -85,7 +85,7 @@ class TestRequirePositiveInt:
             stage_class()
 
     @_EVERY_STAGE_AND_ITS_KWARG
-    @pytest.mark.parametrize("value", [0, -5, 5.5, "5", None], ids=str)
+    @pytest.mark.parametrize("value", [0, -5, 5.5, "5", None, True], ids=str)
     def test_non_positive_int_rejected(self, stage_class, kwarg, value):
         """Test that every stage rejects a value that is not a positive integer."""
         with pytest.raises(ValueError, match=f"{kwarg} must be a positive integer"):

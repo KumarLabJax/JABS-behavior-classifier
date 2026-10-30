@@ -67,7 +67,8 @@ class PostprocessingStage(abc.ABC):
             raise ValueError(f"{name} must be specified for {type(self).__name__}.")
 
         value = kwargs[name]
-        if not isinstance(value, int) or value <= 0:
+        # bool is an int subclass, but True is not a frame count
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f"{name} must be a positive integer.")
 
         return value
