@@ -63,9 +63,7 @@ def _characteristic_body_length(hull: BaseGeometry) -> float:
     )
 
 
-def _hull_contact_margin(
-    hull: BaseGeometry, *, is_segmentation_fallback: bool = False
-) -> float:
+def _hull_contact_margin(hull: BaseGeometry, *, is_segmentation_fallback: bool = False) -> float:
     """Compute the pixel-space body contact margin for a convex hull.
 
     Because a skeletal convex hull spans internal keypoints rather than the outer
@@ -285,21 +283,15 @@ class _VideoSocialCache:
         seg_points_by_id_frame: dict[int, list[npt.NDArray[np.float32] | None]] = {}
 
         for curr_id in identities:
-            raw_hulls: list[BaseGeometry | None] = list(
-                poses.get_identity_convex_hulls(curr_id)
-            )
+            raw_hulls: list[BaseGeometry | None] = list(poses.get_identity_convex_hulls(curr_id))
             seg_arr = seg_by_id.get(curr_id) if has_seg else None
-            updated_hulls, is_fallback = _populate_segmentation_fallback_hulls(
-                raw_hulls, seg_arr
-            )
+            updated_hulls, is_fallback = _populate_segmentation_fallback_hulls(raw_hulls, seg_arr)
             hulls_by_id[curr_id] = updated_hulls
             is_fallback_by_id[curr_id] = is_fallback
 
             if has_seg and seg_arr is not None:
                 seg_points_by_id_frame[curr_id] = [
-                    _extract_valid_contour_points(seg_arr[f])
-                    if f < len(seg_arr)
-                    else None
+                    _extract_valid_contour_points(seg_arr[f]) if f < len(seg_arr) else None
                     for f in range(num_frames)
                 ]
             else:
@@ -313,13 +305,10 @@ class _VideoSocialCache:
         contact_graphs: list[dict[int, set[int]]] = []
         for frame in range(num_frames):
             frame_seg_pts = {
-                curr_id: seg_points_by_id_frame[curr_id][frame]
-                for curr_id in identities
+                curr_id: seg_points_by_id_frame[curr_id][frame] for curr_id in identities
             }
             contact_graphs.append(
-                _frame_contact_graph(
-                    frame, hulls_by_id, is_fallback_by_id, frame_seg_pts
-                )
+                _frame_contact_graph(frame, hulls_by_id, is_fallback_by_id, frame_seg_pts)
             )
 
         return cls(
@@ -375,31 +364,19 @@ class ClosestIdentityInfo:
         self._closest_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._closest_fov_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._second_closest_distances = np.full(num_frames, np.nan, dtype=np.float32)
-        self._closest_segmentation_distances = np.full(
-            num_frames, np.nan, dtype=np.float32
-        )
-        self._second_closest_segmentation_distances = np.full(
-            num_frames, np.nan, dtype=np.float32
-        )
+        self._closest_segmentation_distances = np.full(num_frames, np.nan, dtype=np.float32)
+        self._second_closest_segmentation_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._closest_segmentation_distances_body_units = np.full(
             num_frames, np.nan, dtype=np.float32
         )
         self._social_contact_counts = np.full(num_frames, np.nan, dtype=np.float32)
-        self._social_connected_group_sizes = np.full(
-            num_frames, np.nan, dtype=np.float32
-        )
-        self._social_chain_bottleneck_distances = np.full(
-            num_frames, np.nan, dtype=np.float32
-        )
+        self._social_connected_group_sizes = np.full(num_frames, np.nan, dtype=np.float32)
+        self._social_chain_bottleneck_distances = np.full(num_frames, np.nan, dtype=np.float32)
         self._closest_neighbor_speeds = np.full(num_frames, np.nan, dtype=np.float32)
-        self._second_closest_neighbor_speeds = np.full(
-            num_frames, np.nan, dtype=np.float32
-        )
+        self._second_closest_neighbor_speeds = np.full(num_frames, np.nan, dtype=np.float32)
 
         cache = (
-            video_cache
-            if video_cache is not None
-            else _VideoSocialCache.build(poses, pixel_scale)
+            video_cache if video_cache is not None else _VideoSocialCache.build(poses, pixel_scale)
         )
         has_seg = cache.has_seg
         hulls_by_id = cache.hulls_by_id
@@ -443,9 +420,7 @@ class ClosestIdentityInfo:
 
                 if closest_dist is None or curr_dist < closest_dist:
                     second_closest_dist = closest_dist
-                    self._second_closest_identities[frame] = self._closest_identities[
-                        frame
-                    ]
+                    self._second_closest_identities[frame] = self._closest_identities[frame]
                     closest_dist = curr_dist
                     self._closest_identities[frame] = curr_id
                 elif second_closest_dist is None or curr_dist < second_closest_dist:
@@ -478,26 +453,18 @@ class ClosestIdentityInfo:
                 seg_dist_px = closest_dist
                 if has_seg:
                     pts_closest = seg_points_by_id_frame[closest_id][frame]
-                    seg_dist_px = _contour_min_distance(
-                        pts_self, pts_closest, closest_dist
-                    )
+                    seg_dist_px = _contour_min_distance(pts_self, pts_closest, closest_dist)
 
-                self._closest_segmentation_distances[frame] = (
-                    seg_dist_px * self._pixel_scale
-                )
+                self._closest_segmentation_distances[frame] = seg_dist_px * self._pixel_scale
                 body_char_len = _characteristic_body_length(self_shape)
                 self._closest_segmentation_distances_body_units[frame] = (
                     seg_dist_px / body_char_len
                 )
 
             if second_closest_dist is not None and seg_dist_px is not None:
-                self._second_closest_distances[frame] = (
-                    second_closest_dist * self._pixel_scale
-                )
+                self._second_closest_distances[frame] = second_closest_dist * self._pixel_scale
                 second_id = int(self._second_closest_identities[frame])
-                self._second_closest_neighbor_speeds[frame] = speeds_by_id[second_id][
-                    frame
-                ]
+                self._second_closest_neighbor_speeds[frame] = speeds_by_id[second_id][frame]
 
                 seg_dist_2_px = second_closest_dist
                 pts_second: npt.NDArray[np.float32] | None = None
@@ -521,27 +488,19 @@ class ClosestIdentityInfo:
                 assert closest_hull is not None and second_hull is not None
                 hull_12 = float(closest_hull.distance(second_hull))
                 dist_12_px = (
-                    _contour_min_distance(pts_closest, pts_second, hull_12)
-                    if has_seg
-                    else hull_12
+                    _contour_min_distance(pts_closest, pts_second, hull_12) if has_seg else hull_12
                 )
                 bottleneck_px = sorted((seg_dist_px, seg_dist_2_px, dist_12_px))[1]
-                self._social_chain_bottleneck_distances[frame] = (
-                    bottleneck_px * self._pixel_scale
-                )
+                self._social_chain_bottleneck_distances[frame] = bottleneck_px * self._pixel_scale
 
             if closest_fov_dist is not None:
-                self._closest_fov_distances[frame] = (
-                    closest_fov_dist * self._pixel_scale
-                )
+                self._closest_fov_distances[frame] = closest_fov_dist * self._pixel_scale
 
             # Derive direct contact count and connected component size from the
             # frame's symmetric pairwise contact graph so all animals in a huddle
             # cluster receive consistent counts and group sizes.
             adjacency = contact_graphs[frame]
-            self._social_contact_counts[frame] = float(
-                len(adjacency.get(identity, set()))
-            )
+            self._social_contact_counts[frame] = float(len(adjacency.get(identity, set())))
 
             visited: set[int] = {identity}
             queue: deque[int] = deque([identity])
@@ -645,9 +604,7 @@ class ClosestIdentityInfo:
                 self_shape = self_convex_hulls[frame]
                 other_shape = self._poses.get_identity_convex_hulls(closest_id)[frame]
                 if self_shape is not None and other_shape is not None:
-                    values[frame] = (
-                        float(self_shape.distance(other_shape)) * self._pixel_scale
-                    )
+                    values[frame] = float(self_shape.distance(other_shape)) * self._pixel_scale
 
         return values
 
@@ -679,17 +636,13 @@ class ClosestIdentityInfo:
             if points is None or closest_id == -1:
                 continue
 
-            closest_points, _ = self._poses.get_points(
-                frame, closest_id, self._pixel_scale
-            )
+            closest_points, _ = self._poses.get_points(frame, closest_id, self._pixel_scale)
             if closest_points is None:
                 continue
 
             for p1 in social_points:
                 for p2 in social_points:
                     key = f"social dist. {p1.name}-{p2.name}"
-                    return_dict[key][frame] = math.dist(
-                        points[p1.value], closest_points[p2.value]
-                    )
+                    return_dict[key][frame] = math.dist(points[p1.value], closest_points[p2.value])
 
         return return_dict
