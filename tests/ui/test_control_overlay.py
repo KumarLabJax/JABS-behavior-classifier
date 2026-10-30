@@ -1,5 +1,7 @@
 """Tests for the shared brightness/contrast controls of the player's ControlOverlay."""
 
+from __future__ import annotations
+
 import pytest
 
 try:
@@ -8,16 +10,38 @@ try:
 
     from jabs.ui.player_widget.overlays.control_overlay import ControlOverlay, _ImageAdjustment
 
+    _BRIGHTNESS_BADGE = QtCore.QRect(0, 0, 10, 10)
+    _CONTRAST_BADGE = QtCore.QRect(20, 0, 10, 10)
+
+    class _StubFrameWidget(QtWidgets.QWidget):
+        """Minimal stand-in for FrameWithOverlaysWidget.
+
+        ControlOverlay only needs a parent widget that reports a non-null pixmap
+        and the geometry of the scaled frame inside it.
+        """
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._pixmap = QtGui.QPixmap(100, 100)
+            self._pixmap.fill(QtGui.QColor("black"))
+            self.scaled_pix_x = 0
+            self.scaled_pix_y = 0
+            self.scaled_pix_width = 100
+            self.scaled_pix_height = 100
+            self.is_cropped = False
+
+        def pixmap(self) -> QtGui.QPixmap:
+            """Return the stub frame pixmap."""
+            return self._pixmap
+
     SKIP_UI_TESTS = False
     SKIP_REASON = ""
 except ImportError as e:
     SKIP_UI_TESTS = True
     SKIP_REASON = f"Qt/UI dependencies not available: {e}"
+    _BRIGHTNESS_BADGE = _CONTRAST_BADGE = None
 
 pytestmark = pytest.mark.skipif(SKIP_UI_TESTS, reason=SKIP_REASON)
-
-_BRIGHTNESS_BADGE = None if SKIP_UI_TESTS else QtCore.QRect(0, 0, 10, 10)
-_CONTRAST_BADGE = None if SKIP_UI_TESTS else QtCore.QRect(20, 0, 10, 10)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -27,28 +51,6 @@ def qapp():
     if app is None:
         app = QApplication([])
     yield app
-
-
-class _StubFrameWidget(QtWidgets.QWidget):
-    """Minimal stand-in for FrameWithOverlaysWidget.
-
-    ControlOverlay only needs a parent widget that reports a non-null pixmap and
-    the geometry of the scaled frame inside it.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._pixmap = QtGui.QPixmap(100, 100)
-        self._pixmap.fill(QtGui.QColor("black"))
-        self.scaled_pix_x = 0
-        self.scaled_pix_y = 0
-        self.scaled_pix_width = 100
-        self.scaled_pix_height = 100
-        self.is_cropped = False
-
-    def pixmap(self) -> QtGui.QPixmap:
-        """Return the stub frame pixmap."""
-        return self._pixmap
 
 
 @pytest.fixture
