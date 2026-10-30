@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox, QWidget
 
 from jabs.behavior.postprocessing.stages import (
@@ -17,6 +17,33 @@ from jabs.core.constants import EVALUATE_POSTPROCESSING_IN_CV_KEY
 from .settings_group import SettingsGroup
 
 logger = logging.getLogger(__name__)
+
+
+class _ParameterSpinBox(QSpinBox):
+    """Spin box whose size hint fits a typical value rather than its maximum.
+
+    A QSpinBox sizes itself to show its maximum. The stage parameters allow values up
+    to the C ``int`` limit, so that hint is wider than the values anyone uses.
+
+    Args:
+        display_maximum: Largest value the size hint leaves room for.
+    """
+
+    def __init__(self, display_maximum: int) -> None:
+        super().__init__()
+        self._display_maximum = display_maximum
+
+    def sizeHint(self) -> QSize:
+        """Return the default size hint, narrowed to fit ``display_maximum``."""
+        hint = super().sizeHint()
+        # measured with the widget's own font metrics so the hint follows font, style
+        # and DPI changes
+        metrics = self.fontMetrics()
+        excess = metrics.horizontalAdvance(
+            self.textFromValue(self.maximum())
+        ) - metrics.horizontalAdvance(self.textFromValue(self._display_maximum))
+        hint.setWidth(hint.width() - max(excess, 0))
+        return hint
 
 
 class SingleParameterStageSettingsGroup(SettingsGroup):
@@ -57,8 +84,8 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
     _PARAMETER_MINIMUM = 1
     _QSPINBOX_INT_MAX = 2**31 - 1
 
-    # The spin box is sized to show values up to this one; a QSpinBox otherwise sizes
-    # itself for its maximum, which would make it more than twice as wide.
+    # The spin box is sized to show values up to this one rather than up to its
+    # maximum, so it stays about as wide as a 6-digit value needs.
     _PARAMETER_DISPLAY_MAXIMUM = 999_999
 
     _REQUIRED_ATTRIBUTES = (
@@ -108,11 +135,8 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
         self._enable_checkbox.setToolTip(stage_help.description)
         self.add_control_row(self._enable_row_label, self._enable_checkbox)
 
-        self._parameter_spinbox = QSpinBox()
+        self._parameter_spinbox = _ParameterSpinBox(self._PARAMETER_DISPLAY_MAXIMUM)
         self._parameter_spinbox.setRange(self._PARAMETER_MINIMUM, self._QSPINBOX_INT_MAX)
-        width_reference = QSpinBox()
-        width_reference.setRange(self._PARAMETER_MINIMUM, self._PARAMETER_DISPLAY_MAXIMUM)
-        self._parameter_spinbox.setFixedWidth(width_reference.sizeHint().width())
         self._parameter_spinbox.setValue(kwarg_help.default)
         self._parameter_spinbox.setToolTip(kwarg_help.description)
         self.add_control_row(self._parameter_row_label, self._parameter_spinbox)
@@ -166,9 +190,19 @@ class SingleParameterStageSettingsGroup(SettingsGroup):
             logger.debug("No saved settings for %s; using stage defaults", stage_name)
         stage_config = values.get(stage_name, {})
         self._enable_checkbox.setChecked(stage_config.get("enabled", False))
-        value = stage_config.get("parameters", {}).get(
-            self._parameter, self._stage_help.kwargs[self._parameter].default
-        )
+        default = self._stage_help.kwargs[self._parameter].default
+        # the pipeline schema allows "parameters": null
+        value = (stage_config.get("parameters") or {}).get(self._parameter, default)
+        # bool is an int subclass, but True is not a frame count
+        if not isinstance(value, int) or isinstance(value, bool):
+            logger.warning(
+                "%s %s=%r is not an integer; using the default %s",
+                stage_name,
+                self._parameter,
+                value,
+                default,
+            )
+            value = default
         # QSpinBox.setValue raises OverflowError beyond the C int range, so clamp first
         clamped = min(max(value, self._PARAMETER_MINIMUM), self._QSPINBOX_INT_MAX)
         if clamped != value:
