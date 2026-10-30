@@ -52,6 +52,8 @@
 
 ![Visual Guide to Multi-Animal Social & Huddle Features](imgs/social_huddle_features_explainer.png)
 
+![Social Chain Bottleneck Distance: Solving the 3-Mouse Sandwich Row Problem](imgs/social_chain_bottleneck_explainer.png)
+
 ![Empirical Bimodal Valleys & Parameter Sensitivity Across 465 Videos](imgs/social_huddle_sensitivity_analysis.png)
 
 ## Static object features (v5 pose files)
