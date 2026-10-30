@@ -330,7 +330,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             self.update()
 
     def is_drawn_active(self, identity: int) -> bool:
-        """Return whether an identity's pose and segmentation are drawn as active."""
+        """Return whether an identity's overlays are drawn as the active identity's."""
         return not self._emphasize_active_identity or identity == self._active_identity
 
     def set_active_identity(self, identity: int) -> None:

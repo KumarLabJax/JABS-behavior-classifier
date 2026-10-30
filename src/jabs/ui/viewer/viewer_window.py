@@ -10,7 +10,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.ui.dialogs import MessageDialog
 from jabs.ui.player_widget import PlayerWidget
-from jabs.video_reader import BlankFrameReader
+from jabs.video_reader import BlankFrameReader, VideoReader
 
 from .frame_size import estimate_frame_size
 from .frame_size_dialog import FrameSizeDialog
@@ -129,8 +129,9 @@ class ViewerWindow(QtWidgets.QMainWindow):
     def open_video(self, path: Path) -> None:
         """Open a video, along with its pose file when one is found beside it.
 
-        A pose file that exists but cannot be opened is reported to the user, and the
-        video is still opened without overlays.
+        A pose file that exists but cannot be opened, or whose frame count does not match
+        the video's, is reported to the user, and the video is still opened without
+        overlays.
 
         Args:
             path: Path to the video file.
@@ -151,6 +152,14 @@ class ViewerWindow(QtWidgets.QMainWindow):
                     details=str(e),
                 )
 
+        if pose_est is not None and not self._pose_matches_video(pose_est, pose_path, path):
+            pose_status = f"{pose_path.name} does not match the video"
+            pose_est = None
+        elif pose_est is not None:
+            pose_status = f"pose from {pose_path.name}"
+        else:
+            pose_status = "no pose file found"
+
         try:
             self._player.load_video(path, pose_est)
         except Exception as e:
@@ -164,25 +173,53 @@ class ViewerWindow(QtWidgets.QMainWindow):
             return
 
         self._show_opened(path, pose_est, pose_only=False)
+        self.statusBar().showMessage(f"{path.name}: {pose_status}")
 
-        if pose_est is None:
-            self.statusBar().showMessage(f"{path.name}: no pose file found")
-        else:
-            self.statusBar().showMessage(f"{path.name}: pose from {pose_path.name}")
-            if pose_est.num_frames != self._player.num_frames:
-                logger.warning(
-                    "%s: video frame count (%d) does not match pose file frame count (%d)",
-                    path.name,
-                    self._player.num_frames,
-                    pose_est.num_frames,
-                )
+    def _pose_matches_video(
+        self, pose_est: PoseEstimation, pose_path: Path, video_path: Path
+    ) -> bool:
+        """Check that a pose file has one frame per video frame, warning the user if not.
+
+        The overlays index the pose by video frame, so a pose file with a different frame
+        count would fail past its last frame. The labeling GUI rejects such a pair when a
+        project is opened; the viewer plays the video without the pose instead.
+
+        Returns:
+            True if the frame counts match, or if the video's frame count can't be read
+            (opening the video reports that error).
+        """
+        try:
+            video_frames = self._video_frame_count(video_path)
+        except Exception:
+            return True
+        if video_frames == pose_est.num_frames:
+            return True
+        logger.warning(
+            "%s: video frame count (%d) does not match pose file frame count (%d)",
+            video_path.name,
+            video_frames,
+            pose_est.num_frames,
+        )
+        MessageDialog.warning(
+            self,
+            title="Pose File Does Not Match Video",
+            message=f"{pose_path.name} has {pose_est.num_frames} frames but {video_path.name} "
+            f"has {video_frames}; showing the video without pose overlays.",
+        )
+        return False
+
+    @staticmethod
+    def _video_frame_count(video_path: Path) -> int:
+        """Return the number of frames in a video file."""
+        return VideoReader.get_nframes_from_file(video_path)
 
     def open_pose_file(self, path: Path) -> None:
         """Open a pose file on its own and play it over a solid background.
 
         The frames start at the size estimated from the pose (see
         :func:`estimate_frame_size`), which can be corrected with
-        :meth:`set_frame_size`, and play at the pose file's frame rate.
+        :meth:`set_frame_size`, and play at 30 fps, since pose files do not record a
+        frame rate.
 
         Args:
             path: Path to a JABS pose file (``<name>_pose_est_v<N>.h5``).

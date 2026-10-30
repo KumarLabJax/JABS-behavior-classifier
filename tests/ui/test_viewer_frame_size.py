@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 try:
-    from jabs.ui.viewer.frame_size import estimate_frame_size
+    from jabs.ui.viewer.frame_size import MAX_FRAME_DIMENSION, estimate_frame_size
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -74,3 +74,10 @@ def test_pose_without_points_gets_the_minimum_size() -> None:
     pose = _fake_pose([])
 
     assert estimate_frame_size(pose) == (100, 100)
+
+
+def test_stray_point_cannot_size_the_frame_past_the_maximum() -> None:
+    """A single point far outside the frame is capped at the size the dialog accepts."""
+    pose = _fake_pose([np.array([[[120.0, 80.0], [50000.0, 90.0]]])])
+
+    assert estimate_frame_size(pose) == (MAX_FRAME_DIMENSION, 100)

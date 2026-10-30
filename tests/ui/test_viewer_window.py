@@ -47,6 +47,7 @@ def window() -> "ViewerWindow":
     window = ViewerWindow(app_name="test")
     window._player.load_video = mock.Mock()
     window._player._video_stream = mock.Mock(num_frames=100)
+    window._video_frame_count = mock.Mock(return_value=100)
     return window
 
 
@@ -130,6 +131,30 @@ def test_unreadable_pose_file_warns_and_opens_video_anyway(monkeypatch, window) 
     message_dialog.warning.assert_called_once()
     window._player.load_video.assert_called_once_with(VIDEO_PATH, None)
     assert window.pose_est is None
+
+
+@pytest.mark.parametrize("pose_frames", [90, 110], ids=["shorter", "longer"])
+def test_pose_file_with_different_frame_count_warns_and_opens_video_anyway(
+    monkeypatch, window, pose_frames: int
+) -> None:
+    """A pose file that doesn't have one frame per video frame is not drawn over the video.
+
+    The overlays index the pose by video frame, so a shorter pose file would fail past its
+    last frame.
+    """
+    pose = _fake_pose()
+    pose.num_frames = pose_frames
+    _patch_pose_lookup(monkeypatch, POSE_PATH, pose)
+    message_dialog = mock.Mock()
+    monkeypatch.setattr(viewer_window, "MessageDialog", message_dialog)
+
+    window.open_video(VIDEO_PATH)
+
+    message_dialog.warning.assert_called_once()
+    window._player.load_video.assert_called_once_with(VIDEO_PATH, None)
+    assert window.pose_est is None
+    assert not window._pose_action.isEnabled()
+    assert "does not match the video" in window.statusBar().currentMessage()
 
 
 def test_unreadable_video_reports_error_and_keeps_previous_state(monkeypatch, window) -> None:

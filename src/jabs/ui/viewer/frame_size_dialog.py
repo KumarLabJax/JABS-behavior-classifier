@@ -2,8 +2,7 @@
 
 from PySide6 import QtWidgets
 
-# Large enough for any camera JABS is used with, small enough to keep frames in memory
-MAX_FRAME_DIMENSION = 8192
+from .frame_size import MAX_FRAME_DIMENSION
 
 
 class FrameSizeDialog(QtWidgets.QDialog):

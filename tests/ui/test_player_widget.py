@@ -1,5 +1,7 @@
 from pathlib import Path
+from unittest import mock
 
+import numpy as np
 import pytest
 
 try:
@@ -7,6 +9,7 @@ try:
     from PySide6.QtWidgets import QApplication
 
     from jabs.ui.player_widget import PlayerWidget
+    from jabs.ui.player_widget.overlays.bounding_box import BoundingBoxOverlay
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -98,3 +101,35 @@ def test_only_the_active_identity_is_emphasized_by_default():
 
     widget.emphasize_active_identity = False
     assert frame_widget.is_drawn_active(0)
+
+
+@pytest.mark.parametrize("emphasize", [True, False], ids=["emphasized", "not_emphasized"])
+def test_bounding_boxes_follow_active_identity_emphasis(emphasize: bool) -> None:
+    """Bounding boxes use the active color only for identities drawn as active.
+
+    With emphasis off, as in the viewer, every box gets the active color instead of
+    singling out identity 0.
+    """
+    widget = PlayerWidget()
+    frame_widget = widget._frame_widget
+    pose = mock.Mock(format_major_version=8, has_bounding_boxes=True, identities=[0, 1])
+    pose.get_bounding_boxes.side_effect = lambda i: np.array(
+        [[[10 + 40 * i, 10], [40 + 40 * i, 40]]], dtype=np.float64
+    )
+    pose.identity_index_to_display.side_effect = str
+    frame_widget.set_pose(pose)
+    frame_widget.set_active_identity(0)
+    frame_widget.identity_overlay_mode = PlayerWidget.IdentityOverlayMode.BBOX
+    widget.emphasize_active_identity = emphasize
+    image = QtGui.QImage(100, 100, QtGui.QImage.Format.Format_RGB888)
+    image.fill(QtGui.QColor(60, 60, 60))
+    widget._display_image(image, 0)
+    frame_widget.resize(100, 100)
+
+    (overlay,) = frame_widget.findChildren(BoundingBoxOverlay)
+    overlay._get_accent_color = mock.Mock(return_value=QtGui.QColor("red"))
+    overlay._get_highlight_color = mock.Mock(return_value=QtGui.QColor("blue"))
+    frame_widget.grab()
+
+    overlay._get_accent_color.assert_called()
+    assert overlay._get_highlight_color.called is emphasize

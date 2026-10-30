@@ -27,13 +27,14 @@ highest version is used.
 
 A video with no pose file beside it plays without overlays, and the status bar
 reports that no pose file was found. If the pose file exists but cannot be opened,
-the viewer says so and plays the video without overlays.
+or has a different number of frames than the video, the viewer says so and plays the
+video without overlays.
 
 ## Opening a Pose File Without Video
 
 Use **File→Open Pose File...** (or the **Open Pose File** toolbar button) to play a
-pose file on its own. The pose is drawn over a solid dark gray background at the
-frame rate recorded in the pose file (30 fps if the file does not record one).
+pose file on its own. The pose is drawn over a solid dark gray background at 30
+fps, since pose files do not record the frame rate of the video they came from.
 
 ### Frame Size
 
