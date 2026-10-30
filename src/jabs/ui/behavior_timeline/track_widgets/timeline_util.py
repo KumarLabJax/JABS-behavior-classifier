@@ -1,6 +1,7 @@
 import math
 from dataclasses import dataclass
 from random import Random
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
@@ -10,6 +11,50 @@ from PySide6.QtGui import QBrush, QImage, QPainter, QPen, QPolygonF
 from jabs.project import TrackLabels
 
 from ...colors import SEARCH_HIT_COLOR
+
+#: Number of frames shown on each side of the current frame by the timeline's
+#: sliding-window widgets, so a window spans ``2 * DETAIL_WINDOW_SIZE + 1``
+#: frames.
+#:
+#: The detail bars, the overview bar's window highlight, and the frame ruler all
+#: describe the same window, so they have to agree on its size: the overview bar
+#: draws the box marking which slice of the video the detail bars are showing,
+#: and the ruler numbers the frames inside it. Keeping one definition here means
+#: making the window configurable later only has to change one place.
+#:
+#: Unrelated to ``jabs.feature_extraction.DEFAULT_WINDOW_SIZE``, which is the
+#: number of frames used to compute window features.
+DETAIL_WINDOW_SIZE: Final[int] = 100
+
+
+def window_frame_count(window_size: int) -> int:
+    """Return the number of frames a sliding window spans.
+
+    Args:
+        window_size: Number of frames on each side of the current frame.
+
+    Returns:
+        ``2 * window_size + 1``: the frames on both sides plus the current frame.
+    """
+    return 2 * window_size + 1
+
+
+def frame_edge_x(window_index: int, frame_width: float) -> int:
+    """Return the left pixel edge of a frame in a sliding window.
+
+    Every widget that draws the window maps frames to pixels with this rule, so
+    their frames line up: edges are floored, and a frame spans from its own edge
+    to the next frame's.
+
+    Args:
+        window_index: Position of the frame in the window; ``0`` is the first frame.
+        frame_width: Pixels per frame; fractional, since the window is scaled to
+            the widget width.
+
+    Returns:
+        The x coordinate of the frame's left edge, relative to the window's left edge.
+    """
+    return math.floor(window_index * frame_width)
 
 
 @dataclass(frozen=True)
@@ -76,8 +121,8 @@ def window_geometry(
     n_start_pad = max(0, -start)
 
     n_in_bounds = slice_end - slice_start + 1
-    x0 = math.floor(n_start_pad * frame_width)
-    x1 = math.floor((n_start_pad + n_in_bounds) * frame_width)
+    x0 = frame_edge_x(n_start_pad, frame_width)
+    x1 = frame_edge_x(n_start_pad + n_in_bounds, frame_width)
 
     return WindowGeometry(
         start=start,
@@ -94,8 +139,8 @@ def window_geometry(
 def frame_pixel_widths(geometry: WindowGeometry, frame_width: float) -> npt.NDArray[np.int_]:
     """Compute how many pixels each in-bounds frame occupies.
 
-    Widths come from the difference between consecutive floored pixel edges,
-    so they sum to :attr:`WindowGeometry.width_px` and no pixel is painted
+    Widths come from the difference between consecutive floored pixel edges
+    (the :func:`frame_edge_x` rule, vectorized), so they sum to :attr:`WindowGeometry.width_px` and no pixel is painted
     twice or skipped. Individual frames get a width of zero when the window
     holds more frames than the widget has pixels.
 

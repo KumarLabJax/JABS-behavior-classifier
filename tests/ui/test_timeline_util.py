@@ -6,6 +6,7 @@ import pytest
 try:
     from jabs.ui.behavior_timeline.track_widgets.timeline_util import (
         frame_pixel_widths,
+        window_frame_count,
         window_geometry,
     )
 
@@ -99,3 +100,9 @@ def test_frame_pixel_widths_uniform_when_frame_width_is_integral() -> None:
     )
 
     assert np.all(frame_pixel_widths(geometry, 3.0) == 3)
+
+
+@pytest.mark.parametrize(("window_size", "expected"), [(0, 1), (1, 3), (100, 201)])
+def test_window_frame_count_includes_current_frame(window_size: int, expected: int) -> None:
+    """A window spans its frames on both sides plus the current frame."""
+    assert window_frame_count(window_size) == expected
