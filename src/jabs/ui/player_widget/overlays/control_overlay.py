@@ -1,3 +1,4 @@
+import functools
 from typing import TYPE_CHECKING, Final
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -55,14 +56,14 @@ class _ImageAdjustment:
         maximum: int,
         signal: QtCore.SignalInstance,
     ) -> None:
-        self.name = name
-        self.minimum = minimum
-        self.maximum = maximum
-        self.signal = signal
-        self.icon = MaterialIcon(icon_name).pixmap(16, color=QtGui.QColor(0, 0, 0))
+        self.name: str = name
+        self.minimum: int = minimum
+        self.maximum: int = maximum
+        self.signal: QtCore.SignalInstance = signal
+        self.icon: QtGui.QPixmap = MaterialIcon(icon_name).pixmap(16, color=QtGui.QColor(0, 0, 0))
 
-        self.badge = QtCore.QRect()
-        self.slider_open = False
+        self.badge: QtCore.QRect = QtCore.QRect()
+        self.slider_open: bool = False
         self.slider: QtWidgets.QSlider | None = None
         self.container: QtWidgets.QWidget | None = None
         self.value: int = self.NEUTRAL_VALUE
@@ -578,8 +579,10 @@ class ControlOverlay(Overlay):
         slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, container)
         slider.setRange(adjustment.minimum, adjustment.maximum)
         slider.setValue(adjustment.value)
+        # a partial of a bound method (unlike a lambda) lets Qt see the overlay as the
+        # receiver, so the connection is dropped if the overlay is destroyed first
         slider.valueChanged.connect(
-            lambda value: self._on_adjustment_slider_value_changed(adjustment, value)
+            functools.partial(self._on_adjustment_slider_value_changed, adjustment)
         )
         layout.addWidget(slider)
         adjustment.slider = slider

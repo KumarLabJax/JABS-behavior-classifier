@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 try:
@@ -45,7 +47,7 @@ pytestmark = pytest.mark.skipif(SKIP_UI_TESTS, reason=SKIP_REASON)
 
 
 @pytest.fixture(scope="module", autouse=True)
-def qapp():
+def qapp() -> Iterator[QApplication]:
     """Ensure a QApplication exists for widget tests."""
     app = QApplication.instance()
     if app is None:
@@ -54,16 +56,23 @@ def qapp():
 
 
 @pytest.fixture
-def overlay() -> ControlOverlay:
+def overlay() -> Iterator[ControlOverlay]:
     """A ControlOverlay whose adjustment badges have known positions.
 
     The badge rectangles are normally set while painting; the tests set them
-    directly so a click can be aimed at one without rendering a frame.
+    directly so a click can be aimed at one without rendering a frame. The stub
+    parent (which owns the overlay and any slider containers) is deleted on
+    teardown so widgets don't accumulate across tests.
     """
-    control_overlay = ControlOverlay(_StubFrameWidget())
+    frame_widget = _StubFrameWidget()
+    control_overlay = ControlOverlay(frame_widget)
     control_overlay._brightness.badge = QtCore.QRect(_BRIGHTNESS_BADGE)
     control_overlay._contrast.badge = QtCore.QRect(_CONTRAST_BADGE)
-    return control_overlay
+    yield control_overlay
+    frame_widget.close()
+    frame_widget.deleteLater()
+    # no event loop runs in these tests, so deliver the pending deletions explicitly
+    QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
 
 
 def _click(overlay: ControlOverlay, badge: QtCore.QRect) -> bool:
