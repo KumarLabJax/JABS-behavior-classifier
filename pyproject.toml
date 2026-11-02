@@ -108,6 +108,7 @@ jabs = "jabs.scripts.gui_entrypoint:main"
 "jabs-init" = "jabs.scripts.initialize_project:main"
 "jabs-features" = "jabs.scripts.generate_features:main"
 "jabs-cli" = "jabs.scripts.cli:main"
+"jabs-viewer" = "jabs.scripts.viewer_entrypoint:main"
 
 [tool.uv.workspace]
 members = ["packages/*"]

@@ -57,6 +57,7 @@ class BoundingBoxOverlay(Overlay):
         """
         if (
             not self._enabled
+            or self.parent.pose is None
             or self.parent.pose.format_major_version < 8
             or self.parent.pixmap().isNull()
             or self.parent.identity_overlay_mode != self.parent.IdentityOverlayMode.BBOX
@@ -126,7 +127,9 @@ class BoundingBoxOverlay(Overlay):
 
             # set up the bounding box
             base_color = (
-                self._get_highlight_color() if identity != active_id else self._get_accent_color()
+                self._get_accent_color()
+                if self.parent.is_drawn_active(identity)
+                else self._get_highlight_color()
             )
             pen = QtGui.QPen(base_color)
             pen.setWidth(self._line_width)

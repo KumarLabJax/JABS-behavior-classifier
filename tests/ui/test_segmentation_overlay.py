@@ -38,6 +38,7 @@ def _overlay(enabled: bool, identities=(0, 1, 2), active_identity: int = 1):
         pose=SimpleNamespace(identities=list(identities)),
         current_frame=7,
         active_identity=active_identity,
+        is_drawn_active=lambda identity: identity == active_identity,
         scaled_pix_width=800,
         image_to_widget_coords_cropped=lambda x, y, rect: (int(x), int(y)),
     )

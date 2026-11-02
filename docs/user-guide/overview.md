@@ -45,6 +45,7 @@ Use the navigation tree on the left to explore different topics:
 - **Labeling** - Master the labeling workflow for training classifiers
 - **Searching Behaviors** - Find and review labeled or predicted behavior bouts
 - **Command Line Tools** - Use JABS tools from the command line
+- **JABS Viewer** - View a video or pose file with pose and segmentation overlays
 - **File Formats** - Understand the format of JABS output files
 - **Keyboard Shortcuts Reference** - Quick reference for all keyboard shortcuts
 
