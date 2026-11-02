@@ -596,7 +596,11 @@ class BehaviorTimelineWidget(QWidget):
             self._label_overview_widgets[idx].compact = False
             if self._combined_prediction_widgets[idx] is not None:
                 self._combined_prediction_widgets[idx].compact = False  # type: ignore[union-attr]
-            # Per-class bars are always compact regardless of identity view mode.
+                # Multi-class per-class bars are always compact regardless of identity mode.
+            else:
+                # Binary mode: the single prediction bar lives in the per-class list.
+                for pw in self._prediction_overview_widgets[idx]:
+                    pw.compact = False
 
         # Add FrameRulerWidget last
         self._layout.addWidget(self._frame_labels)
