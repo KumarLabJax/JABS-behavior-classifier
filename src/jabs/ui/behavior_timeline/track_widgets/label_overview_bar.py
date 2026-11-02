@@ -218,14 +218,11 @@ class LabelOverviewBar(QWidget):
         qp = QPainter(self)
 
         # Highlight the window around the current position
-        mapped_position = int(self._current_frame / fbs)
-        window_px = int(self._frames_in_view / fbs)
-        window_half_px = int(self._window_size / fbs)
-        highlight_start = mapped_position - window_half_px
+        highlight_start, highlight_width = self._highlight_span(fbs)
 
         qp.setPen(QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine))
         qp.setBrush(QBrush(POSITION_MARKER_COLOR, Qt.BrushStyle.Dense4Pattern))
-        qp.drawRect(highlight_start, 0, window_px, self.size().height() - 1)
+        qp.drawRect(highlight_start, 0, highlight_width, self.size().height() - 1)
 
         # Draw the label bar (fills the full widget width)
         qp.drawPixmap(0, 0, self._pixmap)
@@ -241,6 +238,26 @@ class LabelOverviewBar(QWidget):
             qp.drawLine(start_pos, center_y, end_pos, center_y)
             qp.drawPolygon(diamond_at(start_pos, center_y, diamond_w, diamond_h))
             qp.drawPolygon(diamond_at(end_pos, center_y, diamond_w, diamond_h))
+
+    def _highlight_span(self, frames_per_pixel: float) -> tuple[int, int]:
+        """Return the pixel span of the box marking the detail bars' window.
+
+        Both edges are mapped from frame positions, so the box covers exactly the
+        frames the detail bars show and stays centered on the current frame.
+        Rounding the width and the half-width separately could leave it off by a
+        pixel.
+
+        Args:
+            frames_per_pixel: Number of video frames each pixel of the bar covers.
+
+        Returns:
+            The left edge and the width of the box, in pixels.
+        """
+        start = int((self._current_frame - self._window_size) / frames_per_pixel)
+        end = int(
+            (self._current_frame - self._window_size + self._frames_in_view) / frames_per_pixel
+        )
+        return start, end - start
 
     def set_labels(self, labels: npt.NDArray[np.int16]) -> None:
         """Load and display a new label track.
