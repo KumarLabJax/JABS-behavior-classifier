@@ -242,7 +242,11 @@ class PlayerWidget(QtWidgets.QWidget):
             QtWidgets.QApplication.processEvents()
 
     def reset(self) -> None:
-        """reset video player before loading a new video"""
+        """stop playback, release the loaded video, and clear the player"""
+        self.stop()
+        self._cleanup_player_thread()
+        if self._video_stream is not None:
+            self._video_stream.close()
         self._video_stream = None
         self._video_path = None
         self._pose_est = None
@@ -296,15 +300,6 @@ class PlayerWidget(QtWidgets.QWidget):
             pose_est: pose to draw over the frames, or None
             video_labels: annotations to draw over the frames, or None
         """
-        # cleanup the old player thread if it exists
-        self._cleanup_player_thread()
-
-        # close the old video stream if it exists
-        if self._video_stream is not None:
-            self._video_stream.close()
-
-        # reset the button state to not playing
-        self.stop()
         self.reset()
 
         self._video_stream = stream

@@ -133,3 +133,20 @@ def test_bounding_boxes_follow_active_identity_emphasis(emphasize: bool) -> None
 
     overlay._get_accent_color.assert_called()
     assert overlay._get_highlight_color.called is emphasize
+
+
+def test_reset_stops_the_player_thread_and_closes_the_stream():
+    """Reset tears down playback, so a failed load can't leave a thread reading a cleared stream."""
+    widget = PlayerWidget()
+    thread = mock.Mock()
+    stream = mock.Mock()
+    widget._player_thread = thread
+    widget._video_stream = stream
+
+    widget.reset()
+
+    thread.stop_playback.assert_called()
+    thread.wait.assert_called()
+    stream.close.assert_called_once()
+    assert widget._player_thread is None
+    assert widget._video_stream is None
