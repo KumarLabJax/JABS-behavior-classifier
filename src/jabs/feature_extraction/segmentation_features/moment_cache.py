@@ -111,6 +111,17 @@ class MomentInfo:
         key_idx = self._moment_keys.index(key)
         return self._moments[frame, key_idx]
 
+    def get_moment_array(self, key: str) -> npt.NDArray[np.float32]:
+        """retrieve one moment for every frame
+
+        Args:
+            key: key of moment data to retrieve
+
+        Returns:
+            moment values with shape (n_frames,); NaN where there is no segmentation
+        """
+        return self._moments[:, self._moment_keys.index(key)]
+
     def get_all_moments(self, frame):
         """retrieve moments for a frame
 
