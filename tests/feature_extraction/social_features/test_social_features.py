@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -93,6 +94,19 @@ class _MultiFrameStubPose:
         points[PoseEstimation.KeypointIndex.BASE_NECK] = (cx * factor, cy * factor)
         if not self._nose_valid and identity == 0:
             mask[PoseEstimation.KeypointIndex.NOSE] = 0
+        return points, mask
+
+    def get_identity_poses(
+        self, identity: int, scale: float | None = None
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.uint8]]:
+        """Return synthetic keypoints for every frame; zeros where ``identity`` is absent."""
+        n_kp = len(PoseEstimation.KeypointIndex)
+        points = np.zeros((self.num_frames, n_kp, 2), dtype=np.float32)
+        mask = np.zeros((self.num_frames, n_kp), dtype=np.uint8)
+        for frame in range(self.num_frames):
+            frame_points, frame_mask = self.get_points(frame, identity, scale)
+            if frame_points is not None:
+                points[frame], mask[frame] = frame_points, frame_mask
         return points, mask
 
     def identity_mask(self, identity: int) -> npt.NDArray[np.uint8]:
@@ -474,3 +488,90 @@ def test_contour_segment_distance_avoids_vertex_subsampling_overestimate() -> No
 
     np.testing.assert_allclose(dists["closest social segmentation distance"], [1.0])
     np.testing.assert_allclose(huddle["social contact count"], [1.0])
+
+
+def test_connected_group_sizes_follow_transitive_contact() -> None:
+    """A contact chain forms one group; absent identities are NaN, isolated ones are 1."""
+    # frame 0: 0-1 and 1-2 touch (chain of 3), 3 alone; frame 1: identity 2 absent
+    adjacency = np.zeros((2, 4, 4), dtype=bool)
+    for a, b in [(0, 1), (1, 2)]:
+        adjacency[0, a, b] = adjacency[0, b, a] = True
+    adjacency[1, 0, 1] = adjacency[1, 1, 0] = True
+    present = np.array([[True, True, True, True], [True, True, False, True]])
+
+    sizes = social_distance._connected_group_sizes(adjacency, present)
+
+    np.testing.assert_array_equal(sizes[0], [3, 3, 3, 1])
+    np.testing.assert_array_equal(sizes[1], [2, 2, np.nan, 1])
+
+
+def test_equidistant_neighbors_rank_by_identity_order() -> None:
+    """On a distance tie the earlier identity is closest, as in the original per-frame loop."""
+    # identities 1 and 2 are the same hull distance from 0; both are in 0's field of view
+    pose = _MultiFrameStubPose({0: [(0.0, 0.0)], 1: [(30.0, 0.0)], 2: [(0.0, 30.0)]})
+
+    info = social_distance.ClosestIdentityInfo(pose, 0, 1.0)
+
+    np.testing.assert_array_equal(info.closest_identities, [1])
+    np.testing.assert_array_equal(info.closest_fov_identities, [1])
+    np.testing.assert_array_equal(info.second_closest_distances, info.closest_distances)
+
+
+@pytest.fixture(scope="module")
+def sample_pose_v6() -> Iterator[PoseEstimation]:
+    """Real v6 pose data (4 identities, with segmentation) from a temporary copy."""
+    sample_v6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        shutil.copy(sample_v6, Path(tmpdir) / sample_v6.name)
+        yield pose_est.open_pose_file(Path(tmpdir) / sample_v6.name)
+
+
+_INFO_PROPERTIES = [
+    name
+    for name in dir(ClosestIdentityInfo)
+    if isinstance(getattr(ClosestIdentityInfo, name), property)
+]
+
+
+def test_contour_chunking_does_not_change_results(
+    sample_pose_v6: PoseEstimation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Contour distances computed in many small frame chunks equal a single chunk."""
+    social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
+    expected = ClosestIdentityInfo(sample_pose_v6, 0, 1.0)
+
+    social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
+    monkeypatch.setattr(social_distance, "_CONTOUR_CHUNK_FRAMES", 7)
+    chunked = ClosestIdentityInfo(sample_pose_v6, 0, 1.0)
+    social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
+
+    for name in _INFO_PROPERTIES:
+        np.testing.assert_array_equal(getattr(chunked, name), getattr(expected, name), name)
+
+
+@pytest.mark.parametrize(
+    "pixel_scale",
+    [0.07928075, np.float32(0.07928075), np.float64(0.07928075), 1, np.int64(1)],
+    ids=["python_float", "numpy_float32", "numpy_float64", "python_int", "numpy_int"],
+)
+def test_scaled_distances_keep_scalar_precision(
+    sample_pose_v6: PoseEstimation, pixel_scale: float
+) -> None:
+    """Scaled distances match the original per-frame ``python_float * pixel_scale``.
+
+    Pose files store ``cm_per_pixel`` as ``np.float32``, which makes that product a
+    float32 computation, while a Python float scale keeps float64 precision.
+    """
+    info = ClosestIdentityInfo(sample_pose_v6, 0, pixel_scale)
+    hulls = {i: sample_pose_v6.get_identity_convex_hulls(i) for i in sample_pose_v6.identities}
+
+    # frames where both skeletal hulls exist (others may use segmentation fallback hulls)
+    checked = 0
+    for frame, closest_id in enumerate(info.closest_identities):
+        self_hull, other_hull = hulls[0][frame], hulls[int(closest_id)][frame]
+        if closest_id == -1 or self_hull is None or other_hull is None:
+            continue
+        expected = np.float32(float(self_hull.distance(other_hull)) * pixel_scale)
+        assert info.closest_distances[frame] == expected, frame
+        checked += 1
+    assert checked > 0
