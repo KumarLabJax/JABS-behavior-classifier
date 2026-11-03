@@ -12,6 +12,11 @@ import pytest
 import jabs.pose_estimation as pose_est_module
 from jabs.core.enums import CacheFormat
 from jabs.core.utils import pose_file_stem
+from jabs.feature_extraction.feature_timing import (
+    GROUP_SETUP_FEATURE,
+    FeatureTimings,
+    TimingStage,
+)
 from jabs.feature_extraction.features import IdentityFeatures
 from jabs.io.feature_cache import detect_cache_format
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader
@@ -363,3 +368,36 @@ def test_legacy_rename_failure_is_non_fatal(tmp_path, pose_est_v5, caplog, monke
     assert instance._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)
     assert legacy.exists(), "legacy dir untouched after failed rename"
     assert any("failed to rename" in r.message for r in caplog.records)
+
+
+def test_timings_cover_computed_features_but_not_cache_hits(tmp_path, pose_est_v5_short) -> None:
+    """A timing collector records computed features and skips cached ones."""
+    timings = FeatureTimings()
+    features = IdentityFeatures(
+        source_file=_SOURCE_FILE,
+        identity=_IDENTITY,
+        directory=tmp_path,
+        pose_est=pose_est_v5_short,
+        force=True,
+        op_settings={},
+        timings=timings,
+    )
+    features.get_window_features(_WINDOW_SIZE, force=True)
+
+    stages = {(key.group, key.feature, key.stage) for key in timings.stats()}
+    assert ("base", "angles", TimingStage.PER_FRAME) in stages
+    assert ("base", "angles", TimingStage.WINDOW) in stages
+    assert ("social", GROUP_SETUP_FEATURE, TimingStage.SETUP) in stages
+
+    cached = FeatureTimings()
+    reloaded = IdentityFeatures(
+        source_file=_SOURCE_FILE,
+        identity=_IDENTITY,
+        directory=tmp_path,
+        pose_est=pose_est_v5_short,
+        force=False,
+        op_settings={},
+        timings=cached,
+    )
+    reloaded.get_window_features(_WINDOW_SIZE)
+    assert len(cached) == 0

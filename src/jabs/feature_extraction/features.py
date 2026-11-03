@@ -20,6 +20,7 @@ from .base_features import BaseFeatureGroup
 
 # import feature modules
 from .feature_base_class import Feature
+from .feature_timing import FeatureTimings
 from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
 from .social_features import SocialFeatureGroup
@@ -138,6 +139,9 @@ class IdentityFeatures:
         cache_window:
           bool to indicate saving the window features in the cache
           directory
+        timings:
+          optional collector that receives the compute time of each
+          feature module. Features loaded from the cache are not timed.
     """
 
     _version = FEATURE_VERSION
@@ -154,6 +158,7 @@ class IdentityFeatures:
         cache_window: bool = True,
         cache_format: CacheFormat = CacheFormat.HDF5,
         include_pose_hash: bool = False,
+        timings: FeatureTimings | None = None,
     ) -> None:
         self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
@@ -204,6 +209,10 @@ class IdentityFeatures:
         # load extended feature modules
         for m in _EXTENDED_FEATURE_MODULES:
             self._feature_modules[m.name()] = m(pose_est, distance_scale)
+
+        # attach the timing collector before any features are computed
+        for group in self._feature_modules.values():
+            group.timings = timings
 
         # will hold an array that indicates if each frame is valid for this identity
         self._frame_valid = None
