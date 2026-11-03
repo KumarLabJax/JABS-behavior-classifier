@@ -9,7 +9,7 @@
 [![Python 3.10-3.14](https://img.shields.io/badge/python-3.10--3.14-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/jabs-behavior-classifier.svg)](https://pypi.org/project/jabs-behavior-classifier/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.50.0/LICENSE)
-[![DOI](https://img.shields.io/badge/DOI-10.7554%2FeLife.107259.2-green.svg)](https://doi.org/10.7554/eLife.107259.2)
+[![DOI](https://img.shields.io/badge/DOI-10.7554%2FeLife.107259.3-green.svg)](https://doi.org/10.7554/eLife.107259.3)
 
 [Documentation](https://jabs-tutorial.readthedocs.io/) · [User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.50.0/docs/user-guide/overview.md) · [Sample Data](https://doi.org/10.5281/zenodo.16697331) · [Contact Us](mailto:jabs@jax.org)
 
@@ -194,7 +194,7 @@ Interested in contributing? Check out our:
 
 If you use JABS in your research, please cite:
 
-> Choudhary, A., Geuther, B. Q., Sproule, T. J., Beane, G., Kohar, V., Trapszo, J., & Kumar, V. (2025). JAX Animal Behavior System (JABS): A genetics informed, end-to-end advanced behavioral phenotyping platform for the laboratory mouse. *eLife*, 14:RP107259. https://doi.org/10.7554/eLife.107259.2
+> Choudhary, A., Geuther, B. Q., Sproule, T. J., Beane, G., Kohar, V., Trapszo, J., & Kumar, V. (2025). JAX Animal Behavior System (JABS): A genetics informed, end-to-end advanced behavioral phenotyping platform for the laboratory mouse. *eLife*, 14:RP107259. https://doi.org/10.7554/eLife.107259.3
 
 ## License
 
