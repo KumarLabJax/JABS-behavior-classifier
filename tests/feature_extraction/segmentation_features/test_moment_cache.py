@@ -86,3 +86,35 @@ def test_moment_info_matches_full_frame_reference(seg_data: dict, pixel_scale: f
         expected = np.array([reference[k] for k in keys]) * scale
         np.testing.assert_allclose(info._moments[frame], expected, rtol=1e-5, atol=1e-12)
     assert frames_with_contours > 0
+
+
+@pytest.mark.parametrize(
+    "pixel_scale",
+    [0.07928075, np.float32(0.07928075), np.float64(0.07928075), 1, np.int64(1)],
+    ids=["python_float", "numpy_float32", "numpy_float64", "python_int", "numpy_int"],
+)
+def test_moment_scaling_matches_original_scalar_arithmetic(
+    seg_data: dict, pixel_scale: float
+) -> None:
+    """Stored moments equal the original per-value ``moment * np.power(scale, power)``.
+
+    Pose files store ``cm_per_pixel`` as ``np.float32``, which made that product a
+    float32 computation, while Python float and integer scales use float64.
+    """
+    info = MomentInfo(seg_data["pose_est_v6"], 1, pixel_scale)
+    keys = list(cv2.moments(np.empty(0)))
+    powers = [info.get_pixel_power(k) for k in keys]
+
+    checked = 0
+    for frame in range(info._moments.shape[0]):
+        contours = info.get_trimmed_contours(frame)
+        if len(contours) == 0:
+            continue
+        moments = MomentInfo.calculate_moments(contours)
+        expected = np.array(
+            [moments[k] * np.power(pixel_scale, p) for k, p in zip(keys, powers, strict=True)],
+            dtype=np.float32,
+        )
+        np.testing.assert_array_equal(info._moments[frame], expected)
+        checked += 1
+    assert checked > 0
