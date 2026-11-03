@@ -37,36 +37,41 @@ DEFAULT_PROCESSES = os.cpu_count() or 1
 
 
 def generate_files_worker(params: dict) -> FeatureTimings | None:
-    """worker function used for generating project feature and cache files
+    """worker function used for generating project feature and cache files for one video
+
+    All identities in the video are processed with the same PoseEstimation object, so
+    per-video work that feature groups cache on it (such as the social contact graph
+    shared by every identity) is done once per video rather than once per identity.
 
     Returns:
-        Feature compute times for this identity if ``params["collect_timings"]`` is
-        set, otherwise None.
+        Feature compute times for every identity in the video if
+        ``params["collect_timings"]`` is set, otherwise None.
     """
     project = params["project"]
     pose_est = project.load_pose_est(project.video_manager.video_path(params["video"]))
     cache_format = CacheFormat(params["cache_format"])
     timings = FeatureTimings() if params.get("collect_timings", False) else None
-
-    features = jabs.feature_extraction.IdentityFeatures(
-        params["video"],
-        params["identity"],
-        project.feature_dir,
-        pose_est,
-        force=params["force"],
-        op_settings=project.get_project_defaults(),
-        cache_format=cache_format,
-        timings=timings,
-    )
-
-    # unlike per frame features, window features are not automatically
-    # generated when opening the file. They are computed as needed based
-    # on the requested window size. Force each window size to be
-    # pre-computed by fetching it
-    for w in params["window_sizes"]:
-        _ = features.get_window_features(w, force=params["force"])
+    op_settings = project.get_project_defaults()
 
     for identity in pose_est.identities:
+        features = jabs.feature_extraction.IdentityFeatures(
+            params["video"],
+            identity,
+            project.feature_dir,
+            pose_est,
+            force=params["force"],
+            op_settings=op_settings,
+            cache_format=cache_format,
+            timings=timings,
+        )
+
+        # unlike per frame features, window features are not automatically
+        # generated when opening the file. They are computed as needed based
+        # on the requested window size. Force each window size to be
+        # pre-computed by fetching it
+        for w in params["window_sizes"]:
+            _ = features.get_window_features(w, force=params["force"])
+
         _ = pose_est.get_identity_convex_hulls(identity)
 
     return timings
@@ -152,6 +157,9 @@ def compute_project_features(
 ) -> FeatureTimings | None:
     """Compute features for all identities in the project.
 
+    Work is split into one job per video, so parallelism is limited to the number of
+    videos in the project.
+
     Args:
         project: Project to compute features for.
         window_sizes: Window sizes to pre-compute.
@@ -167,23 +175,18 @@ def compute_project_features(
 
     def feature_job_producer():
         for video in project.video_manager.videos:
-            for identity in project.load_pose_est(
-                project.video_manager.video_path(video)
-            ).identities:
-                yield {
-                    "video": video,
-                    "identity": identity,
-                    "project": project,
-                    "force": force,
-                    "window_sizes": window_sizes,
-                    "cache_format": cache_format.value,
-                    "collect_timings": collect_timings,
-                }
+            yield {
+                "video": video,
+                "project": project,
+                "force": force,
+                "window_sizes": window_sizes,
+                "cache_format": cache_format.value,
+                "collect_timings": collect_timings,
+            }
 
     timings = FeatureTimings() if collect_timings else None
-    total_identities = project.total_project_identities
     with Progress() as progress:
-        task = progress.add_task(" Computing Features", total=total_identities)
+        task = progress.add_task(" Computing Features", total=len(project.video_manager.videos))
         for result in pool.imap_unordered(generate_files_worker, feature_job_producer()):
             if timings is not None and result is not None:
                 timings.merge(result)
