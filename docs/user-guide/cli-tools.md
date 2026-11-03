@@ -187,6 +187,7 @@ The `jabs-init` command initializes a JABS project directory and computes featur
 ```bash
 jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--processes <N>]
           [-w WINDOW_SIZE] [--cache-format {hdf5,parquet}] [--skip-feature-generation]
+          [--timing-report <report.md> [--timing-top-n <N>]]
 ```
 
 - `<project_dir>`: Path to the JABS project directory containing video and pose files.
@@ -196,6 +197,8 @@ jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--processes <N>]
 - `-w WINDOW_SIZE`: Window size(s) to pre-compute. Can be repeated (e.g. `-w 2 -w 5`). Defaults to 5 if omitted.
 - `--cache-format {hdf5,parquet}`: Feature cache storage format. If omitted, the existing project setting is preserved. New projects default to `parquet`; projects created before this option existed default to `hdf5`. Pass `--cache-format` explicitly only when you want to change or set the format — use `--force` alongside it to rewrite existing cache files in the new format.
 - `--skip-feature-generation`: Validate and initialize the project without computing features.
+- `--timing-report <report.md>`: Write a Markdown report listing how long each feature took to compute, sorted from slowest to fastest. Times are summed across all identities, worker processes, and window sizes. Features loaded from the cache are not timed, so combine with `--force` to time every feature.
+- `--timing-top-n <N>`: Only list the `N` slowest features in the timing report. Requires `--timing-report`.
 
 **Examples:**
 
@@ -208,6 +211,9 @@ jabs-init /path/to/project --metadata project_metadata.json --processes 8 -w 2 -
 
 # Migrate an existing HDF5 cache to Parquet (recomputes all features)
 jabs-init /path/to/project --cache-format parquet --force
+
+# Recompute all features and report the 10 slowest
+jabs-init /path/to/project --force --timing-report feature_timing.md --timing-top-n 10
 ```
 
 See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview and [Feature Cache Format](project-setup.md#feature-cache-format) for migration guidance.

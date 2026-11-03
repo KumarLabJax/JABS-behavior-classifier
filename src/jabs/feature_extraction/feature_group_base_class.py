@@ -1,9 +1,11 @@
 import abc
+import contextlib
 import typing
 
 from jabs.pose_estimation import PoseEstimation
 
 from .feature_base_class import Feature
+from .feature_timing import GROUP_SETUP_FEATURE, FeatureTimings, TimingStage
 
 
 class FeatureGroup(abc.ABC):
@@ -32,6 +34,7 @@ class FeatureGroup(abc.ABC):
         self._enabled_features = []
         self._poses = poses
         self._pixel_scale = pixel_scale
+        self._timings: FeatureTimings | None = None
         if self._name is None:
             raise NotImplementedError("Base class must override _name class member")
 
@@ -49,8 +52,13 @@ class FeatureGroup(abc.ABC):
         Returns:
             dict where each key is the name of a feature module included in this FeatureGroup
         """
-        feature_modules = self._init_feature_mods(identity)
-        return {name: mod.per_frame(identity) for name, mod in feature_modules.items()}
+        with self._measure(GROUP_SETUP_FEATURE, TimingStage.SETUP):
+            feature_modules = self._init_feature_mods(identity)
+        values = {}
+        for name, mod in feature_modules.items():
+            with self._measure(name, TimingStage.PER_FRAME):
+                values[name] = mod.per_frame(identity)
+        return values
 
     def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """compute window feature values for a given identities per frame values
@@ -66,11 +74,34 @@ class FeatureGroup(abc.ABC):
             of this FeatureGroup. The value for each element is the window feature
             dict returned by that module.
         """
-        feature_modules = self._init_feature_mods(identity)
-        return {
-            name: mod.window(identity, window_size, per_frame_values[name])
-            for name, mod in feature_modules.items()
-        }
+        with self._measure(GROUP_SETUP_FEATURE, TimingStage.SETUP):
+            feature_modules = self._init_feature_mods(identity)
+        values = {}
+        for name, mod in feature_modules.items():
+            with self._measure(name, TimingStage.WINDOW):
+                values[name] = mod.window(identity, window_size, per_frame_values[name])
+        return values
+
+    @property
+    def timings(self) -> FeatureTimings | None:
+        """Collector that receives per-feature compute times, or None if timing is disabled."""
+        return self._timings
+
+    @timings.setter
+    def timings(self, timings: FeatureTimings | None) -> None:
+        """Attach a timing collector to this group, or pass None to disable timing.
+
+        The same collector can be shared by multiple groups.
+        """
+        self._timings = timings
+
+    def _measure(
+        self, feature: str, stage: TimingStage
+    ) -> contextlib.AbstractContextManager[None]:
+        """Return a context manager that times its body if a collector is attached."""
+        if self._timings is None:
+            return contextlib.nullcontext()
+        return self._timings.measure(self._name, feature, stage)
 
     @property
     def enabled_features(self):
