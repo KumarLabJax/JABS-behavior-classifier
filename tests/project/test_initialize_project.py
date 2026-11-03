@@ -216,7 +216,9 @@ def test_jabs_init_uses_the_canonical_default_window_size():
     assert initialize_project.DEFAULT_WINDOW_SIZE == jabs.feature_extraction.DEFAULT_WINDOW_SIZE
 
 
-def test_generate_files_worker_processes_every_identity_with_one_pose(monkeypatch):
+def test_generate_files_worker_processes_every_identity_with_one_pose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """One job computes every identity in a video using a single PoseEstimation.
 
     Per-video work that feature groups cache on the pose object (e.g. the social
@@ -239,7 +241,7 @@ def test_generate_files_worker_processes_every_identity_with_one_pose(monkeypatc
             constructed.append((identity, pose_est, kwargs["timings"]))
             self._identity: int = identity
 
-        def get_window_features(self, *args, **kwargs):
+        def get_window_features(self, *args: object, **kwargs: object) -> None:
             window_calls.append((self._identity, args, kwargs))
 
     monkeypatch.setattr(jabs.feature_extraction, "IdentityFeatures", _FakeIdentityFeatures)
