@@ -52,12 +52,7 @@ def generate_files_worker(params: dict):
     # on the requested window size. Force each window size to be
     # pre-computed by fetching it
     for w in params["window_sizes"]:
-        # get the social features if they are supported, although this doesn't
-        # matter with current implementation, as they are always computed if
-        # the file supports them, they are just not included in the returned
-        # features if this param is false
-        use_social = pose_est.format_major_version > 2
-        _ = features.get_window_features(w, use_social, force=params["force"])
+        _ = features.get_window_features(w, force=params["force"])
 
     for identity in pose_est.identities:
         _ = pose_est.get_identity_convex_hulls(identity)
