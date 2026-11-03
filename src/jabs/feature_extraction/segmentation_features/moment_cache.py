@@ -57,10 +57,7 @@ class MomentInfo:
         self._moment_conversion_powers = [
             self.get_pixel_power(feature_name) for feature_name in self._moment_keys
         ]
-        # per-moment factor converting from pixel to cm units
-        moment_scale: npt.NDArray[np.float64] = np.power(
-            float(pixel_scale), np.array(self._moment_conversion_powers, dtype=np.float64)
-        )
+        moment_scale = self._moment_scale_factors(pixel_scale, self._moment_conversion_powers)
         self._poses = poses
         self._pixel_scale = pixel_scale
         self._moments = np.zeros(
@@ -82,7 +79,33 @@ class MomentInfo:
                 self._moments[frame, :] = np.nan
                 continue
             moments = self.calculate_moments(contours)
-            self._moments[frame, :] = [moments[key] for key in self._moment_keys] * moment_scale
+            self._moments[frame, :] = (
+                np.array([moments[key] for key in self._moment_keys], dtype=moment_scale.dtype)
+                * moment_scale
+            )
+
+    @staticmethod
+    def _moment_scale_factors(pixel_scale: float, powers: list[int]) -> npt.NDArray[np.floating]:
+        """Per-moment factors converting moments from pixel to cm units.
+
+        Moments used to be scaled one value at a time, as a Python float times
+        ``np.power(pixel_scale, power)``, so the precision followed the type of
+        ``pixel_scale``: float32 arithmetic for ``np.float32`` (as read from pose files),
+        float64 for a Python float, ``np.float64``, or an integer. The returned dtype
+        reproduces that, so multiplying the moments (cast to the same dtype) by these
+        factors gives the original values.
+
+        Args:
+            pixel_scale: Scale factor to convert pixel distances to cm.
+            powers: Pixel power of each moment.
+
+        Returns:
+            ``pixel_scale ** power`` for each moment, in the dtype of the original
+            ``python_float * np.power(pixel_scale, power)``.
+        """
+        factors = [np.power(pixel_scale, power) for power in powers]
+        dtype = np.result_type(1.0 * factors[0])
+        return np.array(factors, dtype=dtype)
 
     def get_pixel_power(self, key):
         """get the degree that pixels influence this image moment
