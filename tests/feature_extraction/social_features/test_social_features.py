@@ -551,8 +551,8 @@ def test_contour_chunking_does_not_change_results(
 
 @pytest.mark.parametrize(
     "pixel_scale",
-    [0.07928075, np.float32(0.07928075), np.float64(0.07928075)],
-    ids=["python_float", "numpy_float32", "numpy_float64"],
+    [0.07928075, np.float32(0.07928075), np.float64(0.07928075), 1, np.int64(1)],
+    ids=["python_float", "numpy_float32", "numpy_float64", "python_int", "numpy_int"],
 )
 def test_scaled_distances_keep_scalar_precision(
     sample_pose_v6: PoseEstimation, pixel_scale: float

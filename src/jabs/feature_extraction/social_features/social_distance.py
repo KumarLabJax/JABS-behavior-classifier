@@ -481,7 +481,9 @@ def _scale_like_python_float(
     Returns:
         Scaled distances.
     """
-    return values_px.astype(np.result_type(pixel_scale)) * pixel_scale
+    # same type as the original ``python_float * pixel_scale``; it is a float even when
+    # pixel_scale is an integer
+    return values_px.astype(np.result_type(1.0 * pixel_scale)) * pixel_scale
 
 
 def _gather_by_identity(
