@@ -95,6 +95,19 @@ class _MultiFrameStubPose:
             mask[PoseEstimation.KeypointIndex.NOSE] = 0
         return points, mask
 
+    def get_identity_poses(
+        self, identity: int, scale: float | None = None
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.uint8]]:
+        """Return synthetic keypoints for every frame; zeros where ``identity`` is absent."""
+        n_kp = len(PoseEstimation.KeypointIndex)
+        points = np.zeros((self.num_frames, n_kp, 2), dtype=np.float32)
+        mask = np.zeros((self.num_frames, n_kp), dtype=np.uint8)
+        for frame in range(self.num_frames):
+            frame_points, frame_mask = self.get_points(frame, identity, scale)
+            if frame_points is not None:
+                points[frame], mask[frame] = frame_points, frame_mask
+        return points, mask
+
     def identity_mask(self, identity: int) -> npt.NDArray[np.uint8]:
         """Return 1 on frames where ``identity`` has a center, 0 otherwise."""
         return np.array(
@@ -474,3 +487,30 @@ def test_contour_segment_distance_avoids_vertex_subsampling_overestimate() -> No
 
     np.testing.assert_allclose(dists["closest social segmentation distance"], [1.0])
     np.testing.assert_allclose(huddle["social contact count"], [1.0])
+
+
+def test_connected_group_sizes_follow_transitive_contact() -> None:
+    """A contact chain forms one group; absent identities are NaN, isolated ones are 1."""
+    # frame 0: 0-1 and 1-2 touch (chain of 3), 3 alone; frame 1: identity 2 absent
+    adjacency = np.zeros((2, 4, 4), dtype=bool)
+    for a, b in [(0, 1), (1, 2)]:
+        adjacency[0, a, b] = adjacency[0, b, a] = True
+    adjacency[1, 0, 1] = adjacency[1, 1, 0] = True
+    present = np.array([[True, True, True, True], [True, True, False, True]])
+
+    sizes = social_distance._connected_group_sizes(adjacency, present)
+
+    np.testing.assert_array_equal(sizes[0], [3, 3, 3, 1])
+    np.testing.assert_array_equal(sizes[1], [2, 2, np.nan, 1])
+
+
+def test_equidistant_neighbors_rank_by_identity_order() -> None:
+    """On a distance tie the earlier identity is closest, as in the original per-frame loop."""
+    # identities 1 and 2 are the same hull distance from 0; both are in 0's field of view
+    pose = _MultiFrameStubPose({0: [(0.0, 0.0)], 1: [(30.0, 0.0)], 2: [(0.0, 30.0)]})
+
+    info = social_distance.ClosestIdentityInfo(pose, 0, 1.0)
+
+    np.testing.assert_array_equal(info.closest_identities, [1])
+    np.testing.assert_array_equal(info.closest_fov_identities, [1])
+    np.testing.assert_array_equal(info.second_closest_distances, info.closest_distances)
