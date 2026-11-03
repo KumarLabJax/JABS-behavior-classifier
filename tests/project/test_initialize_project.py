@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from click.testing import CliRunner
 
@@ -194,3 +196,43 @@ def test_jabs_init_uses_the_canonical_default_window_size():
     created with.
     """
     assert initialize_project.DEFAULT_WINDOW_SIZE == jabs.feature_extraction.DEFAULT_WINDOW_SIZE
+
+
+def test_generate_files_worker_requests_window_features_without_labels(monkeypatch):
+    """The worker must not pass a stray positional argument as ``labels``.
+
+    ``get_window_features`` takes ``labels`` as its second positional parameter, so
+    anything passed there filters the returned features by label.
+    """
+    calls = []
+
+    class _FakeIdentityFeatures:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_window_features(self, *args, **kwargs):
+            calls.append((args, kwargs))
+
+    monkeypatch.setattr(jabs.feature_extraction, "IdentityFeatures", _FakeIdentityFeatures)
+    pose_est = SimpleNamespace(
+        format_major_version=5, identities=[], get_identity_convex_hulls=lambda i: None
+    )
+    project = SimpleNamespace(
+        load_pose_est=lambda path: pose_est,
+        video_manager=SimpleNamespace(video_path=lambda video: video),
+        feature_dir="features",
+        get_project_defaults=dict,
+    )
+
+    initialize_project.generate_files_worker(
+        {
+            "project": project,
+            "video": "a.mp4",
+            "identity": 0,
+            "force": True,
+            "window_sizes": [2, 5],
+            "cache_format": CacheFormat.PARQUET.value,
+        }
+    )
+
+    assert calls == [((2,), {"force": True}), ((5,), {"force": True})]
