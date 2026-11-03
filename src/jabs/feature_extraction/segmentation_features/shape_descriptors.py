@@ -133,7 +133,7 @@ class ShapeDescriptors(Feature):
         Python-float pixel area, so their precision depended on the type of
         ``pixel_scale``: a Python float or ``np.float32`` (as read from pose files) gives
         float32 arithmetic, ``np.float64`` gives float64. The dtypes below reproduce that
-        promotion so the values are unchanged.
+        promotion so the values are unchanged, including for integer scales.
 
         Args:
             m00: Area moment of the segmentation mask, already in scaled units.
@@ -143,8 +143,11 @@ class ShapeDescriptors(Feature):
             ``m00 / (area_px * pixel_scale**2)``.
         """
         scale_sq = self._pixel_scale**2
-        denominator = area_px.astype(np.result_type(scale_sq)) * scale_sq
-        ratio_dtype = np.result_type(np.float32, scale_sq)
+        # same type as the original ``python_float * pixel_scale**2``; it is a float even
+        # when pixel_scale is an integer
+        denominator_type = 1.0 * scale_sq
+        denominator = area_px.astype(np.result_type(denominator_type)) * scale_sq
+        ratio_dtype = np.result_type(np.float32, denominator_type)
         return m00.astype(ratio_dtype) / denominator.astype(ratio_dtype)
 
     def _contour_stats(self, frames: npt.NDArray[np.intp]) -> _ContourStats:
