@@ -323,13 +323,18 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
         This deliberately does not set a busy override cursor: on macOS, Qt builds the
         wait cursor from an image, and with Qt 6.11 that conversion crashes the app
-        (``QImage::toCGImage`` -> ``CGImageCreate``). Callers replace the status message
-        once loading finishes.
+        (``QImage::toCGImage`` -> ``CGImageCreate``). The previous status message is
+        restored afterwards, including when loading fails; callers that open the file
+        successfully then replace it.
         """
+        previous_message = self.statusBar().currentMessage()
         self.statusBar().showMessage(f"Loading pose file {pose_path.name}...")
         # the load blocks the event loop, so paint the message now or it never shows
         self.statusBar().repaint()
-        return open_pose_file(pose_path)
+        try:
+            return open_pose_file(pose_path)
+        finally:
+            self.statusBar().showMessage(previous_message)
 
     def _prompt_open_video(self) -> None:
         """Ask the user for a video file and open it."""

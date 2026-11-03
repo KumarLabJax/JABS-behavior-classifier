@@ -340,3 +340,22 @@ def test_loading_pose_file_shows_status_without_override_cursor(
     assert seen["message"] == f"Loading pose file {POSE_PATH.name}..."
     assert seen["cursor"] is None
     assert "Loading pose file" not in window.statusBar().currentMessage()
+
+
+@pytest.mark.parametrize("fail", ["pose", "video"])
+def test_failed_load_does_not_leave_loading_message(
+    monkeypatch: pytest.MonkeyPatch, window: "ViewerWindow", fail: str
+) -> None:
+    """When opening stops on an error, the status bar no longer says it is loading."""
+    window.statusBar().showMessage("previous status")
+    monkeypatch.setattr(viewer_window, "MessageDialog", mock.Mock())
+    if fail == "pose":
+        open_pose = _patch_pose_lookup(monkeypatch, POSE_PATH)
+        open_pose.side_effect = OSError("unreadable")
+        window.open_pose_file(POSE_PATH)
+    else:
+        _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose())
+        window._player.load_video.side_effect = OSError("unreadable")
+        window.open_video(VIDEO_PATH)
+
+    assert window.statusBar().currentMessage() == "previous status"
