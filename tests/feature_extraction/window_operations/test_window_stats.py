@@ -165,3 +165,22 @@ def test_window_ops_match_per_window_reference(
         expected = _sliding_window_oracle(values, window, oracle_op)
 
     np.testing.assert_allclose(result, expected, rtol=1e-9, atol=1e-9, equal_nan=True)
+
+
+@pytest.mark.parametrize("window", [1, 3, 10], ids=["w1", "w3", "w10"])
+@pytest.mark.parametrize("case", list(_window_test_series()))
+def test_window_std_skew_kurtosis_matches_separate_ops(case: str, window: int) -> None:
+    """The combined op is bit-identical to running the three window ops separately."""
+    values = _window_test_series()[case]
+
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        std_dev, skew, kurtosis = window_stats.window_std_skew_kurtosis(values, window)
+        expected = (
+            window_stats.window_std_dev(values, window),
+            window_stats.window_skew(values, window),
+            window_stats.window_kurtosis(values, window),
+        )
+
+    for actual, want in zip((std_dev, skew, kurtosis), expected, strict=True):
+        np.testing.assert_array_equal(actual, want)
