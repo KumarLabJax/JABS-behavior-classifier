@@ -43,8 +43,11 @@ def window() -> "ViewerWindow":
 
     The player's ``load_video`` is replaced on the instance (patching attributes on the
     Qt wrapper class itself crashes PySide6), and it reports a 100 frame video.
+    ``_load_pose`` skips its busy cursor: on macOS, ``setOverrideCursor`` with a native
+    menu bar present crashes the test process (SIGTRAP in ``CGImageCreate``).
     """
     window = ViewerWindow(app_name="test")
+    window._load_pose = lambda pose_path: viewer_window.open_pose_file(pose_path)
     window._player.load_video = mock.Mock()
     window._player._video_stream = mock.Mock(num_frames=100)
     window._video_frame_count = mock.Mock(return_value=100)
