@@ -1,13 +1,31 @@
+from __future__ import annotations
+
 import typing
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .moment_cache import MomentInfo
+
+
+@dataclass
+class _ContourStats:
+    """Per-frame OpenCV contour measurements used by ShapeDescriptors, in pixel units."""
+
+    rect_width: npt.NDArray[np.float64]
+    rect_height: npt.NDArray[np.float64]
+    perimeter: npt.NDArray[np.float64]
+    hull_perimeter: npt.NDArray[np.float64]
+    hull_area: npt.NDArray[np.float64]
+    hole_area: npt.NDArray[np.float64]
+    num_external: npt.NDArray[np.int64]
+    num_internal: npt.NDArray[np.int64]
 
 
 class ShapeDescriptors(Feature):
@@ -21,7 +39,7 @@ class ShapeDescriptors(Feature):
     # TODO: we're discarding centroid angle and ellipse-fit angle (theta)
     # These need to be handled similar to other angle terms (circular statistics)
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: MomentInfo):
         super().__init__(poses, pixel_scale)
         self._moment_cache = moment_cache
         self._pixel_scale = pixel_scale
@@ -39,92 +57,58 @@ class ShapeDescriptors(Feature):
         Returns:
             dict[str, np.ndarray]: Dictionary mapping feature names to per-frame arrays of values.
         """
-        x = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        y = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        ellipse_w = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        ellipse_l = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        perimeter_sum = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        elongation = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        rectangularity = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        convexity = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        solidity = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        euler_number = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        hole_area_ratio = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        num_frames = self._poses.num_frames
+        x = np.full(num_frames, np.nan, dtype=np.float32)
+        y = np.full(num_frames, np.nan, dtype=np.float32)
+        ellipse_w = np.full(num_frames, np.nan, dtype=np.float32)
+        ellipse_l = np.full(num_frames, np.nan, dtype=np.float32)
+        perimeter_sum = np.full(num_frames, np.nan, dtype=np.float32)
+        elongation = np.full(num_frames, np.nan, dtype=np.float32)
+        rectangularity = np.full(num_frames, np.nan, dtype=np.float32)
+        convexity = np.full(num_frames, np.nan, dtype=np.float32)
+        solidity = np.full(num_frames, np.nan, dtype=np.float32)
+        euler_number = np.full(num_frames, np.nan, dtype=np.float32)
+        hole_area_ratio = np.full(num_frames, np.nan, dtype=np.float32)
 
-        # We don't use vectorized ops so that division by 0 safeties can be checked before calculation
-        for frame in range(self._poses.num_frames):
-            # Safety for division by 0 (no segmentation to calculate on)
-            if np.isnan(self._moment_cache.get_moment(frame, "m00")):
-                continue
+        # Only frames with segmentation data have values (avoids division by 0).
+        # Since these features are based on cached moments, they are already adjusted
+        # for pixel scaling.
+        m00_all = self._moment_cache.get_moment_array("m00")
+        frames = np.flatnonzero(~np.isnan(m00_all))
 
-            # Ellipse features
-            # Since these features are based on cached moments, they are already adjusted for pixel scaling
-            x[frame] = self._moment_cache.get_moment(frame, "m10") / self._moment_cache.get_moment(
-                frame, "m00"
-            )
-            y[frame] = self._moment_cache.get_moment(frame, "m01") / self._moment_cache.get_moment(
-                frame, "m00"
-            )
-            a = self._moment_cache.get_moment(frame, "m20") / self._moment_cache.get_moment(
-                frame, "m00"
-            ) - np.square(x[frame])
-            b = 2 * (
-                self._moment_cache.get_moment(frame, "m11")
-                / self._moment_cache.get_moment(frame, "m00")
-                - x[frame] * y[frame]
-            )
-            c = self._moment_cache.get_moment(frame, "m02") / self._moment_cache.get_moment(
-                frame, "m00"
-            ) - np.square(y[frame])
-            ellipse_w[frame] = 0.5 * np.sqrt(
-                8 * (a + c - np.sqrt(np.square(b) + np.square(a - c)))
-            )
-            ellipse_l[frame] = 0.5 * np.sqrt(
-                8 * (a + c + np.sqrt(np.square(b) + np.square(a - c)))
-            )
-            # Theta needs the be handled uniquely because it's only 0-pi and needs circular statistics
-            # theta = 0.5 * np.arctan(2 * b / (a - c))
+        def moment(key: str) -> npt.NDArray[np.float32]:
+            return self._moment_cache.get_moment_array(key)[frames]
 
-            # Shape features
-            # Pre-calculate some notable features
-            # Note that these have not yet been adjusted for pixel scaling
-            contour_list = self._moment_cache.get_trimmed_contours(frame)
-            contour_flags = self._moment_cache.get_flags(frame)
-            min_bound_rect = cv2.minAreaRect(np.concatenate(contour_list, axis=0))
-            perimeters = [cv2.arcLength(x, True) for x in contour_list]
-            # The convex hull of the object (which may have multiple pieces) requires that all lines between points are contained.
-            # Therefore, we can just concatenate all points together when generating the hull
-            hull = cv2.convexHull(np.concatenate(contour_list, axis=0))
-            hull_perimeter = cv2.arcLength(hull, True)
-            #### WARNING
-            # These contourArea uses a different calculation (Green formula) compared to the raster used in the cached moments.
-            # This will cause slight differences in the actual value (eg solidity may be >1 despite the definition being convex=1)
-            # TODO: To fix this, the hull and holes should be rendered on a raster and area calculated
-            hull_area = cv2.contourArea(hull)
-            # "Holes" are only internal contours
-            hole_areas = np.sum(
-                [
-                    cv2.contourArea(contour_list[int(x)])
-                    for x in np.where(contour_flags[: len(contour_list)] == 0)[0]
-                ]
-            )
+        m00 = m00_all[frames]
 
-            # Place the shape features into the return value
-            perimeter_sum[frame] = np.sum(perimeters) * self._pixel_scale
-            elongation[frame] = 1 - (np.min(min_bound_rect[1]) / np.max(min_bound_rect[1]))
-            rectangularity[frame] = self._moment_cache.get_moment(frame, "m00") / (
-                min_bound_rect[1][0] * min_bound_rect[1][1] * self._pixel_scale**2
-            )
-            convexity[frame] = hull_perimeter / np.sum(perimeters)
-            solidity[frame] = self._moment_cache.get_moment(frame, "m00") / (
-                hull_area * self._pixel_scale**2
-            )
-            euler_number[frame] = np.sum(contour_flags[: len(contour_list)] == 1) - np.sum(
-                contour_flags[: len(contour_list)] == 0
-            )
-            hole_area_ratio[frame] = (
-                hole_areas * self._pixel_scale**2
-            ) / self._moment_cache.get_moment(frame, "m00")
+        # Ellipse features
+        x[frames] = moment("m10") / m00
+        y[frames] = moment("m01") / m00
+        frame_x = x[frames]
+        frame_y = y[frames]
+        a = moment("m20") / m00 - np.square(frame_x)
+        b = 2 * (moment("m11") / m00 - frame_x * frame_y)
+        c = moment("m02") / m00 - np.square(frame_y)
+        ellipse_w[frames] = 0.5 * np.sqrt(8 * (a + c - np.sqrt(np.square(b) + np.square(a - c))))
+        ellipse_l[frames] = 0.5 * np.sqrt(8 * (a + c + np.sqrt(np.square(b) + np.square(a - c))))
+        # Theta needs the be handled uniquely because it's only 0-pi and needs circular statistics
+        # theta = 0.5 * np.arctan(2 * b / (a - c))
+
+        # Shape features. The contour measurements have not yet been adjusted for pixel
+        # scaling.
+        contour_stats = self._contour_stats(frames)
+        rect_w, rect_h = contour_stats.rect_width, contour_stats.rect_height
+        perimeter_sum[frames] = contour_stats.perimeter * self._pixel_scale
+        elongation[frames] = 1 - (np.minimum(rect_w, rect_h) / np.maximum(rect_w, rect_h))
+        # the moments are float32, and these denominators were previously Python floats,
+        # which NumPy converts to float32 before dividing; keep that to preserve values
+        rectangularity[frames] = m00 / (rect_w * rect_h * self._pixel_scale**2).astype(np.float32)
+        convexity[frames] = contour_stats.hull_perimeter / contour_stats.perimeter
+        solidity[frames] = m00 / (contour_stats.hull_area * self._pixel_scale**2).astype(
+            np.float32
+        )
+        euler_number[frames] = contour_stats.num_external - contour_stats.num_internal
+        hole_area_ratio[frames] = (contour_stats.hole_area * self._pixel_scale**2) / m00
 
         # Calculate the centroid speeds
         centroid_speeds = np.hypot(np.gradient(x), np.gradient(y)) * self._poses.fps
@@ -143,3 +127,50 @@ class ShapeDescriptors(Feature):
         }
 
         return values
+
+    def _contour_stats(self, frames: npt.NDArray[np.intp]) -> _ContourStats:
+        """Measure the segmentation contours of each frame with OpenCV.
+
+        OpenCV's contour functions take one contour at a time, so this is the only part
+        of the feature computed frame by frame.
+
+        Args:
+            frames: Frames to measure; each must have segmentation contours.
+
+        Returns:
+            Per-frame contour measurements, in pixel units, aligned with ``frames``.
+        """
+        n = len(frames)
+        stats = _ContourStats(
+            rect_width=np.empty(n, dtype=np.float64),
+            rect_height=np.empty(n, dtype=np.float64),
+            perimeter=np.empty(n, dtype=np.float64),
+            hull_perimeter=np.empty(n, dtype=np.float64),
+            hull_area=np.empty(n, dtype=np.float64),
+            hole_area=np.empty(n, dtype=np.float64),
+            num_external=np.empty(n, dtype=np.int64),
+            num_internal=np.empty(n, dtype=np.int64),
+        )
+        for i, frame in enumerate(frames):
+            contour_list = self._moment_cache.get_trimmed_contours(frame)
+            contour_flags = self._moment_cache.get_flags(frame)[: len(contour_list)]
+            all_points = np.concatenate(contour_list, axis=0)
+            stats.rect_width[i], stats.rect_height[i] = cv2.minAreaRect(all_points)[1]
+            stats.perimeter[i] = np.sum([cv2.arcLength(x, True) for x in contour_list])
+            # The convex hull of the object (which may have multiple pieces) requires that
+            # all lines between points are contained. Therefore, we can just concatenate
+            # all points together when generating the hull
+            hull = cv2.convexHull(all_points)
+            stats.hull_perimeter[i] = cv2.arcLength(hull, True)
+            #### WARNING
+            # These contourArea uses a different calculation (Green formula) compared to the raster used in the cached moments.
+            # This will cause slight differences in the actual value (eg solidity may be >1 despite the definition being convex=1)
+            # TODO: To fix this, the hull and holes should be rendered on a raster and area calculated
+            stats.hull_area[i] = cv2.contourArea(hull)
+            # "Holes" are only internal contours
+            stats.hole_area[i] = np.sum(
+                [cv2.contourArea(contour_list[int(x)]) for x in np.where(contour_flags == 0)[0]]
+            )
+            stats.num_external[i] = np.sum(contour_flags == 1)
+            stats.num_internal[i] = np.sum(contour_flags == 0)
+        return stats
