@@ -53,10 +53,13 @@ def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
 class Feature(abc.ABC):
     """Abstract Base Class to define a common interface for classes that implement one or more related features"""
 
-    # each subclass needs to define this name and feature_names
+    # every subclass must define a name
     _name = None
-    # list of feature names, correspond to columns of feature values
-    _feature_names = None
+    # optional fixed list of feature names, corresponding to the columns of feature
+    # values a subclass produces. Only subclasses whose column names are known
+    # without computing anything set this (currently HuMoments); the rest leave it
+    # None and derive their column names in per_frame().
+    _feature_names: typing.ClassVar[list[str] | None] = None
 
     # requirements for this feature to be available
     _min_pose = 2
@@ -123,8 +126,14 @@ class Feature(abc.ABC):
         return cls._name
 
     @classmethod
-    def feature_names(cls) -> list[str]:
-        """return a list of strings containing the names of the features for the feature set"""
+    def feature_names(cls) -> list[str] | None:
+        """Return this feature set's fixed column names, or None if it has none.
+
+        Returns:
+            The subclass's ``_feature_names`` list, or ``None`` for the subclasses
+            that do not declare one (most of them) and build their column names in
+            :meth:`per_frame` instead.
+        """
         return cls._feature_names
 
     @classmethod
