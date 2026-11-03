@@ -167,11 +167,22 @@ def test_window_ops_match_per_window_reference(
     np.testing.assert_allclose(result, expected, rtol=1e-9, atol=1e-9, equal_nan=True)
 
 
+def _infinity_test_series() -> dict[str, np.ndarray]:
+    """Series with infinities, which produce nan via inf - inf when windows are centered."""
+    rng = np.random.default_rng(seed=11)
+    mixed = rng.normal(0.0, 20.0, 60)
+    mixed[[5, 17, 30]] = np.inf
+    mixed[[22, 41]] = -np.inf
+    with_nan = mixed.copy()
+    with_nan[rng.random(60) < 0.2] = np.nan
+    return {"all_inf": np.full(60, np.inf), "mixed_inf": mixed, "inf_and_nan": with_nan}
+
+
 @pytest.mark.parametrize("window", [1, 3, 10], ids=["w1", "w3", "w10"])
-@pytest.mark.parametrize("case", list(_window_test_series()))
+@pytest.mark.parametrize("case", list(_window_test_series()) + list(_infinity_test_series()))
 def test_window_std_skew_kurtosis_matches_separate_ops(case: str, window: int) -> None:
     """The combined op is bit-identical to running the three window ops separately."""
-    values = _window_test_series()[case]
+    values = {**_window_test_series(), **_infinity_test_series()}[case]
 
     with np.errstate(all="ignore"), warnings.catch_warnings():
         warnings.simplefilter("ignore")

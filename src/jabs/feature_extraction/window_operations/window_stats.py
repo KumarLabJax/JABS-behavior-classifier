@@ -149,8 +149,11 @@ def window_std_skew_kurtosis(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
         counts, centered, squared, variance = _central_moment_terms(window_values)
-        # equal to np.nanstd: both are the square root of the same biased variance
-        std_dev = np.sqrt(variance)
+        # np.nanstd only skips values that were nan in the input; a nan produced by
+        # inf - inf still makes the result nan. Sum the same way so windows containing
+        # infinities give the same result as window_std_dev.
+        input_nan = np.isnan(window_values)
+        std_dev = np.sqrt(np.sum(np.where(input_nan, 0.0, squared), axis=1) / counts)
         skew = _skew_from_terms(counts, centered, squared, variance)
         kurtosis = _kurtosis_from_terms(counts, squared, variance)
     return std_dev, skew, kurtosis
