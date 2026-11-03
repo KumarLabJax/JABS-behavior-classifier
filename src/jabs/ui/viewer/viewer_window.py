@@ -319,12 +319,17 @@ class ViewerWindow(QtWidgets.QMainWindow):
             return None
 
     def _load_pose(self, pose_path: Path) -> PoseEstimation:
-        """Open a pose file, showing a busy cursor since large files can take a moment."""
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-        try:
-            return open_pose_file(pose_path)
-        finally:
-            QtWidgets.QApplication.restoreOverrideCursor()
+        """Open a pose file, noting it in the status bar since large files can take a moment.
+
+        This deliberately does not set a busy override cursor: on macOS, Qt builds the
+        wait cursor from an image, and with Qt 6.11 that conversion crashes the app
+        (``QImage::toCGImage`` -> ``CGImageCreate``). Callers replace the status message
+        once loading finishes.
+        """
+        self.statusBar().showMessage(f"Loading pose file {pose_path.name}...")
+        # the load blocks the event loop, so paint the message now or it never shows
+        self.statusBar().repaint()
+        return open_pose_file(pose_path)
 
     def _prompt_open_video(self) -> None:
         """Ask the user for a video file and open it."""

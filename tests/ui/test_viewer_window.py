@@ -315,3 +315,28 @@ def test_frame_size_dialog_starts_at_current_size_and_can_restore_estimate() -> 
     dialog._use_estimate()
 
     assert dialog.frame_size == (800, 700)
+
+
+def test_loading_pose_file_shows_status_without_override_cursor(
+    monkeypatch: pytest.MonkeyPatch, window: "ViewerWindow"
+) -> None:
+    """Opening a pose file reports progress in the status bar, not with a busy cursor.
+
+    On macOS, Qt's wait cursor is built from an image, and that conversion crashes the
+    app under Qt 6.11.
+    """
+    seen: dict[str, object] = {}
+
+    def open_pose(path: Path) -> mock.Mock:
+        seen["message"] = window.statusBar().currentMessage()
+        seen["cursor"] = QApplication.overrideCursor()
+        return _fake_pose()
+
+    monkeypatch.setattr(viewer_window, "get_pose_path", lambda _video_path: POSE_PATH)
+    monkeypatch.setattr(viewer_window, "open_pose_file", open_pose)
+
+    window.open_video(VIDEO_PATH)
+
+    assert seen["message"] == f"Loading pose file {POSE_PATH.name}..."
+    assert seen["cursor"] is None
+    assert "Loading pose file" not in window.statusBar().currentMessage()
