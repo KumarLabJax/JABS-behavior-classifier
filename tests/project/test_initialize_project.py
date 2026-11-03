@@ -215,25 +215,67 @@ def test_jabs_init_uses_the_canonical_default_window_size():
     assert initialize_project.DEFAULT_WINDOW_SIZE == jabs.feature_extraction.DEFAULT_WINDOW_SIZE
 
 
-def test_generate_files_worker_requests_window_features_without_labels(monkeypatch):
-    """The worker must not pass a stray positional argument as ``labels``.
+def test_generate_files_worker_processes_every_identity_with_one_pose(monkeypatch):
+    """One job computes every identity in a video using a single PoseEstimation.
 
-    ``get_window_features`` takes ``labels`` as its second positional parameter, so
-    anything passed there filters the returned features by label.
+    Per-video work that feature groups cache on the pose object (e.g. the social
+    contact graph) is only shared if every identity uses the same object. The worker
+    also must not pass a stray positional argument as ``labels``:
+    ``get_window_features`` takes ``labels`` as its second positional parameter.
     """
-    calls = []
+    constructed = []
+    window_calls = []
 
     class _FakeIdentityFeatures:
-        def __init__(self, *args, **kwargs):
-            pass
+        def __init__(self, video, identity, feature_dir, pose_est, **kwargs):
+            constructed.append((identity, pose_est, kwargs["timings"]))
+            self._identity = identity
 
         def get_window_features(self, *args, **kwargs):
-            calls.append((args, kwargs))
+            window_calls.append((self._identity, args, kwargs))
 
     monkeypatch.setattr(jabs.feature_extraction, "IdentityFeatures", _FakeIdentityFeatures)
-    pose_est = SimpleNamespace(
-        format_major_version=5, identities=[], get_identity_convex_hulls=lambda i: None
+    hull_calls = []
+    pose_est = SimpleNamespace(identities=[0, 1], get_identity_convex_hulls=hull_calls.append)
+    loads = []
+    project = SimpleNamespace(
+        load_pose_est=lambda path: loads.append(path) or pose_est,
+        video_manager=SimpleNamespace(video_path=lambda video: video),
+        feature_dir="features",
+        get_project_defaults=dict,
     )
+
+    result = initialize_project.generate_files_worker(
+        {
+            "project": project,
+            "video": "a.mp4",
+            "force": True,
+            "window_sizes": [2, 5],
+            "cache_format": CacheFormat.PARQUET.value,
+            "collect_timings": True,
+        }
+    )
+
+    assert loads == ["a.mp4"]
+    assert [identity for identity, _, _ in constructed] == [0, 1]
+    assert all(pose is pose_est for _, pose, _ in constructed)
+    # all identities share one timing collector, which is returned
+    assert result is not None
+    assert all(timings is result for _, _, timings in constructed)
+    assert window_calls == [
+        (identity, (w,), {"force": True}) for identity in (0, 1) for w in (2, 5)
+    ]
+    assert hull_calls == [0, 1]
+
+
+def test_generate_files_worker_without_timings(monkeypatch):
+    """No collector is created unless timings are requested."""
+    monkeypatch.setattr(
+        jabs.feature_extraction,
+        "IdentityFeatures",
+        lambda *args, **kwargs: SimpleNamespace(get_window_features=lambda *a, **k: None),
+    )
+    pose_est = SimpleNamespace(identities=[0], get_identity_convex_hulls=lambda i: None)
     project = SimpleNamespace(
         load_pose_est=lambda path: pose_est,
         video_manager=SimpleNamespace(video_path=lambda video: video),
@@ -241,18 +283,17 @@ def test_generate_files_worker_requests_window_features_without_labels(monkeypat
         get_project_defaults=dict,
     )
 
-    initialize_project.generate_files_worker(
+    result = initialize_project.generate_files_worker(
         {
             "project": project,
             "video": "a.mp4",
-            "identity": 0,
-            "force": True,
-            "window_sizes": [2, 5],
+            "force": False,
+            "window_sizes": [5],
             "cache_format": CacheFormat.PARQUET.value,
         }
     )
 
-    assert calls == [((2,), {"force": True}), ((5,), {"force": True})]
+    assert result is None
 
 
 def test_jabs_init_click_rejects_top_n_without_report(tmp_path):
@@ -287,18 +328,22 @@ class _SerialPool:
 
 def _fake_project(identities_per_video: dict[str, list[int]]) -> SimpleNamespace:
     """Build the minimal project surface used by compute_project_features."""
+
+    def no_load(path):
+        raise AssertionError("pose files should only be opened by the workers")
+
     return SimpleNamespace(
         video_manager=SimpleNamespace(
             videos=list(identities_per_video), video_path=lambda video: video
         ),
-        load_pose_est=lambda path: SimpleNamespace(identities=identities_per_video[path]),
-        total_project_identities=sum(len(i) for i in identities_per_video.values()),
+        load_pose_est=no_load,
     )
 
 
 @pytest.mark.parametrize("collect_timings", [True, False])
-def test_compute_project_features_merges_worker_timings(monkeypatch, collect_timings):
-    """Timings returned by each worker are merged into one collector."""
+def test_compute_project_features_runs_one_job_per_video(monkeypatch, collect_timings):
+    """One job is submitted per video and worker timings are merged into one collector."""
+    identities_per_video = {"a.mp4": [0, 1], "b.mp4": [0]}
     jobs = []
 
     def fake_worker(params):
@@ -306,17 +351,18 @@ def test_compute_project_features_merges_worker_timings(monkeypatch, collect_tim
         if not params["collect_timings"]:
             return None
         timings = FeatureTimings()
-        timings.record("base", "angles", TimingStage.PER_FRAME, 1.0)
+        num_identities = len(identities_per_video[params["video"]])
+        timings.record("base", "angles", TimingStage.PER_FRAME, float(num_identities))
         return timings
 
     monkeypatch.setattr(initialize_project, "generate_files_worker", fake_worker)
-    project = _fake_project({"a.mp4": [0, 1], "b.mp4": [0]})
+    project = _fake_project(identities_per_video)
 
     result = initialize_project.compute_project_features(
         project, [5], False, _SerialPool(), collect_timings=collect_timings
     )
 
-    assert len(jobs) == 3
+    assert [job["video"] for job in jobs] == ["a.mp4", "b.mp4"]
     assert all(job["collect_timings"] is collect_timings for job in jobs)
     if collect_timings:
         (summary,) = result.summarize()
