@@ -100,13 +100,9 @@ class ShapeDescriptors(Feature):
         rect_w, rect_h = contour_stats.rect_width, contour_stats.rect_height
         perimeter_sum[frames] = contour_stats.perimeter * self._pixel_scale
         elongation[frames] = 1 - (np.minimum(rect_w, rect_h) / np.maximum(rect_w, rect_h))
-        # the moments are float32, and these denominators were previously Python floats,
-        # which NumPy converts to float32 before dividing; keep that to preserve values
-        rectangularity[frames] = m00 / (rect_w * rect_h * self._pixel_scale**2).astype(np.float32)
+        rectangularity[frames] = self._area_ratio(m00, rect_w * rect_h)
         convexity[frames] = contour_stats.hull_perimeter / contour_stats.perimeter
-        solidity[frames] = m00 / (contour_stats.hull_area * self._pixel_scale**2).astype(
-            np.float32
-        )
+        solidity[frames] = self._area_ratio(m00, contour_stats.hull_area)
         euler_number[frames] = contour_stats.num_external - contour_stats.num_internal
         hole_area_ratio[frames] = (contour_stats.hole_area * self._pixel_scale**2) / m00
 
@@ -127,6 +123,29 @@ class ShapeDescriptors(Feature):
         }
 
         return values
+
+    def _area_ratio(
+        self, m00: npt.NDArray[np.float32], area_px: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.floating]:
+        """Divide the scaled mask area by a pixel area converted to scaled units.
+
+        These ratios used to be computed one frame at a time, from a float32 moment and a
+        Python-float pixel area, so their precision depended on the type of
+        ``pixel_scale``: a Python float or ``np.float32`` (as read from pose files) gives
+        float32 arithmetic, ``np.float64`` gives float64. The dtypes below reproduce that
+        promotion so the values are unchanged.
+
+        Args:
+            m00: Area moment of the segmentation mask, already in scaled units.
+            area_px: Area in pixels to compare against.
+
+        Returns:
+            ``m00 / (area_px * pixel_scale**2)``.
+        """
+        scale_sq = self._pixel_scale**2
+        denominator = area_px.astype(np.result_type(scale_sq)) * scale_sq
+        ratio_dtype = np.result_type(np.float32, scale_sq)
+        return m00.astype(ratio_dtype) / denominator.astype(ratio_dtype)
 
     def _contour_stats(self, frames: npt.NDArray[np.intp]) -> _ContourStats:
         """Measure the segmentation contours of each frame with OpenCV.

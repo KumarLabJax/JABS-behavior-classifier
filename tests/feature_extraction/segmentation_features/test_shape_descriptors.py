@@ -60,7 +60,11 @@ def _reference_per_frame(
     return v
 
 
-@pytest.mark.parametrize("pixel_scale", [1.0, 0.07])
+@pytest.mark.parametrize(
+    "pixel_scale",
+    [1.0, 0.07, np.float32(0.07928075), np.float64(0.07928075)],
+    ids=["unit", "python_float", "numpy_float32", "numpy_float64"],
+)
 def test_matches_reference_implementation(seg_data: dict, pixel_scale: float) -> None:
     """Every shape descriptor equals the original per-frame implementation."""
     poses = seg_data["pose_est_v6"]
