@@ -215,7 +215,9 @@ def test_jabs_init_uses_the_canonical_default_window_size():
     assert initialize_project.DEFAULT_WINDOW_SIZE == jabs.feature_extraction.DEFAULT_WINDOW_SIZE
 
 
-def test_generate_files_worker_requests_window_features_without_labels(monkeypatch):
+def test_generate_files_worker_requests_window_features_without_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The worker must not pass a stray positional argument as ``labels``.
 
     ``get_window_features`` takes ``labels`` as its second positional parameter, so
@@ -224,10 +226,10 @@ def test_generate_files_worker_requests_window_features_without_labels(monkeypat
     calls = []
 
     class _FakeIdentityFeatures:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-        def get_window_features(self, *args, **kwargs):
+        def get_window_features(self, *args: object, **kwargs: object) -> None:
             calls.append((args, kwargs))
 
     monkeypatch.setattr(jabs.feature_extraction, "IdentityFeatures", _FakeIdentityFeatures)
