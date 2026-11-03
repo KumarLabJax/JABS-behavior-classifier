@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -514,3 +515,63 @@ def test_equidistant_neighbors_rank_by_identity_order() -> None:
     np.testing.assert_array_equal(info.closest_identities, [1])
     np.testing.assert_array_equal(info.closest_fov_identities, [1])
     np.testing.assert_array_equal(info.second_closest_distances, info.closest_distances)
+
+
+@pytest.fixture(scope="module")
+def sample_pose_v6() -> Iterator[PoseEstimation]:
+    """Real v6 pose data (4 identities, with segmentation) from a temporary copy."""
+    sample_v6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        shutil.copy(sample_v6, Path(tmpdir) / sample_v6.name)
+        yield pose_est.open_pose_file(Path(tmpdir) / sample_v6.name)
+
+
+_INFO_PROPERTIES = [
+    name
+    for name in dir(ClosestIdentityInfo)
+    if isinstance(getattr(ClosestIdentityInfo, name), property)
+]
+
+
+def test_contour_chunking_does_not_change_results(
+    sample_pose_v6: PoseEstimation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Contour distances computed in many small frame chunks equal a single chunk."""
+    social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
+    expected = ClosestIdentityInfo(sample_pose_v6, 0, 1.0)
+
+    social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
+    monkeypatch.setattr(social_distance, "_CONTOUR_CHUNK_FRAMES", 7)
+    chunked = ClosestIdentityInfo(sample_pose_v6, 0, 1.0)
+    social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
+
+    for name in _INFO_PROPERTIES:
+        np.testing.assert_array_equal(getattr(chunked, name), getattr(expected, name), name)
+
+
+@pytest.mark.parametrize(
+    "pixel_scale",
+    [0.07928075, np.float32(0.07928075), np.float64(0.07928075)],
+    ids=["python_float", "numpy_float32", "numpy_float64"],
+)
+def test_scaled_distances_keep_scalar_precision(
+    sample_pose_v6: PoseEstimation, pixel_scale: float
+) -> None:
+    """Scaled distances match the original per-frame ``python_float * pixel_scale``.
+
+    Pose files store ``cm_per_pixel`` as ``np.float32``, which makes that product a
+    float32 computation, while a Python float scale keeps float64 precision.
+    """
+    info = ClosestIdentityInfo(sample_pose_v6, 0, pixel_scale)
+    hulls = {i: sample_pose_v6.get_identity_convex_hulls(i) for i in sample_pose_v6.identities}
+
+    # frames where both skeletal hulls exist (others may use segmentation fallback hulls)
+    checked = 0
+    for frame, closest_id in enumerate(info.closest_identities):
+        self_hull, other_hull = hulls[0][frame], hulls[int(closest_id)][frame]
+        if closest_id == -1 or self_hull is None or other_hull is None:
+            continue
+        expected = np.float32(float(self_hull.distance(other_hull)) * pixel_scale)
+        assert info.closest_distances[frame] == expected, frame
+        checked += 1
+    assert checked > 0
