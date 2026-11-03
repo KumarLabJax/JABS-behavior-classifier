@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import NoReturn
 
 import pytest
 from click.testing import CliRunner
@@ -227,9 +228,16 @@ def test_generate_files_worker_processes_every_identity_with_one_pose(monkeypatc
     window_calls = []
 
     class _FakeIdentityFeatures:
-        def __init__(self, video, identity, feature_dir, pose_est, **kwargs):
+        def __init__(
+            self,
+            video: str,
+            identity: int,
+            feature_dir: str,
+            pose_est: SimpleNamespace,
+            **kwargs: object,
+        ) -> None:
             constructed.append((identity, pose_est, kwargs["timings"]))
-            self._identity = identity
+            self._identity: int = identity
 
         def get_window_features(self, *args, **kwargs):
             window_calls.append((self._identity, args, kwargs))
@@ -268,7 +276,7 @@ def test_generate_files_worker_processes_every_identity_with_one_pose(monkeypatc
     assert hull_calls == [0, 1]
 
 
-def test_generate_files_worker_without_timings(monkeypatch):
+def test_generate_files_worker_without_timings(monkeypatch: pytest.MonkeyPatch) -> None:
     """No collector is created unless timings are requested."""
     monkeypatch.setattr(
         jabs.feature_extraction,
@@ -329,7 +337,7 @@ class _SerialPool:
 def _fake_project(identities_per_video: dict[str, list[int]]) -> SimpleNamespace:
     """Build the minimal project surface used by compute_project_features."""
 
-    def no_load(path):
+    def no_load(path: str) -> NoReturn:
         raise AssertionError("pose files should only be opened by the workers")
 
     return SimpleNamespace(
