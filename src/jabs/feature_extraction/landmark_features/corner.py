@@ -10,6 +10,25 @@ from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
 
+def _scale_like_python_float(
+    values_px: npt.NDArray[np.float64], pixel_scale: float
+) -> npt.NDArray[np.floating]:
+    """Scale pixel distances that were previously Python floats, one frame at a time.
+
+    ``python_float * pixel_scale`` takes the precision of ``pixel_scale``: float32
+    arithmetic for ``np.float32`` (as read from pose files), float64 for a Python float
+    or ``np.float64``. This reproduces that so vectorized values are unchanged.
+
+    Args:
+        values_px: Distances in pixels.
+        pixel_scale: Scale factor to convert pixel distances to cm.
+
+    Returns:
+        Scaled distances.
+    """
+    return values_px.astype(np.result_type(pixel_scale)) * pixel_scale
+
+
 class CornerDistanceInfo:
     """cached distance to corner
 
@@ -93,9 +112,9 @@ class CornerDistanceInfo:
             centroids = shapely.get_coordinates(shapely.centroid(frame_hulls))
             all_walls, wall_dist_cv2 = self._wall_distances(centroids, corners_f32)
 
-            corner_distances[frames] = distance * self._pixel_scale
-            center_distances[frames] = center_dist * self._pixel_scale
-            wall_distances[frames] = wall_dist_cv2 * self._pixel_scale
+            corner_distances[frames] = _scale_like_python_float(distance, self._pixel_scale)
+            center_distances[frames] = _scale_like_python_float(center_dist, self._pixel_scale)
+            wall_distances[frames] = _scale_like_python_float(wall_dist_cv2, self._pixel_scale)
             all_wall_distances[frames] = all_walls * self._pixel_scale
             corner_bearings[frames] = corner_bearing
             center_bearings[frames] = center_bearing

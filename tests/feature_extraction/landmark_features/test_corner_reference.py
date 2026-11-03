@@ -69,7 +69,11 @@ def _reference_features(
     return out
 
 
-@pytest.mark.parametrize("pixel_scale", [1.0, 0.07])
+@pytest.mark.parametrize(
+    "pixel_scale",
+    [1.0, 0.07, np.float32(0.07928075), np.float64(0.07928075)],
+    ids=["unit", "python_float", "numpy_float32", "numpy_float64"],
+)
 def test_matches_reference_implementation(
     pose_est_v5_with_static_objects: PoseEstimation, pixel_scale: float
 ) -> None:
