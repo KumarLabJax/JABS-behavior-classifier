@@ -95,6 +95,70 @@ def _center_windows(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return counts, values - mean[:, None]
 
 
+def _central_moment_terms(
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Compute the terms shared by the window standard deviation, skew, and kurtosis.
+
+    Args:
+        values: 2d array with time on the first axis and the window on the second
+
+    Returns:
+        tuple of (number of non-nan values in each window, window values minus their
+        window mean, the square of those centered values, and the biased variance of
+        each window). nan values stay nan.
+    """
+    counts, centered = _center_windows(values)
+    squared = centered * centered
+    variance = np.nansum(squared, axis=1) / counts
+    return counts, centered, squared, variance
+
+
+def _skew_from_terms(
+    counts: np.ndarray, centered: np.ndarray, squared: np.ndarray, variance: np.ndarray
+) -> np.ndarray:
+    """Biased skew of each window from the terms of `_central_moment_terms`."""
+    return np.nansum(squared * centered, axis=1) / counts / variance**1.5
+
+
+def _kurtosis_from_terms(
+    counts: np.ndarray, squared: np.ndarray, variance: np.ndarray
+) -> np.ndarray:
+    """Pearson kurtosis of each window from the terms of `_central_moment_terms`."""
+    return np.nansum(squared * squared, axis=1) / counts / (variance * variance)
+
+
+def window_std_skew_kurtosis(
+    values: np.ndarray, window: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Calculates the masked standard deviation, skew, and kurtosis of each window at once.
+
+    Equal to calling `window_std_dev`, `window_skew`, and `window_kurtosis` separately,
+    but the window mean, centered values, and variance they share are computed only
+    once.
+
+    Args:
+        values: 1d np.ndarray of values
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
+
+    Returns:
+        tuple of sliding window standard deviation, skew, and kurtosis values
+    """
+    window_values = pad_sliding_window(values, window, pad_const=np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        counts, centered, squared, variance = _central_moment_terms(window_values)
+        # np.nanstd only skips values that were nan in the input; a nan produced by
+        # inf - inf still makes the result nan. Sum the same way so windows containing
+        # infinities give the same result as window_std_dev.
+        input_nan = np.isnan(window_values)
+        std_dev = np.sqrt(np.sum(np.where(input_nan, 0.0, squared), axis=1) / counts)
+        skew = _skew_from_terms(counts, centered, squared, variance)
+        kurtosis = _kurtosis_from_terms(counts, squared, variance)
+    return std_dev, skew, kurtosis
+
+
 def np_kurtosis(values: np.ndarray) -> np.ndarray:
     """Calculates kurtosis in a rolling window faster than scipy
 
@@ -119,10 +183,8 @@ def np_kurtosis(values: np.ndarray) -> np.ndarray:
         numpy emits (does not raise) a RuntimeWarning when an entire window is nan.
         Callers such as `window_kurtosis` suppress that warning.
     """
-    counts, centered = _center_windows(values)
-    squared = centered * centered
-    variance = np.nansum(squared, axis=1) / counts
-    return np.nansum(squared * squared, axis=1) / counts / (variance * variance)
+    counts, _, squared, variance = _central_moment_terms(values)
+    return _kurtosis_from_terms(counts, squared, variance)
 
 
 def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
@@ -160,10 +222,8 @@ def np_skew(values: np.ndarray) -> np.ndarray:
         numpy emits (does not raise) a RuntimeWarning when an entire window is nan.
         Callers such as `window_skew` suppress that warning.
     """
-    counts, centered = _center_windows(values)
-    squared = centered * centered
-    variance = np.nansum(squared, axis=1) / counts
-    return np.nansum(squared * centered, axis=1) / counts / variance**1.5
+    counts, centered, squared, variance = _central_moment_terms(values)
+    return _skew_from_terms(counts, centered, squared, variance)
 
 
 def window_skew(values: np.ndarray, window: int) -> np.ndarray:

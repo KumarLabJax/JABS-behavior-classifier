@@ -1,5 +1,6 @@
 """Tests for module-level helpers in feature_base_class."""
 
+import typing
 import warnings
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from scipy import signal, stats
 from scipy.signal import detrend
 
 from jabs.feature_extraction.feature_base_class import Feature, _linear_detrend_numpy
+from jabs.feature_extraction.window_operations import window_stats
 
 
 class TestLinearDetrendNumpy:
@@ -278,3 +280,61 @@ def test_circular_window_features_edge_cases() -> None:
     result = Feature._compute_window_features_circular(feature, {"a": values}, mask, 1)
     # window around the last frame holds 170 and -170, whose circular mean is +-180
     assert abs(result["mean"]["a"][5]) == pytest.approx(180.0)
+
+
+class _StandardStubFeature(Feature):
+    """Minimal non-circular Feature for exercising `Feature.window` without a pose file."""
+
+    _name = "standard_stub"
+
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """Not used: the tests pass per-frame values to `window` directly."""
+        return {}
+
+
+def _standard_window_inputs() -> tuple[SimpleNamespace, dict[str, np.ndarray]]:
+    """Fake pose data and two per-frame columns with gaps."""
+    rng = np.random.default_rng(seed=5)
+    values = {"a": rng.normal(10.0, 3.0, 80), "b": rng.normal(-5.0, 1.0, 80)}
+    values["a"][20:26] = np.nan
+    return SimpleNamespace(fps=30), values
+
+
+def test_window_std_skew_kurtosis_computed_together_match_separate_ops() -> None:
+    """The shared std/skew/kurtosis path gives the window ops' own results, in op order."""
+    poses, values = _standard_window_inputs()
+
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = _StandardStubFeature(poses, 1.0).window(0, 3, values)
+        expected = {
+            op: {key: fn(val, 3) for key, val in values.items()}
+            for op, fn in Feature._window_operations.items()
+        }
+
+    assert list(result)[: len(expected)] == list(expected)
+    for op, columns in expected.items():
+        for key, want in columns.items():
+            np.testing.assert_array_equal(result[op][key], want, err_msg=f"{op} {key}")
+
+
+def test_overridden_moment_operation_is_used() -> None:
+    """A subclass that replaces one of the shared ops gets its own implementation."""
+
+    def constant_skew(values: np.ndarray, window: int) -> np.ndarray:
+        return np.full(values.shape, 42.0)
+
+    class _CustomSkewFeature(_StandardStubFeature):
+        _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
+            **Feature._window_operations,
+            "skew": constant_skew,
+        }
+
+    poses, values = _standard_window_inputs()
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = _CustomSkewFeature(poses, 1.0).window(0, 3, values)
+        expected_kurtosis = window_stats.window_kurtosis(values["b"], 3)
+
+    np.testing.assert_array_equal(result["skew"]["a"], np.full(80, 42.0))
+    np.testing.assert_array_equal(result["kurtosis"]["b"], expected_kurtosis)

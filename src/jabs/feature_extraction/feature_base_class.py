@@ -50,6 +50,14 @@ def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
     return segment - trend
 
 
+# window operations computed together by `Feature._shared_moment_features`
+_SHARED_MOMENT_OPERATIONS: dict[str, typing.Callable] = {
+    "std_dev": window_stats.window_std_dev,
+    "skew": window_stats.window_skew,
+    "kurtosis": window_stats.window_kurtosis,
+}
+
+
 class Feature(abc.ABC):
     """Abstract Base Class to define a common interface for classes that implement one or more related features"""
 
@@ -235,17 +243,53 @@ class Feature(abc.ABC):
         Returns:
             dict of window and signal processing feature values
         """
+        shared = self._shared_moment_features(window_size, per_frame_values)
         values = {}
         for op in self._window_operations:
-            values[op] = self._compute_window_feature(
-                per_frame_values,
-                window_size,
-                self._window_operations[op],
-            )
+            if op in shared:
+                values[op] = shared[op]
+            else:
+                values[op] = self._compute_window_feature(
+                    per_frame_values,
+                    window_size,
+                    self._window_operations[op],
+                )
         # Also include signal features
         signal_features = self._window_signal(window_size, per_frame_values)
         values.update(signal_features)
         return values
+
+    def _shared_moment_features(self, window_size: int, per_frame_values: dict) -> dict:
+        """Compute the standard deviation, skew, and kurtosis window features together.
+
+        These three share the window mean, centered values, and variance, so computing
+        them in one pass is faster than running each window operation separately. Only
+        operations still using the default implementations are computed here, so a
+        subclass that replaces one of them gets its own implementation.
+
+        Args:
+            window_size: number of frames (in each direction) to include in the window
+            per_frame_values: dict of per-frame values for this identity
+
+        Returns:
+            dict mapping each of "std_dev", "skew", and "kurtosis" that uses its default
+            implementation to a dict of per-frame feature name to window values
+        """
+        shared_ops = [
+            op
+            for op, default in _SHARED_MOMENT_OPERATIONS.items()
+            if self._window_operations.get(op) is default
+        ]
+        if not shared_ops:
+            return {}
+
+        results: dict[str, dict] = {op: {} for op in _SHARED_MOMENT_OPERATIONS}
+        for key, val in per_frame_values.items():
+            std_dev, skew, kurtosis = window_stats.window_std_skew_kurtosis(val, window_size)
+            results["std_dev"][key] = std_dev
+            results["skew"][key] = skew
+            results["kurtosis"][key] = kurtosis
+        return {op: results[op] for op in shared_ops}
 
     def _window_signal(self, window_size: int, per_frame_values: dict) -> dict:
         """The standard method for computing signal processing window features.
