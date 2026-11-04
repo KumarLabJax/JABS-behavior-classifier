@@ -4,6 +4,7 @@ from collections.abc import Generator, Iterable
 
 import numpy as np
 import numpy.typing as npt
+import shapely
 
 from jabs.core.abstract import PoseEstimation
 
@@ -91,10 +92,13 @@ def identity_centroids(poses: PoseEstimation, identity: int) -> npt.NDArray[np.f
         units. Rows are NaN for frames with no centroid.
     """
     centroids = np.full((poses.num_frames, 2), np.nan, dtype=np.float32)
-    frame_valid = poses.identity_mask(identity)
-    convex_hulls = poses.get_identity_convex_hulls(identity)
-    for i in np.arange(poses.num_frames)[frame_valid == 1]:
-        hull = convex_hulls[i]
-        if hull is not None:
-            centroids[i, :] = np.asarray(hull.centroid.xy).squeeze()
+    # an object array of hulls; filled by assignment so numpy does not try to unpack
+    # the geometries
+    hulls = np.empty(poses.num_frames, dtype=object)
+    hulls[:] = poses.get_identity_convex_hulls(identity)
+    present = np.asarray(poses.identity_mask(identity)) == 1
+    frames = np.flatnonzero(present & ~shapely.is_missing(hulls))
+    hull_centroids = shapely.centroid(hulls[frames])
+    centroids[frames, 0] = shapely.get_x(hull_centroids)
+    centroids[frames, 1] = shapely.get_y(hull_centroids)
     return centroids
