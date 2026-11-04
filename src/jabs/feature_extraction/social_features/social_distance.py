@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import weakref
 from dataclasses import dataclass
 
@@ -772,29 +771,37 @@ class ClosestIdentityInfo:
             closest_identities: Array of closest identity indices for each frame.
 
         Returns:
-            Dictionary mapping keypoint pair names to arrays of distances for each frame.
+            Dictionary mapping keypoint pair names to arrays of distances for each frame,
+            NaN where there is no closest identity or either animal is absent.
         """
+        num_frames = self._poses.num_frames
+        closest_identities = np.asarray(closest_identities)
+        self_points, _ = self._poses.get_identity_poses(self._identity, self._pixel_scale)
+
+        # keypoints of each frame's closest identity, gathered from every identity
+        closest_points = np.full_like(self_points, np.nan)
+        closest_present = np.zeros(num_frames, dtype=bool)
+        for curr_id in self._poses.identities:
+            frames = closest_identities == curr_id
+            if not frames.any():
+                continue
+            points, _ = self._poses.get_identity_poses(curr_id, self._pixel_scale)
+            closest_points[frames] = points[frames]
+            closest_present[frames] = np.asarray(self._poses.identity_mask(curr_id), dtype=bool)[
+                frames
+            ]
+
+        valid = np.asarray(self._poses.identity_mask(self._identity), dtype=bool) & closest_present
+
         return_dict: dict[str, npt.NDArray[np.float32]] = {}
         for p1 in social_points:
+            subject_xy = self_points[valid, p1.value].astype(np.float64)
             for p2 in social_points:
-                return_dict[f"social dist. {p1.name}-{p2.name}"] = np.full(
-                    self._poses.num_frames, np.nan, dtype=np.float32
+                other_xy = closest_points[valid, p2.value].astype(np.float64)
+                values = np.full(num_frames, np.nan, dtype=np.float32)
+                values[valid] = np.hypot(
+                    subject_xy[:, 0] - other_xy[:, 0], subject_xy[:, 1] - other_xy[:, 1]
                 )
-
-        for frame in range(self._poses.num_frames):
-            closest_id = int(closest_identities[frame])
-            points, _ = self._poses.get_points(frame, self._identity, self._pixel_scale)
-
-            if points is None or closest_id == -1:
-                continue
-
-            closest_points, _ = self._poses.get_points(frame, closest_id, self._pixel_scale)
-            if closest_points is None:
-                continue
-
-            for p1 in social_points:
-                for p2 in social_points:
-                    key = f"social dist. {p1.name}-{p2.name}"
-                    return_dict[key][frame] = math.dist(points[p1.value], closest_points[p2.value])
+                return_dict[f"social dist. {p1.name}-{p2.name}"] = values
 
         return return_dict

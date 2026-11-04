@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -575,3 +576,81 @@ def test_scaled_distances_keep_scalar_precision(
         assert info.closest_distances[frame] == expected, frame
         checked += 1
     assert checked > 0
+
+
+def _reference_pairwise_social_distances(
+    poses: PoseEstimation,
+    identity: int,
+    pixel_scale: float,
+    social_points: list[PoseEstimation.KeypointIndex],
+    closest_identities: npt.NDArray[np.integer],
+) -> dict[str, npt.NDArray[np.float32]]:
+    """Original per-frame loop from compute_pairwise_social_distances, kept as a reference."""
+    result = {
+        f"social dist. {p1.name}-{p2.name}": np.full(poses.num_frames, np.nan, dtype=np.float32)
+        for p1 in social_points
+        for p2 in social_points
+    }
+    for frame in range(poses.num_frames):
+        closest_id = int(closest_identities[frame])
+        points, _ = poses.get_points(frame, identity, pixel_scale)
+        if points is None or closest_id == -1:
+            continue
+        closest_points, _ = poses.get_points(frame, closest_id, pixel_scale)
+        if closest_points is None:
+            continue
+        for p1 in social_points:
+            for p2 in social_points:
+                key = f"social dist. {p1.name}-{p2.name}"
+                result[key][frame] = math.dist(points[p1.value], closest_points[p2.value])
+    return result
+
+
+@pytest.mark.parametrize(
+    "pixel_scale",
+    [0.07928075, np.float32(0.07928075), np.float64(0.07928075), 1],
+    ids=["python_float", "numpy_float32", "numpy_float64", "python_int"],
+)
+@pytest.mark.parametrize("neighbor", ["closest", "closest_fov"])
+def test_pairwise_social_distances_match_reference(
+    sample_pose_v6: PoseEstimation, pixel_scale: float, neighbor: str
+) -> None:
+    """Pairwise social distances equal the original per-frame loop, for every identity."""
+    points = [
+        PoseEstimation.KeypointIndex.NOSE,
+        PoseEstimation.KeypointIndex.BASE_NECK,
+        PoseEstimation.KeypointIndex.BASE_TAIL,
+    ]
+    for identity in sample_pose_v6.identities:
+        info = ClosestIdentityInfo(sample_pose_v6, identity, pixel_scale)
+        closest = getattr(info, f"{neighbor}_identities")
+
+        actual = info.compute_pairwise_social_distances(points, closest)
+        expected = _reference_pairwise_social_distances(
+            sample_pose_v6, identity, pixel_scale, points, closest
+        )
+
+        assert list(actual) == list(expected)
+        for key, values in expected.items():
+            np.testing.assert_array_equal(actual[key], values, err_msg=f"{identity} {key}")
+
+
+def test_pairwise_social_distances_nan_without_neighbor_or_subject() -> None:
+    """Frames with no neighbor, or where the subject or neighbor is absent, are NaN."""
+    # frame 0: neighbor 1 present; frame 1: subject absent; frame 2: neighbor absent
+    pose = _MultiFrameStubPose(
+        {
+            0: [(0.0, 0.0), None, (0.0, 0.0)],
+            1: [(20.0, 0.0), (20.0, 0.0), None],
+        }
+    )
+    info = ClosestIdentityInfo(pose, 0, 1.0)
+    closest = np.array([1, 1, 1], dtype=np.int16)
+
+    dists = info.compute_pairwise_social_distances(
+        [PoseEstimation.KeypointIndex.BASE_NECK], closest
+    )
+
+    np.testing.assert_array_equal(
+        dists["social dist. BASE_NECK-BASE_NECK"], [20.0, np.nan, np.nan]
+    )
