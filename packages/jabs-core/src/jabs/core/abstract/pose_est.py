@@ -380,16 +380,25 @@ class PoseEstimation(ABC):
         return np.degrees(angle_rad)
 
     def compute_all_bearings(self, identity):
-        """compute the bearing for each frame for a given identity"""
+        """compute the bearing for each frame for a given identity
+
+        Equal to applying `compute_bearing` to each frame's points, computed for all
+        frames at once. Frames where the identity is absent are NaN.
+        """
         use_nose = not self.get_reduced_point_mask()[self.KeypointIndex.BASE_NECK.value]
         if use_nose:
             logger.warning("Falling back to using nose keypoint for bearing computation")
 
+        # every frame at once, with the same float32 arithmetic as compute_bearing
+        points, _ = self.get_identity_poses(identity)
+        present = np.asarray(self.identity_mask(identity)) == 1
+        front = self.KeypointIndex.NOSE if use_nose else self.KeypointIndex.BASE_NECK
+        offset_xy = points[present, front.value].astype(np.float32) - points[
+            present, self.KeypointIndex.BASE_TAIL.value
+        ].astype(np.float32)
+
         bearings = np.full(self.num_frames, np.nan, dtype=np.float32)
-        for i in range(self.num_frames):
-            points, mask = self.get_points(i, identity)
-            if points is not None:
-                bearings[i] = self.compute_bearing(points, use_nose)
+        bearings[present] = np.degrees(np.arctan2(offset_xy[:, 1], offset_xy[:, 0]))
         return bearings
 
     @staticmethod
