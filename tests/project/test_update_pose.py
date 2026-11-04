@@ -13,6 +13,7 @@ import jabs.scripts.cli.update_pose as update_pose
 from jabs.project import TimelineAnnotations, VideoLabels
 from jabs.project.timeline_annotations import is_valid_tag
 from jabs.scripts.cli.cli import cli
+from jabs.scripts.cli.label_remap_matching import MatchMetric
 
 
 def _make_pose(identities, boxes_by_identity, *, num_identities=None):
@@ -224,9 +225,13 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         drop_timeline_annotations,
         skip_feature_gen,
         tolerate_orphan_identities,
+        min_mask_iou,
+        match_by,
     ):
         captured.update(
             {
+                "min_mask_iou": min_mask_iou,
+                "match_by": match_by,
                 "project_dir": project_dir_arg,
                 "new_pose_dir": new_pose_dir_arg,
                 "min_iou": min_iou,
@@ -254,6 +259,10 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
             str(new_pose_dir),
             "--min-iou-thresh",
             "0.75",
+            "--min-mask-iou",
+            "0.6",
+            "--match-by",
+            "segmentation",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -267,6 +276,8 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         "project_dir": project_dir,
         "new_pose_dir": new_pose_dir,
         "min_iou": 0.75,
+        "min_mask_iou": 0.6,
+        "match_by": MatchMetric.SEGMENTATION,
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
@@ -1288,3 +1299,105 @@ def test_apply_live_update_failure_prints_cleanup_and_restore_instructions(
     assert "video1_pose_est_v7.h5" in stderr
     assert "jabs/annotations/video1.json" in stderr
     assert "unzip -o .backup/update_pose_test.zip" in stderr
+
+
+def _diagonal_band(n: int, *, anti: bool = False) -> np.ndarray:
+    """A thin diagonal band filling the n x n box from corner to corner."""
+    band = np.array([[0, 0], [3, 0], [n, n - 3], [n, n], [n - 3, n], [0, 3]], dtype=np.int32)
+    if anti:
+        band[:, 0] = n - band[:, 0]
+    return band
+
+
+def _make_seg_pose(boxes_by_identity, bands_by_identity):
+    """Build a v8-style pose fake with bounding boxes and one mask contour per frame."""
+    pose = _make_pose(list(boxes_by_identity), boxes_by_identity)
+    num_frames = pose.num_frames
+    seg = {
+        identity: np.broadcast_to(band, (num_frames, 1, *band.shape)).copy()
+        for identity, band in bands_by_identity.items()
+    }
+    pose.has_segmentation = True
+    pose.get_segmentation_data = lambda identity: seg[identity]
+    return pose
+
+
+def test_remap_labels_for_video_prefers_segmentation_and_reports_disagreement(capsys):
+    """Segmentation decides the identity; disagreeing boxes warn and, if asked, annotate."""
+    frames = 10
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    shifted_box = np.array([[[2.0, 2.0], [42.0, 42.0]]] * frames)
+    # destination identity 1 has exactly the source's box but lies along the other
+    # diagonal; identity 0 has the source's mask with a slightly offset box
+    source_pose = _make_seg_pose({0: box}, {0: _diagonal_band(40)})
+    dest_pose = _make_seg_pose(
+        {0: shifted_box, 1: box},
+        {0: _diagonal_band(40), 1: _diagonal_band(40, anti=True)},
+    )
+
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(2, 6)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    assert (success_count, skipped_count) == (1, 0)
+    saved = label_dest_project.save_annotations.call_args[0][0]
+    walk_0 = saved.get_track_labels("0", "walk").get_labels()
+    assert np.all(walk_0[2:7] == saved.get_track_labels("0", "walk").Label.BEHAVIOR)
+    assert "1" not in {identity for identity, _, _ in saved.iter_identity_behavior_labels()}
+
+    stderr = capsys.readouterr().err
+    assert "segmentation and bounding boxes disagree" in stderr
+    [annotation] = saved.timeline_annotations.serialize()
+    assert annotation["tag"] == "remap-metric-disagreement"
+    assert is_valid_tag(annotation["tag"])
+    assert (annotation["start"], annotation["end"]) == (2, 6)
+
+
+def test_remap_labels_for_video_match_by_bbox_keeps_box_only_choice():
+    """--match-by bbox assigns the block by bounding boxes alone."""
+    frames = 10
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    shifted_box = np.array([[[2.0, 2.0], [42.0, 42.0]]] * frames)
+    source_pose = _make_seg_pose({0: box}, {0: _diagonal_band(40)})
+    dest_pose = _make_seg_pose(
+        {0: shifted_box, 1: box},
+        {0: _diagonal_band(40), 1: _diagonal_band(40, anti=True)},
+    )
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(2, 6)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        match_by=update_pose.MatchMetric.BBOX,
+    )
+
+    saved = label_dest_project.save_annotations.call_args[0][0]
+    assert {identity for identity, _, _ in saved.iter_identity_behavior_labels()} == {"1"}

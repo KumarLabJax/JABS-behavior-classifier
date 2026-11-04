@@ -17,8 +17,10 @@ predictions. If a failure occurs after the final live apply begins, the script
 prints the backup path plus cleanup and manual restore instructions instead of
 restoring automatically.
 
-Labels are processed block by block, matched by median bbox IoU, and written
-directly to the destination label track.
+Labels are processed block by block and written directly to the destination
+label track. Each block goes to the destination identity it overlaps best: by
+median segmentation mask IoU when both identities have masks, otherwise by
+median bounding box IoU (``--match-by`` changes this).
 Timeline annotations are also carried forward: video-level annotations are
 copied as-is, and identity-scoped annotations are remapped by the same
 interval-matching logic. If ``--drop-timeline-annotations`` is provided,
@@ -51,7 +53,7 @@ import h5py
 import numpy as np
 
 from jabs.core.utils import copy_file_atomic
-from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
+from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
@@ -61,6 +63,8 @@ from jabs.scripts.initialize_project import (
     validate_window_sizes,
 )
 from jabs.video_reader import VideoReader
+
+from .label_remap_matching import IdentityMatch, IdentityMatcher, MatchMetric, MatchSettings
 
 
 def _project_videos(project_dir: Path) -> list[str]:
@@ -88,120 +92,6 @@ def _require_writable_existing_path(path: Path, description: str) -> None:
     """Raise if an existing file or directory is not writable."""
     if path.exists() and not os.access(path, os.W_OK):
         raise PermissionError(f"{description} is not writable: {path}")
-
-
-def _bboxes_for_identity(pose: PoseEstimation, identity: int) -> np.ndarray | None:
-    """Return per-frame bboxes for an identity as [x1,y1,x2,y2], or None if unavailable."""
-    bbox_getter = getattr(pose, "get_bounding_boxes", None)
-    if bbox_getter is None or not getattr(pose, "has_bounding_boxes", False):
-        return None
-    bboxes = bbox_getter(identity)
-    if bboxes is None:
-        return None
-    # flatten [frames,2,2] -> [frames,4]
-    return bboxes.reshape(bboxes.shape[0], 4)
-
-
-def _bbox_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
-    """Compute IoU for two boxes shaped (4,) = [x1,y1,x2,y2]."""
-    x1 = max(box_a[0], box_b[0])
-    y1 = max(box_a[1], box_b[1])
-    x2 = min(box_a[2], box_b[2])
-    y2 = min(box_a[3], box_b[3])
-    inter_w = x2 - x1
-    inter_h = y2 - y1
-    if inter_w <= 0 or inter_h <= 0:
-        return 0.0
-    inter = inter_w * inter_h
-    area_a = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
-    area_b = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
-    if area_a <= 0 or area_b <= 0:
-        return 0.0
-    return inter / (area_a + area_b - inter)
-
-
-def _interval_cost(
-    src_pose: PoseEstimation,
-    dst_pose: PoseEstimation,
-    src_identity: int,
-    dst_identity: int,
-    start: int,
-    end: int,
-) -> float:
-    """Compute the median bbox IoU across one source-identity/destination-identity interval.
-
-    Only frames where both boxes are finite and have positive area contribute to
-    the score. If no such frames exist, returns 0.0.
-
-    Args:
-        src_pose: Source pose object.
-        dst_pose: Destination pose object.
-        src_identity: Source identity index.
-        dst_identity: Destination identity index.
-        start: Inclusive start frame for the interval.
-        end: Inclusive end frame for the interval.
-
-    Returns:
-        Median IoU across valid overlapping boxes in the interval, or ``0.0`` if none exist.
-    """
-    src_b = _bboxes_for_identity(src_pose, src_identity)
-    dst_b = _bboxes_for_identity(dst_pose, dst_identity)
-    if src_b is None or dst_b is None:
-        return 0.0
-
-    src_slice = src_b[start : end + 1]
-    dst_slice = dst_b[start : end + 1]
-
-    # valid boxes: finite coords and positive width/height
-    def _valid_boxes(boxes):
-        finite = np.isfinite(boxes).all(axis=1)
-        widths = boxes[:, 2] - boxes[:, 0]
-        heights = boxes[:, 3] - boxes[:, 1]
-        positive = (widths > 0) & (heights > 0)
-        return finite & positive
-
-    mask = _valid_boxes(src_slice) & _valid_boxes(dst_slice)
-    if not np.any(mask):
-        return 0.0
-
-    ious = [_bbox_iou(a, b) for a, b in zip(src_slice[mask], dst_slice[mask], strict=True)]
-    return float(np.median(ious)) if ious else 0.0
-
-
-def _find_best_identity(
-    src_pose: PoseEstimation,
-    dst_pose: PoseEstimation,
-    src_identity: int,
-    start: int,
-    end: int,
-) -> tuple[int | None, float]:
-    """Find the single best destination identity for one source block interval.
-
-    Destination identities are compared independently and the highest-IoU match
-    is returned. The chosen identity is not reserved, so later blocks may match
-    to the same destination identity.
-
-    Args:
-        src_pose: Source pose object.
-        dst_pose: Destination pose object.
-        src_identity: Source identity index.
-        start: Inclusive start frame for the interval.
-        end: Inclusive end frame for the interval.
-
-    Returns:
-        Tuple of ``(best_identity, best_iou)``. ``best_identity`` is ``None`` only if no
-        destination identities are available.
-    """
-    best_id: int | None = None
-    best_score = -float("inf")
-
-    for dst_id in dst_pose.identities:
-        iou = _interval_cost(src_pose, dst_pose, src_identity, dst_id, start, end)
-        if iou > best_score:
-            best_score = iou
-            best_id = dst_id
-
-    return best_id, best_score
 
 
 def _warn_on_label_overlap(
@@ -243,6 +133,60 @@ def _warn_on_label_overlap(
     print(message, file=sys.stderr)
 
 
+def _threshold_text(match: IdentityMatch) -> str:
+    """Describe the threshold a match was held to, e.g. ``mask IoU ≥ 0.50``."""
+    name = "mask IoU" if match.metric is MatchMetric.SEGMENTATION else "bbox IoU"
+    return f"{name} ≥ {match.threshold:.2f}"
+
+
+def _warn_on_metric_disagreement(context: str, match: IdentityMatch) -> bool:
+    """Warn when segmentation and bounding boxes pick different destination identities.
+
+    Args:
+        context: Description of the block or annotation being matched.
+        match: The accepted match.
+
+    Returns:
+        Whether the two scores disagreed.
+    """
+    if not match.disagreement:
+        return False
+    print(
+        f"WARNING: {context} segmentation and bounding boxes disagree "
+        f"({match.describe()}); using {match.metric.value} -> dst_id={match.identity}.",
+        file=sys.stderr,
+    )
+    return True
+
+
+def _annotate_disagreement(
+    dest_labels: VideoLabels,
+    start: int,
+    end: int,
+    match: IdentityMatch,
+    failure_description_phrase: str,
+) -> None:
+    """Add a timeline annotation marking a block whose two match scores disagreed."""
+    tag = "remap-metric-disagreement"
+    if dest_labels.timeline_annotations.annotation_exists(
+        start=start, end=end, tag=tag, identity_index=None
+    ):
+        return
+    dest_labels.timeline_annotations.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=start,
+            end=end,
+            tag=tag,
+            color="#CC44CC",
+            description=(
+                f"segmentation and bounding boxes disagreed during {failure_description_phrase}: "
+                f"{match.describe()}; used {match.metric.value} -> {match.identity}"
+            ),
+            identity_index=None,
+        )
+    )
+
+
 def _remap_labels_for_video(
     video: str,
     label_source_project: Project,
@@ -253,12 +197,17 @@ def _remap_labels_for_video(
     drop_timeline_annotations: bool = False,
     *,
     failure_description_phrase: str = "pose update",
+    min_mask_iou: float = 0.5,
+    match_by: MatchMetric = MatchMetric.AUTO,
 ):
     """Remap labels for a single video.
 
     Source labels are read as contiguous blocks per source identity and
     behavior. Each block is matched independently to the destination identity
-    with the highest median bbox IoU over that interval. The destination label
+    that overlaps it best over that interval: by median segmentation mask IoU when
+    both identities have masks, otherwise by median bbox IoU (see
+    `label_remap_matching.MatchMetric`). When both scores are available and pick
+    different identities, a warning is printed. The destination label
     track is updated immediately after each successful match, so later overlapping
     writes for the same destination identity and behavior replace earlier frame
     values. Overlaps are warned before the write occurs.
@@ -267,7 +216,7 @@ def _remap_labels_for_video(
         video: Video filename to remap.
         label_source_project: Project providing the current labels and source pose.
         label_dest_project: Staging project providing the replacement pose and output location.
-        min_iou: Minimum median IoU required to accept a block match.
+        min_iou: Minimum median bbox IoU required to accept a bbox-decided match.
         verbose: Whether to print successful block matches.
         annotate_failures: Whether to add timeline annotations for failed block matches.
         drop_timeline_annotations: Whether to discard existing source timeline annotations
@@ -276,6 +225,9 @@ def _remap_labels_for_video(
             annotation description (e.g. ``"pose update"`` → "label remap failed
             during pose update: ..."). Both ``update-pose`` and ``update-labels``
             share the same tag names; this only affects the description text.
+        min_mask_iou: Minimum median mask IoU required to accept a segmentation-decided
+            match.
+        match_by: Which score decides a match.
 
     Returns:
         Tuple of ``(success_count, skipped_count)``.
@@ -304,6 +256,14 @@ def _remap_labels_for_video(
             file=sys.stderr,
         )
         return 0, 0
+
+    matcher = IdentityMatcher(
+        source_pose,
+        dest_pose,
+        MatchSettings(
+            min_bbox_iou=min_iou, min_mask_iou=min_mask_iou, match_by=MatchMetric(match_by)
+        ),
+    )
 
     source_labels = label_source_project.video_manager.load_video_labels(video, pose=source_pose)
     if source_labels is None:
@@ -335,21 +295,21 @@ def _remap_labels_for_video(
                     )
                     continue
 
-                dst_annotation_identity, iou = _find_best_identity(
-                    source_pose,
-                    dest_pose,
-                    src_annotation_identity,
-                    start,
-                    end,
-                )
-                if dst_annotation_identity is None or not np.isfinite(iou) or iou < min_iou:
+                match = matcher.match(src_annotation_identity, start, end)
+                if not match.accepted:
                     print(
                         f"WARNING: {video} annotation tag={tag} src_id={src_annotation_identity} "
-                        f"frames={start}-{end} no match meeting IoU ≥ {min_iou:.2f} "
-                        f"(best {iou:.2f}). Skipping annotation.",
+                        f"frames={start}-{end} no match meeting {_threshold_text(match)} "
+                        f"({match.describe()}). Skipping annotation.",
                         file=sys.stderr,
                     )
                     continue
+                _warn_on_metric_disagreement(
+                    f"{video} annotation tag={tag} src_id={src_annotation_identity} "
+                    f"frames={start}-{end}",
+                    match,
+                )
+                dst_annotation_identity = match.identity
                 display_identity = dest_pose.identity_index_to_display(dst_annotation_identity)
 
             if not dest_labels.timeline_annotations.annotation_exists(
@@ -403,14 +363,14 @@ def _remap_labels_for_video(
 
         for block in track_labels.get_blocks():
             start, end, present = block["start"], block["end"], block["present"]
-            dst_identity, iou = _find_best_identity(
-                source_pose, dest_pose, src_identity, start, end
-            )
+            match = matcher.match(src_identity, start, end)
+            dst_identity = match.identity
 
-            if dst_identity is None or not np.isfinite(iou) or iou < min_iou:
+            if not match.accepted:
                 print(
                     f"WARNING: {video} behavior={behavior} src_id={src_identity} frames={start}-{end} "
-                    f"no match meeting IoU ≥ {min_iou:.2f} (best {iou:.2f}). Skipping block.",
+                    f"no match meeting {_threshold_text(match)} ({match.describe()}). "
+                    "Skipping block.",
                     file=sys.stderr,
                 )
                 skipped_count += 1
@@ -428,12 +388,21 @@ def _remap_labels_for_video(
                             description=(
                                 f"label remap failed during {failure_description_phrase}: "
                                 f"behavior={behavior}, present={present}, "
-                                f"src_id={src_identity}, best_iou={iou:.2f}"
+                                f"src_id={src_identity}, {match.describe()}"
                             ),
                             identity_index=None,
                         )
                     )
                 continue
+
+            if (
+                _warn_on_metric_disagreement(
+                    f"{video} behavior={behavior} src_id={src_identity} frames={start}-{end}",
+                    match,
+                )
+                and annotate_failures
+            ):
+                _annotate_disagreement(dest_labels, start, end, match, failure_description_phrase)
 
             dst_track_labels = dest_labels.get_track_labels(str(dst_identity), behavior)
             _warn_on_label_overlap(
@@ -453,7 +422,8 @@ def _remap_labels_for_video(
             if verbose:
                 print(
                     f"MATCH: {video} behavior={behavior} src_id={src_identity} -> "
-                    f"dst_id={dst_identity} frames={start}-{end} iou={iou:.2f}"
+                    f"dst_id={dst_identity} frames={start}-{end} by {match.metric.value} "
+                    f"({match.describe()})"
                 )
             success_count += 1
 
@@ -1103,6 +1073,8 @@ def _run_staged_label_remap(
     *,
     videos: list[str] | None = None,
     failure_description_phrase: str = "pose update",
+    min_mask_iou: float = 0.5,
+    match_by: MatchMetric = MatchMetric.AUTO,
 ) -> tuple[int, int]:
     """Run the existing per-video label-remap semantics from source to destination.
 
@@ -1122,6 +1094,8 @@ def _run_staged_label_remap(
             annotation description (e.g. ``"pose update"`` → "label remap failed
             during pose update: ..."). Both ``update-pose`` and ``update-labels``
             share the same tag names; this only affects the description text.
+        min_mask_iou: Minimum acceptable median mask IoU for a segmentation-decided match.
+        match_by: Which score decides a match.
     """
     total_success = 0
     total_skipped = 0
@@ -1138,6 +1112,8 @@ def _run_staged_label_remap(
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,
             failure_description_phrase=failure_description_phrase,
+            min_mask_iou=min_mask_iou,
+            match_by=match_by,
         )
         total_success += success
         total_skipped += skipped
@@ -1154,6 +1130,9 @@ def update_project_pose_in_place(
     drop_timeline_annotations: bool = False,
     skip_feature_gen: bool = False,
     tolerate_orphan_identities: bool = False,
+    *,
+    min_mask_iou: float = 0.5,
+    match_by: MatchMetric = MatchMetric.AUTO,
 ) -> tuple[int, int, Path, str]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``.
 
@@ -1170,6 +1149,9 @@ def update_project_pose_in_place(
             references in the live project's annotations and skip the affected
             ``(identity, behavior)`` pairs during remap instead of aborting at
             preflight.
+        min_mask_iou: Minimum median mask IoU required to accept a segmentation-decided
+            match.
+        match_by: Which score decides each label block's identity.
 
     Returns:
         Tuple of ``(total_success, total_skipped, backup_path, feature_regen_status)`` for
@@ -1217,6 +1199,8 @@ def update_project_pose_in_place(
             verbose,
             annotate_failures,
             drop_timeline_annotations,
+            min_mask_iou=min_mask_iou,
+            match_by=match_by,
             videos=videos,
         )
         _refresh_project_identity_counts(label_dest_project)
@@ -1268,7 +1252,27 @@ def update_project_pose_in_place(
     type=float,
     default=0.5,
     show_default=True,
-    help="Minimum acceptable median IoU for a label remap match.",
+    help="Minimum acceptable median bounding box IoU for a match decided by bounding boxes.",
+)
+@click.option(
+    "--min-mask-iou",
+    "min_mask_iou",
+    type=float,
+    default=0.5,
+    show_default=True,
+    help="Minimum acceptable median segmentation mask IoU for a match decided by segmentation.",
+)
+@click.option(
+    "--match-by",
+    "match_by",
+    type=click.Choice([m.value for m in MatchMetric]),
+    default=MatchMetric.AUTO.value,
+    show_default=True,
+    help=(
+        "Which score decides each label block's identity: 'auto' uses segmentation mask IoU "
+        "when both identities have masks in the block and bounding box IoU otherwise; "
+        "'segmentation' and 'bbox' use only that score."
+    ),
 )
 @click.option(
     "--verbose",
@@ -1308,6 +1312,8 @@ def update_pose_command(
     project: Path,
     new_pose_dir: Path,
     min_iou: float,
+    min_mask_iou: float,
+    match_by: str,
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
@@ -1319,6 +1325,8 @@ def update_pose_command(
         project,
         new_pose_dir,
         min_iou,
+        min_mask_iou=min_mask_iou,
+        match_by=MatchMetric(match_by),
         verbose=verbose,
         annotate_failures=annotate_failures,
         drop_timeline_annotations=drop_timeline_annotations,
@@ -1330,7 +1338,8 @@ def update_pose_command(
     click.echo(
         f"Pose update summary: {total_success} label blocks assigned, "
         f"{total_skipped} label blocks skipped "
-        f"(IoU threshold={min_iou})"
+        f"(match by {match_by}, mask IoU threshold={min_mask_iou}, "
+        f"bbox IoU threshold={min_iou})"
     )
     if feature_regen_status == "regenerated":
         click.echo("Feature regeneration: completed using window_sizes from jabs/project.json")

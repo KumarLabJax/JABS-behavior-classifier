@@ -9,6 +9,7 @@ from click.testing import CliRunner
 import jabs.scripts.cli.update_labels as update_labels
 import jabs.scripts.cli.update_pose as update_pose
 from jabs.scripts.cli.cli import cli
+from jabs.scripts.cli.label_remap_matching import MatchMetric
 
 
 def _make_valid_project_dir(
@@ -594,9 +595,13 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         annotate_failures,
         drop_timeline_annotations,
         tolerate_orphan_identities,
+        min_mask_iou,
+        match_by,
     ):
         captured.update(
             {
+                "min_mask_iou": min_mask_iou,
+                "match_by": match_by,
                 "project_dir": project_dir_arg,
                 "source_project_dir": source_project_dir_arg,
                 "min_iou": min_iou,
@@ -623,6 +628,10 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
             str(source_dir),
             "--min-iou-thresh",
             "0.75",
+            "--min-mask-iou",
+            "0.6",
+            "--match-by",
+            "segmentation",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -635,6 +644,8 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         "project_dir": project_dir,
         "source_project_dir": source_dir,
         "min_iou": 0.75,
+        "min_mask_iou": 0.6,
+        "match_by": MatchMetric.SEGMENTATION,
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
