@@ -9,8 +9,14 @@ candidate destination identity:
 - **bbox IoU**: per-frame intersection over union of the two identities' bounding
   boxes (pose v8+)
 
-Each score is the median over the frames in the interval where both identities have
-that data. Which score decides the match is controlled by `MatchMetric`.
+Which score decides the match is controlled by `MatchMetric`.
+
+By default (`MatchSettings.split_blocks`), the destination identity is chosen frame by
+frame and the interval is split wherever the best match changes, because a destination
+pose file can hand one animal from one identity to another partway through a labeled
+block (for example after a segmentation split). Each run is then accepted or rejected
+on its own. With splitting off, the whole interval goes to one identity, scored by the
+median over the frames where both identities have data.
 """
 
 from __future__ import annotations
@@ -54,11 +60,33 @@ class MatchSettings:
         min_bbox_iou: Minimum median bounding box IoU to accept a bbox-decided match.
         min_mask_iou: Minimum median mask IoU to accept a segmentation-decided match.
         match_by: Which score decides the match.
+        split_blocks: Split an interval where its best-matching destination identity
+            changes, instead of assigning the whole interval to one identity.
+        min_run_frames: When splitting, runs shorter than this are folded into a
+            neighboring run so brief flickers in the per-frame match do not fragment
+            an interval.
     """
 
     min_bbox_iou: float = 0.5
     min_mask_iou: float = 0.5
     match_by: MatchMetric = MatchMetric.AUTO
+    split_blocks: bool = True
+    min_run_frames: int = 3
+
+
+@dataclass(frozen=True)
+class RunMatch:
+    """A contiguous part of an interval assigned to a single destination identity.
+
+    Attributes:
+        start: First frame of the run.
+        end: Last frame of the run, inclusive.
+        match: The identity match for the run.
+    """
+
+    start: int
+    end: int
+    match: IdentityMatch
 
 
 @dataclass(frozen=True)
@@ -212,6 +240,88 @@ class _PoseShapes:
         return self._contours[key]
 
 
+@dataclass
+class _FrameScores:
+    """Per-frame scores of every destination identity over one interval.
+
+    Attributes:
+        mask: Mask IoU, shape (frames, destination identities); NaN where the source
+            has no mask, 0 where only the destination identity has none.
+        bbox: Bounding box IoU, with the same conventions as ``mask``.
+        mask_frames: Frames decided by masks (the source and some destination have one).
+        bbox_frames: Frames where the source and some destination have a box.
+        best: Best destination identity on each frame, or None where nothing overlaps.
+    """
+
+    mask: npt.NDArray[np.float64]
+    bbox: npt.NDArray[np.float64]
+    mask_frames: npt.NDArray[np.bool_]
+    bbox_frames: npt.NDArray[np.bool_]
+    best: list[int | None]
+
+
+def _runs(values: list[int | None]) -> list[tuple[int | None, int]]:
+    """Run-length encode ``values`` as ``(value, length)`` pairs."""
+    runs: list[tuple[int | None, int]] = []
+    for value in values:
+        if runs and runs[-1][0] == value:
+            runs[-1] = (value, runs[-1][1] + 1)
+        else:
+            runs.append((value, 1))
+    return runs
+
+
+def _merge_adjacent(runs: list[tuple[int | None, int]]) -> list[tuple[int | None, int]]:
+    """Combine neighboring runs that have the same value."""
+    merged: list[tuple[int | None, int]] = []
+    for value, length in runs:
+        if merged and merged[-1][0] == value:
+            merged[-1] = (value, merged[-1][1] + length)
+        else:
+            merged.append((value, length))
+    return merged
+
+
+def _fold_short_runs(
+    runs: list[tuple[int | None, int]], min_length: int
+) -> list[tuple[int | None, int]]:
+    """Fold runs without a match, and runs shorter than ``min_length``, into a neighbor.
+
+    The shortest such run is folded first, into its longer neighbor (the earlier one on
+    a tie), until every remaining run has a match and is at least ``min_length`` long,
+    or only one run is left. Frames keep their order, so the runs still cover the
+    whole interval.
+
+    Args:
+        runs: ``(identity, length)`` pairs in frame order; identity None means no
+            destination identity overlapped those frames.
+        min_length: Minimum length of a run that is kept on its own.
+
+    Returns:
+        The folded runs.
+    """
+    runs = _merge_adjacent(runs)
+    while len(runs) > 1:
+        candidates = [
+            (length if value is not None else -1, i)
+            for i, (value, length) in enumerate(runs)
+            if value is None or length < min_length
+        ]
+        if not candidates:
+            break
+        _, i = min(candidates)
+        before = runs[i - 1] if i > 0 else None
+        after = runs[i + 1] if i + 1 < len(runs) else None
+        # fold into a neighbor that has a match, preferring the longer one
+        options = [(n, k) for k, n in ((i - 1, before), (i + 1, after)) if n is not None]
+        with_match = [(n, k) for n, k in options if n[0] is not None] or options
+        target_run, target = max(with_match, key=lambda nk: (nk[0][1], -nk[1]))
+        runs[target] = (target_run[0], target_run[1] + runs[i][1])
+        del runs[i]
+        runs = _merge_adjacent(runs)
+    return runs
+
+
 class IdentityMatcher:
     """Finds the destination identity that best matches a source identity over an interval.
 
@@ -270,6 +380,148 @@ class IdentityMatcher:
             if score is not None and (best_score is None or score > best_score):
                 best_id, best_score = dst_id, score
         return best_id, best_score
+
+    def match_runs(self, src_identity: int, start: int, end: int) -> list[RunMatch]:
+        """Match ``src_identity`` over frames ``start``-``end``, split where the match changes.
+
+        With `MatchSettings.split_blocks` off, this is a single run from `match`.
+
+        Args:
+            src_identity: Identity index in the source pose file.
+            start: First frame of the interval.
+            end: Last frame of the interval, inclusive.
+
+        Returns:
+            Runs covering every frame of the interval, in order.
+        """
+        if not self._settings.split_blocks:
+            return [RunMatch(start, end, self.match(src_identity, start, end))]
+
+        scores = self._frame_scores(src_identity, start, end)
+        runs = _fold_short_runs(_runs(scores.best), self._settings.min_run_frames)
+        result = []
+        offset = 0
+        for identity, length in runs:
+            frames = slice(offset, offset + length)
+            result.append(
+                RunMatch(
+                    start + offset,
+                    start + offset + length - 1,
+                    self._run_match(scores, frames, identity),
+                )
+            )
+            offset += length
+        return result
+
+    def _frame_scores(self, src_identity: int, start: int, end: int) -> _FrameScores:
+        """Score every destination identity on every frame of the interval.
+
+        A destination identity without a mask (or box) on a frame where the source has
+        one scores 0 on that frame. A frame is decided by masks when the source and at
+        least one destination identity have masks on it, otherwise by boxes when the
+        source and at least one destination identity have boxes.
+        """
+        match_by = self._settings.match_by
+        n_frames = end - start + 1
+        n_dest = len(self._dest_identities)
+        mask = np.full((n_frames, n_dest), np.nan)
+        bbox = np.full((n_frames, n_dest), np.nan)
+        mask_frames = np.zeros(n_frames, dtype=bool)
+        bbox_frames = np.zeros(n_frames, dtype=bool)
+
+        if match_by is not MatchMetric.BBOX:
+            for i, frame in enumerate(range(start, end + 1)):
+                src_contours = self._source.contours(src_identity, frame)
+                if src_contours is None:
+                    continue
+                for j, dst in enumerate(self._dest_identities):
+                    dst_contours = self._dest.contours(dst, frame)
+                    if dst_contours is not None:
+                        mask_frames[i] = True
+                        mask[i, j] = mask_iou(src_contours, dst_contours)
+                    else:
+                        mask[i, j] = 0.0
+
+        if match_by is not MatchMetric.SEGMENTATION:
+            src_boxes = self._source.bboxes(src_identity)
+            if src_boxes is not None:
+                src_slice = src_boxes[start : end + 1]
+                src_valid = _valid_boxes(src_slice)
+                for j, dst in enumerate(self._dest_identities):
+                    dst_boxes = self._dest.bboxes(dst)
+                    dst_valid = (
+                        _valid_boxes(dst_boxes[start : end + 1])
+                        if dst_boxes is not None
+                        else np.zeros(n_frames, dtype=bool)
+                    )
+                    for i in np.flatnonzero(src_valid):
+                        if dst_valid[i]:
+                            bbox_frames[i] = True
+                            bbox[i, j] = bbox_iou(src_slice[i], dst_boxes[start + i])
+                        else:
+                            bbox[i, j] = 0.0
+
+        best: list[int | None] = []
+        for i in range(n_frames):
+            row = mask[i] if mask_frames[i] else bbox[i] if bbox_frames[i] else None
+            if row is None or not np.nanmax(row) > 0:
+                best.append(None)
+            else:
+                best.append(self._dest_identities[int(np.nanargmax(row))])
+        return _FrameScores(mask, bbox, mask_frames, bbox_frames, best)
+
+    def _run_match(
+        self, scores: _FrameScores, frames: slice, identity: int | None
+    ) -> IdentityMatch:
+        """Score ``identity`` over one run, counting frames where it is missing as 0."""
+        settings = self._settings
+        mask_rows = np.flatnonzero(scores.mask_frames[frames]) + frames.start
+        bbox_rows = np.flatnonzero(scores.bbox_frames[frames]) + frames.start
+
+        def best_of(matrix: npt.NDArray[np.float64], rows: npt.NDArray[np.intp]):
+            if len(rows) == 0:
+                return None, None
+            medians = np.median(matrix[rows], axis=0)
+            j = int(np.argmax(medians))
+            return self._dest_identities[j], float(medians[j])
+
+        mask_identity, mask_score = best_of(scores.mask, mask_rows)
+        bbox_identity, bbox_score = best_of(scores.bbox, bbox_rows)
+
+        if len(mask_rows):
+            metric, rows, matrix, threshold = (
+                MatchMetric.SEGMENTATION,
+                mask_rows,
+                scores.mask,
+                settings.min_mask_iou,
+            )
+        else:
+            metric = (
+                MatchMetric.SEGMENTATION
+                if settings.match_by is MatchMetric.SEGMENTATION
+                else MatchMetric.BBOX
+            )
+            rows, matrix = bbox_rows, scores.bbox
+            threshold = (
+                settings.min_mask_iou
+                if metric is MatchMetric.SEGMENTATION
+                else settings.min_bbox_iou
+            )
+
+        if identity is None or len(rows) == 0:
+            score = -np.inf
+        else:
+            score = float(np.median(matrix[rows, self._dest_identities.index(identity)]))
+        return IdentityMatch(
+            identity=identity,
+            metric=metric,
+            score=score,
+            threshold=threshold,
+            bbox_identity=bbox_identity,
+            bbox_iou=bbox_score,
+            mask_identity=mask_identity,
+            mask_iou=mask_score,
+        )
 
     def match(self, src_identity: int, start: int, end: int) -> IdentityMatch:
         """Match ``src_identity`` over frames ``start``-``end`` (inclusive).

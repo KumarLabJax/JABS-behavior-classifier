@@ -9,7 +9,7 @@ from click.testing import CliRunner
 import jabs.scripts.cli.update_labels as update_labels
 import jabs.scripts.cli.update_pose as update_pose
 from jabs.scripts.cli.cli import cli
-from jabs.scripts.cli.label_remap_matching import MatchMetric
+from jabs.scripts.cli.label_remap_matching import MatchMetric, MatchSettings
 
 
 def _make_valid_project_dir(
@@ -595,13 +595,11 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         annotate_failures,
         drop_timeline_annotations,
         tolerate_orphan_identities,
-        min_mask_iou,
-        match_by,
+        match_settings,
     ):
         captured.update(
             {
-                "min_mask_iou": min_mask_iou,
-                "match_by": match_by,
+                "match_settings": match_settings,
                 "project_dir": project_dir_arg,
                 "source_project_dir": source_project_dir_arg,
                 "min_iou": min_iou,
@@ -632,6 +630,9 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
             "0.6",
             "--match-by",
             "segmentation",
+            "--no-split-blocks",
+            "--min-run-frames",
+            "5",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -644,8 +645,13 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         "project_dir": project_dir,
         "source_project_dir": source_dir,
         "min_iou": 0.75,
-        "min_mask_iou": 0.6,
-        "match_by": MatchMetric.SEGMENTATION,
+        "match_settings": MatchSettings(
+            min_bbox_iou=0.75,
+            min_mask_iou=0.6,
+            match_by=MatchMetric.SEGMENTATION,
+            split_blocks=False,
+            min_run_frames=5,
+        ),
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,

@@ -53,7 +53,7 @@ from jabs.core.utils import copy_file_atomic
 from jabs.pose_estimation import get_pose_path
 from jabs.project import Project
 
-from .label_remap_matching import MatchMetric
+from .label_remap_matching import MatchMetric, MatchSettings
 from .update_pose import (
     _create_backup_archive,
     _handle_orphan_identities,
@@ -398,8 +398,7 @@ def update_project_labels_in_place(
     drop_timeline_annotations: bool = False,
     tolerate_orphan_identities: bool = False,
     *,
-    min_mask_iou: float = 0.5,
-    match_by: MatchMetric = MatchMetric.AUTO,
+    match_settings: MatchSettings | None = None,
 ) -> tuple[int, int, Path, list[str]]:
     """Update a live project in place by replacing its labels from ``source_project_dir``.
 
@@ -419,9 +418,7 @@ def update_project_labels_in_place(
             references in the source's annotations and skip the affected
             ``(identity, behavior)`` pairs during remap instead of aborting at
             preflight.
-        min_mask_iou: Minimum median mask IoU required to accept a segmentation-decided
-            match.
-        match_by: Which score decides each label block's identity.
+        match_settings: Matching options other than the bbox threshold (``min_iou``).
 
     Returns:
         Tuple ``(total_success, total_skipped, backup_path, newly_added_behaviors)``
@@ -480,8 +477,7 @@ def update_project_labels_in_place(
             verbose,
             annotate_failures,
             drop_timeline_annotations,
-            min_mask_iou=min_mask_iou,
-            match_by=match_by,
+            match_settings=match_settings,
             videos=labeled_videos,
             failure_description_phrase="label update",
         )
@@ -548,6 +544,25 @@ def update_project_labels_in_place(
     ),
 )
 @click.option(
+    "--split-blocks/--no-split-blocks",
+    "split_blocks",
+    default=True,
+    show_default=True,
+    help=(
+        "Match each label block frame by frame and split it where the best-matching "
+        "identity changes, e.g. when one animal is handed from one identity to another "
+        "mid-block. --no-split-blocks assigns each whole block to a single identity."
+    ),
+)
+@click.option(
+    "--min-run-frames",
+    "min_run_frames",
+    type=click.IntRange(min=1),
+    default=3,
+    show_default=True,
+    help="When splitting, fold runs shorter than this many frames into a neighboring run.",
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Print successful label remap assignments in addition to warnings.",
@@ -578,6 +593,8 @@ def update_labels_command(
     min_iou: float,
     min_mask_iou: float,
     match_by: str,
+    split_blocks: bool,
+    min_run_frames: int,
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
@@ -589,8 +606,13 @@ def update_labels_command(
             project,
             source_project,
             min_iou,
-            min_mask_iou=min_mask_iou,
-            match_by=MatchMetric(match_by),
+            match_settings=MatchSettings(
+                min_bbox_iou=min_iou,
+                min_mask_iou=min_mask_iou,
+                match_by=MatchMetric(match_by),
+                split_blocks=split_blocks,
+                min_run_frames=min_run_frames,
+            ),
             verbose=verbose,
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,
@@ -603,7 +625,8 @@ def update_labels_command(
         f"Label update summary: {total_success} label blocks assigned, "
         f"{total_skipped} label blocks skipped "
         f"(match by {match_by}, mask IoU threshold={min_mask_iou}, "
-        f"bbox IoU threshold={min_iou})"
+        f"bbox IoU threshold={min_iou}, "
+        f"split blocks={'on' if split_blocks else 'off'})"
     )
     if newly_added_behaviors:
         click.echo(

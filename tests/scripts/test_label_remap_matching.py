@@ -258,3 +258,114 @@ def test_bbox_matching_equals_original_algorithm(match_by: MatchMetric) -> None:
             match = matcher.match(src_identity, start, end)
             ref_id, ref_score = _reference_find_best_identity(src, dst, src_identity, start, end)
             assert (match.identity, match.score) == (ref_id, ref_score)
+
+
+# ---------------------------------------------------------------------------
+# splitting blocks where the best match changes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("runs", "min_length", "expected"),
+    [
+        ([(1, 14), (2, 17)], 3, [(1, 14), (2, 17)]),
+        ([(0, 10), (1, 1), (0, 10)], 3, [(0, 21)]),
+        ([(0, 10), (1, 2), (2, 10)], 3, [(0, 12), (2, 10)]),
+        ([(1, 2), (0, 10)], 3, [(0, 12)]),
+        ([(None, 2), (1, 5), (None, 1)], 3, [(1, 8)]),
+        ([(None, 4)], 3, [(None, 4)]),
+        ([(1, 1), (2, 1)], 3, [(2, 2)]),
+        ([(0, 10), (1, 1), (0, 10)], 1, [(0, 10), (1, 1), (0, 10)]),
+    ],
+    ids=[
+        "handoff_kept",
+        "flicker_folded",
+        "short_run_joins_longer_neighbor",
+        "short_leading_run",
+        "unmatched_frames_join_neighbors",
+        "nothing_matches",
+        "all_short_earliest_folds_first",
+        "min_length_one_keeps_everything",
+    ],
+)
+def test_fold_short_runs(runs, min_length, expected) -> None:
+    """Short and unmatched runs fold into a neighbor; every frame stays covered."""
+    from jabs.scripts.cli.label_remap_matching import _fold_short_runs
+
+    folded = _fold_short_runs(runs, min_length)
+
+    assert folded == expected
+    assert sum(n for _, n in folded) == sum(n for _, n in runs)
+
+
+def _handoff_poses(frames: int = 10, handoff: int = 5):
+    """Source identity 0 is one animal; in the destination it is identity 1, then 2."""
+    square = [_rect(0, 0, 19, 19)]
+    src = _pose(masks={0: [square] * frames})
+    dst = _pose(
+        masks={
+            0: [[_rect(100, 100, 119, 119)]] * frames,
+            1: [square if f < handoff else None for f in range(frames)],
+            2: [square if f >= handoff else None for f in range(frames)],
+        }
+    )
+    return src, dst
+
+
+def test_match_runs_splits_at_handoff() -> None:
+    """A block whose animal changes destination identity is split at the change."""
+    src, dst = _handoff_poses()
+
+    runs = IdentityMatcher(src, dst, MatchSettings()).match_runs(0, 0, 9)
+
+    assert [(r.start, r.end, r.match.identity) for r in runs] == [(0, 4, 1), (5, 9, 2)]
+    assert all(r.match.accepted and r.match.score == pytest.approx(1.0) for r in runs)
+
+
+def test_match_runs_without_splitting_uses_one_identity() -> None:
+    """--no-split-blocks returns the single whole-block match."""
+    src, dst = _handoff_poses()
+    matcher = IdentityMatcher(src, dst, MatchSettings(split_blocks=False))
+
+    [run] = matcher.match_runs(0, 0, 9)
+
+    assert (run.start, run.end) == (0, 9)
+    assert run.match == matcher.match(0, 0, 9)
+
+
+def test_match_runs_folds_single_frame_flicker() -> None:
+    """A one-frame switch to another identity does not split the block."""
+    frames = 9
+    square = [_rect(0, 0, 19, 19)]
+    src = _pose(masks={0: [square] * frames})
+    dst = _pose(
+        masks={
+            0: [None if f == 4 else square for f in range(frames)],
+            1: [square if f == 4 else None for f in range(frames)],
+        }
+    )
+
+    [run] = IdentityMatcher(src, dst, MatchSettings()).match_runs(0, 0, frames - 1)
+
+    assert (run.start, run.end, run.match.identity) == (0, 8, 0)
+    # the folded frame counts as 0 for identity 0, so the median stays 1.0 here
+    assert run.match.score == pytest.approx(1.0)
+
+
+def test_run_score_counts_missing_frames_as_zero() -> None:
+    """A run's identity missing on most of its frames scores low and is rejected."""
+    frames = 9
+    square = [_rect(0, 0, 19, 19)]
+    src = _pose(masks={0: [square] * frames})
+    # destination identity 0 overlaps on only 3 of 9 frames; nothing else overlaps
+    dst = _pose(
+        masks={0: [square if f < 3 else [_rect(200, 200, 219, 219)] for f in range(frames)]}
+    )
+    settings = MatchSettings(min_run_frames=1)
+
+    runs = IdentityMatcher(src, dst, settings).match_runs(0, 0, frames - 1)
+
+    assert [(r.start, r.end) for r in runs] == [(0, 8)]
+    assert runs[0].match.identity == 0
+    assert runs[0].match.score == pytest.approx(0.0)
+    assert not runs[0].match.accepted

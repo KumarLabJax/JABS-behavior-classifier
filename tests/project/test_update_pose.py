@@ -13,7 +13,7 @@ import jabs.scripts.cli.update_pose as update_pose
 from jabs.project import TimelineAnnotations, VideoLabels
 from jabs.project.timeline_annotations import is_valid_tag
 from jabs.scripts.cli.cli import cli
-from jabs.scripts.cli.label_remap_matching import MatchMetric
+from jabs.scripts.cli.label_remap_matching import MatchMetric, MatchSettings
 
 
 def _make_pose(identities, boxes_by_identity, *, num_identities=None):
@@ -225,13 +225,11 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         drop_timeline_annotations,
         skip_feature_gen,
         tolerate_orphan_identities,
-        min_mask_iou,
-        match_by,
+        match_settings,
     ):
         captured.update(
             {
-                "min_mask_iou": min_mask_iou,
-                "match_by": match_by,
+                "match_settings": match_settings,
                 "project_dir": project_dir_arg,
                 "new_pose_dir": new_pose_dir_arg,
                 "min_iou": min_iou,
@@ -263,6 +261,9 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
             "0.6",
             "--match-by",
             "segmentation",
+            "--no-split-blocks",
+            "--min-run-frames",
+            "5",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -276,8 +277,13 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         "project_dir": project_dir,
         "new_pose_dir": new_pose_dir,
         "min_iou": 0.75,
-        "min_mask_iou": 0.6,
-        "match_by": MatchMetric.SEGMENTATION,
+        "match_settings": MatchSettings(
+            min_bbox_iou=0.75,
+            min_mask_iou=0.6,
+            match_by=MatchMetric.SEGMENTATION,
+            split_blocks=False,
+            min_run_frames=5,
+        ),
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
@@ -1396,8 +1402,65 @@ def test_remap_labels_for_video_match_by_bbox_keeps_box_only_choice():
         label_source_project,
         label_dest_project,
         min_iou=0.5,
-        match_by=update_pose.MatchMetric.BBOX,
+        match_settings=MatchSettings(match_by=MatchMetric.BBOX),
     )
 
     saved = label_dest_project.save_annotations.call_args[0][0]
     assert {identity for identity, _, _ in saved.iter_identity_behavior_labels()} == {"1"}
+
+
+def test_remap_labels_for_video_splits_block_at_identity_handoff(capsys):
+    """A labeled block is split when the destination hands the animal to a new identity."""
+    frames = 10
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    absent = np.full_like(box, np.nan)
+    band = _diagonal_band(40)
+    source_pose = _make_seg_pose({0: box}, {0: band})
+    dest_pose = _make_seg_pose(
+        {
+            1: np.where(np.arange(frames)[:, None, None] < 5, box, absent),
+            2: np.where(np.arange(frames)[:, None, None] >= 5, box, absent),
+        },
+        {1: band, 2: band},
+    )
+    seg = {
+        1: np.where(np.arange(frames)[:, None, None, None] < 5, band, -1).astype(np.int32),
+        2: np.where(np.arange(frames)[:, None, None, None] >= 5, band, -1).astype(np.int32),
+    }
+    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.identities = [1, 2]
+
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(1, 8)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    assert (success_count, skipped_count) == (2, 0)
+    saved = label_dest_project.save_annotations.call_args[0][0]
+    behavior = saved.get_track_labels("1", "walk").Label.BEHAVIOR
+    assert np.flatnonzero(
+        saved.get_track_labels("1", "walk").get_labels() == behavior
+    ).tolist() == [1, 2, 3, 4]
+    assert np.flatnonzero(
+        saved.get_track_labels("2", "walk").get_labels() == behavior
+    ).tolist() == [5, 6, 7, 8]
+    assert "SPLIT:" in capsys.readouterr().out
+    [annotation] = saved.timeline_annotations.serialize()
+    assert annotation["tag"] == "remap-split"
+    assert is_valid_tag(annotation["tag"])
+    assert (annotation["start"], annotation["end"]) == (1, 8)
