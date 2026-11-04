@@ -80,6 +80,40 @@ def test_identity_centroids_no_frames() -> None:
     assert centroids.shape == (0, 2)
 
 
+def _reference_identity_centroids(poses: _StubPose) -> np.ndarray:
+    """Original per-frame implementation of ``identity_centroids``, kept as a reference."""
+    centroids = np.full((poses.num_frames, 2), np.nan, dtype=np.float32)
+    hulls = poses.get_identity_convex_hulls(0)
+    for i in np.arange(poses.num_frames)[poses.identity_mask(0) == 1]:
+        if hulls[i] is not None:
+            centroids[i, :] = np.asarray(hulls[i].centroid.xy).squeeze()
+    return centroids
+
+
+@pytest.mark.parametrize("mask_dtype", [np.uint8, bool], ids=["uint8", "bool"])
+def test_identity_centroids_matches_per_frame_reference(mask_dtype: type) -> None:
+    """Vectorized centroids equal the original per-frame computation on mixed frames.
+
+    Covers polygon hulls, the line and point hulls produced by collinear or coincident
+    keypoints, frames without a hull, and frames the identity is absent from.
+    """
+    rng = np.random.default_rng(seed=3)
+    hulls = []
+    for i in range(60):
+        points = rng.uniform(0.0, 800.0, (6, 2))
+        if i % 7 == 0:
+            points[:, 1] = points[0, 1]  # collinear: LineString hull
+        if i % 11 == 0:
+            points[:] = points[0]  # coincident: Point hull
+        hulls.append(None if i % 5 == 0 else MultiPoint(points).convex_hull)
+    mask = (rng.random(60) > 0.2).astype(mask_dtype)
+    poses = _StubPose(mask, hulls)
+
+    np.testing.assert_array_equal(
+        identity_centroids(poses, 0), _reference_identity_centroids(poses)
+    )
+
+
 def test_build_identity_mask_ignores_tail_keypoints() -> None:
     """Only the body keypoints count; the two tail keypoints never do."""
     # three valid body keypoints -> present; tail-only -> absent
