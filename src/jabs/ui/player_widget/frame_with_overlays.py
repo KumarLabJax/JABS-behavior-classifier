@@ -106,8 +106,8 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._landmark_overlay = LandmarkOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
         floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
-        bbox_overlay = BoundingBoxOverlay(self)
-        bbox_overlay.id_label_clicked.connect(self.id_label_clicked)
+        self._bbox_overlay = BoundingBoxOverlay(self)
+        self._bbox_overlay.id_label_clicked.connect(self.id_label_clicked)
 
         # overlays are listed in the order they should be painted
         # an overlay on top of another overlay will have priority when handling click events
@@ -121,7 +121,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             self._landmark_overlay,
             PoseOverlay(self),
             LabelOverlay(self),
-            bbox_overlay,
+            self._bbox_overlay,
             self._annotation_overlay,
             floating_id_overlay,
             self._control_overlay,
@@ -185,6 +185,18 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         """Set whether the segmentation overlay is enabled."""
         if self._segmentation_overlay.enabled != enabled:
             self._segmentation_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def bounding_box_overlay_enabled(self) -> bool:
+        """Get whether bounding boxes are drawn in the bounding box identity mode."""
+        return self._bbox_overlay.enabled
+
+    @bounding_box_overlay_enabled.setter
+    def bounding_box_overlay_enabled(self, enabled: bool) -> None:
+        """Set whether bounding boxes are drawn in the bounding box identity mode."""
+        if self._bbox_overlay.enabled != enabled:
+            self._bbox_overlay.enabled = enabled
             self.update()
 
     @property

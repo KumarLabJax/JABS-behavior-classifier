@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from jabs.overlay_drawing import pose_has_bounding_boxes
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.ui.dialogs import MessageDialog
 from jabs.ui.player_widget import PlayerWidget
@@ -14,6 +15,7 @@ from jabs.video_reader import BlankFrameReader, VideoReader
 
 from .frame_size import estimate_frame_size
 from .frame_size_dialog import FrameSizeDialog
+from .overlay_export import ExportSource, OverlayChoice, OverlayExporter
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +30,11 @@ class ViewerWindow(QtWidgets.QMainWindow):
     """Window that plays a video or a pose file with pose and segmentation overlays.
 
     When the opened video has a JABS pose file beside it (``<video>_pose_est_v<N>.h5``)
-    the pose skeletons and, when the pose file has them, segmentation contours are drawn
-    over the video. A pose file can also be opened on its own, and is played over a
-    solid background. Both overlays can be toggled from the View menu or the toolbar.
+    the pose skeletons and, when the pose file has them, segmentation contours and
+    bounding boxes are drawn over the video. A pose file can also be opened on its own,
+    and is played over a solid background. Each overlay can be toggled from the View
+    menu or the toolbar, and the current frame or the whole video can be exported with
+    the overlays drawn from the File menu.
     """
 
     def __init__(self, app_name: str, parent: QtWidgets.QWidget | None = None) -> None:
@@ -79,15 +83,39 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._segmentation_action.setShortcut(QtGui.QKeySequence("S"))
         self._segmentation_action.toggled.connect(self._player.overlay_segmentation)
 
+        self._bbox_action = QtGui.QAction("Overlay &Bounding Boxes", self)
+        self._bbox_action.setCheckable(True)
+        self._bbox_action.setChecked(True)
+        self._bbox_action.setShortcut(QtGui.QKeySequence("B"))
+        self._bbox_action.toggled.connect(self._player.overlay_bounding_boxes)
+
+        self._exporter = OverlayExporter(self, self._player, self.statusBar().showMessage)
+
+        self._export_frame_action = QtGui.QAction("Export &Frame...", self)
+        self._export_frame_action.setShortcut(QtGui.QKeySequence("Ctrl+E"))
+        self._export_frame_action.setStatusTip("Export the current frame as a PNG image")
+        self._export_frame_action.triggered.connect(self.export_frame)
+
+        self._export_video_action = QtGui.QAction("Export &Video with Overlays...", self)
+        self._export_video_action.setStatusTip(
+            "Export a copy of the video with the pose, segmentation and bounding box "
+            "overlays drawn on every frame"
+        )
+        self._export_video_action.triggered.connect(self.export_video)
+
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self._open_action)
         file_menu.addAction(self._open_pose_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self._export_frame_action)
+        file_menu.addAction(self._export_video_action)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
 
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self._pose_action)
         view_menu.addAction(self._segmentation_action)
+        view_menu.addAction(self._bbox_action)
         view_menu.addSeparator()
         self._frame_size_action = view_menu.addAction("Set &Frame Size...")
         self._frame_size_action.triggered.connect(self._prompt_frame_size)
@@ -101,11 +129,13 @@ class ViewerWindow(QtWidgets.QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self._pose_action)
         toolbar.addAction(self._segmentation_action)
+        toolbar.addAction(self._bbox_action)
 
         # Apply the initial overlay state to the player; the toggled signals only fire on
         # a change.
         self._set_pose_overlay(self._pose_action.isChecked())
         self._player.overlay_segmentation(self._segmentation_action.isChecked())
+        self._player.overlay_bounding_boxes(self._bbox_action.isChecked())
         self._update_overlay_controls()
 
         self.statusBar().showMessage("Open a video or pose file to begin (File menu)")
@@ -245,6 +275,49 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._frame_size = frame_size
         self._show_pose_only_status()
 
+    def export_frame(self) -> None:
+        """Ask where to save the current frame as a PNG, and save it.
+
+        With a video open, the bare frame is saved, plus optionally an ``-overlay.png``
+        copy with the overlays currently shown. With a pose file open on its own, only
+        the overlaid frame is saved. Does nothing when no file is open.
+        """
+        source = self._export_source()
+        if source is not None:
+            self._exporter.export_frame(source, self._displayed_overlays())
+
+    def export_video(self) -> None:
+        """Export a copy of the video, or of the pose over its background, with overlays.
+
+        Asks which overlays to draw, starting from those currently shown, then where to
+        write the MP4. The export runs in the background with a cancelable progress
+        dialog. Does nothing when no file is open.
+        """
+        source = self._export_source()
+        if source is not None:
+            self._exporter.export_video(source, self._displayed_overlays())
+
+    def _export_source(self) -> ExportSource | None:
+        """Describe the open file for export, or return None when nothing is open."""
+        if self._pose_only_path is not None and self._pose_est is not None:
+            return ExportSource(
+                self._pose_only_path,
+                self._pose_est,
+                frames=self._blank_frames(self._pose_only_path, self._pose_est, self._frame_size),
+            )
+        video_path = self._player.current_video_path
+        if video_path is None:
+            return None
+        return ExportSource(video_path, self._pose_est)
+
+    def _displayed_overlays(self) -> OverlayChoice:
+        """Return the overlays the View menu currently has switched on."""
+        return OverlayChoice(
+            pose=self._pose_action.isChecked(),
+            segmentation=self._segmentation_action.isChecked(),
+            bounding_boxes=self._bbox_action.isChecked(),
+        )
+
     def set_frame_size(self, width: int, height: int) -> None:
         """Change the frame size of the open pose file, keeping the current frame.
 
@@ -267,8 +340,15 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self, path: Path, pose_est: PoseEstimation, frame_size: tuple[int, int]
     ) -> None:
         """Load solid-color frames of the given size to play the pose over."""
+        self._player.load_blank_frames(self._blank_frames(path, pose_est, frame_size), pose_est)
+
+    @staticmethod
+    def _blank_frames(
+        path: Path, pose_est: PoseEstimation, frame_size: tuple[int, int]
+    ) -> BlankFrameReader:
+        """Return solid-color frames of the given size, one per pose frame."""
         width, height = frame_size
-        frames = BlankFrameReader(
+        return BlankFrameReader(
             num_frames=pose_est.num_frames,
             fps=pose_est.fps,
             width=width,
@@ -276,7 +356,6 @@ class ViewerWindow(QtWidgets.QMainWindow):
             color=POSE_ONLY_BACKGROUND,
             filename=path.name,
         )
-        self._player.load_blank_frames(frames, pose_est)
 
     def _show_pose_only_status(self) -> None:
         """Show the open pose file and its frame size in the status bar."""
@@ -363,9 +442,13 @@ class ViewerWindow(QtWidgets.QMainWindow):
         """
         has_pose = self._pose_est is not None
         has_segmentation = has_pose and getattr(self._pose_est, "has_segmentation", False)
+        has_bboxes = has_pose and pose_has_bounding_boxes(self._pose_est)
         self._pose_action.setEnabled(has_pose)
         self._segmentation_action.setEnabled(has_segmentation)
+        self._bbox_action.setEnabled(has_bboxes)
         self._frame_size_action.setEnabled(pose_only)
+        self._export_frame_action.setEnabled(self._player.num_frames > 0)
+        self._export_video_action.setEnabled(has_pose)
 
     def _set_pose_overlay(self, enabled: bool) -> None:
         """Show or hide the pose skeletons for every identity."""

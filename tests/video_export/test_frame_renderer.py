@@ -351,3 +351,57 @@ def test_segmentation_contours_can_be_switched_off(blank_frame: np.ndarray) -> N
 
     assert (result == blank_frame).all()
     assert pose.segmentation_calls == []
+
+
+class _BoxedPose(StubPose):
+    """StubPose from a v8 pose file, with one fixed bounding box per frame."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.format_major_version = 8
+        self.has_bounding_boxes = True
+
+    def get_bounding_boxes(self, identity: int) -> np.ndarray:
+        """Return the same box on every frame."""
+        return np.tile(np.array([[[30, 30], [90, 90]]], dtype=np.float32), (self.num_frames, 1, 1))
+
+    @staticmethod
+    def identity_index_to_display(identity: int) -> str:
+        """Return the identity index as text."""
+        return str(identity)
+
+
+def test_render_overlay_frame_draws_bounding_boxes_only_when_asked(
+    blank_frame: np.ndarray,
+) -> None:
+    """Bounding boxes are off by default and drawn when requested."""
+    pose = _BoxedPose()
+    without = render_overlay_frame(blank_frame, pose, 0, draw_pose=False, draw_segmentation=False)
+    with_boxes = render_overlay_frame(
+        blank_frame,
+        pose,
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        draw_bounding_boxes=True,
+    )
+
+    assert (without == blank_frame).all()
+    # the box's right edge, well clear of the identity tab
+    assert (with_boxes[60, 89:92] != BACKGROUND).any()
+
+
+def test_render_overlay_frame_ignores_bounding_boxes_without_data(
+    blank_frame: np.ndarray,
+) -> None:
+    """A pose file without boxes renders nothing extra rather than failing."""
+    result = render_overlay_frame(
+        blank_frame,
+        StubPose(),
+        0,
+        draw_pose=False,
+        draw_segmentation=False,
+        draw_bounding_boxes=True,
+    )
+
+    assert (result == blank_frame).all()
