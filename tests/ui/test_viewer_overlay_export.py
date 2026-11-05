@@ -12,6 +12,8 @@ try:
     from jabs.ui.viewer import overlay_export
     from jabs.ui.viewer.overlay_export import ExportSource, OverlayChoice, OverlayExporter
 
+    ALL_OVERLAYS = OverlayChoice(pose=True, segmentation=True, bounding_boxes=True)
+
     SKIP_UI_TESTS = False
     SKIP_REASON = None
 except ImportError as e:
@@ -25,7 +27,6 @@ pytestmark = pytest.mark.skipif(
 
 VIDEO_PATH = Path("/data/video.mp4")
 POSE_PATH = Path("/data/video_pose_est_v8.h5")
-ALL_OVERLAYS = OverlayChoice(pose=True, segmentation=True, bounding_boxes=True)
 
 
 @pytest.fixture(scope="module", autouse=True)
