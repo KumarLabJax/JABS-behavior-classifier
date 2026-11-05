@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .project import Project
 
+_ENVELOPE_KEYS = frozenset({"timestamp", "activity"})
+"""Keys every activity log entry starts with; activity fields may not reuse them."""
+
 
 class ActivityTypes(enum.IntEnum):
     """Enum for different types of activity tracked in a session.
@@ -63,7 +66,7 @@ class SessionTracker:
 
         This will finalize the session log when the user opens a new Project or closes the application.
         """
-        if self._tracking_enabled and self._session_file and self._session:
+        if self._tracking_enabled and self._session_file and self._session is not None:
             self.end_session()
 
     @property
@@ -112,7 +115,7 @@ class SessionTracker:
 
         Logs session end time and flushes the session log to the session file.
         """
-        if not self._tracking_enabled or not self._session:
+        if not self._tracking_enabled or self._session is None:
             return
 
         self._session["session_end"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -135,7 +138,7 @@ class SessionTracker:
         Args:
             behavior_name: The name of the behavior selected.
         """
-        if not self._tracking_enabled or not self._session:
+        if not self._tracking_enabled or self._session is None:
             return
 
         self._append_activity(ActivityTypes.BEHAVIOR_SELECTED, {"behavior": behavior_name})
@@ -278,7 +281,14 @@ class SessionTracker:
             activity_type: Activity being recorded; its ``name`` is stored.
             fields: Activity-specific keys, added after ``activity`` in the order
                 given.
+
+        Raises:
+            ValueError: If ``fields`` contains an envelope key (``timestamp`` or
+                ``activity``).
         """
+        reserved = _ENVELOPE_KEYS.intersection(fields or {})
+        if reserved:
+            raise ValueError(f"activity fields may not override envelope keys: {sorted(reserved)}")
         self._session["activity_log"].append(
             {
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -302,7 +312,7 @@ class SessionTracker:
             fields: Activity-specific keys, added after ``activity`` in the order
                 given.
         """
-        if not self._tracking_enabled or not self._session:
+        if not self._tracking_enabled or self._session is None:
             return
 
         self._append_activity(activity_type, fields)
@@ -345,7 +355,7 @@ class SessionTracker:
 
     def _flush_session(self):
         """Flush the current session data to the session file."""
-        if self._session_file and self._session:
+        if self._session_file and self._session is not None:
             try:
                 tmp = self._session_file.with_suffix(".json.tmp")
                 with tmp.open("w") as f:

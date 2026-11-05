@@ -252,3 +252,10 @@ def test_every_activity_entry_starts_with_a_timestamp_and_activity(
     for entry in _activity_log(tracker):
         assert list(entry)[:2] == ["timestamp", "activity"]
         datetime.datetime.fromisoformat(entry["timestamp"])
+
+
+@pytest.mark.parametrize("key", ["timestamp", "activity"])
+def test_activity_fields_may_not_override_envelope_keys(tracker: SessionTracker, key: str) -> None:
+    """Fields that would overwrite the shared envelope are rejected, not merged."""
+    with pytest.raises(ValueError, match=key):
+        tracker._append_activity(ActivityTypes.SESSION_PAUSED, {key: "x"})
