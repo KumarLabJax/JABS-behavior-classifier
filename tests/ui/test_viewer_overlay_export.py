@@ -283,3 +283,41 @@ def test_export_video_without_pose_warns(monkeypatch, exporter, video_dialogs) -
 
     message_dialog.warning.assert_called_once()
     video_dialogs.options_cls.assert_not_called()
+
+
+def test_export_video_while_one_is_running_warns(monkeypatch, exporter, video_dialogs) -> None:
+    """A second export is refused until the first thread has finished."""
+    message_dialog = mock.Mock()
+    monkeypatch.setattr(overlay_export, "MessageDialog", message_dialog)
+    assert exporter.export_video(ExportSource(VIDEO_PATH, _fake_pose()), ALL_OVERLAYS)
+
+    assert not exporter.export_video(ExportSource(VIDEO_PATH, _fake_pose()), ALL_OVERLAYS)
+
+    message_dialog.warning.assert_called_once()
+    video_dialogs.thread_cls.assert_called_once()
+
+
+def test_finished_thread_releases_only_itself(exporter, video_dialogs) -> None:
+    """A finished thread does not drop the reference to a newer one."""
+    exporter.export_video(ExportSource(VIDEO_PATH, _fake_pose()), ALL_OVERLAYS)
+    thread = video_dialogs.thread_cls.return_value
+    callbacks = [c.args[0] for c in thread.finished.connect.call_args_list]
+    newer = mock.Mock()
+    exporter._video_export_thread = newer
+
+    for callback in callbacks:
+        callback()
+
+    assert exporter._video_export_thread is newer
+
+
+def test_shutdown_cancels_and_waits_for_running_export(exporter, video_dialogs) -> None:
+    """Closing the viewer stops a running export before its thread is destroyed."""
+    exporter.export_video(ExportSource(VIDEO_PATH, _fake_pose()), ALL_OVERLAYS)
+    thread = video_dialogs.thread_cls.return_value
+    thread.isRunning.return_value = True
+
+    exporter.shutdown()
+
+    thread.request_termination.assert_called_once()
+    thread.wait.assert_called_once()

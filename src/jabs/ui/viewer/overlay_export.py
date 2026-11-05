@@ -176,6 +176,10 @@ class OverlayExporter(QtCore.QObject):
             True if an export was started, False if cancelled or there is nothing to
             export.
         """
+        if self._video_export_thread is not None:
+            # a cancelled export keeps running until its next frame boundary
+            MessageDialog.warning(self._window, message="A video export is still in progress.")
+            return False
         pose_est = source.pose_est
         if pose_est is None:
             MessageDialog.warning(self._window, message="There is no pose to draw over the video.")
@@ -195,7 +199,7 @@ class OverlayExporter(QtCore.QObject):
             bounding_boxes_unavailable=(
                 None
                 if pose_has_bounding_boxes(pose_est)
-                else "This pose file has no bounding boxes (requires pose version 8 or newer)"
+                else "This pose file has no bounding boxes (optional, pose version 8 or newer)"
             ),
             offer_bounding_boxes=True,
             offer_labels=False,
@@ -255,7 +259,7 @@ class OverlayExporter(QtCore.QObject):
 
         def on_error(error: Exception) -> None:
             close_progress()
-            logger.error("Video export to %s failed: %s", output_path, error)
+            logger.error("Video export to %s failed: %s", output_path, error, exc_info=error)
             MessageDialog.error(
                 self._window,
                 title="Video Export Failed",
@@ -264,7 +268,8 @@ class OverlayExporter(QtCore.QObject):
             )
 
         def release_thread() -> None:
-            self._video_export_thread = None
+            if self._video_export_thread is thread:
+                self._video_export_thread = None
 
         # The thread deletes itself once finished; these callbacks run while run() is
         # still on its stack, and destroying an unfinished QThread aborts.
@@ -277,6 +282,18 @@ class OverlayExporter(QtCore.QObject):
         progress.canceled.connect(thread.request_termination)
         progress.show()
         thread.start()
+
+    def shutdown(self) -> None:
+        """Cancel any running video export and wait for its thread to finish.
+
+        Call before the parent window is destroyed: the thread is its child, and
+        destroying a running QThread aborts the process.
+        """
+        thread = self._video_export_thread
+        if thread is not None and thread.isRunning():
+            logger.info("Cancelling video export before the viewer closes")
+            thread.request_termination()
+            thread.wait()
 
     def _overlay_pixmap(self, frame_number: int, overlays: OverlayChoice) -> QtGui.QPixmap | None:
         """Render one frame with the chosen overlays at native resolution."""

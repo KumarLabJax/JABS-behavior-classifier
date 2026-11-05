@@ -64,7 +64,7 @@ All animals are drawn the same way. There is no selected animal in the viewer.
   and generated with segmentation, which is optional).
 - **Overlay Bounding Boxes** (`B`): Show or hide each animal's bounding box, labeled
   with its identity. This is only available when the pose file contains bounding
-  boxes (version 8 or newer).
+  boxes (version 8 or newer, and generated with bounding boxes, which is optional).
 
 All are on by default and can be toggled from the **View** menu or the toolbar.
 They are unavailable when no pose file is open.

@@ -456,6 +456,15 @@ class ViewerWindow(QtWidgets.QMainWindow):
             PlayerWidget.PoseOverlayMode.ALL if enabled else PlayerWidget.PoseOverlayMode.NONE
         )
 
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        """Stop a running video export before the window and its thread are destroyed.
+
+        Args:
+            event: The close event.
+        """
+        self._exporter.shutdown()
+        super().closeEvent(event)
+
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """Handle playback shortcuts: space plays/pauses, arrow keys step frames.
 
