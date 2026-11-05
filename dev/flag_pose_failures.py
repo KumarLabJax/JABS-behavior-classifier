@@ -72,6 +72,7 @@ from jabs.video_export.frame_renderer import render_overlay_frame
 logger = logging.getLogger(__name__)
 
 POSE_SUFFIX = "_pose_est_v8.h5"
+VIDEO_SUFFIXES = (".mp4", ".avi")  # the video types JABS projects support
 HANDOFF_GAP = 3  # max frames between one track ending and another starting
 EPISODE_GAP = 10  # handoffs closer than this many frames belong to one episode
 LASTING = 30  # a fragment's old identity stays gone, and its new one was absent, this long
@@ -192,11 +193,26 @@ def _episode_events(
     video: str,
     pose_file: Path,
 ) -> list[FailureEvent]:
-    """Group handoffs into episodes; a lone, lasting handoff is a fragment, else flicker."""
+    """Group handoffs into episodes; a lone, lasting handoff is a fragment, else flicker.
+
+    A handoff joins an episode only if it is within ``EPISODE_GAP`` frames of the
+    episode's latest handoff and involves one of the episode's identities, so
+    unrelated handoffs that happen close together stay separate events.
+    """
     episodes: list[list[_Handoff]] = []
     for handoff in handoffs:
-        if episodes and handoff.frame - episodes[-1][-1].frame <= EPISODE_GAP:
-            episodes[-1].append(handoff)
+        ids = {handoff.from_id, handoff.to_id}
+        episode = next(
+            (
+                e
+                for e in reversed(episodes)
+                if handoff.frame - e[-1].frame <= EPISODE_GAP
+                and ids & ({h.from_id for h in e} | {h.to_id for h in e})
+            ),
+            None,
+        )
+        if episode is not None:
+            episode.append(handoff)
         else:
             episodes.append([handoff])
 
@@ -328,10 +344,24 @@ def _open_pose_copy(pose_path: Path) -> Iterator[PoseEstimation]:
         yield open_pose_file(copy)
 
 
-def _detect(pose_path: Path) -> list[FailureEvent]:
-    """Find the events in one pose file (worker function; no video access)."""
+def _video_name(pose_path: Path, video_dir: Path) -> str:
+    """Return the filename of the video for ``pose_path`` in ``video_dir``.
+
+    Falls back to the ``.mp4`` name when no supported video is found, so the event
+    still names the video it expected.
+    """
+    stem = pose_path.name[: -len(POSE_SUFFIX)]
+    for suffix in VIDEO_SUFFIXES:
+        if (video_dir / f"{stem}{suffix}").exists():
+            return f"{stem}{suffix}"
+    return f"{stem}{VIDEO_SUFFIXES[0]}"
+
+
+def _detect(job: tuple[Path, Path]) -> list[FailureEvent]:
+    """Find the events in one pose file (worker function; reads no video frames)."""
     warnings.simplefilter("ignore")
-    video = f"{pose_path.name[: -len(POSE_SUFFIX)]}.mp4"
+    pose_path, video_dir = job
+    video = _video_name(pose_path, video_dir)
     try:
         with _open_pose_copy(pose_path) as pose:
             if not getattr(pose, "has_bounding_boxes", False):
@@ -389,9 +419,17 @@ def _extract(job: tuple[Path, Path, list[int], Path]) -> set[int]:
                 break
             if index in wanted:
                 base = out_dir / f"{video.stem}_{index:05d}"
-                cv2.imwrite(f"{base}.png", image)
-                cv2.imwrite(f"{base}_overlay.png", _draw_overlay(image, pose, index))
-                saved.add(index)
+                raw_ok = cv2.imwrite(f"{base}.png", image)
+                overlay_ok = cv2.imwrite(f"{base}_overlay.png", _draw_overlay(image, pose, index))
+                if raw_ok and overlay_ok:
+                    saved.add(index)
+                else:
+                    logger.error(
+                        "Failed to write %s (raw written: %s, overlay written: %s)",
+                        base,
+                        raw_ok,
+                        overlay_ok,
+                    )
                 wanted.discard(index)
             index += 1
         reader.release()
@@ -529,7 +567,8 @@ def main(
 
     console.print(f"Scanning {len(pose_files)} pose files...")
     with Pool(workers) as pool:
-        events = [e for result in pool.imap_unordered(_detect, pose_files) for e in result]
+        jobs = [(pose_file, video_dir) for pose_file in pose_files]
+        events = [e for result in pool.imap_unordered(_detect, jobs) for e in result]
     cap_events(events, "flicker", per_video=1, overall=max_flicker)
     cap_events(events, "extra", per_video=max_extra_per_video, overall=max_extra)
 
