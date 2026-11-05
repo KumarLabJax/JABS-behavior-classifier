@@ -506,30 +506,32 @@ class IdentityMatcher:
         mask_identity, mask_score = best_of(scores.mask, mask_rows)
         bbox_identity, bbox_score = best_of(scores.bbox, bbox_rows)
 
+        # frames decided by boxes because masks could not be compared there
+        bbox_only_rows = (
+            np.flatnonzero(scores.bbox_frames[frames] & ~scores.mask_frames[frames]) + frames.start
+        )
         if len(mask_rows):
-            metric, rows, matrix, threshold = (
-                MatchMetric.SEGMENTATION,
-                mask_rows,
-                scores.mask,
-                settings.min_mask_iou,
-            )
+            # a run can mix mask frames and box-only frames; score every frame by the
+            # score that decided it, so box-only frames are not ignored. The mask
+            # threshold applies to the whole run.
+            metric, threshold = MatchMetric.SEGMENTATION, settings.min_mask_iou
         else:
             metric = (
                 MatchMetric.SEGMENTATION
                 if settings.match_by is MatchMetric.SEGMENTATION
                 else MatchMetric.BBOX
             )
-            rows, matrix = bbox_rows, scores.bbox
             threshold = (
                 settings.min_mask_iou
                 if metric is MatchMetric.SEGMENTATION
                 else settings.min_bbox_iou
             )
 
-        if identity is None or len(rows) == 0:
+        if identity is None or len(mask_rows) + len(bbox_only_rows) == 0:
             score = -np.inf
         else:
-            column = matrix[rows, self._dest_identities.index(identity)]
+            j = self._dest_identities.index(identity)
+            column = np.concatenate([scores.mask[mask_rows, j], scores.bbox[bbox_only_rows, j]])
             score = float(np.median(with_empty(column)))
         return IdentityMatch(
             identity=identity,
