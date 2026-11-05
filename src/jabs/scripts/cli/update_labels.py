@@ -52,6 +52,7 @@ import click
 from jabs.core.utils import copy_file_atomic
 from jabs.pose_estimation import get_pose_path
 from jabs.project import Project
+from jabs.scripts.initialize_project import DEFAULT_PROCESSES
 
 from .label_remap_matching import MatchMetric, MatchSettings
 from .update_pose import (
@@ -399,6 +400,7 @@ def update_project_labels_in_place(
     tolerate_orphan_identities: bool = False,
     *,
     match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int, Path, list[str]]:
     """Update a live project in place by replacing its labels from ``source_project_dir``.
 
@@ -419,6 +421,7 @@ def update_project_labels_in_place(
             ``(identity, behavior)`` pairs during remap instead of aborting at
             preflight.
         match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes for the label remap.
 
     Returns:
         Tuple ``(total_success, total_skipped, backup_path, newly_added_behaviors)``
@@ -478,6 +481,7 @@ def update_project_labels_in_place(
             annotate_failures,
             drop_timeline_annotations,
             match_settings=match_settings,
+            processes=processes,
             videos=labeled_videos,
             failure_description_phrase="label update",
         )
@@ -563,6 +567,18 @@ def update_project_labels_in_place(
     help="When splitting, fold runs shorter than this many frames into a neighboring run.",
 )
 @click.option(
+    "-p",
+    "--processes",
+    "processes",
+    type=click.IntRange(min=1),
+    default=DEFAULT_PROCESSES,
+    show_default=True,
+    help=(
+        "Number of worker processes used to remap videos in parallel"
+        "; defaults to the logical CPU count. 1 remaps videos one at a time."
+    ),
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Print successful label remap assignments in addition to warnings.",
@@ -595,6 +611,7 @@ def update_labels_command(
     match_by: str,
     split_blocks: bool,
     min_run_frames: int,
+    processes: int,
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
@@ -613,6 +630,7 @@ def update_labels_command(
                 split_blocks=split_blocks,
                 min_run_frames=min_run_frames,
             ),
+            processes=processes,
             verbose=verbose,
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,

@@ -40,6 +40,8 @@ Example:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shlex
@@ -47,15 +49,18 @@ import shutil
 import sys
 import tempfile
 import zipfile
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
+from multiprocessing import Pool
 from pathlib import Path
+from typing import NamedTuple
 
 import click
 import h5py
 import numpy as np
 
 from jabs.core.utils import copy_file_atomic
+from jabs.io.annotations import annotation_filename
 from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
@@ -749,13 +754,78 @@ def _validate_live_update_targets(
                 _require_writable_existing_path(child, f"live {derived_dir_name} file")
 
 
+class _VideoPoseCheck(NamedTuple):
+    """Result of validating one video's live and replacement pose files."""
+
+    video: str
+    replacement_pose_path: Path
+    live_num_identities: int
+    replacement_version: int
+    replacement_num_identities: int
+
+
+def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
+    """Validate one video's live and replacement pose files (picklable worker function).
+
+    Args:
+        job: ``(video, project_dir, new_pose_dir)``.
+
+    Returns:
+        The replacement pose path, its version and identity count, and the live pose
+        file's identity count.
+
+    Raises:
+        ValueError: If either pose file is missing, unreadable, lacks bounding boxes, or
+            does not match the video's frame count.
+    """
+    video, project_dir, new_pose_dir = job
+    video_path = project_dir / video
+    live_pose_path = get_pose_path(video_path)
+    replacement_pose_path = get_pose_path(video_path, new_pose_dir)
+    _, live_num_identities = _validate_pose_file(
+        video,
+        video_path,
+        live_pose_path,
+        "source",
+        require_bboxes=True,
+    )
+    replacement_version, replacement_num_identities = _validate_pose_file(
+        video,
+        video_path,
+        replacement_pose_path,
+        "replacement",
+        require_bboxes=True,
+    )
+    return _VideoPoseCheck(
+        video,
+        replacement_pose_path,
+        live_num_identities,
+        replacement_version,
+        replacement_num_identities,
+    )
+
+
+class _PreflightResult(NamedTuple):
+    """Inputs validated by `_preflight_update_inputs`."""
+
+    videos: list[str]
+    replacement_pose_files: dict[str, Path]
+    live_annotation_videos: set[str]
+    replacement_identity_counts: dict[str, int]
+
+
 def _preflight_update_inputs(
     project_dir: Path,
     new_pose_dir: Path,
     *,
     tolerate_orphan_identities: bool = False,
-) -> tuple[list[str], dict[str, Path], set[str]]:
+    processes: int = 1,
+) -> _PreflightResult:
     """Validate live and replacement inputs before any live mutation occurs.
+
+    Opening and checking each video's pose files is the slow part, so with
+    ``processes`` > 1 it runs in parallel worker processes. Results are handled in
+    video order, so the first problem reported is the same as with one process.
 
     Args:
         project_dir: Live project directory.
@@ -765,6 +835,11 @@ def _preflight_update_inputs(
             continues, with the affected ``(identity, behavior)`` pairs skipped
             during remap. When ``False`` (default), the orphan check raises
             before any backup or mutation.
+        processes: Number of worker processes used to check pose files.
+
+    Returns:
+        The project videos, each video's replacement pose file, the videos with live
+        annotation files, and each replacement pose file's identity count.
     """
     if not Project.is_valid_project_directory(project_dir):
         raise ValueError(f"{project_dir} is not a valid JABS project directory")
@@ -781,41 +856,34 @@ def _preflight_update_inputs(
     replacement_version: int | None = None
     orphan_issues: list[tuple[str, int, list[int]]] = []
 
-    for video in videos:
-        video_path = project_dir / video
-        live_pose_path = get_pose_path(video_path)
-        replacement_pose_path = get_pose_path(video_path, new_pose_dir)
-
-        _, live_num_identities = _validate_pose_file(
-            video,
-            video_path,
-            live_pose_path,
-            "source",
-            require_bboxes=True,
-        )
-        video_replacement_version, _ = _validate_pose_file(
-            video,
-            video_path,
-            replacement_pose_path,
-            "replacement",
-            require_bboxes=True,
-        )
-
-        if replacement_version is None:
-            replacement_version = video_replacement_version
-        elif video_replacement_version != replacement_version:
-            raise ValueError(
-                f"{video} replacement pose version v{video_replacement_version} does not match "
-                f"replacement pose version v{replacement_version} used by other videos"
-            )
-
-        replacement_pose_files[video] = replacement_pose_path
-        annotation_path = annotations_dir / Path(video).with_suffix(".json")
-        if annotation_path.exists():
-            live_annotations.add(video)
-            orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
-            if orphans:
-                orphan_issues.append((video, live_num_identities, orphans))
+    replacement_identity_counts: dict[str, int] = {}
+    jobs = [(video, project_dir, new_pose_dir) for video in videos]
+    with contextlib.ExitStack() as stack:
+        if processes > 1 and len(jobs) > 1:
+            pool = stack.enter_context(Pool(min(processes, len(jobs))))
+            checks = pool.imap(_check_video_pose_files, jobs)
+        else:
+            checks = map(_check_video_pose_files, jobs)
+        for check in checks:
+            video = check.video
+            live_num_identities = check.live_num_identities
+            replacement_pose_path = check.replacement_pose_path
+            video_replacement_version = check.replacement_version
+            replacement_identity_counts[video] = check.replacement_num_identities
+            if replacement_version is None:
+                replacement_version = video_replacement_version
+            elif video_replacement_version != replacement_version:
+                raise ValueError(
+                    f"{video} replacement pose version v{video_replacement_version} does not "
+                    f"match replacement pose version v{replacement_version} used by other videos"
+                )
+            replacement_pose_files[video] = replacement_pose_path
+            annotation_path = annotations_dir / Path(video).with_suffix(".json")
+            if annotation_path.exists():
+                live_annotations.add(video)
+                orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
+                if orphans:
+                    orphan_issues.append((video, live_num_identities, orphans))
 
     _handle_orphan_identities(
         orphan_issues, source_label="live", tolerate=tolerate_orphan_identities
@@ -823,7 +891,9 @@ def _preflight_update_inputs(
 
     _validate_live_update_targets(project_dir, videos, live_annotations)
 
-    return videos, replacement_pose_files, live_annotations
+    return _PreflightResult(
+        videos, replacement_pose_files, live_annotations, replacement_identity_counts
+    )
 
 
 def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
@@ -917,15 +987,27 @@ def _seed_stage_project(stage_root: Path, project_dir: Path, copy_annotations: b
             shutil.copytree(live_annotations_dir, stage_annotations_dir, dirs_exist_ok=True)
 
 
-def _refresh_project_identity_counts(project: Project) -> None:
-    """Recompute the per-video identity counts stored in project.json."""
+def _refresh_project_identity_counts(
+    project: Project, identity_counts: dict[str, int] | None = None
+) -> None:
+    """Recompute the per-video identity counts stored in project.json.
+
+    Args:
+        project: Project whose ``project.json`` is updated.
+        identity_counts: Identity count of each video's pose file, if already known
+            (e.g. from preflight). Videos not in it have their pose file opened.
+    """
     video_metadata = project.settings_manager.project_settings.get("video_files", {})
     refreshed = dict(video_metadata)
+    identity_counts = identity_counts or {}
 
     for video in project.video_manager.videos:
         vinfo = dict(refreshed.get(video, {}))
-        pose = project.load_pose_est(project.video_manager.video_path(video))
-        vinfo["identities"] = pose.num_identities
+        if video in identity_counts:
+            vinfo["identities"] = identity_counts[video]
+        else:
+            pose = project.load_pose_est(project.video_manager.video_path(video))
+            vinfo["identities"] = pose.num_identities
         refreshed[video] = vinfo
 
     project.settings_manager.save_project_file({"video_files": refreshed})
@@ -1138,6 +1220,7 @@ def _regenerate_features_after_update(
     window_sizes: tuple[int, ...],
     backup_path: Path,
     skip_feature_gen: bool,
+    processes: int = DEFAULT_PROCESSES,
 ) -> str:
     """Regenerate features after a successful pose update when requested by project settings."""
     if skip_feature_gen:
@@ -1149,7 +1232,7 @@ def _regenerate_features_after_update(
     try:
         run_initialize_project(
             force=False,
-            processes=DEFAULT_PROCESSES,
+            processes=processes,
             window_sizes=validate_window_sizes(window_sizes),
             force_pixel_distances=False,
             metadata_path=None,
@@ -1173,6 +1256,64 @@ def _regenerate_features_after_update(
     return "regenerated"
 
 
+@dataclass(frozen=True)
+class _RemapWorkerContext:
+    """Arguments shared by every video in a parallel label remap."""
+
+    label_source_project: Project
+    label_dest_project: Project
+    min_iou: float
+    verbose: bool
+    annotate_failures: bool
+    drop_timeline_annotations: bool
+    failure_description_phrase: str
+    match_settings: MatchSettings | None
+
+
+@dataclass(frozen=True)
+class _RemapWorkerResult:
+    """One video's remap counts and the output it printed."""
+
+    success: int
+    skipped: int
+    stdout: str
+    stderr: str
+
+
+# set once in each worker process by _init_remap_worker
+_worker_context: _RemapWorkerContext | None = None
+
+
+def _init_remap_worker(context: _RemapWorkerContext) -> None:
+    """Pool initializer: keep the shared remap arguments in the worker process."""
+    global _worker_context
+    _worker_context = context
+
+
+def _remap_video_worker(video: str) -> _RemapWorkerResult:
+    """Remap one video's labels in a worker process, capturing what it prints.
+
+    The output is returned rather than printed so the parent can print each video's
+    messages together, in video order.
+    """
+    context = _worker_context
+    assert context is not None, "worker not initialized"
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        success, skipped = _remap_labels_for_video(
+            video,
+            context.label_source_project,
+            context.label_dest_project,
+            context.min_iou,
+            verbose=context.verbose,
+            annotate_failures=context.annotate_failures,
+            drop_timeline_annotations=context.drop_timeline_annotations,
+            failure_description_phrase=context.failure_description_phrase,
+            match_settings=context.match_settings,
+        )
+    return _RemapWorkerResult(success, skipped, stdout.getvalue(), stderr.getvalue())
+
+
 def _run_staged_label_remap(
     label_source_project: Project,
     label_dest_project: Project,
@@ -1184,8 +1325,14 @@ def _run_staged_label_remap(
     videos: list[str] | None = None,
     failure_description_phrase: str = "pose update",
     match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int]:
     """Run the existing per-video label-remap semantics from source to destination.
+
+    With ``processes`` > 1, videos are remapped in parallel worker processes. Each
+    video's messages are printed together, in video order, once it finishes. Videos
+    whose names differ only by extension share an annotation file; if any do, the
+    videos are remapped one at a time so the result matches a serial run.
 
     Args:
         label_source_project: Source-side staged project providing labels and source pose.
@@ -1204,11 +1351,52 @@ def _run_staged_label_remap(
             during pose update: ..."). Both ``update-pose`` and ``update-labels``
             share the same tag names; this only affects the description text.
         match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes; 1 remaps the videos one at a time in
+            this process.
     """
     total_success = 0
     total_skipped = 0
 
     iteration_videos = videos if videos is not None else label_source_project.video_manager.videos
+
+    parallel = processes > 1 and len(iteration_videos) > 1
+    annotation_names = [annotation_filename(video) for video in iteration_videos]
+    if parallel and len(set(annotation_names)) < len(annotation_names):
+        # e.g. a.avi and a.mp4 both save to a.json; in parallel the last worker to
+        # finish would win, so keep the serial order (the later video wins)
+        print(
+            "NOTE: some videos share an annotation file (same name, different extension); "
+            "remapping videos one at a time.",
+            file=sys.stderr,
+        )
+        parallel = False
+
+    if parallel:
+        # Saving annotations updates the app version in project.json when it differs.
+        # Do that once here, so the workers' copies of the project are already current
+        # and do not race to rewrite project.json.
+        label_dest_project.settings_manager.update_version()
+        context = _RemapWorkerContext(
+            label_source_project,
+            label_dest_project,
+            min_iou,
+            verbose,
+            annotate_failures,
+            drop_timeline_annotations,
+            failure_description_phrase,
+            match_settings,
+        )
+        with Pool(
+            min(processes, len(iteration_videos)),
+            initializer=_init_remap_worker,
+            initargs=(context,),
+        ) as pool:
+            for result in pool.imap(_remap_video_worker, iteration_videos):
+                sys.stdout.write(result.stdout)
+                sys.stderr.write(result.stderr)
+                total_success += result.success
+                total_skipped += result.skipped
+        return total_success, total_skipped
 
     for video in iteration_videos:
         success, skipped = _remap_labels_for_video(
@@ -1239,6 +1427,7 @@ def update_project_pose_in_place(
     tolerate_orphan_identities: bool = False,
     *,
     match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int, Path, str]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``.
 
@@ -1256,6 +1445,8 @@ def update_project_pose_in_place(
             ``(identity, behavior)`` pairs during remap instead of aborting at
             preflight.
         match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes for the label remap and feature
+            regeneration.
 
     Returns:
         Tuple of ``(total_success, total_skipped, backup_path, feature_regen_status)`` for
@@ -1265,10 +1456,13 @@ def update_project_pose_in_place(
     new_pose_dir = new_pose_dir.resolve()
     preexisting_window_sizes = _load_preexisting_window_sizes(project_dir)
 
-    videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
-        project_dir,
-        new_pose_dir,
-        tolerate_orphan_identities=tolerate_orphan_identities,
+    videos, replacement_pose_files, live_annotation_videos, identity_counts = (
+        _preflight_update_inputs(
+            project_dir,
+            new_pose_dir,
+            tolerate_orphan_identities=tolerate_orphan_identities,
+            processes=processes,
+        )
     )
     backup_path = _create_backup_archive(project_dir, videos)
 
@@ -1304,9 +1498,10 @@ def update_project_pose_in_place(
             annotate_failures,
             drop_timeline_annotations,
             match_settings=match_settings,
+            processes=processes,
             videos=videos,
         )
-        _refresh_project_identity_counts(label_dest_project)
+        _refresh_project_identity_counts(label_dest_project, identity_counts)
         _apply_live_update(
             project_dir,
             label_dest_project,
@@ -1321,6 +1516,7 @@ def update_project_pose_in_place(
         preexisting_window_sizes,
         backup_path,
         skip_feature_gen,
+        processes=processes,
     )
 
     return total_success, total_skipped, backup_path, feature_regen_status
@@ -1397,6 +1593,18 @@ def update_project_pose_in_place(
     help="When splitting, fold runs shorter than this many frames into a neighboring run.",
 )
 @click.option(
+    "-p",
+    "--processes",
+    "processes",
+    type=click.IntRange(min=1),
+    default=DEFAULT_PROCESSES,
+    show_default=True,
+    help=(
+        "Number of worker processes used to remap videos in parallel"
+        " and to regenerate features; defaults to the logical CPU count. 1 remaps videos one at a time."
+    ),
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Print successful label remap assignments in addition to warnings.",
@@ -1438,6 +1646,7 @@ def update_pose_command(
     match_by: str,
     split_blocks: bool,
     min_run_frames: int,
+    processes: int,
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
@@ -1456,6 +1665,7 @@ def update_pose_command(
             split_blocks=split_blocks,
             min_run_frames=min_run_frames,
         ),
+        processes=processes,
         verbose=verbose,
         annotate_failures=annotate_failures,
         drop_timeline_annotations=drop_timeline_annotations,
