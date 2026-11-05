@@ -399,3 +399,30 @@ def test_match_runs_with_no_destination_identities() -> None:
 
     assert (run.start, run.end, run.match.identity) == (0, 4, None)
     assert not run.match.accepted
+
+
+def test_mixed_run_scores_bbox_only_frames_too() -> None:
+    """In auto mode, box-only frames count toward a run's score, not just mask frames.
+
+    The source has a mask on frames 0-3 only; on frames 4-9 only boxes can be compared,
+    and the destination's box is far away. Those 6 frames must pull the run's score
+    down instead of being ignored because the run also has mask frames.
+    """
+    frames = 10
+    square = [_rect(0, 0, 19, 19)]
+    near, far = _box(0, 0, 20, 20), _box(100, 100, 120, 120)
+    src = _pose(
+        boxes={0: np.stack([near] * frames)},
+        masks={0: [square if f < 4 else None for f in range(frames)]},
+    )
+    dst = _pose(
+        boxes={0: np.stack([near if f < 4 else far for f in range(frames)])},
+        masks={0: [square] * frames},
+    )
+
+    [run] = IdentityMatcher(src, dst, MatchSettings()).match_runs(0, 0, frames - 1)
+
+    assert (run.start, run.end, run.match.identity) == (0, 9, 0)
+    assert run.match.metric is MatchMetric.SEGMENTATION
+    assert run.match.score == pytest.approx(0.0)
+    assert not run.match.accepted
