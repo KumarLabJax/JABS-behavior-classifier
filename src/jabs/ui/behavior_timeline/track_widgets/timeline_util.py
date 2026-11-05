@@ -308,8 +308,10 @@ def render_search_hits(
 
         prev_y_pos = y_pos
 
-        if bounded_rel_start > rel_end_frame or bounded_rel_end < rel_start_frame:
-            # skip search hits that are completely out of bounds
+        # skip search hits that are completely out of bounds. rel_end_frame is
+        # exclusive, so a hit overlaps the window only when it ends after the
+        # window's first frame and starts before the frame past its last.
+        if rel_end_frame <= 0 or rel_start_frame >= window_frames_total:
             continue
 
         start_pos = math.floor(offset + bounded_rel_start * frame_width)
