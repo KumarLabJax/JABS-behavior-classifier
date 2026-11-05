@@ -271,7 +271,7 @@ jabs-cli update-pose <project_dir> <updated_pose_dir> [--match-by {auto,segmenta
 - `--min-iou-thresh <FLOAT>`: Minimum acceptable median bounding box IoU for a match decided by bounding boxes. Blocks below this threshold are skipped. Default: `0.5`.
 - `--split-blocks` / `--no-split-blocks`: Split a label block where its best-matching identity changes (default), or assign each whole block to one identity.
 - `--min-run-frames <N>`: When splitting, fold parts shorter than `N` frames into a neighboring part. Default: `3`.
-- `-p`, `--processes <N>`: Number of worker processes used to remap videos in parallel. Defaults to the logical CPU count; `1` remaps videos one at a time. Each video's messages are printed together, in video order.
+- `-p`, `--processes <N>`: Number of worker processes used to check pose files and remap videos in parallel (and, for `update-pose`, to regenerate features). Defaults to the logical CPU count; `1` processes videos one at a time. Each video's messages are printed together, in video order.
 - `--verbose`: Print successful label remap assignments, with both match scores, in addition to warnings.
 - `--annotate-failures`: Add timeline annotations to the project for blocks whose label remap fails, blocks that were split across identities, and blocks where segmentation and bounding boxes pick different identities.
 - `--drop-timeline-annotations`: Discard existing timeline annotations from the source project instead of copying or remapping them.

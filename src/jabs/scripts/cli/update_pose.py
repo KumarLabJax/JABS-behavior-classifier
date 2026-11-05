@@ -53,6 +53,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
+from typing import NamedTuple
 
 import click
 import h5py
@@ -752,13 +753,78 @@ def _validate_live_update_targets(
                 _require_writable_existing_path(child, f"live {derived_dir_name} file")
 
 
+class _VideoPoseCheck(NamedTuple):
+    """Result of validating one video's live and replacement pose files."""
+
+    video: str
+    replacement_pose_path: Path
+    live_num_identities: int
+    replacement_version: int
+    replacement_num_identities: int
+
+
+def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
+    """Validate one video's live and replacement pose files (picklable worker function).
+
+    Args:
+        job: ``(video, project_dir, new_pose_dir)``.
+
+    Returns:
+        The replacement pose path, its version and identity count, and the live pose
+        file's identity count.
+
+    Raises:
+        ValueError: If either pose file is missing, unreadable, lacks bounding boxes, or
+            does not match the video's frame count.
+    """
+    video, project_dir, new_pose_dir = job
+    video_path = project_dir / video
+    live_pose_path = get_pose_path(video_path)
+    replacement_pose_path = get_pose_path(video_path, new_pose_dir)
+    _, live_num_identities = _validate_pose_file(
+        video,
+        video_path,
+        live_pose_path,
+        "source",
+        require_bboxes=True,
+    )
+    replacement_version, replacement_num_identities = _validate_pose_file(
+        video,
+        video_path,
+        replacement_pose_path,
+        "replacement",
+        require_bboxes=True,
+    )
+    return _VideoPoseCheck(
+        video,
+        replacement_pose_path,
+        live_num_identities,
+        replacement_version,
+        replacement_num_identities,
+    )
+
+
+class _PreflightResult(NamedTuple):
+    """Inputs validated by `_preflight_update_inputs`."""
+
+    videos: list[str]
+    replacement_pose_files: dict[str, Path]
+    live_annotation_videos: set[str]
+    replacement_identity_counts: dict[str, int]
+
+
 def _preflight_update_inputs(
     project_dir: Path,
     new_pose_dir: Path,
     *,
     tolerate_orphan_identities: bool = False,
-) -> tuple[list[str], dict[str, Path], set[str]]:
+    processes: int = 1,
+) -> _PreflightResult:
     """Validate live and replacement inputs before any live mutation occurs.
+
+    Opening and checking each video's pose files is the slow part, so with
+    ``processes`` > 1 it runs in parallel worker processes. Results are handled in
+    video order, so the first problem reported is the same as with one process.
 
     Args:
         project_dir: Live project directory.
@@ -768,6 +834,11 @@ def _preflight_update_inputs(
             continues, with the affected ``(identity, behavior)`` pairs skipped
             during remap. When ``False`` (default), the orphan check raises
             before any backup or mutation.
+        processes: Number of worker processes used to check pose files.
+
+    Returns:
+        The project videos, each video's replacement pose file, the videos with live
+        annotation files, and each replacement pose file's identity count.
     """
     if not Project.is_valid_project_directory(project_dir):
         raise ValueError(f"{project_dir} is not a valid JABS project directory")
@@ -784,41 +855,34 @@ def _preflight_update_inputs(
     replacement_version: int | None = None
     orphan_issues: list[tuple[str, int, list[int]]] = []
 
-    for video in videos:
-        video_path = project_dir / video
-        live_pose_path = get_pose_path(video_path)
-        replacement_pose_path = get_pose_path(video_path, new_pose_dir)
-
-        _, live_num_identities = _validate_pose_file(
-            video,
-            video_path,
-            live_pose_path,
-            "source",
-            require_bboxes=True,
-        )
-        video_replacement_version, _ = _validate_pose_file(
-            video,
-            video_path,
-            replacement_pose_path,
-            "replacement",
-            require_bboxes=True,
-        )
-
-        if replacement_version is None:
-            replacement_version = video_replacement_version
-        elif video_replacement_version != replacement_version:
-            raise ValueError(
-                f"{video} replacement pose version v{video_replacement_version} does not match "
-                f"replacement pose version v{replacement_version} used by other videos"
-            )
-
-        replacement_pose_files[video] = replacement_pose_path
-        annotation_path = annotations_dir / Path(video).with_suffix(".json")
-        if annotation_path.exists():
-            live_annotations.add(video)
-            orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
-            if orphans:
-                orphan_issues.append((video, live_num_identities, orphans))
+    replacement_identity_counts: dict[str, int] = {}
+    jobs = [(video, project_dir, new_pose_dir) for video in videos]
+    with contextlib.ExitStack() as stack:
+        if processes > 1 and len(jobs) > 1:
+            pool = stack.enter_context(Pool(min(processes, len(jobs))))
+            checks = pool.imap(_check_video_pose_files, jobs)
+        else:
+            checks = map(_check_video_pose_files, jobs)
+        for check in checks:
+            video = check.video
+            live_num_identities = check.live_num_identities
+            replacement_pose_path = check.replacement_pose_path
+            video_replacement_version = check.replacement_version
+            replacement_identity_counts[video] = check.replacement_num_identities
+            if replacement_version is None:
+                replacement_version = video_replacement_version
+            elif video_replacement_version != replacement_version:
+                raise ValueError(
+                    f"{video} replacement pose version v{video_replacement_version} does not "
+                    f"match replacement pose version v{replacement_version} used by other videos"
+                )
+            replacement_pose_files[video] = replacement_pose_path
+            annotation_path = annotations_dir / Path(video).with_suffix(".json")
+            if annotation_path.exists():
+                live_annotations.add(video)
+                orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
+                if orphans:
+                    orphan_issues.append((video, live_num_identities, orphans))
 
     _handle_orphan_identities(
         orphan_issues, source_label="live", tolerate=tolerate_orphan_identities
@@ -826,7 +890,9 @@ def _preflight_update_inputs(
 
     _validate_live_update_targets(project_dir, videos, live_annotations)
 
-    return videos, replacement_pose_files, live_annotations
+    return _PreflightResult(
+        videos, replacement_pose_files, live_annotations, replacement_identity_counts
+    )
 
 
 def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
@@ -920,15 +986,27 @@ def _seed_stage_project(stage_root: Path, project_dir: Path, copy_annotations: b
             shutil.copytree(live_annotations_dir, stage_annotations_dir, dirs_exist_ok=True)
 
 
-def _refresh_project_identity_counts(project: Project) -> None:
-    """Recompute the per-video identity counts stored in project.json."""
+def _refresh_project_identity_counts(
+    project: Project, identity_counts: dict[str, int] | None = None
+) -> None:
+    """Recompute the per-video identity counts stored in project.json.
+
+    Args:
+        project: Project whose ``project.json`` is updated.
+        identity_counts: Identity count of each video's pose file, if already known
+            (e.g. from preflight). Videos not in it have their pose file opened.
+    """
     video_metadata = project.settings_manager.project_settings.get("video_files", {})
     refreshed = dict(video_metadata)
+    identity_counts = identity_counts or {}
 
     for video in project.video_manager.videos:
         vinfo = dict(refreshed.get(video, {}))
-        pose = project.load_pose_est(project.video_manager.video_path(video))
-        vinfo["identities"] = pose.num_identities
+        if video in identity_counts:
+            vinfo["identities"] = identity_counts[video]
+        else:
+            pose = project.load_pose_est(project.video_manager.video_path(video))
+            vinfo["identities"] = pose.num_identities
         refreshed[video] = vinfo
 
     project.settings_manager.save_project_file({"video_files": refreshed})
@@ -1363,10 +1441,13 @@ def update_project_pose_in_place(
     new_pose_dir = new_pose_dir.resolve()
     preexisting_window_sizes = _load_preexisting_window_sizes(project_dir)
 
-    videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
-        project_dir,
-        new_pose_dir,
-        tolerate_orphan_identities=tolerate_orphan_identities,
+    videos, replacement_pose_files, live_annotation_videos, identity_counts = (
+        _preflight_update_inputs(
+            project_dir,
+            new_pose_dir,
+            tolerate_orphan_identities=tolerate_orphan_identities,
+            processes=processes,
+        )
     )
     backup_path = _create_backup_archive(project_dir, videos)
 
@@ -1405,7 +1486,7 @@ def update_project_pose_in_place(
             processes=processes,
             videos=videos,
         )
-        _refresh_project_identity_counts(label_dest_project)
+        _refresh_project_identity_counts(label_dest_project, identity_counts)
         _apply_live_update(
             project_dir,
             label_dest_project,

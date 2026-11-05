@@ -92,13 +92,14 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
         staticmethod(lambda _path: 10),
     )
 
-    videos, replacement_pose_files, live_annotations = update_pose._preflight_update_inputs(
-        project_dir, new_pose_dir
+    videos, replacement_pose_files, live_annotations, identity_counts = (
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
     )
 
     assert videos == ["video1.avi"]
     assert replacement_pose_files == {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"}
     assert live_annotations == {"video1.avi"}
+    assert identity_counts == {"video1.avi": 2}
 
 
 @pytest.mark.parametrize(
@@ -198,8 +199,8 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
         staticmethod(lambda _path: 10),
     )
 
-    videos, replacement_pose_files, live_annotations = update_pose._preflight_update_inputs(
-        project_dir, new_pose_dir
+    videos, replacement_pose_files, live_annotations, identity_counts = (
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
     )
 
     assert videos == ["video1.avi"]
@@ -505,6 +506,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
                 ["video1.avi"],
                 {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"},
                 set(),
+                {"video1.avi": 2},
             )
         ),
     )
@@ -1117,7 +1119,7 @@ def test_preflight_update_inputs_tolerates_orphans_and_warns(tmp_path, monkeypat
         staticmethod(lambda _path: 10),
     )
 
-    videos, _, live_annotations = update_pose._preflight_update_inputs(
+    videos, _, live_annotations, _ = update_pose._preflight_update_inputs(
         project_dir, new_pose_dir, tolerate_orphan_identities=True
     )
 
@@ -1700,3 +1702,50 @@ def test_remap_video_worker_returns_captured_output(monkeypatch, capsys):
     assert (result.success, result.skipped) == (5, 1)
     assert (result.stdout, result.stderr) == ("out a.avi\n", "err a.avi\n")
     assert capsys.readouterr() == ("", "")
+
+
+def test_preflight_checks_pose_files_in_parallel_in_video_order(tmp_path, monkeypatch):
+    """With processes > 1, pose files are checked in a pool and handled in video order."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    videos = ["a.avi", "b.avi", "c.avi"]
+    monkeypatch.setattr(update_pose.Project, "is_valid_project_directory", lambda _p: True)
+    monkeypatch.setattr(update_pose, "_project_videos", lambda _p: videos)
+    monkeypatch.setattr(update_pose, "_validate_live_update_targets", lambda *_a: None)
+    pools = []
+
+    def make_pool(*args, **kwargs):
+        pools.append(_SerialPool(*args, **kwargs))
+        return pools[-1]
+
+    monkeypatch.setattr(update_pose, "Pool", make_pool)
+    monkeypatch.setattr(
+        update_pose,
+        "_check_video_pose_files",
+        lambda job: update_pose._VideoPoseCheck(
+            job[0], new_pose_dir / f"{job[0]}.h5", 2, 8, len(job[0]) + 1
+        ),
+    )
+
+    result = update_pose._preflight_update_inputs(project_dir, new_pose_dir, processes=4)
+
+    assert pools[0].processes == 3
+    assert result.videos == videos
+    assert list(result.replacement_pose_files) == videos
+    assert result.replacement_identity_counts == {"a.avi": 6, "b.avi": 6, "c.avi": 6}
+
+
+def test_refresh_identity_counts_uses_known_counts_without_reopening_pose_files():
+    """Known identity counts are written directly; only unknown videos are reopened."""
+    project = MagicMock()
+    project.video_manager.videos = ["a.avi", "b.avi"]
+    project.settings_manager.project_settings = {"video_files": {"a.avi": {"identities": 9}}}
+    project.load_pose_est.return_value = SimpleNamespace(num_identities=4)
+
+    update_pose._refresh_project_identity_counts(project, {"a.avi": 3})
+
+    project.load_pose_est.assert_called_once()  # only b.avi
+    saved = project.settings_manager.save_project_file.call_args[0][0]["video_files"]
+    assert saved == {"a.avi": {"identities": 3}, "b.avi": {"identities": 4}}
