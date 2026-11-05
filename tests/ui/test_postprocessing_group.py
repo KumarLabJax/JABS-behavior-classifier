@@ -218,7 +218,9 @@ def test_parameter_spinbox_is_sized_for_display_maximum() -> None:
     full_range_reference.setRange(1, _INT_MAX)
 
     width = spinbox.sizeHint().width()
-    assert width == display_reference.sizeHint().width()
+    # the hint subtracts two text widths that Qt rounds to whole pixels, so it can land
+    # one pixel off the reference
+    assert abs(width - display_reference.sizeHint().width()) <= 1
     assert width < full_range_reference.sizeHint().width()
 
 
