@@ -1,11 +1,16 @@
 """Tests for the shared detail-bar geometry helpers in jabs.ui."""
 
+from unittest import mock
+
 import numpy as np
 import pytest
+
+from jabs.behavior_search import SearchHit
 
 try:
     from jabs.ui.behavior_timeline.track_widgets.timeline_util import (
         frame_pixel_widths,
+        render_search_hits,
         window_frame_count,
         window_geometry,
     )
@@ -106,3 +111,75 @@ def test_frame_pixel_widths_uniform_when_frame_width_is_integral() -> None:
 def test_window_frame_count_includes_current_frame(window_size: int, expected: int) -> None:
     """A window spans its frames on both sides plus the current frame."""
     assert window_frame_count(window_size) == expected
+
+
+# a 201 frame window (window size 100) starting at frame 400, as a detail bar paints it
+_WINDOW_START = 400
+_WINDOW_FRAMES_TOTAL = 201
+_BAR_HEIGHT = 32
+_FRAME_WIDTH = 2.0
+
+
+def _hit(start_frame: int, end_frame: int) -> SearchHit:
+    """Build a search hit covering an inclusive frame range."""
+    return SearchHit(
+        file="video.avi",
+        identity="0",
+        behavior="walking",
+        start_frame=start_frame,
+        end_frame=end_frame,
+    )
+
+
+def _render(hit: SearchHit) -> mock.Mock:
+    """Render one hit onto a recording painter and return the painter."""
+    painter = mock.Mock()
+    render_search_hits(
+        painter,
+        [hit],
+        0,
+        _WINDOW_START,
+        _FRAME_WIDTH,
+        _BAR_HEIGHT,
+        _WINDOW_FRAMES_TOTAL,
+    )
+    return painter
+
+
+def _drew_anything(painter: mock.Mock) -> bool:
+    """Whether the painter was asked to draw a hit marker or either end diamond."""
+    return bool(painter.drawLine.call_args_list or painter.drawPolygon.call_args_list)
+
+
+@pytest.mark.parametrize(
+    ("start_frame", "end_frame"),
+    [
+        (_WINDOW_START - 10, _WINDOW_START - 1),
+        (_WINDOW_START - 1, _WINDOW_START - 1),
+        (_WINDOW_START + _WINDOW_FRAMES_TOTAL, _WINDOW_START + _WINDOW_FRAMES_TOTAL + 10),
+        (_WINDOW_START + _WINDOW_FRAMES_TOTAL + 5, _WINDOW_START + _WINDOW_FRAMES_TOTAL + 5),
+    ],
+    ids=["before", "ends-one-frame-before", "starts-one-frame-after", "well-after"],
+)
+def test_render_search_hits_skips_hits_outside_the_window(
+    start_frame: int, end_frame: int
+) -> None:
+    """A hit that does not overlap the window draws nothing, not a marker at the edge."""
+    assert not _drew_anything(_render(_hit(start_frame, end_frame)))
+
+
+@pytest.mark.parametrize(
+    ("start_frame", "end_frame"),
+    [
+        (_WINDOW_START, _WINDOW_START),
+        (_WINDOW_START - 10, _WINDOW_START),
+        (_WINDOW_START + _WINDOW_FRAMES_TOTAL - 1, _WINDOW_START + _WINDOW_FRAMES_TOTAL + 10),
+        (_WINDOW_START - 50, _WINDOW_START + _WINDOW_FRAMES_TOTAL + 50),
+    ],
+    ids=["first-frame", "overlaps-start", "last-frame", "spans-window"],
+)
+def test_render_search_hits_draws_hits_overlapping_the_window(
+    start_frame: int, end_frame: int
+) -> None:
+    """A hit sharing even one frame with the window is drawn."""
+    assert _drew_anything(_render(_hit(start_frame, end_frame)))
