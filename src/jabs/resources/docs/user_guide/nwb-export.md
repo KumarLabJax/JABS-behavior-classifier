@@ -371,7 +371,6 @@ These appear in a normal, acceptable export and do not block upload:
   cannot validate it. It also does not populate `NWBFile.subject`, which DANDI's
   required subject checks read. Use the default per-identity mode for anything
   destined for the archive.
-- **Segmentation data is not exported.** See [Data not exported](#data-not-exported).
 
 ---
 

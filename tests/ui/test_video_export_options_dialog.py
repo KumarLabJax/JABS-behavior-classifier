@@ -113,3 +113,60 @@ def test_save_is_blocked_again_when_the_last_overlay_is_cleared() -> None:
     dialog._pose_checkbox.setChecked(False)
 
     assert _save_button(dialog).isEnabled() is False
+
+
+def test_bounding_boxes_and_labels_are_hidden_unless_offered() -> None:
+    """The labeling GUI offers labels but not boxes; neither contributes when hidden."""
+    dialog = VideoExportOptionsDialog(draw_bounding_boxes=True)
+
+    assert dialog._bounding_boxes_checkbox.isHidden()
+    assert dialog.draw_bounding_boxes is False
+    assert dialog.bounding_boxes_enabled is False
+    assert not dialog._labels_checkbox.isHidden()
+
+
+def test_viewer_offers_bounding_boxes_without_labels() -> None:
+    """jabs-viewer has no project, so it shows boxes in place of labels and predictions."""
+    dialog = VideoExportOptionsDialog(
+        draw_bounding_boxes=True,
+        draw_labels=True,
+        draw_predictions=True,
+        offer_bounding_boxes=True,
+        offer_labels=False,
+    )
+
+    assert not dialog._bounding_boxes_checkbox.isHidden()
+    assert dialog.draw_bounding_boxes is True
+    assert dialog._labels_checkbox.isHidden()
+    assert dialog._predictions_checkbox.isHidden()
+    assert dialog.draw_labels is False
+    assert dialog.draw_predictions is False
+
+
+def test_bounding_boxes_alone_allow_saving() -> None:
+    """A bounding-box-only export is a real export, so Save stays enabled."""
+    dialog = VideoExportOptionsDialog(
+        draw_pose=False,
+        draw_segmentation=False,
+        draw_bounding_boxes=True,
+        offer_bounding_boxes=True,
+        offer_labels=False,
+    )
+
+    assert _save_button(dialog).isEnabled()
+
+    dialog._bounding_boxes_checkbox.setChecked(False)
+    assert not _save_button(dialog).isEnabled()
+
+
+def test_unavailable_bounding_boxes_are_disabled_with_a_reason() -> None:
+    """A pose file without boxes explains why the option is off."""
+    dialog = VideoExportOptionsDialog(
+        draw_bounding_boxes=True,
+        bounding_boxes_unavailable="no boxes",
+        offer_bounding_boxes=True,
+    )
+
+    assert dialog.draw_bounding_boxes is False
+    assert dialog.bounding_boxes_enabled is False
+    assert dialog._bounding_boxes_checkbox.toolTip() == "no boxes"

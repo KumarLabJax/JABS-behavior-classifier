@@ -441,19 +441,29 @@ class PlayerWidget(QtWidgets.QWidget):
             )
         )
 
-    def get_overlay_frame(self, frame_number: int | None = None) -> QtGui.QPixmap | None:
+    def get_overlay_frame(
+        self,
+        frame_number: int | None = None,
+        *,
+        draw_pose: bool = True,
+        draw_segmentation: bool = True,
+        draw_bounding_boxes: bool = False,
+    ) -> QtGui.QPixmap | None:
         """Return a frame at original resolution with pose and segmentation overlays.
 
         Like :meth:`get_raw_frame`, but additionally renders the segmentation contours
         (when the pose file provides them) and the pose keypoints/skeleton for every
-        identity, all at native video resolution. The overlays are always drawn,
-        independent of the on-screen overlay toggles. Unlike the live view, the export
+        identity, all at native video resolution. The overlays are chosen by the
+        arguments, independent of the on-screen overlay toggles. Unlike the live view, the export
         has no active identity: every identity is drawn the same way, with pose skeletons
         at full opacity and segmentation contours in a single color. Must only be called
         when the video is not playing.
 
         Args:
             frame_number: Frame index to export. Defaults to the currently selected frame.
+            draw_pose: Whether to draw the pose keypoints and skeleton.
+            draw_segmentation: Whether to draw segmentation contours, when available.
+            draw_bounding_boxes: Whether to draw bounding boxes, when available (v8+).
 
         Returns:
             A QPixmap at native video resolution with overlays drawn, or None if no
@@ -474,7 +484,14 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # Shared with the video export and the CLI, so a still and a frame of an
         # exported video are rendered by the same code.
-        rendered = render_overlay_frame(frame["data"], self._pose_est, target_frame)
+        rendered = render_overlay_frame(
+            frame["data"],
+            self._pose_est,
+            target_frame,
+            draw_pose=draw_pose,
+            draw_segmentation=draw_segmentation,
+            draw_bounding_boxes=draw_bounding_boxes,
+        )
 
         rgb = np.ascontiguousarray(rendered[..., ::-1])  # BGR -> RGB
         height, width, channels = rgb.shape
@@ -518,6 +535,14 @@ class PlayerWidget(QtWidgets.QWidget):
     def overlay_landmarks(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay landmarks' overlay state."""
         self._toggle_overlay("landmark_overlay_enabled", enabled)
+
+    def overlay_bounding_boxes(self, enabled: bool | None = None) -> None:
+        """Toggle or set whether bounding boxes are drawn.
+
+        Boxes are only drawn while the identity overlay mode is
+        :attr:`IdentityOverlayMode.BBOX` and the pose file has them (v8+).
+        """
+        self._toggle_overlay("bounding_box_overlay_enabled", enabled)
 
     def reload_frame(self) -> None:
         """reload the current frame in the player thread.
