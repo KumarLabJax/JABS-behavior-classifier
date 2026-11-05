@@ -196,8 +196,21 @@ def _annotate_disagreement(
     )
 
 
+# a block split into more parts than this is reported as ambiguous: the best match keeps
+# changing, which usually means overlapping animals rather than a clean identity handoff
+_AMBIGUOUS_SPLIT_PARTS = 4
+
+
+def _is_ambiguous_split(runs: list[RunMatch]) -> bool:
+    """Whether an interval was split into more parts than a clean handoff would produce."""
+    return len(runs) > _AMBIGUOUS_SPLIT_PARTS
+
+
 def _report_split(context: str, start: int, end: int, runs: list[RunMatch]) -> bool:
     """Print how an interval was split across destination identities, if it was.
+
+    Splits into more than ``_AMBIGUOUS_SPLIT_PARTS`` parts also get a warning, since
+    they usually mean overlapping animals and are worth reviewing.
 
     Args:
         context: Description of the block or annotation being matched.
@@ -212,14 +225,24 @@ def _report_split(context: str, start: int, end: int, runs: list[RunMatch]) -> b
         return False
     parts = ", ".join(f"{r.start}-{r.end} -> dst_id={r.match.identity}" for r in runs)
     print(f"SPLIT: {context} frames={start}-{end} into {len(runs)} parts: {parts}")
+    if _is_ambiguous_split(runs):
+        print(
+            f"WARNING: {context} frames={start}-{end} split into {len(runs)} parts; the best "
+            "match keeps changing (likely overlapping animals). Review this block.",
+            file=sys.stderr,
+        )
     return True
 
 
 def _annotate_split(
     dest_labels: VideoLabels, start: int, end: int, runs: list[RunMatch], context: str
 ) -> None:
-    """Add a timeline annotation marking a block that was split across identities."""
-    tag = "remap-split"
+    """Add a timeline annotation marking a block that was split across identities.
+
+    Ambiguous splits (see `_is_ambiguous_split`) get their own tag so they can be
+    reviewed separately from clean identity handoffs.
+    """
+    tag = "remap-ambiguous-split" if _is_ambiguous_split(runs) else "remap-split"
     if dest_labels.timeline_annotations.annotation_exists(
         start=start, end=end, tag=tag, identity_index=None
     ):

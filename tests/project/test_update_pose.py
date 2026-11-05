@@ -1464,3 +1464,50 @@ def test_remap_labels_for_video_splits_block_at_identity_handoff(capsys):
     assert annotation["tag"] == "remap-split"
     assert is_valid_tag(annotation["tag"])
     assert (annotation["start"], annotation["end"]) == (1, 8)
+
+
+def test_remap_labels_for_video_flags_ambiguous_split(capsys):
+    """A block whose best match keeps changing is warned about and tagged for review."""
+    frames, run = 24, 4  # destination alternates between identities 1 and 2 every 4 frames
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    absent = np.full_like(box, np.nan)
+    band = _diagonal_band(40)
+    owner = (np.arange(frames) // run) % 2 + 1
+    source_pose = _make_seg_pose({0: box}, {0: band})
+    dest_pose = _make_seg_pose(
+        {i: np.where((owner == i)[:, None, None], box, absent) for i in (1, 2)},
+        {1: band, 2: band},
+    )
+    seg = {
+        i: np.where((owner == i)[:, None, None, None], band, -1).astype(np.int32) for i in (1, 2)
+    }
+    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.identities = [1, 2]
+
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(0, frames - 1)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, _ = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    assert success_count == frames // run
+    assert "likely overlapping animals" in capsys.readouterr().err
+    [annotation] = label_dest_project.save_annotations.call_args[0][
+        0
+    ].timeline_annotations.serialize()
+    assert annotation["tag"] == "remap-ambiguous-split"
+    assert is_valid_tag(annotation["tag"])
