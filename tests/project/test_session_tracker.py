@@ -1,5 +1,6 @@
 """Tests for the labeling session activity log written by :class:`SessionTracker`."""
 
+import datetime
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -145,3 +146,116 @@ def test_ending_counts_use_the_same_totals_as_starting_counts(tmp_path: Path) ->
         "bouts_behavior": 3,
         "bouts_not_behavior": 1,
     }
+
+
+@pytest.mark.parametrize(
+    ("present", "activity"),
+    [
+        (True, ActivityTypes.BEHAVIOR_LABEL_CREATED),
+        (False, ActivityTypes.NOT_BEHAVIOR_LABEL_CREATED),
+    ],
+    ids=["behavior", "not-behavior"],
+)
+def test_label_created_records_the_frame_range(
+    tracker: SessionTracker, present: bool, activity: ActivityTypes
+) -> None:
+    """A created label records its activity type and the range it covers."""
+    tracker.label_created(Path("/videos/one.mp4"), 2, "groom", present, 10, 20)
+
+    (entry,) = _activity_log(tracker)
+    assert entry["activity"] == activity.name
+    assert entry["video"] == "one.mp4"
+    assert entry["behavior"] == "groom"
+    assert entry["identity"] == 2
+    assert (entry["start_frame"], entry["end_frame"]) == (10, 20)
+
+
+def test_label_deleted_records_the_frame_range(tracker: SessionTracker) -> None:
+    """A deleted label records the same fields as a created one."""
+    tracker.label_deleted(Path("/videos/one.mp4"), 2, "groom", 10, 20)
+
+    (entry,) = _activity_log(tracker)
+    assert entry["activity"] == ActivityTypes.LABEL_DELETED.name
+    assert entry["video"] == "one.mp4"
+    assert entry["behavior"] == "groom"
+    assert entry["identity"] == 2
+    assert (entry["start_frame"], entry["end_frame"]) == (10, 20)
+
+
+def test_classifier_trained_omits_scores_that_were_not_given(tracker: SessionTracker) -> None:
+    """Optional metrics are absent rather than null when not supplied."""
+    tracker.classifier_trained("groom", "XGBOOST", 5)
+
+    (entry,) = _activity_log(tracker)
+    assert entry["activity"] == ActivityTypes.CLASSIFIER_TRAINED.name
+    assert entry["behavior"] == "groom"
+    assert entry["classifier_type"] == "XGBOOST"
+    assert entry["k-fold"] == 5
+    assert "mean accuracy" not in entry
+    assert "mean fbeta (behavior)" not in entry
+
+
+def test_classifier_trained_includes_scores_that_were_given(tracker: SessionTracker) -> None:
+    """Supplied metrics are logged as 3-significant-digit strings."""
+    tracker.classifier_trained("groom", "XGBOOST", 5, accuracy=0.912345, fbeta_behavior=0.8)
+
+    (entry,) = _activity_log(tracker)
+    assert entry["mean accuracy"] == "0.912"
+    assert entry["mean fbeta (behavior)"] == "0.8"
+
+
+def test_pause_and_resume_are_logged_in_order(tracker: SessionTracker) -> None:
+    """Pausing and resuming a session each append one entry."""
+    tracker.pause_session()
+    tracker.resume_session()
+
+    assert [entry["activity"] for entry in _activity_log(tracker)] == [
+        ActivityTypes.SESSION_PAUSED.name,
+        ActivityTypes.SESSION_RESUMED.name,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("method", "args"),
+    [
+        ("label_created", (Path("/videos/one.mp4"), 0, "groom", True, 1, 2)),
+        ("label_deleted", (Path("/videos/one.mp4"), 0, "groom", 1, 2)),
+        ("classifier_trained", ("groom", "XGBOOST", 5)),
+        ("pause_session", ()),
+        ("resume_session", ()),
+        ("behavior_selected", ("groom",)),
+    ],
+    ids=["created", "deleted", "trained", "paused", "resumed", "selected"],
+)
+def test_activities_are_not_logged_when_tracking_disabled(
+    tmp_path: Path, method: str, args: tuple
+) -> None:
+    """A disabled tracker records nothing and never creates a session file."""
+    tracker = SessionTracker(_make_project(tmp_path), tracking_enabled=False)
+    tracker.start_session()
+
+    getattr(tracker, method)(*args)
+
+    assert tracker._session is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_every_activity_entry_starts_with_a_timestamp_and_activity(
+    tracker: SessionTracker,
+) -> None:
+    """All entries share one envelope, so the log can be parsed uniformly."""
+    tracker.video_opened(Path("/videos/one.mp4"))
+    tracker.label_created(Path("/videos/one.mp4"), 0, "groom", True, 1, 2)
+    tracker.classifier_trained("groom", "XGBOOST", 5)
+    tracker.pause_session()
+
+    for entry in _activity_log(tracker):
+        assert list(entry)[:2] == ["timestamp", "activity"]
+        datetime.datetime.fromisoformat(entry["timestamp"])
+
+
+@pytest.mark.parametrize("key", ["timestamp", "activity"])
+def test_activity_fields_may_not_override_envelope_keys(tracker: SessionTracker, key: str) -> None:
+    """Fields that would overwrite the shared envelope are rejected, not merged."""
+    with pytest.raises(ValueError, match=key):
+        tracker._append_activity(ActivityTypes.SESSION_PAUSED, {key: "x"})
