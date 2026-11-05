@@ -60,6 +60,7 @@ import h5py
 import numpy as np
 
 from jabs.core.utils import copy_file_atomic
+from jabs.io.annotations import annotation_filename
 from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
@@ -1329,7 +1330,9 @@ def _run_staged_label_remap(
     """Run the existing per-video label-remap semantics from source to destination.
 
     With ``processes`` > 1, videos are remapped in parallel worker processes. Each
-    video's messages are printed together, in video order, once it finishes.
+    video's messages are printed together, in video order, once it finishes. Videos
+    whose names differ only by extension share an annotation file; if any do, the
+    videos are remapped one at a time so the result matches a serial run.
 
     Args:
         label_source_project: Source-side staged project providing labels and source pose.
@@ -1356,7 +1359,19 @@ def _run_staged_label_remap(
 
     iteration_videos = videos if videos is not None else label_source_project.video_manager.videos
 
-    if processes > 1 and len(iteration_videos) > 1:
+    parallel = processes > 1 and len(iteration_videos) > 1
+    annotation_names = [annotation_filename(video) for video in iteration_videos]
+    if parallel and len(set(annotation_names)) < len(annotation_names):
+        # e.g. a.avi and a.mp4 both save to a.json; in parallel the last worker to
+        # finish would win, so keep the serial order (the later video wins)
+        print(
+            "NOTE: some videos share an annotation file (same name, different extension); "
+            "remapping videos one at a time.",
+            file=sys.stderr,
+        )
+        parallel = False
+
+    if parallel:
         # Saving annotations updates the app version in project.json when it differs.
         # Do that once here, so the workers' copies of the project are already current
         # and do not race to rewrite project.json.

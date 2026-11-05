@@ -1749,3 +1749,23 @@ def test_refresh_identity_counts_uses_known_counts_without_reopening_pose_files(
     project.load_pose_est.assert_called_once()  # only b.avi
     saved = project.settings_manager.save_project_file.call_args[0][0]["video_files"]
     assert saved == {"a.avi": {"identities": 3}, "b.avi": {"identities": 4}}
+
+
+def test_run_staged_label_remap_is_serial_when_videos_share_an_annotation_file(
+    monkeypatch, capsys
+):
+    """a.avi and a.mp4 share a.json, so they are remapped one at a time, in order."""
+
+    def no_pool(*args, **kwargs):
+        raise AssertionError("no pool should be started")
+
+    printed: list[str] = []
+    monkeypatch.setattr(update_pose, "Pool", no_pool)
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap(printed))
+
+    update_pose._run_staged_label_remap(
+        MagicMock(), MagicMock(), 0.5, False, False, False, videos=["a.avi", "a.mp4"], processes=8
+    )
+
+    assert printed == ["a.avi", "a.mp4"]
+    assert "share an annotation file" in capsys.readouterr().err
