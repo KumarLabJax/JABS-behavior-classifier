@@ -40,6 +40,8 @@ Example:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shlex
@@ -47,8 +49,9 @@ import shutil
 import sys
 import tempfile
 import zipfile
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
+from multiprocessing import Pool
 from pathlib import Path
 
 import click
@@ -1138,6 +1141,7 @@ def _regenerate_features_after_update(
     window_sizes: tuple[int, ...],
     backup_path: Path,
     skip_feature_gen: bool,
+    processes: int = DEFAULT_PROCESSES,
 ) -> str:
     """Regenerate features after a successful pose update when requested by project settings."""
     if skip_feature_gen:
@@ -1149,7 +1153,7 @@ def _regenerate_features_after_update(
     try:
         run_initialize_project(
             force=False,
-            processes=DEFAULT_PROCESSES,
+            processes=processes,
             window_sizes=validate_window_sizes(window_sizes),
             force_pixel_distances=False,
             metadata_path=None,
@@ -1173,6 +1177,64 @@ def _regenerate_features_after_update(
     return "regenerated"
 
 
+@dataclass(frozen=True)
+class _RemapWorkerContext:
+    """Arguments shared by every video in a parallel label remap."""
+
+    label_source_project: Project
+    label_dest_project: Project
+    min_iou: float
+    verbose: bool
+    annotate_failures: bool
+    drop_timeline_annotations: bool
+    failure_description_phrase: str
+    match_settings: MatchSettings | None
+
+
+@dataclass(frozen=True)
+class _RemapWorkerResult:
+    """One video's remap counts and the output it printed."""
+
+    success: int
+    skipped: int
+    stdout: str
+    stderr: str
+
+
+# set once in each worker process by _init_remap_worker
+_worker_context: _RemapWorkerContext | None = None
+
+
+def _init_remap_worker(context: _RemapWorkerContext) -> None:
+    """Pool initializer: keep the shared remap arguments in the worker process."""
+    global _worker_context
+    _worker_context = context
+
+
+def _remap_video_worker(video: str) -> _RemapWorkerResult:
+    """Remap one video's labels in a worker process, capturing what it prints.
+
+    The output is returned rather than printed so the parent can print each video's
+    messages together, in video order.
+    """
+    context = _worker_context
+    assert context is not None, "worker not initialized"
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        success, skipped = _remap_labels_for_video(
+            video,
+            context.label_source_project,
+            context.label_dest_project,
+            context.min_iou,
+            verbose=context.verbose,
+            annotate_failures=context.annotate_failures,
+            drop_timeline_annotations=context.drop_timeline_annotations,
+            failure_description_phrase=context.failure_description_phrase,
+            match_settings=context.match_settings,
+        )
+    return _RemapWorkerResult(success, skipped, stdout.getvalue(), stderr.getvalue())
+
+
 def _run_staged_label_remap(
     label_source_project: Project,
     label_dest_project: Project,
@@ -1184,8 +1246,12 @@ def _run_staged_label_remap(
     videos: list[str] | None = None,
     failure_description_phrase: str = "pose update",
     match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int]:
     """Run the existing per-video label-remap semantics from source to destination.
+
+    With ``processes`` > 1, videos are remapped in parallel worker processes. Each
+    video's messages are printed together, in video order, once it finishes.
 
     Args:
         label_source_project: Source-side staged project providing labels and source pose.
@@ -1204,11 +1270,40 @@ def _run_staged_label_remap(
             during pose update: ..."). Both ``update-pose`` and ``update-labels``
             share the same tag names; this only affects the description text.
         match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes; 1 remaps the videos one at a time in
+            this process.
     """
     total_success = 0
     total_skipped = 0
 
     iteration_videos = videos if videos is not None else label_source_project.video_manager.videos
+
+    if processes > 1 and len(iteration_videos) > 1:
+        # Saving annotations updates the app version in project.json when it differs.
+        # Do that once here, so the workers' copies of the project are already current
+        # and do not race to rewrite project.json.
+        label_dest_project.settings_manager.update_version()
+        context = _RemapWorkerContext(
+            label_source_project,
+            label_dest_project,
+            min_iou,
+            verbose,
+            annotate_failures,
+            drop_timeline_annotations,
+            failure_description_phrase,
+            match_settings,
+        )
+        with Pool(
+            min(processes, len(iteration_videos)),
+            initializer=_init_remap_worker,
+            initargs=(context,),
+        ) as pool:
+            for result in pool.imap(_remap_video_worker, iteration_videos):
+                sys.stdout.write(result.stdout)
+                sys.stderr.write(result.stderr)
+                total_success += result.success
+                total_skipped += result.skipped
+        return total_success, total_skipped
 
     for video in iteration_videos:
         success, skipped = _remap_labels_for_video(
@@ -1239,6 +1334,7 @@ def update_project_pose_in_place(
     tolerate_orphan_identities: bool = False,
     *,
     match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int, Path, str]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``.
 
@@ -1256,6 +1352,8 @@ def update_project_pose_in_place(
             ``(identity, behavior)`` pairs during remap instead of aborting at
             preflight.
         match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes for the label remap and feature
+            regeneration.
 
     Returns:
         Tuple of ``(total_success, total_skipped, backup_path, feature_regen_status)`` for
@@ -1304,6 +1402,7 @@ def update_project_pose_in_place(
             annotate_failures,
             drop_timeline_annotations,
             match_settings=match_settings,
+            processes=processes,
             videos=videos,
         )
         _refresh_project_identity_counts(label_dest_project)
@@ -1321,6 +1420,7 @@ def update_project_pose_in_place(
         preexisting_window_sizes,
         backup_path,
         skip_feature_gen,
+        processes=processes,
     )
 
     return total_success, total_skipped, backup_path, feature_regen_status
@@ -1397,6 +1497,18 @@ def update_project_pose_in_place(
     help="When splitting, fold runs shorter than this many frames into a neighboring run.",
 )
 @click.option(
+    "-p",
+    "--processes",
+    "processes",
+    type=click.IntRange(min=1),
+    default=DEFAULT_PROCESSES,
+    show_default=True,
+    help=(
+        "Number of worker processes used to remap videos in parallel"
+        " and to regenerate features; defaults to the logical CPU count. 1 remaps videos one at a time."
+    ),
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Print successful label remap assignments in addition to warnings.",
@@ -1438,6 +1550,7 @@ def update_pose_command(
     match_by: str,
     split_blocks: bool,
     min_run_frames: int,
+    processes: int,
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
@@ -1456,6 +1569,7 @@ def update_pose_command(
             split_blocks=split_blocks,
             min_run_frames=min_run_frames,
         ),
+        processes=processes,
         verbose=verbose,
         annotate_failures=annotate_failures,
         drop_timeline_annotations=drop_timeline_annotations,

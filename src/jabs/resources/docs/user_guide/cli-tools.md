@@ -261,7 +261,7 @@ The `jabs-cli update-pose` command updates an existing JABS project to use updat
 **Usage:**
 
 ```bash
-jabs-cli update-pose <project_dir> <updated_pose_dir> [--match-by {auto,segmentation,bbox}] [--min-mask-iou <FLOAT>] [--min-iou-thresh <FLOAT>] [--split-blocks | --no-split-blocks] [--min-run-frames <N>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--skip-feature-gen] [--tolerate-orphan-identities]
+jabs-cli update-pose <project_dir> <updated_pose_dir> [--match-by {auto,segmentation,bbox}] [--min-mask-iou <FLOAT>] [--min-iou-thresh <FLOAT>] [--split-blocks | --no-split-blocks] [--min-run-frames <N>] [-p <N>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--skip-feature-gen] [--tolerate-orphan-identities]
 ```
 
 - `<project_dir>`: Path to the JABS project to update in place.
@@ -271,6 +271,7 @@ jabs-cli update-pose <project_dir> <updated_pose_dir> [--match-by {auto,segmenta
 - `--min-iou-thresh <FLOAT>`: Minimum acceptable median bounding box IoU for a match decided by bounding boxes. Blocks below this threshold are skipped. Default: `0.5`.
 - `--split-blocks` / `--no-split-blocks`: Split a label block where its best-matching identity changes (default), or assign each whole block to one identity.
 - `--min-run-frames <N>`: When splitting, fold parts shorter than `N` frames into a neighboring part. Default: `3`.
+- `-p`, `--processes <N>`: Number of worker processes used to remap videos in parallel. Defaults to the logical CPU count; `1` remaps videos one at a time. Each video's messages are printed together, in video order.
 - `--verbose`: Print successful label remap assignments, with both match scores, in addition to warnings.
 - `--annotate-failures`: Add timeline annotations to the project for blocks whose label remap fails, blocks that were split across identities, and blocks where segmentation and bounding boxes pick different identities.
 - `--drop-timeline-annotations`: Discard existing timeline annotations from the source project instead of copying or remapping them.
@@ -311,7 +312,7 @@ The `jabs-cli update-labels` command is the inverse of [`update-pose`](#jabs-cli
 **Usage:**
 
 ```bash
-jabs-cli update-labels <project_dir> <source_project_dir> [--match-by {auto,segmentation,bbox}] [--min-mask-iou <FLOAT>] [--min-iou-thresh <FLOAT>] [--split-blocks | --no-split-blocks] [--min-run-frames <N>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--tolerate-orphan-identities]
+jabs-cli update-labels <project_dir> <source_project_dir> [--match-by {auto,segmentation,bbox}] [--min-mask-iou <FLOAT>] [--min-iou-thresh <FLOAT>] [--split-blocks | --no-split-blocks] [--min-run-frames <N>] [-p <N>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--tolerate-orphan-identities]
 ```
 
 - `<project_dir>`: Path to the target JABS project whose labels will be replaced in place. The target's pose is unchanged. If `<project_dir>` is a directory of videos + pose files with no `jabs/` subdirectory, a minimal JABS project is scaffolded automatically — features are not generated, so you may want to run `jabs-init` separately afterwards.
@@ -321,6 +322,7 @@ jabs-cli update-labels <project_dir> <source_project_dir> [--match-by {auto,segm
 - `--min-iou-thresh <FLOAT>`: Minimum acceptable median bounding box IoU for a match decided by bounding boxes. Blocks below this threshold are skipped. Default: `0.5`.
 - `--split-blocks` / `--no-split-blocks`: Split a label block where its best-matching identity changes (default), or assign each whole block to one identity.
 - `--min-run-frames <N>`: When splitting, fold parts shorter than `N` frames into a neighboring part. Default: `3`.
+- `-p`, `--processes <N>`: Number of worker processes used to remap videos in parallel. Defaults to the logical CPU count; `1` remaps videos one at a time. Each video's messages are printed together, in video order.
 - `--verbose`: Print successful label remap assignments in addition to warnings.
 - `--annotate-failures`: Add timeline annotations to the target for blocks whose label remap fails. Annotations use the same `behavior-remap-failed` / `not-behavior-remap-failed` tags as `update-pose`; the description text distinguishes the originating operation.
 - `--drop-timeline-annotations`: Discard source timeline annotations instead of copying or remapping them.

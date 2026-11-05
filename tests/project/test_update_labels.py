@@ -596,10 +596,12 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         drop_timeline_annotations,
         tolerate_orphan_identities,
         match_settings,
+        processes,
     ):
         captured.update(
             {
                 "match_settings": match_settings,
+                "processes": processes,
                 "project_dir": project_dir_arg,
                 "source_project_dir": source_project_dir_arg,
                 "min_iou": min_iou,
@@ -633,6 +635,8 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
             "--no-split-blocks",
             "--min-run-frames",
             "5",
+            "-p",
+            "3",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -652,6 +656,7 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
             split_blocks=False,
             min_run_frames=5,
         ),
+        "processes": 3,
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,

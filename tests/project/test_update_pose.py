@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -226,10 +227,12 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         skip_feature_gen,
         tolerate_orphan_identities,
         match_settings,
+        processes,
     ):
         captured.update(
             {
                 "match_settings": match_settings,
+                "processes": processes,
                 "project_dir": project_dir_arg,
                 "new_pose_dir": new_pose_dir_arg,
                 "min_iou": min_iou,
@@ -264,6 +267,8 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
             "--no-split-blocks",
             "--min-run-frames",
             "5",
+            "-p",
+            "3",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -284,6 +289,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
             split_blocks=False,
             min_run_frames=5,
         ),
+        "processes": 3,
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
@@ -538,8 +544,10 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
         window_sizes_arg,
         backup_path_arg,
         skip_feature_gen_arg,
+        processes,
     ):
         sequence.append("regen")
+        captured["regen_processes"] = processes
         captured["regen_project_dir"] = project_dir_arg
         captured["regen_window_sizes"] = window_sizes_arg
         captured["regen_backup_path"] = backup_path_arg
@@ -557,6 +565,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
             project_dir,
             new_pose_dir,
             min_iou=0.5,
+            processes=3,
         )
     )
 
@@ -570,6 +579,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
         "regen_window_sizes": (2, 5),
         "regen_backup_path": project_dir.resolve() / ".backup" / "update_pose_test.zip",
         "regen_skip_feature_gen": False,
+        "regen_processes": 3,
     }
     # Preflight must run before backup, backup before the live project is modified,
     # seed before remap, remap before apply, and feature regeneration after apply.
@@ -1593,3 +1603,100 @@ def test_identity_annotation_disagreement_is_annotated(capsys):
     assert by_tag["identity_note"]["identity"] == 0
     assert "remap-metric-disagreement" in by_tag
     assert "segmentation and bounding boxes disagree" in capsys.readouterr().err
+
+
+class _SerialPool:
+    """Stand-in for multiprocessing.Pool that runs the initializer and jobs in-process."""
+
+    def __init__(self, processes, initializer=None, initargs=()):
+        self.processes = processes
+        if initializer is not None:
+            initializer(*initargs)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def imap(self, func, iterable):
+        return map(func, iterable)
+
+
+def _fake_remap(printed: list[str]):
+    """A _remap_labels_for_video stand-in that prints per-video lines and returns counts."""
+
+    def remap(video, label_source_project, label_dest_project, min_iou, **kwargs):
+        printed.append(video)
+        print(f"out {video}")
+        print(f"err {video}", file=sys.stderr)
+        return len(video), 1
+
+    return remap
+
+
+def test_run_staged_label_remap_in_parallel_keeps_video_order(monkeypatch, capsys):
+    """Parallel remaps print each video's output in order and add up the counts."""
+    pools = []
+
+    def make_pool(*args, **kwargs):
+        pools.append(_SerialPool(*args, **kwargs))
+        return pools[-1]
+
+    printed: list[str] = []
+    monkeypatch.setattr(update_pose, "Pool", make_pool)
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap(printed))
+    dest_project = MagicMock()
+
+    totals = update_pose._run_staged_label_remap(
+        MagicMock(),
+        dest_project,
+        0.5,
+        False,
+        False,
+        False,
+        videos=["a.avi", "bb.avi", "ccc.avi"],
+        processes=8,
+    )
+
+    assert totals == (5 + 6 + 7, 3)
+    assert pools[0].processes == 3  # never more workers than videos
+    dest_project.settings_manager.update_version.assert_called_once()
+    out = capsys.readouterr()
+    assert out.out.splitlines() == ["out a.avi", "out bb.avi", "out ccc.avi"]
+    assert out.err.splitlines() == ["err a.avi", "err bb.avi", "err ccc.avi"]
+
+
+def test_run_staged_label_remap_single_process_runs_in_this_process(monkeypatch, capsys):
+    """processes=1 remaps the videos in this process without starting a pool."""
+
+    def no_pool(*args, **kwargs):
+        raise AssertionError("no pool should be started")
+
+    printed: list[str] = []
+    monkeypatch.setattr(update_pose, "Pool", no_pool)
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap(printed))
+
+    totals = update_pose._run_staged_label_remap(
+        MagicMock(), MagicMock(), 0.5, False, False, False, videos=["a.avi", "bb.avi"], processes=1
+    )
+
+    assert totals == (5 + 6, 2)
+    assert printed == ["a.avi", "bb.avi"]
+    assert capsys.readouterr().out.splitlines() == ["out a.avi", "out bb.avi"]
+
+
+def test_remap_video_worker_returns_captured_output(monkeypatch, capsys):
+    """The worker returns what the remap printed instead of printing it."""
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap([]))
+    update_pose._init_remap_worker(
+        update_pose._RemapWorkerContext(
+            MagicMock(), MagicMock(), 0.5, False, False, False, "pose update", None
+        )
+    )
+
+    result = update_pose._remap_video_worker("a.avi")
+
+    assert (result.success, result.skipped) == (5, 1)
+    assert (result.stdout, result.stderr) == ("out a.avi\n", "err a.avi\n")
+    assert capsys.readouterr() == ("", "")
