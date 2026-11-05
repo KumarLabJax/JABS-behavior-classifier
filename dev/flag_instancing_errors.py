@@ -1,8 +1,8 @@
-r"""Flag likely segmentation and tracking failures in pose files, for training data.
+r"""Flag likely instancing (segmentation and tracking) errors in pose files, for training data.
 
 Scans a directory of v8 pose files (bounding boxes are required) for frames where the
 segmentation or identity tracking probably failed, and saves those frames so they can
-be added to pose/segmentation training data. Three kinds of event are found:
+be added to pose/segmentation training data. Four kinds of event are found:
 
 ``fragment``
     An identity's track ends for good and another identity's track starts within a
@@ -38,9 +38,9 @@ they are opened, so the inputs are never modified.
 
 Usage::
 
-    python dev/flag_pose_failures.py POSE_DIR VIDEO_DIR OUTPUT_DIR
+    python dev/flag_instancing_errors.py POSE_DIR VIDEO_DIR OUTPUT_DIR
 
-    python dev/flag_pose_failures.py /data/new-pose /data/project /data/pose_failures \\
+    python dev/flag_instancing_errors.py /data/new-pose /data/project /data/instancing_errors \\
         --max-flicker 30 --max-extra 100 --max-extra-per-video 3 --workers 8
 """
 
