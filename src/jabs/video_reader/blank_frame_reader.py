@@ -79,6 +79,14 @@ class BlankFrameReader:
     def close(self) -> None:
         """No-op; there are no resources to release."""
 
+    def __enter__(self) -> "BlankFrameReader":
+        """Return this reader, so it can be used in place of a VideoReader in a with block."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Close the reader on leaving a with block."""
+        self.close()
+
     def get_frame_time(self, frame_number: int) -> str:
         """Return a formatted string of the time of a given frame.
 

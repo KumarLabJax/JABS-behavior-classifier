@@ -14,6 +14,8 @@ exports cannot drift apart:
   the on-screen
   :class:`~jabs.ui.player_widget.overlays.segmentation_overlay.SegmentationOverlay` and
   by both exports.
+* the per-identity bounding box (:func:`draw_identity_bounding_box`), drawn by both
+  exports; the on-screen overlay draws its own clickable, palette-colored boxes.
 * the movement track (:func:`draw_identity_track`), the arena landmarks
   (:func:`draw_landmarks`) and the marker that calls out one animal
   (:func:`draw_identity_marker`), drawn by the player only so far, though the exports
@@ -43,6 +45,12 @@ purpose, and the alternatives are all worse:
   expensive for every caller.
 """
 
+from .bounding_box import (
+    BOUNDING_BOX_COLOR,
+    draw_identity_bounding_box,
+    native_bounding_box_sizes,
+    pose_has_bounding_boxes,
+)
 from .colors import (
     BACKGROUND_COLOR,
     BEHAVIOR_COLOR,
@@ -96,6 +104,7 @@ from .track import (
 __all__ = [
     "BACKGROUND_COLOR",
     "BEHAVIOR_COLOR",
+    "BOUNDING_BOX_COLOR",
     "CLOSEST_FOV_MARKER_COLOR",
     "CLOSEST_MARKER_COLOR",
     "CLOSEST_MARKER_RADIUS",
@@ -117,6 +126,7 @@ __all__ = [
     "TRACK_LINE_WIDTH",
     "TRACK_PAST_COLOR",
     "TRACK_POINT_RADIUS",
+    "draw_identity_bounding_box",
     "draw_identity_marker",
     "draw_identity_pose",
     "draw_identity_segmentation",
@@ -125,8 +135,10 @@ __all__ = [
     "draw_landmarks",
     "identity_contours",
     "label_marker_color",
+    "native_bounding_box_sizes",
     "native_label_marker_sizes",
     "native_overlay_scale",
     "native_pose_sizes",
     "native_segmentation_line_width",
+    "pose_has_bounding_boxes",
 ]

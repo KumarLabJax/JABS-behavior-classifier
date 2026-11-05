@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import cv2
 
-from jabs.video_reader import VideoReader
+from jabs.video_reader import BlankFrameReader, VideoReader
 
 from .frame_renderer import render_overlay_frame
 
@@ -65,8 +65,10 @@ def export_overlay_video(
     *,
     draw_pose: bool = True,
     draw_segmentation: bool = True,
+    draw_bounding_boxes: bool = False,
     label_overlay: LabelMarkerOverlay | None = None,
     codec: str = DEFAULT_CODEC,
+    frames: BlankFrameReader | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     should_continue: Callable[[], bool] | None = None,
 ) -> int:
@@ -78,9 +80,15 @@ def export_overlay_video(
         pose_est: Pose estimation for ``video_path``.
         draw_pose: Whether to include the pose keypoints and skeleton.
         draw_segmentation: Whether to include segmentation contours.
+        draw_bounding_boxes: Whether to include each identity's bounding box (v8+
+            pose files only).
         label_overlay: Labels and/or predictions to mark next to each identity,
             or ``None`` to draw no label markers.
         codec: FourCC codec string passed to ``cv2.VideoWriter``.
+        frames: Solid-color frames to draw over instead of reading ``video_path``,
+            for pose data that has no video. ``video_path`` is then only used in
+            messages and to refuse an output that would overwrite it, so pass the
+            pose file's path.
         progress_callback: Called after each frame with
             ``(frames_written, total_frames)``.
         should_continue: Polled before each frame; returning False stops the
@@ -108,7 +116,7 @@ def export_overlay_video(
         )
 
     try:
-        reader = VideoReader(video_path)
+        reader = frames if frames is not None else VideoReader(video_path)
     except (OSError, ValueError) as e:
         # VideoReader signals an unreadable file with OSError and bad metadata with
         # ValueError; callers of this module only know about VideoExportError.
@@ -192,6 +200,7 @@ def export_overlay_video(
                         frames_written,
                         draw_pose=draw_pose,
                         draw_segmentation=draw_segmentation,
+                        draw_bounding_boxes=draw_bounding_boxes,
                         label_overlay=label_overlay,
                     )
                 else:

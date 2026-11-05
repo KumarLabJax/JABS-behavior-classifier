@@ -17,6 +17,7 @@ try:
         export_overlay_video,
     )
     from jabs.video_export import video_writer as video_writer_module
+    from jabs.video_reader import BlankFrameReader
 
     SKIP_UI_TESTS = False
     SKIP_REASON = ""
@@ -374,6 +375,7 @@ def test_overlay_choices_reach_the_renderer(
         StubPose(),
         draw_pose=False,
         draw_segmentation=False,
+        draw_bounding_boxes=True,
         label_overlay=overlay,
     )
 
@@ -383,6 +385,7 @@ def test_overlay_choices_reach_the_renderer(
         == {
             "draw_pose": False,
             "draw_segmentation": False,
+            "draw_bounding_boxes": True,
             "label_overlay": overlay,
         }
         for call in seen
@@ -409,3 +412,49 @@ def test_prediction_markers_reach_the_written_video(source_video: Path, tmp_path
         assert (np.abs(frame.astype(int) - BACKGROUND) > 25).any(), "no marker in output"
     finally:
         capture.release()
+
+
+def test_export_overlay_video_draws_over_blank_frames(tmp_path: Path) -> None:
+    """With no video, the pose is drawn over the solid frames it is given."""
+    pose_path = tmp_path / "clip_pose_est_v6.h5"
+    pose_path.write_bytes(b"")
+    frames = BlankFrameReader(
+        num_frames=FRAMES,
+        fps=30,
+        width=WIDTH,
+        height=HEIGHT,
+        color=(BACKGROUND, BACKGROUND, BACKGROUND),
+        filename=pose_path.name,
+    )
+    output = tmp_path / "out.avi"
+
+    written = export_overlay_video(
+        pose_path, output, StubPose(), draw_segmentation=False, codec="MJPG", frames=frames
+    )
+
+    assert written == FRAMES
+    capture = cv2.VideoCapture(str(output))
+    try:
+        assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == FRAMES
+        ok, frame = capture.read()
+    finally:
+        capture.release()
+    assert ok
+    assert frame.shape[:2] == (HEIGHT, WIDTH)
+    assert pose_path.read_bytes() == b"", "pose file was modified"
+
+
+def test_export_overlay_video_from_blank_frames_refuses_to_overwrite_the_pose_file(
+    tmp_path: Path,
+) -> None:
+    """The source path given for blank frames is still protected from being overwritten."""
+    pose_path = tmp_path / "clip_pose_est_v6.h5"
+    pose_path.write_bytes(b"pose")
+    frames = BlankFrameReader(
+        num_frames=FRAMES, fps=30, width=WIDTH, height=HEIGHT, filename=pose_path.name
+    )
+
+    with pytest.raises(VideoExportError, match="same file"):
+        export_overlay_video(pose_path, pose_path, StubPose(), frames=frames)
+
+    assert pose_path.read_bytes() == b"pose"

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QWidget
 
 from jabs.pose_estimation import PoseEstimation
 from jabs.video_export import LabelMarkerOverlay, export_overlay_video
+from jabs.video_reader import BlankFrameReader
 
 
 class VideoExportThread(QThread):
@@ -29,6 +30,9 @@ class VideoExportThread(QThread):
         draw_pose: Whether to include the pose keypoints and skeleton.
         label_overlay: Labels and/or predictions to mark next to each identity,
             or ``None`` to draw no label markers.
+        draw_bounding_boxes: Whether to include each identity's bounding box.
+        frames: Solid-color frames to draw over instead of reading ``video_path``,
+            for pose data with no video (see :func:`export_overlay_video`).
     """
 
     export_complete = Signal(int)
@@ -49,6 +53,8 @@ class VideoExportThread(QThread):
         *,
         draw_pose: bool = True,
         label_overlay: LabelMarkerOverlay | None = None,
+        draw_bounding_boxes: bool = False,
+        frames: BlankFrameReader | None = None,
     ) -> None:
         super().__init__(parent=parent)
         self._video_path = video_path
@@ -57,6 +63,8 @@ class VideoExportThread(QThread):
         self._draw_segmentation = draw_segmentation
         self._draw_pose = draw_pose
         self._label_overlay = label_overlay
+        self._draw_bounding_boxes = draw_bounding_boxes
+        self._frames = frames
         self._should_terminate = False
 
     def request_termination(self) -> None:
@@ -76,7 +84,9 @@ class VideoExportThread(QThread):
                 self._pose_est,
                 draw_pose=self._draw_pose,
                 draw_segmentation=self._draw_segmentation,
+                draw_bounding_boxes=self._draw_bounding_boxes,
                 label_overlay=self._label_overlay,
+                frames=self._frames,
                 progress_callback=lambda written, _total: self.update_progress.emit(written),
                 should_continue=lambda: not self._should_terminate,
             )

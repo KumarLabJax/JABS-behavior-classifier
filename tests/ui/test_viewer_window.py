@@ -11,6 +11,7 @@ try:
     from jabs.ui.player_widget import PlayerWidget
     from jabs.ui.viewer import viewer_window
     from jabs.ui.viewer.frame_size_dialog import FrameSizeDialog
+    from jabs.ui.viewer.overlay_export import OverlayChoice
     from jabs.ui.viewer.viewer_window import ViewerWindow
 
     SKIP_UI_TESTS = False
@@ -51,12 +52,17 @@ def window() -> "ViewerWindow":
     return window
 
 
-def _fake_pose(has_segmentation: bool = True) -> mock.Mock:
-    """Build a stand-in pose file with 100 frames."""
+def _fake_pose(has_segmentation: bool = True, has_bounding_boxes: bool = False) -> mock.Mock:
+    """Build a stand-in pose file with 100 frames.
+
+    It is a v8 pose file when it has bounding boxes, and v6 otherwise.
+    """
     pose = mock.Mock()
     pose.identities = [0, 1, 2]
     pose.num_frames = 100
     pose.has_segmentation = has_segmentation
+    pose.has_bounding_boxes = has_bounding_boxes
+    pose.format_major_version = 8 if has_bounding_boxes else 6
     return pose
 
 
@@ -359,3 +365,93 @@ def test_failed_load_does_not_leave_loading_message(
         window.open_video(VIDEO_PATH)
 
     assert window.statusBar().currentMessage() == "previous status"
+
+
+def test_bounding_box_control_follows_the_pose_file(monkeypatch, window) -> None:
+    """Only a pose file with bounding boxes (v8+) enables the bounding box toggle."""
+    assert not window._bbox_action.isEnabled()
+
+    _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose(has_bounding_boxes=False))
+    window.open_video(VIDEO_PATH)
+    assert not window._bbox_action.isEnabled()
+
+    _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose(has_bounding_boxes=True))
+    window.open_video(VIDEO_PATH)
+    assert window._bbox_action.isEnabled()
+
+
+def test_bounding_box_toggle_sets_bounding_box_overlay() -> None:
+    """The bounding box toggle drives the player's bounding box overlay."""
+    window = ViewerWindow(app_name="test")
+    frame_widget = window._player._frame_widget
+    assert frame_widget.bounding_box_overlay_enabled
+    assert frame_widget.identity_overlay_mode == PlayerWidget.IdentityOverlayMode.BBOX
+
+    window._bbox_action.setChecked(False)
+    assert not frame_widget.bounding_box_overlay_enabled
+
+    window._bbox_action.setChecked(True)
+    assert frame_widget.bounding_box_overlay_enabled
+
+
+def test_export_actions_follow_what_is_open(monkeypatch, window) -> None:
+    """Frames can be exported from any open file; a video export needs a pose to draw."""
+    assert not window._export_frame_action.isEnabled()
+    assert not window._export_video_action.isEnabled()
+
+    _patch_pose_lookup(monkeypatch, None)
+    window.open_video(VIDEO_PATH)
+    assert window._export_frame_action.isEnabled()
+    assert not window._export_video_action.isEnabled()
+
+    _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose())
+    window.open_video(VIDEO_PATH)
+    assert window._export_video_action.isEnabled()
+
+
+def test_export_passes_the_video_and_displayed_overlays(monkeypatch, window) -> None:
+    """Exports start from the open video and the overlays the View menu has on."""
+    pose = _fake_pose(has_bounding_boxes=True)
+    _patch_pose_lookup(monkeypatch, POSE_PATH, pose)
+    window._player._video_path = VIDEO_PATH
+    window.open_video(VIDEO_PATH)
+    window._segmentation_action.setChecked(False)
+    window._exporter = mock.Mock()
+
+    window.export_frame()
+    window.export_video()
+
+    source, overlays = window._exporter.export_frame.call_args.args
+    assert source.path == VIDEO_PATH
+    assert source.pose_est is pose
+    assert not source.pose_only
+    assert overlays == OverlayChoice(pose=True, segmentation=False, bounding_boxes=True)
+    assert window._exporter.export_video.call_args.args == (source, overlays)
+
+
+def test_pose_only_export_draws_over_fresh_blank_frames(monkeypatch, window) -> None:
+    """A pose file on its own exports over new frames at the current frame size."""
+    _open_pose_only(monkeypatch, window)
+    window.set_frame_size(640, 480)
+    window._exporter = mock.Mock()
+
+    window.export_video()
+
+    source, _overlays = window._exporter.export_video.call_args.args
+    assert source.path == POSE_PATH
+    assert source.pose_only
+    assert source.frames.dimensions == (640, 480)
+    assert source.frames.num_frames == 100
+    assert source.frames is not window._player._video_stream
+
+
+def test_export_does_nothing_with_nothing_open() -> None:
+    """With no file open there is nothing to export."""
+    window = ViewerWindow(app_name="test")
+    window._exporter = mock.Mock()
+
+    window.export_frame()
+    window.export_video()
+
+    window._exporter.export_frame.assert_not_called()
+    window._exporter.export_video.assert_not_called()

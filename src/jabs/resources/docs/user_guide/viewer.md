@@ -1,8 +1,8 @@
 # JABS Viewer
 
 `jabs-viewer` is a standalone player for checking pose estimation output. It plays a
-video with its pose and segmentation drawn on top, or plays a pose file on its own
-when there is no video. It uses the same video player as the main JABS application
+video with its pose, segmentation and bounding boxes drawn on top, or plays a pose
+file on its own when there is no video. It uses the same video player as the main JABS application
 but does not need a JABS project: open a file and watch.
 
 ## Launching the Viewer
@@ -62,9 +62,37 @@ All animals are drawn the same way. There is no selected animal in the viewer.
 - **Overlay Segmentation** (`S`): Show or hide the segmentation contours. This is
   only available when the pose file contains segmentation data (version 6 or newer,
   and generated with segmentation, which is optional).
+- **Overlay Bounding Boxes** (`B`): Show or hide each animal's bounding box, labeled
+  with its identity. This is only available when the pose file contains bounding
+  boxes (version 8 or newer, and generated with bounding boxes, which is optional).
 
-Both are on by default and can be toggled from the **View** menu or the toolbar.
+All are on by default and can be toggled from the **View** menu or the toolbar.
 They are unavailable when no pose file is open.
+
+## Exporting
+
+### Export Frame
+
+**File→Export Frame...** (Ctrl+E / ⌘E) saves the current frame as a PNG image at the
+video's native resolution. With a video open, the frame is saved without overlays,
+and the **Also save a copy with the displayed overlays** checkbox saves a second
+image, named `<name>-overlay.png`, with the overlays currently switched on in the
+**View** menu. With a pose file open without a video, only the frame with the
+overlays is saved, since the background alone is not worth a file. If the video is
+playing it is paused first.
+
+### Export Video with Overlays
+
+**File→Export Video with Overlays...** writes an MP4 copy of the video with the
+overlays drawn on every frame. A dialog first asks which overlays to include (pose,
+segmentation and bounding boxes), starting from those currently shown; overlays the
+pose file does not have are disabled, with the reason as a tooltip. You then choose
+where to save the file. The export runs in the background with a progress dialog
+and can be cancelled, which removes the partial file.
+
+With a pose file open without a video, the pose is drawn over the same dark gray
+background, at the frame size in use, at 30 fps. Exporting a video needs a pose
+file; it is unavailable for a video with no pose.
 
 ## Video Controls
 
@@ -80,4 +108,6 @@ mouse is over the video (playback speed, cropping, brightness and contrast).
 | `←` / `→` | Previous / next frame |
 | `P` | Toggle pose overlay |
 | `S` | Toggle segmentation overlay |
+| `B` | Toggle bounding box overlay |
 | Ctrl+O / ⌘O | Open video |
+| Ctrl+E / ⌘E | Export frame |
