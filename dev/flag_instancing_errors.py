@@ -5,8 +5,9 @@ segmentation or identity tracking probably failed, and saves those frames so the
 be added to pose/segmentation training data. Four kinds of event are found:
 
 ``fragment``
-    An identity's track ends for good and another identity's track starts within a
-    few frames in the same place, e.g. after a segmentation failure splits one animal
+    An identity's track ends and stays gone for at least 30 frames, and another
+    identity's track, absent for the previous 30 frames, starts within a few frames in
+    the same place (a later swap back is still flagged), e.g. after a segmentation failure splits one animal
     into two and the animal continues under a new identity.
 
 ``flicker``
@@ -52,6 +53,7 @@ import os
 import shutil
 import tempfile
 import warnings
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -170,16 +172,19 @@ def _find_handoffs(
     """Find every place one identity's track ends as another's starts nearby."""
     n_frames = len(next(iter(present.values())))
     segments = {i: _runs(mask) for i, mask in present.items()}
+    starts = {i: [start for start, _ in segs] for i, segs in segments.items()}
     handoffs = []
     for a, a_segments in segments.items():
         for _, a_end in a_segments:
             if a_end >= n_frames - 1:
                 continue
-            for b, b_segments in segments.items():
+            for b, b_starts in starts.items():
                 if b == a:
                     continue
-                for b_start, _ in b_segments:
-                    if b_start == 0 or not a_end - HANDOFF_GAP <= b_start <= a_end + HANDOFF_GAP:
+                lo = bisect_left(b_starts, a_end - HANDOFF_GAP)
+                hi = bisect_right(b_starts, a_end + HANDOFF_GAP)
+                for b_start in b_starts[lo:hi]:
+                    if b_start == 0:
                         continue
                     same, iou = _same_place(boxes[a][a_end], boxes[b][b_start])
                     if same:
@@ -279,14 +284,15 @@ def _extra_detection_events(
             event="extra",
             start_frame=start,
             end_frame=end,
-            identities=",".join(str(i) for i, mask in present.items() if mask[start]),
+            identities=",".join(str(i) for i, mask in present.items() if mask[mid]),
             detail=(
-                f"{int(count[start])} animals detected (expected {usual}) "
-                f"for {end - start + 1} frames"
+                f"more than {usual} animals for {end - start + 1} frames; "
+                f"{int(count[mid])} at key frame {mid}"
             ),
-            key_frames=[(start + end) // 2],
+            key_frames=[mid],
         )
         for start, end in _runs(count > usual)
+        for mid in [(start + end) // 2]
     ]
 
 
@@ -324,10 +330,15 @@ def find_events(pose: PoseEstimation, video: str, pose_file: Path) -> list[Failu
     Returns:
         All fragment, flicker, extra-detection, and short-identity events.
     """
-    present = {i: np.asarray(pose.identity_mask(i), dtype=bool) for i in pose.identities}
+    boxes = {i: pose.get_bounding_boxes(i) for i in pose.identities}
+    # presence comes from the bounding box, not identity_mask(), which needs 3 confident
+    # keypoints and so would miss instances (e.g. split-off blobs) with poor keypoints
+    present = {
+        i: np.isfinite(b).all(axis=(1, 2)) & (b[:, 1, 0] > b[:, 0, 0]) & (b[:, 1, 1] > b[:, 0, 1])
+        for i, b in boxes.items()
+    }
     if not present:
         return []
-    boxes = {i: pose.get_bounding_boxes(i) for i in pose.identities}
     return (
         _episode_events(_find_handoffs(present, boxes), present, video, pose_file)
         + _extra_detection_events(present, video, pose_file)
