@@ -622,8 +622,8 @@ def update_labels_command(
 
     click.echo(f"Backup archive: {backup_path}")
     click.echo(
-        f"Label update summary: {total_success} label blocks assigned, "
-        f"{total_skipped} label blocks skipped "
+        f"Label update summary: {total_success} label parts assigned, "
+        f"{total_skipped} label parts skipped "
         f"(match by {match_by}, mask IoU threshold={min_mask_iou}, "
         f"bbox IoU threshold={min_iou}, "
         f"split blocks={'on' if split_blocks else 'off'})"

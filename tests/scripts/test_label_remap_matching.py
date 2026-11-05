@@ -369,3 +369,33 @@ def test_run_score_counts_missing_frames_as_zero() -> None:
     assert runs[0].match.identity == 0
     assert runs[0].match.score == pytest.approx(0.0)
     assert not runs[0].match.accepted
+
+
+def test_run_counts_folded_frames_without_destination_data_as_zero() -> None:
+    """Frames folded in from a no-match run score 0, so a mostly missing run is rejected.
+
+    The destination identity overlaps for 3 frames and is missing for the next 6; the
+    6 frames fold into its run, and the run's median must reflect that it is absent.
+    """
+    frames = 9
+    square = [_rect(0, 0, 19, 19)]
+    src = _pose(masks={0: [square] * frames})
+    dst = _pose(masks={0: [square if f < 3 else None for f in range(frames)]})
+
+    [run] = IdentityMatcher(src, dst, MatchSettings()).match_runs(0, 0, frames - 1)
+
+    assert (run.start, run.end, run.match.identity) == (0, 8, 0)
+    assert run.match.score == pytest.approx(0.0)
+    assert not run.match.accepted
+
+
+def test_match_runs_with_no_destination_identities() -> None:
+    """A destination pose with no identities gives one unmatched run instead of raising."""
+    square = [_rect(0, 0, 19, 19)]
+    src = _pose(masks={0: [square] * 5})
+    dst = _pose(masks={})
+
+    [run] = IdentityMatcher(src, dst, MatchSettings()).match_runs(0, 0, 4)
+
+    assert (run.start, run.end, run.match.identity) == (0, 4, None)
+    assert not run.match.accepted

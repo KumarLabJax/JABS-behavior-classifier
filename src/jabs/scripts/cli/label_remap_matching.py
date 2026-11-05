@@ -250,6 +250,8 @@ class _FrameScores:
         bbox: Bounding box IoU, with the same conventions as ``mask``.
         mask_frames: Frames decided by masks (the source and some destination have one).
         bbox_frames: Frames where the source and some destination have a box.
+        empty_frames: Frames where the source has a mask or box but no destination
+            identity can be compared with it; every destination scores 0 on these.
         best: Best destination identity on each frame, or None where nothing overlaps.
     """
 
@@ -257,6 +259,7 @@ class _FrameScores:
     bbox: npt.NDArray[np.float64]
     mask_frames: npt.NDArray[np.bool_]
     bbox_frames: npt.NDArray[np.bool_]
+    empty_frames: npt.NDArray[np.bool_]
     best: list[int | None]
 
 
@@ -394,7 +397,8 @@ class IdentityMatcher:
         Returns:
             Runs covering every frame of the interval, in order.
         """
-        if not self._settings.split_blocks:
+        if not self._settings.split_blocks or not self._dest_identities:
+            # with no destination identities, match() returns an unmatched result
             return [RunMatch(start, end, self.match(src_identity, start, end))]
 
         scores = self._frame_scores(src_identity, start, end)
@@ -428,12 +432,14 @@ class IdentityMatcher:
         bbox = np.full((n_frames, n_dest), np.nan)
         mask_frames = np.zeros(n_frames, dtype=bool)
         bbox_frames = np.zeros(n_frames, dtype=bool)
+        source_frames = np.zeros(n_frames, dtype=bool)
 
         if match_by is not MatchMetric.BBOX:
             for i, frame in enumerate(range(start, end + 1)):
                 src_contours = self._source.contours(src_identity, frame)
                 if src_contours is None:
                     continue
+                source_frames[i] = True
                 for j, dst in enumerate(self._dest_identities):
                     dst_contours = self._dest.contours(dst, frame)
                     if dst_contours is not None:
@@ -447,6 +453,7 @@ class IdentityMatcher:
             if src_boxes is not None:
                 src_slice = src_boxes[start : end + 1]
                 src_valid = _valid_boxes(src_slice)
+                source_frames |= src_valid
                 for j, dst in enumerate(self._dest_identities):
                     dst_boxes = self._dest.bboxes(dst)
                     dst_valid = (
@@ -468,20 +475,31 @@ class IdentityMatcher:
                 best.append(None)
             else:
                 best.append(self._dest_identities[int(np.nanargmax(row))])
-        return _FrameScores(mask, bbox, mask_frames, bbox_frames, best)
+        empty_frames = source_frames & ~mask_frames & ~bbox_frames
+        return _FrameScores(mask, bbox, mask_frames, bbox_frames, empty_frames, best)
 
     def _run_match(
         self, scores: _FrameScores, frames: slice, identity: int | None
     ) -> IdentityMatch:
-        """Score ``identity`` over one run, counting frames where it is missing as 0."""
+        """Score ``identity`` over one run, counting frames where it is missing as 0.
+
+        That includes frames where the source has data but no destination identity
+        does, such as frames folded into this run from a run with no match.
+        """
         settings = self._settings
         mask_rows = np.flatnonzero(scores.mask_frames[frames]) + frames.start
         bbox_rows = np.flatnonzero(scores.bbox_frames[frames]) + frames.start
+        n_empty = int(np.count_nonzero(scores.empty_frames[frames]))
+
+        def with_empty(values: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+            """Append a 0 per empty frame along the frame axis."""
+            zeros = np.zeros((n_empty, *values.shape[1:]))
+            return np.concatenate([values, zeros], axis=0)
 
         def best_of(matrix: npt.NDArray[np.float64], rows: npt.NDArray[np.intp]):
             if len(rows) == 0:
                 return None, None
-            medians = np.median(matrix[rows], axis=0)
+            medians = np.median(with_empty(matrix[rows]), axis=0)
             j = int(np.argmax(medians))
             return self._dest_identities[j], float(medians[j])
 
@@ -511,7 +529,8 @@ class IdentityMatcher:
         if identity is None or len(rows) == 0:
             score = -np.inf
         else:
-            score = float(np.median(matrix[rows, self._dest_identities.index(identity)]))
+            column = matrix[rows, self._dest_identities.index(identity)]
+            score = float(np.median(with_empty(column)))
         return IdentityMatch(
             identity=identity,
             metric=metric,

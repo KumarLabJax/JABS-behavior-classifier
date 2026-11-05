@@ -291,7 +291,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         "tolerate_orphan_identities": True,
     }
     assert "Backup archive:" in result.output
-    assert "Pose update summary: 3 label blocks assigned, 1 label blocks skipped" in result.output
+    assert "Pose update summary: 3 label parts assigned, 1 label parts skipped" in result.output
     assert "Feature regeneration: skipped (--skip-feature-gen)." in result.output
 
 
@@ -1511,3 +1511,85 @@ def test_remap_labels_for_video_flags_ambiguous_split(capsys):
     ].timeline_annotations.serialize()
     assert annotation["tag"] == "remap-ambiguous-split"
     assert is_valid_tag(annotation["tag"])
+
+
+def _crossed_projects(source_labels):
+    """Projects whose destination boxes favor identity 1 while masks favor identity 0."""
+    frames = source_labels.num_frames
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    shifted_box = np.array([[[2.0, 2.0], [42.0, 42.0]]] * frames)
+    source_pose = _make_seg_pose({0: box}, {0: _diagonal_band(40)})
+    dest_pose = _make_seg_pose(
+        {0: shifted_box, 1: box},
+        {0: _diagonal_band(40), 1: _diagonal_band(40, anti=True)},
+    )
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+    return label_source_project, label_dest_project
+
+
+def test_disagreement_is_reported_even_when_the_part_is_rejected(capsys):
+    """A disagreement on a part that fails its threshold is still warned and annotated."""
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.get_track_labels("0", "walk").label_behavior(2, 6)
+    label_source_project, label_dest_project = _crossed_projects(source_labels)
+
+    success_count, skipped_count = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+        match_settings=MatchSettings(min_mask_iou=1.01),  # nothing can pass
+    )
+
+    assert (success_count, skipped_count) == (0, 1)
+    stderr = capsys.readouterr().err
+    assert "segmentation and bounding boxes disagree" in stderr
+    assert "no match accepted" in stderr
+    tags = {
+        a["tag"]
+        for a in label_dest_project.save_annotations.call_args[0][
+            0
+        ].timeline_annotations.serialize()
+    }
+    assert {"remap-metric-disagreement", "behavior-remap-failed"} <= tags
+
+
+def test_identity_annotation_disagreement_is_annotated(capsys):
+    """--annotate-failures marks disagreements on identity-scoped timeline annotations too."""
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=2,
+            end=6,
+            tag="identity_note",
+            color="#ff0000",
+            description="identity",
+            identity_index=0,
+            display_identity="id-0",
+        )
+    )
+    label_source_project, label_dest_project = _crossed_projects(source_labels)
+
+    update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    annotations = label_dest_project.save_annotations.call_args[0][
+        0
+    ].timeline_annotations.serialize()
+    by_tag = {a["tag"]: a for a in annotations}
+    assert by_tag["identity_note"]["identity"] == 0
+    assert "remap-metric-disagreement" in by_tag
+    assert "segmentation and bounding boxes disagree" in capsys.readouterr().err

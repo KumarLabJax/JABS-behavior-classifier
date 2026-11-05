@@ -148,12 +148,22 @@ def _threshold_text(match: IdentityMatch) -> str:
     return f"{name} ≥ {match.threshold:.2f}"
 
 
+def _match_outcome(match: IdentityMatch) -> str:
+    """Describe what was done with a match, e.g. ``using segmentation -> dst_id=1``."""
+    if match.accepted:
+        return f"using {match.metric.value} -> dst_id={match.identity}"
+    return f"no match accepted by {match.metric.value}"
+
+
 def _warn_on_metric_disagreement(context: str, match: IdentityMatch) -> bool:
     """Warn when segmentation and bounding boxes pick different destination identities.
 
+    Reported whether or not the match is accepted, so low-confidence disagreements
+    are not hidden.
+
     Args:
         context: Description of the block or annotation being matched.
-        match: The accepted match.
+        match: The match.
 
     Returns:
         Whether the two scores disagreed.
@@ -162,7 +172,7 @@ def _warn_on_metric_disagreement(context: str, match: IdentityMatch) -> bool:
         return False
     print(
         f"WARNING: {context} segmentation and bounding boxes disagree "
-        f"({match.describe()}); using {match.metric.value} -> dst_id={match.identity}.",
+        f"({match.describe()}); {_match_outcome(match)}.",
         file=sys.stderr,
     )
     return True
@@ -189,7 +199,7 @@ def _annotate_disagreement(
             color="#CC44CC",
             description=(
                 f"segmentation and bounding boxes disagreed during {failure_description_phrase}: "
-                f"{match.describe()}; used {match.metric.value} -> {match.identity}"
+                f"{match.describe()}; {_match_outcome(match)}"
             ),
             identity_index=None,
         )
@@ -396,6 +406,10 @@ def _remap_labels_for_video(
                         f"{video} annotation tag={tag} src_id={src_annotation_identity} "
                         f"frames={run.start}-{run.end}"
                     )
+                    if _warn_on_metric_disagreement(context, match) and annotate_failures:
+                        _annotate_disagreement(
+                            dest_labels, run.start, run.end, match, failure_description_phrase
+                        )
                     if not match.accepted:
                         print(
                             f"WARNING: {context} no match meeting {_threshold_text(match)} "
@@ -403,7 +417,6 @@ def _remap_labels_for_video(
                             file=sys.stderr,
                         )
                         continue
-                    _warn_on_metric_disagreement(context, match)
                     _add_timeline_annotation(
                         dest_labels,
                         TimelineAnnotations.Annotation(
@@ -462,6 +475,14 @@ def _remap_labels_for_video(
                 start, end, match = run.start, run.end, run.match
                 dst_identity = match.identity
 
+                if (
+                    _warn_on_metric_disagreement(f"{block_context} frames={start}-{end}", match)
+                    and annotate_failures
+                ):
+                    _annotate_disagreement(
+                        dest_labels, start, end, match, failure_description_phrase
+                    )
+
                 if not match.accepted:
                     print(
                         f"WARNING: {block_context} frames={start}-{end} "
@@ -493,14 +514,6 @@ def _remap_labels_for_video(
                             )
                         )
                     continue
-
-                if (
-                    _warn_on_metric_disagreement(f"{block_context} frames={start}-{end}", match)
-                    and annotate_failures
-                ):
-                    _annotate_disagreement(
-                        dest_labels, start, end, match, failure_description_phrase
-                    )
 
                 dst_track_labels = dest_labels.get_track_labels(str(dst_identity), behavior)
                 _warn_on_label_overlap(
@@ -1452,8 +1465,8 @@ def update_pose_command(
 
     click.echo(f"Backup archive: {backup_path}")
     click.echo(
-        f"Pose update summary: {total_success} label blocks assigned, "
-        f"{total_skipped} label blocks skipped "
+        f"Pose update summary: {total_success} label parts assigned, "
+        f"{total_skipped} label parts skipped "
         f"(match by {match_by}, mask IoU threshold={min_mask_iou}, "
         f"bbox IoU threshold={min_iou}, "
         f"split blocks={'on' if split_blocks else 'off'})"

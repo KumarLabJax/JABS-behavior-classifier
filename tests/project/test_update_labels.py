@@ -658,7 +658,7 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         "tolerate_orphan_identities": True,
     }
     assert "Backup archive:" in result.output
-    assert "Label update summary: 4 label blocks assigned, 2 label blocks skipped" in result.output
+    assert "Label update summary: 4 label parts assigned, 2 label parts skipped" in result.output
     assert "Behaviors added to project.json from source: Climbing" in result.output
 
 
