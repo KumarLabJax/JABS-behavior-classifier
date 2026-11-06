@@ -54,7 +54,8 @@ from jabs.pose_estimation import get_pose_path
 from jabs.project import Project
 from jabs.scripts.initialize_project import DEFAULT_PROCESSES
 
-from .label_remap_matching import MatchMetric, MatchSettings
+from .label_remap_matching import MatchSettings
+from .label_remap_options import identity_match_options, match_settings_from_options
 from .update_pose import (
     _create_backup_archive,
     _handle_orphan_identities,
@@ -519,53 +520,7 @@ def update_project_labels_in_place(
         path_type=Path,
     ),
 )
-@click.option(
-    "--min-iou-thresh",
-    "min_iou",
-    type=float,
-    default=0.5,
-    show_default=True,
-    help="Minimum acceptable median bounding box IoU for a match decided by bounding boxes.",
-)
-@click.option(
-    "--min-mask-iou",
-    "min_mask_iou",
-    type=float,
-    default=0.5,
-    show_default=True,
-    help="Minimum acceptable median segmentation mask IoU for a match decided by segmentation.",
-)
-@click.option(
-    "--match-by",
-    "match_by",
-    type=click.Choice([m.value for m in MatchMetric]),
-    default=MatchMetric.AUTO.value,
-    show_default=True,
-    help=(
-        "Which score decides each label block's identity: 'auto' uses segmentation mask IoU "
-        "when both identities have masks in the block and bounding box IoU otherwise; "
-        "'segmentation' and 'bbox' use only that score."
-    ),
-)
-@click.option(
-    "--split-blocks/--no-split-blocks",
-    "split_blocks",
-    default=True,
-    show_default=True,
-    help=(
-        "Match each label block frame by frame and split it where the best-matching "
-        "identity changes, e.g. when one animal is handed from one identity to another "
-        "mid-block. --no-split-blocks assigns each whole block to a single identity."
-    ),
-)
-@click.option(
-    "--min-run-frames",
-    "min_run_frames",
-    type=click.IntRange(min=1),
-    default=3,
-    show_default=True,
-    help="When splitting, fold runs shorter than this many frames into a neighboring run.",
-)
+@identity_match_options
 @click.option(
     "-p",
     "--processes",
@@ -623,10 +578,10 @@ def update_labels_command(
             project,
             source_project,
             min_iou,
-            match_settings=MatchSettings(
-                min_bbox_iou=min_iou,
+            match_settings=match_settings_from_options(
+                min_iou=min_iou,
                 min_mask_iou=min_mask_iou,
-                match_by=MatchMetric(match_by),
+                match_by=match_by,
                 split_blocks=split_blocks,
                 min_run_frames=min_run_frames,
             ),
