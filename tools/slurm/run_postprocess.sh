@@ -4,7 +4,7 @@
 #SBATCH --error=logs/jabs-postprocess_%A_%a.err
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=4G
+#SBATCH --mem=16G
 #
 # Array worker for `jabs-cli postprocess`. Every setting, including the #SBATCH
 # values above, is supplied by submit_postprocess.sh at submission time; the
