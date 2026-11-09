@@ -330,9 +330,7 @@ def _filter_small_torso_fragments_vec(
             out_flat[i] = unary_union(kept) if len(kept) > 1 else kept[0]
         else:
             polys = [
-                p
-                for p in getattr(g, "geoms", [])
-                if isinstance(p, Polygon) and p.area >= min_area
+                p for p in getattr(g, "geoms", []) if isinstance(p, Polygon) and p.area >= min_area
             ]
             out_flat[i] = unary_union(polys) if polys else Polygon()
     return out
@@ -386,9 +384,7 @@ def _compute_video_torso_blob_features(
 
     simp = shapely.simplify(raw_polys, tolerance=_TORSO_SIMPLIFY_TOL_PX, preserve_topology=False)
     eroded = shapely.buffer(simp, -_TORSO_OPENING_RADIUS_PX, quad_segs=2)
-    eroded_kept = _filter_small_torso_fragments_vec(
-        eroded, min_area=_TORSO_MIN_FRAGMENT_AREA_PX2
-    )
+    eroded_kept = _filter_small_torso_fragments_vec(eroded, min_area=_TORSO_MIN_FRAGMENT_AREA_PX2)
     opened = shapely.buffer(eroded_kept, _TORSO_OPENING_RADIUS_PX, quad_segs=2)
     opened = np.where(shapely.is_empty(opened), simp, opened)
 
