@@ -76,7 +76,16 @@ class SearchHit:
 def search_behaviors(
     project: Project | None, search_query: BehaviorSearchQuery
 ) -> list[SearchHit]:
-    """Perform the search based on the current query and project."""
+    """Perform the search based on the current query and project.
+
+    Args:
+        project: Project to search, or None for no results.
+        search_query: Query describing what to match.
+
+    Returns:
+        Matching hits ordered by ``(file, start_frame, identity, behavior)``; see
+        :func:`_sorted_search_results` for why the frame comes before the identity.
+    """
     return _sorted_search_results(list(_search_behaviors_gen(project, search_query)))
 
 
@@ -238,17 +247,22 @@ def _search_behaviors_gen(
 
 
 def _sorted_search_results(hits: Iterable[SearchHit]) -> list[SearchHit]:
-    """
-    Return a list of sorted search hits.
+    """Return the search hits ordered by file, then frame, then identity, then behavior.
 
-    Return a list of search hits sorted by file, identity (numeric if possible), start_frame and behavior.
+    The frame deliberately outranks the identity: ``SearchBarWidget`` locates the hit
+    at the playhead with a binary search keyed on ``(file, start_frame..end_frame)``
+    only, so the list it navigates must be in that order. Sorting by identity first
+    would leave the hits for one video interleaved by frame and silently break "find
+    next"/"find previous".
 
     Args:
-        hits: An iterable of _SearchHit objects.
+        hits: An iterable of SearchHit objects.
 
     Returns:
-        A list of _SearchHit objects sorted by file, identity, and start_frame.
-        Identity is sorted numerically if possible, otherwise alphanumerically.
+        A list of SearchHit objects sorted by file, start_frame, identity and
+        behavior. Identity is sorted numerically when every identity converts to an
+        int, otherwise every identity is sorted as a string (a missing identity
+        sorting ahead of the rest).
     """
     try:
         return sorted(

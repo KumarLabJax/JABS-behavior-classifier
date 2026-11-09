@@ -143,6 +143,11 @@ class SearchBarWidget(QtWidgets.QWidget):
     def _find_search_result_at_current_video_frame(self) -> tuple[SearchHit | None, int] | None:
         """Find the search result that matches the current video and frame position.
 
+        The lookup is a binary search keyed only on the video name and the hit's frame
+        range, so it requires ``self._search_results`` to be ordered by file and then by
+        start frame. ``search_behaviors()`` returns the hits in exactly that order and
+        ``SearchBarWidget`` never reorders them.
+
         Returns:
             tuple[SearchHit | None, int] | None:
                 A tuple of (SearchHit object or None, index) unless the current
