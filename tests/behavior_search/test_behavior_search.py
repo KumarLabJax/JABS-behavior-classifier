@@ -505,7 +505,7 @@ def test_timeline_annotation_search_query_none():
 # --- result ordering tests ---
 
 
-def test_search_results_sorted_by_frame_before_identity():
+def test_search_results_sorted_by_frame_before_identity() -> None:
     """Hits are ordered by file then start frame, so a binary search by frame works.
 
     ``SearchBarWidget`` finds the hit at the playhead with a binary search keyed only
@@ -537,7 +537,7 @@ def test_search_results_sorted_by_frame_before_identity():
     ]
 
 
-def test_search_results_sort_identities_numerically():
+def test_search_results_sort_identities_numerically() -> None:
     """Identities that all parse as ints are ordered numerically, not as strings."""
     annotations = {
         "video1": {
@@ -555,7 +555,7 @@ def test_search_results_sort_identities_numerically():
     assert [hit.identity for hit in hits] == ["2", "10"]
 
 
-def test_search_results_sort_falls_back_to_string_identities():
+def test_search_results_sort_falls_back_to_string_identities() -> None:
     """A non-numeric identity makes every identity sort as a string instead."""
     annotations = {
         "video1": {
@@ -574,7 +574,7 @@ def test_search_results_sort_falls_back_to_string_identities():
     assert [hit.identity for hit in hits] == ["10", "2", "mouse"]
 
 
-def test_search_results_sort_handles_missing_identity():
+def test_search_results_sort_handles_missing_identity() -> None:
     """Timeline annotations without an identity sort without raising."""
     annotations = {
         "video1": {
