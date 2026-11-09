@@ -380,6 +380,11 @@ def test_social_feature_group_on_real_pose_v6_slice() -> None:
             "social chain bottleneck distance",
             "closest neighbor speed",
             "second closest neighbor speed",
+            "torso blob distance",
+            "torso blob centroid distance",
+            "torso connected group size",
+            "torso group blob hull area",
+            "torso group blob solidity",
         } == set(per_frame["huddle_features"].keys())
 
         hull_d = per_frame["closest_distances"]["closest social distance"]
@@ -653,4 +658,92 @@ def test_pairwise_social_distances_nan_without_neighbor_or_subject() -> None:
 
     np.testing.assert_array_equal(
         dists["social dist. BASE_NECK-BASE_NECK"], [20.0, np.nan, np.nan]
+    )
+
+
+def test_torso_blob_morphological_opening_strips_tail_bridge_and_preserves_torso_contact() -> None:
+    """Morphological opening (r = 15 px) removes 12-px tail bridges while preserving torso contact."""
+    # Frame 0: Two 80x80 torsos separated by 120 px (x in [0, 80] and [200, 280]), bridged by
+    # a 12-px-wide tail from Animal 0 reaching x=200 (raw contour gap = 0 px, opened torso gap ~ 120 px).
+    # Frame 1: Two 80x80 torsos directly touching at x=80 (opened torso gap = 0 px, group size = 2).
+    tail_bridge_ring = np.array(
+        [
+            [0, 0],
+            [80, 0],
+            [80, 34],
+            [200, 34],
+            [200, 46],
+            [80, 46],
+            [80, 80],
+            [0, 80],
+        ],
+        dtype=np.int16,
+    )
+    torso_0_f1 = np.array(
+        [[0, 0], [80, 0], [80, 80], [0, 80], [0, 0], [0, 0], [0, 0], [0, 0]],
+        dtype=np.int16,
+    )
+    seg_0 = np.full((2, 1, 8, 2), -1, dtype=np.int16)
+    seg_0[0, 0, :, :] = tail_bridge_ring
+    seg_0[1, 0, :4, :] = torso_0_f1[:4]
+
+    seg_1 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_1[0, 0, :, :] = np.array([[200, 0], [280, 0], [280, 80], [200, 80]], dtype=np.int16)
+    seg_1[1, 0, :, :] = np.array([[80, 0], [160, 0], [160, 80], [80, 80]], dtype=np.int16)
+
+    pose = _MultiFrameStubPose(
+        {
+            0: [(40.0, 40.0), (40.0, 40.0)],
+            1: [(240.0, 40.0), (120.0, 40.0)],
+        },
+        hull_size=40.0,
+        format_major_version=6,
+        seg_contours_by_id={0: seg_0, 1: seg_1},
+    )
+    info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
+    dists = ClosestDistances(pose, 1.0, info).per_frame(0)
+    huddle = HuddleFeatures(pose, 1.0, info).per_frame(0)
+
+    # Frame 0 raw contour distance is 0.0 px due to the tail bridge, but opened torso distance > 110 px!
+    np.testing.assert_allclose(dists["closest social segmentation distance"], [0.0, 0.0])
+    assert float(huddle["torso blob distance"][0]) > 110.0
+    assert float(huddle["torso blob distance"][1]) <= 2.5
+    np.testing.assert_allclose(huddle["torso connected group size"], [1.0, 2.0])
+
+
+def test_torso_blob_buried_third_mouse_preserves_effective_group_size_and_area() -> None:
+    """When 2 visible masks merge a buried 3rd cagemate (>= 135k px^2), effective group size stays 3."""
+    # Frame 0: All 3 mice have visible 240x240 masks (57,600 px^2 each) touching in a 3-mouse pile.
+    # Frame 1: Mouse 2 burrows under Mouse 0 and Mouse 1; Mouse 0 and Mouse 1 masks absorb Mouse 2's
+    # visible fur (360x240 each = 86,400 px^2, total hull = 720x240 = 172,800 px^2) while Mouse 2 is None.
+    seg_0 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_0[0, 0, :, :] = np.array([[0, 0], [240, 0], [240, 240], [0, 240]], dtype=np.int16)
+    seg_0[1, 0, :, :] = np.array([[0, 0], [360, 0], [360, 240], [0, 240]], dtype=np.int16)
+
+    seg_1 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_1[0, 0, :, :] = np.array([[240, 0], [480, 0], [480, 240], [240, 240]], dtype=np.int16)
+    seg_1[1, 0, :, :] = np.array([[360, 0], [720, 0], [720, 240], [360, 240]], dtype=np.int16)
+
+    seg_2 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_2[0, 0, :, :] = np.array([[480, 0], [720, 0], [720, 240], [480, 240]], dtype=np.int16)
+    # Frame 1 of seg_2 stays -1 (buried/occluded)
+
+    pose = _MultiFrameStubPose(
+        {
+            0: [(120.0, 120.0), (180.0, 120.0)],
+            1: [(360.0, 120.0), (540.0, 120.0)],
+            2: [(600.0, 120.0), None],
+        },
+        hull_size=40.0,
+        format_major_version=6,
+        seg_contours_by_id={0: seg_0, 1: seg_1, 2: seg_2},
+    )
+    info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
+    huddle = HuddleFeatures(pose, 1.0, info).per_frame(0)
+
+    np.testing.assert_allclose(huddle["torso connected group size"], [3.0, 3.0])
+    np.testing.assert_allclose(
+        huddle["torso group blob hull area"][0],
+        huddle["torso group blob hull area"][1],
+        rtol=0.05,
     )

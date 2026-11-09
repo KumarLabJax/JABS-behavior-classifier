@@ -9,8 +9,16 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 import shapely
-from shapely.geometry import LineString, MultiLineString, Point
+from shapely.geometry import (
+    GeometryCollection,
+    LineString,
+    MultiLineString,
+    MultiPolygon,
+    Point,
+    Polygon,
+)
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from jabs.core.utils import signed_angle_degrees
 from jabs.core.utils.pose_util import identity_centroids
@@ -266,6 +274,259 @@ def _connected_group_sizes(
     return np.where(present, reach.sum(axis=2), np.nan).astype(np.float32)
 
 
+# Morphological opening parameters for tail-stripped torso-blob segmentation features:
+# r = 15.0 px strips mouse tails (10-18 px wide < 2r = 30 px) while preserving torso blobs;
+# min_area = 800.0 px^2 retains all torso pieces (including middle mice bisected into two
+# pieces by an overlying partner) while discarding tiny tail islands.
+_TORSO_OPENING_RADIUS_PX = 15.0
+_TORSO_MIN_FRAGMENT_AREA_PX2 = 800.0
+_TORSO_TOUCH_TOL_PX = 2.5
+_TORSO_SIMPLIFY_TOL_PX = 2.0
+_TORSO_BURIED_3MOUSE_UNION_AREA_PX2 = 125000.0
+_TORSO_BURIED_3MOUSE_HULL_AREA_PX2 = 135000.0
+_TORSO_FULL_MASK_MIN_AREA_PX2 = 28000.0
+
+
+def _extract_raw_polygon(
+    frame_seg: npt.NDArray[np.generic] | None,
+    fallback_hull: BaseGeometry | None = None,
+) -> BaseGeometry:
+    """Build a closed Shapely Polygon/MultiPolygon from one frame's segmentation array."""
+    if frame_seg is not None:
+        mp: list[Polygon] = []
+        for contour in frame_seg:
+            valid_mask = contour[:, 0] != -1
+            if int(np.sum(valid_mask)) >= 3:
+                pts = contour[valid_mask]
+                mp.append(Polygon(pts))
+        if len(mp) == 1:
+            return mp[0]
+        if len(mp) > 1:
+            return MultiPolygon(mp)
+    if fallback_hull is not None and not fallback_hull.is_empty and fallback_hull.area > 0.0:
+        if fallback_hull.area >= _TORSO_MIN_FRAGMENT_AREA_PX2:
+            return fallback_hull.buffer(_TORSO_OPENING_RADIUS_PX * 2.0, quad_segs=2)
+        return fallback_hull
+    return Polygon()
+
+
+def _filter_small_torso_fragments_vec(
+    geom_arr: npt.NDArray[np.object_],
+    min_area: float = _TORSO_MIN_FRAGMENT_AREA_PX2,
+) -> npt.NDArray[np.object_]:
+    """Keep all eroded torso components with area >= min_area while dropping tiny tail islands."""
+    out = np.empty_like(geom_arr, dtype=object)
+    flat = geom_arr.ravel()
+    out_flat = out.ravel()
+    for i, g in enumerate(flat):
+        if g is None or g.is_empty:
+            out_flat[i] = Polygon()
+        elif isinstance(g, Polygon):
+            out_flat[i] = g if g.area >= min_area else Polygon()
+        elif isinstance(g, MultiPolygon):
+            kept = [p for p in g.geoms if p.area >= min_area]
+            if not kept:
+                kept = [max(g.geoms, key=lambda p: p.area)]
+            out_flat[i] = unary_union(kept) if len(kept) > 1 else kept[0]
+        else:
+            polys = [
+                p
+                for p in getattr(g, "geoms", [])
+                if isinstance(p, Polygon) and p.area >= min_area
+            ]
+            out_flat[i] = unary_union(polys) if polys else Polygon()
+    return out
+
+
+def _compute_video_torso_blob_features(
+    identities: list[int],
+    num_frames: int,
+    seg_by_id: dict[int, npt.NDArray[np.generic] | None],
+    hulls_by_id: dict[int, list[BaseGeometry | None] | npt.NDArray[np.object_]],
+) -> tuple[
+    dict[int, npt.NDArray[np.float32]],
+    dict[int, npt.NDArray[np.float32]],
+    dict[int, npt.NDArray[np.float32]],
+    dict[int, npt.NDArray[np.float32]],
+    dict[int, npt.NDArray[np.float32]],
+]:
+    """Compute the 5 morphologically opened (r = 15 px) torso-blob features across all identities."""
+    n_ids = len(identities)
+    torso_blob_dists_px = {
+        curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
+    }
+    torso_centroid_dists_px = {
+        curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
+    }
+    torso_group_sizes = {
+        curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
+    }
+    torso_group_hull_areas_px2 = {
+        curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
+    }
+    torso_group_solidities = {
+        curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
+    }
+    if n_ids == 0 or num_frames == 0:
+        return (
+            torso_blob_dists_px,
+            torso_centroid_dists_px,
+            torso_group_sizes,
+            torso_group_hull_areas_px2,
+            torso_group_solidities,
+        )
+
+    raw_polys = np.empty((num_frames, n_ids), dtype=object)
+    for m_idx, curr_id in enumerate(identities):
+        seg_arr = seg_by_id.get(curr_id)
+        hulls = hulls_by_id[curr_id]
+        for fr in range(num_frames):
+            f_seg = seg_arr[fr] if (seg_arr is not None and fr < len(seg_arr)) else None
+            raw_polys[fr, m_idx] = _extract_raw_polygon(f_seg, hulls[fr])
+
+    simp = shapely.simplify(raw_polys, tolerance=_TORSO_SIMPLIFY_TOL_PX, preserve_topology=False)
+    eroded = shapely.buffer(simp, -_TORSO_OPENING_RADIUS_PX, quad_segs=2)
+    eroded_kept = _filter_small_torso_fragments_vec(
+        eroded, min_area=_TORSO_MIN_FRAGMENT_AREA_PX2
+    )
+    opened = shapely.buffer(eroded_kept, _TORSO_OPENING_RADIUS_PX, quad_segs=2)
+    opened = np.where(shapely.is_empty(opened), simp, opened)
+
+    is_present = ~shapely.is_empty(opened)
+    cents = shapely.centroid(opened)
+    single_areas = shapely.area(opened)
+    single_hull_areas = shapely.area(shapely.convex_hull(opened))
+
+    pair_b_dist: dict[tuple[int, int], npt.NDArray[np.float64]] = {}
+    pair_c_dist: dict[tuple[int, int], npt.NDArray[np.float64]] = {}
+    for a_idx in range(n_ids):
+        for b_idx in range(a_idx + 1, n_ids):
+            both_present = is_present[:, a_idx] & is_present[:, b_idx]
+            d_ab = np.where(
+                both_present,
+                shapely.distance(opened[:, a_idx], opened[:, b_idx]),
+                np.inf,
+            )
+            c_ab = np.where(
+                both_present,
+                shapely.distance(cents[:, a_idx], cents[:, b_idx]),
+                np.inf,
+            )
+            pair_b_dist[(a_idx, b_idx)] = d_ab
+            pair_c_dist[(a_idx, b_idx)] = c_ab
+
+    for a_idx, curr_id in enumerate(identities):
+        other_b = [
+            pair_b_dist[(min(a_idx, b_idx), max(a_idx, b_idx))]
+            for b_idx in range(n_ids)
+            if b_idx != a_idx
+        ]
+        other_c = [
+            pair_c_dist[(min(a_idx, b_idx), max(a_idx, b_idx))]
+            for b_idx in range(n_ids)
+            if b_idx != a_idx
+        ]
+        if other_b:
+            min_b = np.min(other_b, axis=0)
+            min_c = np.min(other_c, axis=0)
+            valid_b = is_present[:, a_idx] & np.isfinite(min_b)
+            valid_c = is_present[:, a_idx] & np.isfinite(min_c)
+            torso_blob_dists_px[curr_id][valid_b] = min_b[valid_b].astype(np.float32)
+            torso_centroid_dists_px[curr_id][valid_c] = min_c[valid_c].astype(np.float32)
+
+    for fr in range(num_frames):
+        present_indices = [m_idx for m_idx in range(n_ids) if is_present[fr, m_idx]]
+        if not present_indices:
+            continue
+        adj: dict[int, set[int]] = {m_idx: {m_idx} for m_idx in present_indices}
+        for i_pos, a_idx in enumerate(present_indices):
+            for b_idx in present_indices[i_pos + 1 :]:
+                if pair_b_dist[(a_idx, b_idx)][fr] <= _TORSO_TOUCH_TOL_PX:
+                    adj[a_idx].add(b_idx)
+                    adj[b_idx].add(a_idx)
+        for k_idx in present_indices:
+            for i_idx in present_indices:
+                if k_idx in adj[i_idx]:
+                    adj[i_idx] |= adj[k_idx]
+
+        computed_comp: dict[frozenset[int], tuple[float, float, float]] = {}
+        for m_idx in present_indices:
+            comp = frozenset(adj[m_idx])
+            if comp not in computed_comp:
+                if len(comp) == 1:
+                    only_idx = next(iter(comp))
+                    u_area = float(single_areas[fr, only_idx])
+                    h_area = max(float(single_hull_areas[fr, only_idx]), 1.0)
+                    eff_n = 1
+                    if n_ids >= 3:
+                        other_full_masks = sum(
+                            1
+                            for idx in range(n_ids)
+                            if idx not in comp
+                            and single_areas[fr, idx] >= _TORSO_FULL_MASK_MIN_AREA_PX2
+                        )
+                        if other_full_masks == 0 and (
+                            u_area >= _TORSO_BURIED_3MOUSE_UNION_AREA_PX2
+                            or h_area >= _TORSO_BURIED_3MOUSE_HULL_AREA_PX2
+                        ):
+                            eff_n = 3
+                            torso_blob_dists_px[identities[only_idx]][fr] = 0.0
+                            torso_centroid_dists_px[identities[only_idx]][fr] = 0.0
+                else:
+                    geoms = [opened[fr, idx] for idx in comp]
+                    u_area = float(sum(single_areas[fr, idx] for idx in comp))
+                    h_area = max(float(GeometryCollection(geoms).convex_hull.area), 1.0)
+                    eff_n = len(comp)
+                    if eff_n == 2 and n_ids >= 3:
+                        other_full_masks = sum(
+                            1
+                            for idx in range(n_ids)
+                            if idx not in comp
+                            and single_areas[fr, idx] >= _TORSO_FULL_MASK_MIN_AREA_PX2
+                        )
+                        if other_full_masks == 0 and (
+                            u_area >= _TORSO_BURIED_3MOUSE_UNION_AREA_PX2
+                            or h_area >= _TORSO_BURIED_3MOUSE_HULL_AREA_PX2
+                        ):
+                            eff_n = 3
+                computed_comp[comp] = (
+                    float(eff_n),
+                    float(h_area / eff_n),
+                    min(float(u_area / h_area), 1.0),
+                )
+            gs, hapm, sol = computed_comp[comp]
+            curr_id = identities[m_idx]
+            torso_group_sizes[curr_id][fr] = gs
+            torso_group_hull_areas_px2[curr_id][fr] = hapm
+            torso_group_solidities[curr_id][fr] = sol
+
+    # Suppress isolated 1-2 frame (<= 67 ms) segmentation mask flickers on real videos
+    # so single-frame mask dropouts do not corrupt 61-frame (2.03 s) rolling min/max windows.
+    if num_frames >= 15:
+        from scipy.ndimage import median_filter
+
+        for curr_id in identities:
+            for feat_dict in (
+                torso_blob_dists_px,
+                torso_centroid_dists_px,
+                torso_group_sizes,
+                torso_group_hull_areas_px2,
+                torso_group_solidities,
+            ):
+                arr = feat_dict[curr_id]
+                fin = np.isfinite(arr)
+                if int(fin.sum()) >= 11:
+                    arr[fin] = median_filter(arr[fin], size=11, mode="nearest")
+
+    return (
+        torso_blob_dists_px,
+        torso_centroid_dists_px,
+        torso_group_sizes,
+        torso_group_hull_areas_px2,
+        torso_group_solidities,
+    )
+
+
 @dataclass
 class _VideoSocialCache:
     """Video-level pre-computed hulls, distances, and contact topology for all identities.
@@ -288,6 +549,11 @@ class _VideoSocialCache:
     group_sizes_by_id: dict[int, npt.NDArray[np.float32]]
     hull_dists_px_by_pair: dict[tuple[int, int], npt.NDArray[np.float64]]
     seg_dists_px_by_pair: dict[tuple[int, int], npt.NDArray[np.float32]]
+    torso_blob_dists_px_by_id: dict[int, npt.NDArray[np.float32]]
+    torso_centroid_dists_px_by_id: dict[int, npt.NDArray[np.float32]]
+    torso_group_sizes_by_id: dict[int, npt.NDArray[np.float32]]
+    torso_group_hull_areas_px2_by_id: dict[int, npt.NDArray[np.float32]]
+    torso_group_solidities_by_id: dict[int, npt.NDArray[np.float32]]
 
     def hull_distances_px(self, id_a: int, id_b: int) -> npt.NDArray[np.float64]:
         """Return the per-frame hull distance between two identities."""
@@ -451,6 +717,14 @@ class _VideoSocialCache:
         counts = np.where(present_matrix, adjacency.sum(axis=2), np.nan).astype(np.float32)
         group_sizes = _connected_group_sizes(adjacency, present_matrix)
 
+        (
+            torso_blob_dists_px_by_id,
+            torso_centroid_dists_px_by_id,
+            torso_group_sizes_by_id,
+            torso_group_hull_areas_px2_by_id,
+            torso_group_solidities_by_id,
+        ) = _compute_video_torso_blob_features(identities, num_frames, seg_by_id, hulls_by_id)
+
         return cls(
             has_seg=has_seg,
             present_by_id=present_by_id,
@@ -461,6 +735,11 @@ class _VideoSocialCache:
             group_sizes_by_id={i: group_sizes[:, n] for n, i in enumerate(identities)},
             hull_dists_px_by_pair=hull_dists_px_by_pair,
             seg_dists_px_by_pair=seg_dists_px_by_pair,
+            torso_blob_dists_px_by_id=torso_blob_dists_px_by_id,
+            torso_centroid_dists_px_by_id=torso_centroid_dists_px_by_id,
+            torso_group_sizes_by_id=torso_group_sizes_by_id,
+            torso_group_hull_areas_px2_by_id=torso_group_hull_areas_px2_by_id,
+            torso_group_solidities_by_id=torso_group_solidities_by_id,
         )
 
 
@@ -556,6 +835,20 @@ class ClosestIdentityInfo:
         # per-frame contact graph, so all animals in a huddle cluster agree.
         self._social_contact_counts = cache.contact_counts_by_id[identity].copy()
         self._social_connected_group_sizes = cache.group_sizes_by_id[identity].copy()
+
+        # Morphologically opened (r = 15 px) tail-stripped torso-blob features
+        self._torso_blob_distances = (
+            cache.torso_blob_dists_px_by_id[identity] * float(self._pixel_scale)
+        ).astype(np.float32)
+        self._torso_blob_centroid_distances = (
+            cache.torso_centroid_dists_px_by_id[identity] * float(self._pixel_scale)
+        ).astype(np.float32)
+        self._torso_connected_group_sizes = cache.torso_group_sizes_by_id[identity].copy()
+        self._torso_group_blob_hull_areas = (
+            cache.torso_group_hull_areas_px2_by_id[identity]
+            * float(self._pixel_scale * self._pixel_scale)
+        ).astype(np.float32)
+        self._torso_group_blob_solidities = cache.torso_group_solidities_by_id[identity].copy()
 
         if not other_identities:
             return
@@ -730,6 +1023,31 @@ class ClosestIdentityInfo:
     def second_closest_neighbor_speeds(self) -> npt.NDArray[np.float32]:
         """Return the centroid speed of the second-closest identity per frame."""
         return self._second_closest_neighbor_speeds
+
+    @property
+    def torso_blob_distances(self) -> npt.NDArray[np.float32]:
+        """Return the minimum boundary distance between morphologically opened torso blobs per frame."""
+        return self._torso_blob_distances
+
+    @property
+    def torso_blob_centroid_distances(self) -> npt.NDArray[np.float32]:
+        """Return the minimum centroid distance between morphologically opened torso blobs per frame."""
+        return self._torso_blob_centroid_distances
+
+    @property
+    def torso_connected_group_sizes(self) -> npt.NDArray[np.float32]:
+        """Return the connected component size of touching morphologically opened torso blobs per frame."""
+        return self._torso_connected_group_sizes
+
+    @property
+    def torso_group_blob_hull_areas(self) -> npt.NDArray[np.float32]:
+        """Return the convex-hull area per mouse of the connected torso-blob component per frame."""
+        return self._torso_group_blob_hull_areas
+
+    @property
+    def torso_group_blob_solidities(self) -> npt.NDArray[np.float32]:
+        """Return the compactness solidity (union_area / convex_hull_area) of the connected torso blob per frame."""
+        return self._torso_group_blob_solidities
 
     def compute_distances(
         self, closest_identities: npt.NDArray[np.integer]
