@@ -38,6 +38,12 @@ class VideoExportOptionsDialog(QDialog):
             can.
         predictions_unavailable: Why predictions cannot be drawn, or ``None`` when
             they can.
+        draw_bounding_boxes: Initial state of the bounding box checkbox.
+        bounding_boxes_unavailable: Why bounding boxes cannot be drawn, or ``None``
+            when they can.
+        offer_bounding_boxes: Whether to show the bounding box checkbox at all.
+        offer_labels: Whether to show the manual label and prediction checkboxes,
+            which need a JABS project; jabs-viewer has none.
     """
 
     def __init__(
@@ -51,6 +57,10 @@ class VideoExportOptionsDialog(QDialog):
         segmentation_unavailable: str | None = None,
         labels_unavailable: str | None = None,
         predictions_unavailable: str | None = None,
+        draw_bounding_boxes: bool = False,
+        bounding_boxes_unavailable: str | None = None,
+        offer_bounding_boxes: bool = False,
+        offer_labels: bool = True,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Export Video with Overlays")
@@ -67,7 +77,18 @@ class VideoExportOptionsDialog(QDialog):
         self._predictions_checkbox = QCheckBox("Behavior predictions", self)
         self._predictions_checkbox.setChecked(draw_predictions)
 
+        self._bounding_boxes_checkbox = QCheckBox("Bounding boxes", self)
+        self._bounding_boxes_checkbox.setChecked(draw_bounding_boxes)
+
         self._apply_availability(self._segmentation_checkbox, segmentation_unavailable)
+        self._apply_availability(self._bounding_boxes_checkbox, bounding_boxes_unavailable)
+        # A hidden checkbox is also unchecked and disabled, so it never contributes an
+        # overlay and its `*_enabled` property reports it was not offered.
+        if not offer_bounding_boxes:
+            self._apply_availability(self._bounding_boxes_checkbox, "")
+        if not offer_labels:
+            self._apply_availability(self._labels_checkbox, "")
+            self._apply_availability(self._predictions_checkbox, "")
         self._apply_availability(self._labels_checkbox, labels_unavailable)
         self._apply_availability(self._predictions_checkbox, predictions_unavailable)
 
@@ -81,6 +102,7 @@ class VideoExportOptionsDialog(QDialog):
         for checkbox in (
             self._pose_checkbox,
             self._segmentation_checkbox,
+            self._bounding_boxes_checkbox,
             self._labels_checkbox,
             self._predictions_checkbox,
         ):
@@ -90,8 +112,16 @@ class VideoExportOptionsDialog(QDialog):
         layout.addWidget(QLabel("Overlays to include in the exported video:", self))
         layout.addWidget(self._pose_checkbox)
         layout.addWidget(self._segmentation_checkbox)
-        layout.addWidget(self._labels_checkbox)
-        layout.addWidget(self._predictions_checkbox)
+        if offer_bounding_boxes:
+            layout.addWidget(self._bounding_boxes_checkbox)
+        else:
+            self._bounding_boxes_checkbox.hide()
+        if offer_labels:
+            layout.addWidget(self._labels_checkbox)
+            layout.addWidget(self._predictions_checkbox)
+        else:
+            self._labels_checkbox.hide()
+            self._predictions_checkbox.hide()
         layout.addWidget(self._button_box)
 
         self._update_save_enabled()
@@ -105,6 +135,11 @@ class VideoExportOptionsDialog(QDialog):
     def draw_segmentation(self) -> bool:
         """Whether segmentation contours should be drawn."""
         return self._segmentation_checkbox.isChecked()
+
+    @property
+    def draw_bounding_boxes(self) -> bool:
+        """Whether bounding boxes should be drawn."""
+        return self._bounding_boxes_checkbox.isChecked()
 
     @property
     def draw_labels(self) -> bool:
@@ -125,6 +160,11 @@ class VideoExportOptionsDialog(QDialog):
         has no segmentation data.
         """
         return self._segmentation_checkbox.isEnabled()
+
+    @property
+    def bounding_boxes_enabled(self) -> bool:
+        """Whether the bounding box checkbox was offered and available."""
+        return self._bounding_boxes_checkbox.isEnabled()
 
     @property
     def labels_enabled(self) -> bool:
@@ -152,6 +192,7 @@ class VideoExportOptionsDialog(QDialog):
             save_button.setEnabled(
                 self.draw_pose
                 or self.draw_segmentation
+                or self.draw_bounding_boxes
                 or self.draw_labels
                 or self.draw_predictions
             )

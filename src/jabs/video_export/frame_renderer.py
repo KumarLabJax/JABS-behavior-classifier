@@ -5,7 +5,9 @@ Shared by the GUI's "Export Frame", the GUI's "Export Video with Overlays", and
 do not ask for the same ones: only the video export passes a label marker overlay.
 Every overlay is painted with the shared drawing in :mod:`jabs.overlay_drawing`, in the
 order the player paints them: segmentation contours, then the pose keypoints and
-skeleton, then the per-identity label and prediction markers.
+skeleton, then the per-identity label and prediction markers. Bounding boxes, which
+the player paints after the markers, are drawn before them here so the caption banner
+that goes with the markers stays on top.
 
 Sharing the GUI's drawing is deliberate. A second reimplementation would inevitably
 drift, and an exported video that does not match what the player shows is worse than no
@@ -27,6 +29,7 @@ import numpy.typing as npt
 from PySide6 import QtGui
 
 from jabs.overlay_drawing import (
+    draw_identity_bounding_box,
     draw_identity_pose,
     draw_identity_segmentation,
     draw_label_marker,
@@ -34,6 +37,7 @@ from jabs.overlay_drawing import (
     native_label_marker_sizes,
     native_pose_sizes,
     native_segmentation_line_width,
+    pose_has_bounding_boxes,
 )
 
 from .caption import draw_overlay_caption
@@ -51,6 +55,7 @@ def render_overlay_frame(
     *,
     draw_pose: bool = True,
     draw_segmentation: bool = True,
+    draw_bounding_boxes: bool = False,
     label_overlay: LabelMarkerOverlay | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Draw the requested overlays onto one frame.
@@ -66,6 +71,9 @@ def render_overlay_frame(
         draw_segmentation: Whether to draw the segmentation contours as well.
             Ignored when the pose file carries no segmentation data - it predates
             v6, or is v6+ but was generated without it.
+        draw_bounding_boxes: Whether to draw each identity's bounding box and ID.
+            Ignored when the pose file has no bounding boxes (before v8, or v8+
+            generated without them).
         label_overlay: Labels and/or predictions to mark next to each identity,
             with the caption explaining them, or ``None`` to draw no label markers.
 
@@ -81,7 +89,9 @@ def render_overlay_frame(
     # in v6+ files, and this skips a no-op call per identity per frame.
     segmentation = draw_segmentation and getattr(pose_est, "has_segmentation", False)
 
-    if not segmentation and not draw_pose and label_overlay is None:
+    bounding_boxes = draw_bounding_boxes and pose_has_bounding_boxes(pose_est)
+
+    if not segmentation and not draw_pose and not bounding_boxes and label_overlay is None:
         return img
 
     # QImage wraps this buffer, so painting below writes straight into `rgb`.
@@ -121,6 +131,12 @@ def render_overlay_frame(
                     keypoint_size=keypoint_size,
                     line_width=line_width,
                     active=True,
+                )
+
+        if bounding_boxes:
+            for identity in pose_est.identities:
+                draw_identity_bounding_box(
+                    painter, pose_est, frame_index, identity, width=width, height=height
                 )
 
         if label_overlay is not None:

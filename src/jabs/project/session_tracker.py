@@ -2,10 +2,13 @@ import datetime
 import enum
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .project import Project
+
+_ENVELOPE_KEYS = frozenset({"timestamp", "activity"})
+"""Keys every activity log entry starts with; activity fields may not reuse them."""
 
 
 class ActivityTypes(enum.IntEnum):
@@ -63,7 +66,7 @@ class SessionTracker:
 
         This will finalize the session log when the user opens a new Project or closes the application.
         """
-        if self._tracking_enabled and self._session_file and self._session:
+        if self._tracking_enabled and self._session_file and self._session is not None:
             self.end_session()
 
     @property
@@ -112,33 +115,14 @@ class SessionTracker:
 
         Logs session end time and flushes the session log to the session file.
         """
-        if not self._tracking_enabled or not self._session:
+        if not self._tracking_enabled or self._session is None:
             return
 
         self._session["session_end"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         # get the ending counts for each behavior
         for behavior in self._session["starting_label_counts"]:
-            counts = self._project.counts(behavior)
-
-            frames_behavior = 0
-            frames_not_behavior = 0
-            bouts_behavior = 0
-            bouts_not_behavior = 0
-
-            for video_counts in counts.values():
-                for identity_count in video_counts.values():
-                    frames_behavior += identity_count["unfragmented_frame_counts"][0]
-                    frames_not_behavior += identity_count["unfragmented_frame_counts"][1]
-                    bouts_behavior += identity_count["unfragmented_bout_counts"][0]
-                    bouts_not_behavior += identity_count["unfragmented_bout_counts"][1]
-
-            self._session["ending_label_counts"][behavior] = {
-                "frames_behavior": frames_behavior,
-                "frames_not_behavior": frames_not_behavior,
-                "bouts_behavior": bouts_behavior,
-                "bouts_not_behavior": bouts_not_behavior,
-            }
+            self._session["ending_label_counts"][behavior] = self._project_label_counts(behavior)
 
         self._flush_session()
         self._session = None
@@ -147,40 +131,22 @@ class SessionTracker:
     def behavior_selected(self, behavior_name: str) -> None:
         """Log the selection of a behavior.
 
+        The first time a behavior is selected during a session its project-wide
+        label counts are also snapshotted, so the session can report how much was
+        labeled while it was open.
+
         Args:
-            behavior_name (str): The name of the behavior selected.
+            behavior_name: The name of the behavior selected.
         """
-        if not self._tracking_enabled or not self._session:
+        if not self._tracking_enabled or self._session is None:
             return
 
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.BEHAVIOR_SELECTED.name,
-            "behavior": behavior_name,
-        }
-        self._session["activity_log"].append(activity)
+        self._append_activity(ActivityTypes.BEHAVIOR_SELECTED, {"behavior": behavior_name})
 
         if behavior_name not in self._session["starting_label_counts"]:
-            counts = self._project.counts(behavior_name)
-
-            frames_behavior = 0
-            frames_not_behavior = 0
-            bouts_behavior = 0
-            bouts_not_behavior = 0
-
-            for video in counts:
-                for _, identity_count in counts[video].items():
-                    frames_behavior += identity_count["unfragmented_frame_counts"][0]
-                    frames_not_behavior += identity_count["unfragmented_frame_counts"][1]
-                    bouts_behavior += identity_count["unfragmented_bout_counts"][0]
-                    bouts_not_behavior += identity_count["unfragmented_bout_counts"][1]
-
-            self._session["starting_label_counts"][behavior_name] = {
-                "frames_behavior": frames_behavior,
-                "frames_not_behavior": frames_not_behavior,
-                "bouts_behavior": bouts_behavior,
-                "bouts_not_behavior": bouts_not_behavior,
-            }
+            self._session["starting_label_counts"][behavior_name] = self._project_label_counts(
+                behavior_name
+            )
 
         self._flush_session()
 
@@ -192,87 +158,69 @@ class SessionTracker:
         present: bool,
         start_frame: int,
         end_frame: int,
-    ):
+    ) -> None:
         """Log the creation of a label.
 
         Args:
-            video_path (str): The video file where the label was created.
-            identity (int): The identity of the individual being labeled.
-            behavior_name (str): The name of the behavior being labeled.
-            present (bool): Whether the behavior is present in the specified frame range
+            video_path: The video file where the label was created.
+            identity: The identity of the individual being labeled.
+            behavior_name: The name of the behavior being labeled.
+            present: Whether the behavior is present in the specified frame range
               (behavior label = True, not behavior label = False).
-            start_frame (int): The starting frame of the label.
-            end_frame (int): The ending frame of the label (inclusive).
+            start_frame: The starting frame of the label.
+            end_frame: The ending frame of the label (inclusive).
         """
-        if not self._tracking_enabled or not self._session:
-            return
-
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.BEHAVIOR_LABEL_CREATED.name
+        self._log_activity(
+            ActivityTypes.BEHAVIOR_LABEL_CREATED
             if present
-            else ActivityTypes.NOT_BEHAVIOR_LABEL_CREATED.name,
-            "video": video_path.name,
-            "behavior": behavior_name,
-            "identity": identity,
-            "start_frame": start_frame,
-            "end_frame": end_frame,
-        }
-        self._session["activity_log"].append(activity)
-        self._flush_session()
+            else ActivityTypes.NOT_BEHAVIOR_LABEL_CREATED,
+            {
+                "video": video_path.name,
+                "behavior": behavior_name,
+                "identity": identity,
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+            },
+        )
 
     def label_deleted(
         self, video_path: Path, identity: int, behavior_name: str, start_frame: int, end_frame: int
-    ):
+    ) -> None:
         """Log the deletion of a label.
 
         Args:
-            video_path (Path): The video file where the label was deleted.
-            identity (int): The identity of the individual being labeled.
-            behavior_name (str): The name of the behavior being labeled.
-            start_frame (int): The starting frame of the label.
-            end_frame (int): The ending frame of the label (inclusive).
+            video_path: The video file where the label was deleted.
+            identity: The identity of the individual being labeled.
+            behavior_name: The name of the behavior being labeled.
+            start_frame: The starting frame of the label.
+            end_frame: The ending frame of the label (inclusive).
         """
-        if not self._tracking_enabled or not self._session:
-            return
+        self._log_activity(
+            ActivityTypes.LABEL_DELETED,
+            {
+                "video": video_path.name,
+                "identity": identity,
+                "behavior": behavior_name,
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+            },
+        )
 
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.LABEL_DELETED.name,
-            "video": video_path.name,
-            "identity": identity,
-            "behavior": behavior_name,
-            "start_frame": start_frame,
-            "end_frame": end_frame,
-        }
-        self._session["activity_log"].append(activity)
-        self._flush_session()
+    def video_opened(self, video_path: Path) -> None:
+        """Log the opening of a video file.
 
-    def video_opened(self, video_path: Path):
-        """Log the opening of a video file."""
-        if not self._tracking_enabled or not self._session:
-            return
+        Args:
+            video_path: The video file that was opened.
+        """
+        self._log_activity(ActivityTypes.VIDEO_OPENED, {"video": video_path.name})
 
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.VIDEO_OPENED.name,
-            "video": video_path.name,
-        }
-        self._session["activity_log"].append(activity)
-        self._flush_session()
+    def video_closed(self, video_path: Path) -> None:
+        """Log the closing of a video file.
 
-    def video_closed(self, video_path: Path):
-        """Log the closing of a video file."""
-        if not self._tracking_enabled or not self._session:
-            return
-
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.VIDEO_CLOSED.name,
-            "video_path": video_path.name,
-        }
-        self._session["activity_log"].append(activity)
-        self._flush_session()
+        Args:
+            video_path: The video file that was closed.
+        """
+        self._log_activity(ActivityTypes.VIDEO_CLOSED, {"video": video_path.name})
 
     def classifier_trained(
         self,
@@ -281,54 +229,133 @@ class SessionTracker:
         k: int,
         accuracy: float | None = None,
         fbeta_behavior: float | None = None,
-    ):
-        """Log the training of a classifier."""
-        if not self._tracking_enabled or not self._session:
-            return
+    ) -> None:
+        """Log the training of a classifier.
 
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.CLASSIFIER_TRAINED.name,
+        Args:
+            behavior_name: The behavior the classifier was trained for.
+            classifier_type: Name of the classifier type that was trained.
+            k: Number of cross-validation folds used.
+            accuracy: Optional mean cross-validation accuracy. Left out of the log
+                entry when not given.
+            fbeta_behavior: Optional mean f-beta score for the behavior class.
+                Left out of the log entry when not given.
+        """
+        fields: dict[str, Any] = {
             "behavior": behavior_name,
             "classifier_type": classifier_type,
             "k-fold": k,
         }
 
         if accuracy is not None:
-            activity["mean accuracy"] = f"{accuracy:.3}"
+            fields["mean accuracy"] = f"{accuracy:.3}"
         if fbeta_behavior is not None:
-            activity["mean fbeta (behavior)"] = f"{fbeta_behavior:.3}"
+            fields["mean fbeta (behavior)"] = f"{fbeta_behavior:.3}"
 
-        self._session["activity_log"].append(activity)
-        self._flush_session()
+        self._log_activity(ActivityTypes.CLASSIFIER_TRAINED, fields)
 
-    def pause_session(self):
+    def pause_session(self) -> None:
         """Log the pausing of a labeling session."""
-        if not self._tracking_enabled or not self._session:
-            return
+        self._log_activity(ActivityTypes.SESSION_PAUSED)
 
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.SESSION_PAUSED.name,
-        }
-        self._session["activity_log"].append(activity)
-        self._flush_session()
-
-    def resume_session(self):
+    def resume_session(self) -> None:
         """Log the resuming of a labeling session."""
-        if not self._tracking_enabled or not self._session:
+        self._log_activity(ActivityTypes.SESSION_RESUMED)
+
+    def _append_activity(
+        self, activity_type: ActivityTypes, fields: dict[str, Any] | None = None
+    ) -> None:
+        """Append one timestamped entry to the in-memory activity log.
+
+        Every entry shares the same envelope - a UTC timestamp, the activity
+        name, then the activity's own fields - so it is built here rather than
+        spelled out once per activity, which is how the entries would drift apart
+        in key naming or timestamp format.
+
+        The entry is not written to disk; the caller flushes once it has finished
+        updating the session. Callers must check ``_tracking_enabled`` and
+        ``_session`` themselves - use :meth:`_log_activity` unless there is more
+        session state to update before flushing.
+
+        Args:
+            activity_type: Activity being recorded; its ``name`` is stored.
+            fields: Activity-specific keys, added after ``activity`` in the order
+                given.
+
+        Raises:
+            ValueError: If ``fields`` contains an envelope key (``timestamp`` or
+                ``activity``).
+        """
+        reserved = _ENVELOPE_KEYS.intersection(fields or {})
+        if reserved:
+            raise ValueError(f"activity fields may not override envelope keys: {sorted(reserved)}")
+        self._session["activity_log"].append(
+            {
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "activity": activity_type.name,
+                **(fields or {}),
+            }
+        )
+
+    def _log_activity(
+        self, activity_type: ActivityTypes, fields: dict[str, Any] | None = None
+    ) -> None:
+        """Record one activity and flush the session, when tracking is active.
+
+        This is the entire body of most of the public activity methods: nothing
+        is recorded when tracking is disabled or no session is open, and an entry
+        that is recorded is flushed immediately so the log survives an unclean
+        exit.
+
+        Args:
+            activity_type: Activity being recorded; its ``name`` is stored.
+            fields: Activity-specific keys, added after ``activity`` in the order
+                given.
+        """
+        if not self._tracking_enabled or self._session is None:
             return
 
-        activity = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "activity": ActivityTypes.SESSION_RESUMED.name,
-        }
-        self._session["activity_log"].append(activity)
+        self._append_activity(activity_type, fields)
         self._flush_session()
+
+    def _project_label_counts(self, behavior: str) -> dict[str, int]:
+        """Total the project's unfragmented label counts for one behavior.
+
+        The session log records these totals twice: once when a behavior is first
+        selected (``starting_label_counts``) and again when the session ends
+        (``ending_label_counts``). Both come from here so the two snapshots are
+        always totaled the same way and stay comparable.
+
+        Args:
+            behavior: Name of the behavior to total counts for.
+
+        Returns:
+            Mapping with ``frames_behavior``, ``frames_not_behavior``,
+            ``bouts_behavior`` and ``bouts_not_behavior`` totals, summed over
+            every video and identity in the project.
+        """
+        frames_behavior = 0
+        frames_not_behavior = 0
+        bouts_behavior = 0
+        bouts_not_behavior = 0
+
+        for video_counts in self._project.counts(behavior).values():
+            for identity_count in video_counts.values():
+                frames_behavior += identity_count["unfragmented_frame_counts"][0]
+                frames_not_behavior += identity_count["unfragmented_frame_counts"][1]
+                bouts_behavior += identity_count["unfragmented_bout_counts"][0]
+                bouts_not_behavior += identity_count["unfragmented_bout_counts"][1]
+
+        return {
+            "frames_behavior": frames_behavior,
+            "frames_not_behavior": frames_not_behavior,
+            "bouts_behavior": bouts_behavior,
+            "bouts_not_behavior": bouts_not_behavior,
+        }
 
     def _flush_session(self):
         """Flush the current session data to the session file."""
-        if self._session_file and self._session:
+        if self._session_file and self._session is not None:
             try:
                 tmp = self._session_file.with_suffix(".json.tmp")
                 with tmp.open("w") as f:

@@ -1,11 +1,9 @@
 import typing
 
 import numpy as np
-from scipy import stats
 
 from jabs.feature_extraction.angle_index import AngleIndex
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 
 class Angles(Feature):
@@ -15,14 +13,7 @@ class Angles(Feature):
     _use_circular = True
 
     # need to override to set the correct range for circular operations
-    _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: stats.circmean(x, low=0, high=360, nan_policy="omit"),
-        "std_dev": lambda x: stats.circstd(x, low=0, high=360, nan_policy="omit"),
-    }
-
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
-        super().__init__(poses, pixel_scale)
-        self._num_angles = len(AngleIndex)
+    _circular_range: typing.ClassVar[tuple[float, float]] = (0.0, 360.0)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """compute the value of the per frame features for a specific identity"""
@@ -31,18 +22,15 @@ class Angles(Feature):
         poses, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
         for named_angle in AngleIndex:
-            angle_keypoints = AngleIndex.get_angle_indices(named_angle)
-            values[f"angle {AngleIndex.get_angle_name(named_angle)}"] = self._compute_angles(
-                poses[:, angle_keypoints[0]],
-                poses[:, angle_keypoints[1]],
-                poses[:, angle_keypoints[2]],
-            )
-            values[f"angle {AngleIndex.get_angle_name(named_angle)} sine"] = np.sin(
-                np.deg2rad(values[f"angle {AngleIndex.get_angle_name(named_angle)}"])
-            )
-            values[f"angle {AngleIndex.get_angle_name(named_angle)} cosine"] = np.cos(
-                np.deg2rad(values[f"angle {AngleIndex.get_angle_name(named_angle)}"])
-            )
+            point, vertex, other_point = AngleIndex.get_angle_indices(named_angle)
+            name = f"angle {AngleIndex.get_angle_name(named_angle)}"
+
+            angles = self._compute_angles(poses[:, point], poses[:, vertex], poses[:, other_point])
+            radians = np.deg2rad(angles)
+
+            values[name] = angles
+            values[f"{name} sine"] = np.sin(radians)
+            values[f"{name} cosine"] = np.cos(radians)
 
         return values
 
@@ -50,13 +38,16 @@ class Angles(Feature):
     def _compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
         """compute angles for a set of points
 
+        The angle is measured at vertex ``b``: it is the direction of the ray
+        ``b -> c`` relative to the ray ``b -> a``, wrapped to ``[0, 360)``.
+
         Args:
             a: array of point coordinates
             b: array of vertex point coordinates
             c: array of point coordinates
 
         Returns:
-            array containing angles, in degrees, formed from the lines ab and ba for each row in a, b, and c with range [0, 360)
+            array containing one angle, in degrees, per row of a, b, and c, with range [0, 360)
         """
         angles = np.degrees(
             np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0])

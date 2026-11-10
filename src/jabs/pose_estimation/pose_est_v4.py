@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import h5py
@@ -6,8 +7,11 @@ import numpy as np
 from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.core.exceptions import PoseHashException, PoseIdEmbeddingException
+from jabs.core.utils.pose_util import build_identity_mask
 
 from .identity_indexed_pose import IdentityIndexedPoseMixin
+
+logger = logging.getLogger(__name__)
 
 
 class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
@@ -94,7 +98,7 @@ class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
                 elif max_instance_id > 0:
                     self._num_identities = max_instance_id
                 else:
-                    print(f"Warning: No identities found in pose file: {file_path}")
+                    logger.warning("No identities found in pose file: %s", file_path)
                     self._num_identities = 0
 
             # Validate instance_embed_id range for unmasked (id_mask == 0) data:
@@ -150,16 +154,9 @@ class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
 
                 # build a mask for each identity that indicates if it exists or not
                 # in the frame
-                # require a minimum number of points to be > 3
-                # this is because the convex hull requires 3 points
-                init_func = np.vectorize(
-                    lambda x, y: np.sum(self._point_mask[x][y][:-2]) >= 3,
-                    otypes=[np.uint8],
-                )
-
-                self._identity_mask = np.fromfunction(
-                    init_func, (self._num_identities, self._num_frames), dtype=np.int_
-                )
+                # require at least 3 body points, since that is the minimum a convex
+                # hull can be built from
+                self._identity_mask = build_identity_mask(self._point_mask, min_valid_keypoints=3)
             else:
                 self._identities = []
                 self._point_mask = None
@@ -237,8 +234,7 @@ class PoseEstimationV4(IdentityIndexedPoseMixin, PoseEstimation):
         Returns:
             None
         """
-        filename = self._path.name.replace(".h5", "_cache.h5")
-        cache_file_path = self._cache_dir / filename
+        cache_file_path = self._cache_file_path()
 
         with h5py.File(cache_file_path, "w") as cache_h5:
             cache_h5.attrs["cache_file_version"] = self._CACHE_FILE_VERSION

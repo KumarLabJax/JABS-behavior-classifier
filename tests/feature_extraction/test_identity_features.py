@@ -12,6 +12,11 @@ import pytest
 import jabs.pose_estimation as pose_est_module
 from jabs.core.enums import CacheFormat
 from jabs.core.utils import pose_file_stem
+from jabs.feature_extraction.feature_timing import (
+    GROUP_SETUP_FEATURE,
+    FeatureTimings,
+    TimingStage,
+)
 from jabs.feature_extraction.features import IdentityFeatures
 from jabs.io.feature_cache import detect_cache_format
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader
@@ -219,6 +224,32 @@ def test_window_compute_after_flat_per_frame_cache_hit(
     assert len({values.shape for values in window_flat.values()}) == 1
 
 
+def test_get_features_arrays_cover_every_frame(
+    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+) -> None:
+    """get_features() returns frame-aligned arrays plus the valid-frame indexes.
+
+    The feature arrays hold one row per frame of the video, including frames the
+    identity is absent from, and ``frame_indexes`` separately lists the frames it
+    is present in. ``Classifier.predict_proba()`` depends on that split: it indexes
+    its result rows with ``frame_indexes`` directly, which is only correct while
+    both use the same frame numbering.
+    """
+    features = _make_identity_features(pose_est_v5_short, tmp_path, force=True)
+    result = features.get_features(_WINDOW_SIZE)
+
+    identity_mask = pose_est_v5_short.identity_mask(_IDENTITY)
+    # the shortened sample keeps a gap in identity 0, so the indexes are a real subset
+    assert np.count_nonzero(identity_mask == 0) > 0
+
+    for group in ("per_frame", "window"):
+        assert result[group]
+        for name, values in result[group].items():
+            assert values.shape[0] == pose_est_v5_short.num_frames, f"{group} {name}"
+
+    np.testing.assert_array_equal(result["frame_indexes"], np.flatnonzero(identity_mask == 1))
+
+
 def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) -> None:
     """force=True with a different cache_format removes the old sentinel before writing.
 
@@ -337,3 +368,36 @@ def test_legacy_rename_failure_is_non_fatal(tmp_path, pose_est_v5, caplog, monke
     assert instance._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)
     assert legacy.exists(), "legacy dir untouched after failed rename"
     assert any("failed to rename" in r.message for r in caplog.records)
+
+
+def test_timings_cover_computed_features_but_not_cache_hits(tmp_path, pose_est_v5_short) -> None:
+    """A timing collector records computed features and skips cached ones."""
+    timings = FeatureTimings()
+    features = IdentityFeatures(
+        source_file=_SOURCE_FILE,
+        identity=_IDENTITY,
+        directory=tmp_path,
+        pose_est=pose_est_v5_short,
+        force=True,
+        op_settings={},
+        timings=timings,
+    )
+    features.get_window_features(_WINDOW_SIZE, force=True)
+
+    stages = {(key.group, key.feature, key.stage) for key in timings.stats()}
+    assert ("base", "angles", TimingStage.PER_FRAME) in stages
+    assert ("base", "angles", TimingStage.WINDOW) in stages
+    assert ("social", GROUP_SETUP_FEATURE, TimingStage.SETUP) in stages
+
+    cached = FeatureTimings()
+    reloaded = IdentityFeatures(
+        source_file=_SOURCE_FILE,
+        identity=_IDENTITY,
+        directory=tmp_path,
+        pose_est=pose_est_v5_short,
+        force=False,
+        op_settings={},
+        timings=cached,
+    )
+    reloaded.get_window_features(_WINDOW_SIZE)
+    assert len(cached) == 0

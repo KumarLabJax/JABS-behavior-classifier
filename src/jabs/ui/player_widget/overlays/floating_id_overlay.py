@@ -222,7 +222,7 @@ class FloatingIdOverlay(Overlay):
                 height=identity_rect_height,
                 tag=display_id,
                 color=self._ACTIVE_IDENTITY_COLOR
-                if identity == active_id
+                if self.parent.is_drawn_active(identity)
                 else self._INACTIVE_IDENTITY_COLOR,
                 animal_id=identity,
                 is_id_label=True,
@@ -300,9 +300,7 @@ class FloatingIdOverlay(Overlay):
                 center = shape.centroid
 
                 color = (
-                    ACTIVE_ID_COLOR
-                    if identity == self.parent.active_identity
-                    else INACTIVE_ID_COLOR
+                    ACTIVE_ID_COLOR if self.parent.is_drawn_active(identity) else INACTIVE_ID_COLOR
                 )
                 label_text = self.parent.convert_identity_to_external(identity)
 

@@ -1,11 +1,11 @@
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import numpy.typing as npt
 from rich.console import Console
-from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from jabs.classifier import (
@@ -19,6 +19,7 @@ from jabs.classifier import (
     TrainingReportData,
     classifier_utils,
     enabled_stage_configs,
+    included_row_mask,
     log_cross_validation_to_mlflow,
     postprocessed_results,
     run_leave_one_group_out_cv,
@@ -39,24 +40,6 @@ N_JOBS = 4
 # Multi-class cross-validation covers every behavior at once, so reports and MLflow
 # runs are named for the mode rather than for a single behavior.
 MULTICLASS_REPORT_NAME = "multiclass"
-
-
-def _included_row_mask(features: CVFeatures) -> npt.NDArray[np.bool_] | None:
-    """Select the feature rows whose group is not excluded from training.
-
-    Videos excluded from training still appear in ``features`` so they can serve as
-    held-out cross-validation groups, but the final model must not train on them.
-
-    Args:
-        features: Feature payload from ``Project.get_multiclass_labeled_features``.
-
-    Returns:
-        A boolean mask aligned to the feature rows, or None when no group is excluded.
-    """
-    excluded = features.get("excluded_groups")
-    if not excluded:
-        return None
-    return ~np.isin(features["groups"], list(excluded))
 
 
 def _max_multiclass_splits(classifier: MultiClassClassifier, features: CVFeatures) -> int:
@@ -93,7 +76,7 @@ def _train_final_multiclass(
     Returns:
         The classifier's top 10 ``(feature name, importance)`` pairs.
     """
-    mask = _included_row_mask(features)
+    mask = included_row_mask(features)
     per_frame = features["per_frame"]
     window = features["window"]
     labels_by_behavior = features["labels_by_behavior"]
@@ -136,7 +119,7 @@ def _multiclass_class_counts(
         reserved None class).
     """
     class_names = classifier.get_class_names()
-    mask = _included_row_mask(features)
+    mask = included_row_mask(features)
     labels_by_behavior = features["labels_by_behavior"]
     if mask is not None:
         labels_by_behavior = {name: arr[mask] for name, arr in labels_by_behavior.items()}
@@ -208,6 +191,33 @@ def _print_multiclass_results(console: Console, cv_results: list[CrossValidation
             str(cv.test_label),
         )
     console.print(table)
+
+
+def _make_status_callback(
+    progress: Progress, get_task_id: Callable[[], TaskID | None], report_name: str
+) -> Callable[[str], None]:
+    """Build a callback that shows cross-validation status messages on the progress bar.
+
+    ``Console.status`` only renders when entered as a context manager, so calling it per
+    message discarded every message. The cross-validation loop already runs inside a live
+    ``Progress``, and Rich does not render two live displays on one console at once, so the
+    message is shown as the progress task's description instead.
+
+    Args:
+        progress: The live progress display.
+        get_task_id: Returns the cross-validation task's id, or None before it exists.
+        report_name: Name shown in the task description.
+
+    Returns:
+        A callback taking the status message.
+    """
+
+    def status_callback(msg: str) -> None:
+        task_id = get_task_id()
+        if task_id is not None:
+            progress.update(task_id, description=f"Cross-validation ({report_name}): {msg}")
+
+    return status_callback
 
 
 def run_cross_validation(
@@ -329,8 +339,15 @@ def run_cross_validation(
             evaluate_postprocessing = project.settings_manager.evaluate_postprocessing_in_cv(
                 behavior
             )
+        if evaluate_postprocessing and not enabled_stage_configs(
+            project.settings_manager.postprocessing_config(behavior)
+        ):
+            # a conclusion the user needs to keep, not progress that scrolls away
+            console.print(
+                "[yellow]Warning:[/yellow] postprocessing evaluation was requested but no "
+                "postprocessing stages are enabled; it will be skipped."
+            )
 
-    status_message = "Starting cross-validation..."
     progress = Progress(
         TextColumn("{task.description}"),
         BarColumn(),
@@ -339,13 +356,9 @@ def run_cross_validation(
         console=console,
         transient=True,
     )
-    task_id = None
+    task_id: TaskID | None = None
     cv_warning: str | None = None
-
-    def status_callback(msg: str):
-        nonlocal status_message
-        status_message = msg
-        console.status(msg)
+    status_callback = _make_status_callback(progress, lambda: task_id, report_name)
 
     def warning_callback(msg: str):
         nonlocal cv_warning

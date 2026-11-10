@@ -62,6 +62,11 @@ class LabelTrackWidget(QWidget):
         """
         self._label_widget.compact = value
 
+    @property
+    def detail_bar(self) -> LabelDetailBar:
+        """The sliding-window detail bar drawn below the overview strip."""
+        return self._label_widget
+
     @classmethod
     def _timeline_widget_factory(cls, parent: QWidget) -> LabelOverviewBar:
         """factory method to create the timeline widget

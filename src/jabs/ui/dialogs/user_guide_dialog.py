@@ -192,6 +192,11 @@ class UserGuideDialog(QDialog):
                 "Keyboard Shortcuts": "labeling.md#keyboard-shortcuts",
             },
             "Search": "behavior-search.md",
+            "JABS Viewer": {
+                "_file": "viewer.md",
+                "Opening a Pose File": "viewer.md#opening-a-pose-file-without-video",
+                "Overlays": "viewer.md#overlays",
+            },
             "Command Line Tools": {
                 "_file": "cli-tools.md",
                 "jabs-classify": "cli-tools.md#jabs-classify",

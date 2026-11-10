@@ -1385,8 +1385,14 @@ class Project:
                     - 'per_frame': pd.DataFrame of per-frame features (labeled frames only)
                     - 'labels':    np.ndarray of integer labels
                     - 'groups':    np.ndarray of group ids aligned to rows in the feature matrices
+                    - 'excluded_groups': set[int] of group ids whose source video(s) are
+                      marked excluded from training
 
                 The values in the first dict are suitable for `Classifier.leave_one_group_out()`.
+                'excluded_groups' has to be passed along to it (and to
+                `Classifier.get_leave_one_group_out_max()`): those groups remain eligible as
+                the held-out test group but must never contribute rows to a training fold, so
+                dropping the key trains on videos the user excluded without any error.
 
                 The second dict maps group ids to their source (the exact shape
                 depends on the grouping strategy; see ``_assign_cv_group_ids``):

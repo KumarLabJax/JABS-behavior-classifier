@@ -8,9 +8,10 @@ identity-aware remap.
 
 The script validates both projects, then performs the label remap in two
 disposable staging projects so the live target stays unchanged while the update
-is underway. Labels are processed block by block, matched by median bbox IoU
-between the source pose and the target pose, and written directly to the staged
-destination label track.
+is underway. Labels are processed block by block, matched between the source
+pose and the target pose by median segmentation mask IoU when both identities
+have masks and by median bounding box IoU otherwise (``--match-by`` changes
+this), and written directly to the staged destination label track.
 
 Timeline annotations are carried forward: video-level annotations are copied
 as-is, and identity-scoped annotations are remapped by the same interval-matching
@@ -51,7 +52,10 @@ import click
 from jabs.core.utils import copy_file_atomic
 from jabs.pose_estimation import get_pose_path
 from jabs.project import Project
+from jabs.scripts.initialize_project import DEFAULT_PROCESSES
 
+from .label_remap_matching import MatchSettings
+from .label_remap_options import identity_match_options, match_settings_from_options
 from .update_pose import (
     _create_backup_archive,
     _handle_orphan_identities,
@@ -395,11 +399,14 @@ def update_project_labels_in_place(
     annotate_failures: bool = False,
     drop_timeline_annotations: bool = False,
     tolerate_orphan_identities: bool = False,
+    *,
+    match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int, Path, list[str]]:
     """Update a live project in place by replacing its labels from ``source_project_dir``.
 
     The target's pose is left unchanged; incoming labels are remapped to the
-    target's existing identity numbering via bbox IoU.
+    target's existing identity numbering by segmentation mask or bbox IoU.
 
     Args:
         project_dir: Path to the live target project directory whose labels will be replaced.
@@ -414,6 +421,8 @@ def update_project_labels_in_place(
             references in the source's annotations and skip the affected
             ``(identity, behavior)`` pairs during remap instead of aborting at
             preflight.
+        match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes for the label remap.
 
     Returns:
         Tuple ``(total_success, total_skipped, backup_path, newly_added_behaviors)``
@@ -472,6 +481,8 @@ def update_project_labels_in_place(
             verbose,
             annotate_failures,
             drop_timeline_annotations,
+            match_settings=match_settings,
+            processes=processes,
             videos=labeled_videos,
             failure_description_phrase="label update",
         )
@@ -509,13 +520,18 @@ def update_project_labels_in_place(
         path_type=Path,
     ),
 )
+@identity_match_options
 @click.option(
-    "--min-iou-thresh",
-    "min_iou",
-    type=float,
-    default=0.5,
+    "-p",
+    "--processes",
+    "processes",
+    type=click.IntRange(min=1),
+    default=DEFAULT_PROCESSES,
     show_default=True,
-    help="Minimum acceptable median IoU for a label remap match.",
+    help=(
+        "Number of worker processes used to remap videos in parallel"
+        "; defaults to the logical CPU count. 1 remaps videos one at a time."
+    ),
 )
 @click.option(
     "--verbose",
@@ -546,6 +562,11 @@ def update_labels_command(
     project: Path,
     source_project: Path,
     min_iou: float,
+    min_mask_iou: float,
+    match_by: str,
+    split_blocks: bool,
+    min_run_frames: int,
+    processes: int,
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
@@ -557,6 +578,14 @@ def update_labels_command(
             project,
             source_project,
             min_iou,
+            match_settings=match_settings_from_options(
+                min_iou=min_iou,
+                min_mask_iou=min_mask_iou,
+                match_by=match_by,
+                split_blocks=split_blocks,
+                min_run_frames=min_run_frames,
+            ),
+            processes=processes,
             verbose=verbose,
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,
@@ -566,9 +595,11 @@ def update_labels_command(
 
     click.echo(f"Backup archive: {backup_path}")
     click.echo(
-        f"Label update summary: {total_success} label blocks assigned, "
-        f"{total_skipped} label blocks skipped "
-        f"(IoU threshold={min_iou})"
+        f"Label update summary: {total_success} label parts assigned, "
+        f"{total_skipped} label parts skipped "
+        f"(match by {match_by}, mask IoU threshold={min_mask_iou}, "
+        f"bbox IoU threshold={min_iou}, "
+        f"split blocks={'on' if split_blocks else 'off'})"
     )
     if newly_added_behaviors:
         click.echo(

@@ -9,11 +9,14 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ClassifierMode
 from jabs.scripts.cli.cli import cli
 from jabs.scripts.cli.sample_frames import (
     collect_behavior_bouts,
     sample_frames_per_bout,
     sample_num_frames_total,
+    sampleable_classes,
     write_frames,
 )
 
@@ -33,6 +36,7 @@ def _make_project(
     videos: list[str],
     video_labels_map: dict[str, MagicMock | None],
     behaviors: list[str],
+    classifier_mode: ClassifierMode = ClassifierMode.BINARY,
 ) -> MagicMock:
     """Return a minimal mock Project.
 
@@ -41,11 +45,13 @@ def _make_project(
         video_labels_map: Mapping from video filename to the VideoLabels mock
             (or ``None`` if no annotations exist for that video).
         behaviors: List of behavior names present in project.settings["behavior"].
+        classifier_mode: Classifier mode reported by the project's settings manager.
     """
     project = MagicMock()
     project.video_manager.videos = videos
     project.video_manager.load_video_labels.side_effect = lambda v: video_labels_map.get(v)
     project.settings = {"behavior": {b: {} for b in behaviors}}
+    project.settings_manager.classifier_mode = classifier_mode
     return project
 
 
@@ -623,3 +629,101 @@ def test_cli_default_out_dir_is_cwd(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert len(captured_out_dir) == 1
     assert captured_out_dir[0] == Path.cwd()
+
+
+# ---------------------------------------------------------------------------
+# Multi-class projects (None class)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("classifier_mode", "expected"),
+    [
+        (ClassifierMode.BINARY, ["grooming", "walking"]),
+        (ClassifierMode.MULTICLASS, [MULTICLASS_NONE_BEHAVIOR, "grooming", "walking"]),
+    ],
+    ids=["binary", "multiclass"],
+)
+def test_sampleable_classes(classifier_mode: ClassifierMode, expected: list[str]) -> None:
+    """Only multi-class projects expose the None class alongside their behaviors."""
+    project = _make_project([], {}, ["walking", "grooming"], classifier_mode=classifier_mode)
+
+    assert sampleable_classes(project) == expected
+
+
+def test_collect_bouts_none_class() -> None:
+    """The None track is collected like any other behavior and not mixed with others."""
+    vl = _make_video_labels(
+        [
+            ("0", MULTICLASS_NONE_BEHAVIOR, [{"start": 0, "end": 49, "present": True}]),
+            ("0", "walking", [{"start": 50, "end": 99, "present": True}]),
+        ]
+    )
+    project = _make_project(
+        ["a.mp4"], {"a.mp4": vl}, ["walking"], classifier_mode=ClassifierMode.MULTICLASS
+    )
+
+    assert collect_behavior_bouts(project, MULTICLASS_NONE_BEHAVIOR) == [("a.mp4", 0, 49)]
+
+
+def _invoke_cli_with_project(
+    tmp_path: Path, project: MagicMock, behavior: str
+) -> tuple[object, MagicMock]:
+    """Run ``sample-frames --behavior <behavior>`` against a mock project.
+
+    Args:
+        tmp_path: Pytest temporary directory used as the project directory.
+        project: Mock project returned by ``Project(...)``.
+        behavior: Value passed to ``--behavior``.
+
+    Returns:
+        The Click result and the mock standing in for ``collect_behavior_bouts``.
+    """
+    with (
+        patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
+        patch("jabs.scripts.cli.sample_frames.collect_behavior_bouts") as mock_collect,
+        patch("jabs.scripts.cli.sample_frames.sample_num_frames_total") as mock_sample,
+        patch("jabs.scripts.cli.sample_frames.write_frames"),
+    ):
+        MockProject.is_valid_project_directory.return_value = True
+        MockProject.return_value = project
+        mock_collect.return_value = [("v.mp4", 0, 9)]
+        mock_sample.return_value = [("v.mp4", 5)]
+
+        result = CliRunner().invoke(
+            cli,
+            ["sample-frames", "--behavior", behavior, "--num-frames", "1", str(tmp_path)],
+        )
+    return result, mock_collect
+
+
+def test_cli_multiclass_accepts_none_class(tmp_path: Path) -> None:
+    """--behavior None samples the None class in a multi-class project."""
+    project = _make_project(["v.mp4"], {}, ["walking"], classifier_mode=ClassifierMode.MULTICLASS)
+
+    result, mock_collect = _invoke_cli_with_project(tmp_path, project, MULTICLASS_NONE_BEHAVIOR)
+
+    assert result.exit_code == 0, result.output
+    mock_collect.assert_called_once_with(project, MULTICLASS_NONE_BEHAVIOR)
+
+
+def test_cli_binary_rejects_none_class(tmp_path: Path) -> None:
+    """--behavior None is not a valid behavior in a binary project."""
+    project = _make_project(["v.mp4"], {}, ["walking"])
+
+    result, mock_collect = _invoke_cli_with_project(tmp_path, project, MULTICLASS_NONE_BEHAVIOR)
+
+    assert result.exit_code != 0
+    assert "not found in project" in result.output
+    mock_collect.assert_not_called()
+
+
+def test_cli_multiclass_unknown_behavior_lists_none_class(tmp_path: Path) -> None:
+    """The unknown-behavior error in a multi-class project offers the None class."""
+    project = _make_project(["v.mp4"], {}, ["rearing"], classifier_mode=ClassifierMode.MULTICLASS)
+
+    result, mock_collect = _invoke_cli_with_project(tmp_path, project, "walking")
+
+    assert result.exit_code != 0
+    assert f"{MULTICLASS_NONE_BEHAVIOR}, rearing" in result.output
+    mock_collect.assert_not_called()

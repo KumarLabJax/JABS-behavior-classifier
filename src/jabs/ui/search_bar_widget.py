@@ -1,3 +1,5 @@
+import logging
+
 from PySide6 import QtCore, QtWidgets
 
 from jabs.behavior_search import (
@@ -10,6 +12,8 @@ from jabs.behavior_search import (
     search_behaviors,
 )
 from jabs.project import Project
+
+logger = logging.getLogger(__name__)
 
 
 class SearchBarWidget(QtWidgets.QWidget):
@@ -130,7 +134,7 @@ class SearchBarWidget(QtWidgets.QWidget):
             self.setVisible(True)
             self.text_label.setText(_describe_query(search_query))
             self._search_results = search_behaviors(self._project, search_query)
-            print(f"Search results: {len(self._search_results)} hits found.")
+            logger.debug("search returned %d hits", len(self._search_results))
 
         self._update_result_count_label()
         self.search_results_changed.emit(self._search_results)
@@ -138,6 +142,11 @@ class SearchBarWidget(QtWidgets.QWidget):
 
     def _find_search_result_at_current_video_frame(self) -> tuple[SearchHit | None, int] | None:
         """Find the search result that matches the current video and frame position.
+
+        The lookup is a binary search keyed only on the video name and the hit's frame
+        range, so it requires ``self._search_results`` to be ordered by file and then by
+        start frame. ``search_behaviors()`` returns the hits in exactly that order and
+        ``SearchBarWidget`` never reorders them.
 
         Returns:
             tuple[SearchHit | None, int] | None:

@@ -41,7 +41,7 @@ class ClosestFovDistances(Feature):
             dict with feature values
         """
         return {
-            "closest social distance in FoV": self._social_distance_info.compute_distances(
-                self._social_distance_info.closest_fov_identities
+            "closest social distance in FoV": (
+                self._social_distance_info.closest_fov_distances.copy()
             )
         }

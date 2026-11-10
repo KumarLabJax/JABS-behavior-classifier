@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -13,6 +14,7 @@ import jabs.scripts.cli.update_pose as update_pose
 from jabs.project import TimelineAnnotations, VideoLabels
 from jabs.project.timeline_annotations import is_valid_tag
 from jabs.scripts.cli.cli import cli
+from jabs.scripts.cli.label_remap_matching import MatchMetric, MatchSettings
 
 
 def _make_pose(identities, boxes_by_identity, *, num_identities=None):
@@ -90,13 +92,14 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
         staticmethod(lambda _path: 10),
     )
 
-    videos, replacement_pose_files, live_annotations = update_pose._preflight_update_inputs(
-        project_dir, new_pose_dir
+    videos, replacement_pose_files, live_annotations, identity_counts = (
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
     )
 
     assert videos == ["video1.avi"]
     assert replacement_pose_files == {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"}
     assert live_annotations == {"video1.avi"}
+    assert identity_counts == {"video1.avi": 2}
 
 
 @pytest.mark.parametrize(
@@ -196,8 +199,8 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
         staticmethod(lambda _path: 10),
     )
 
-    videos, replacement_pose_files, live_annotations = update_pose._preflight_update_inputs(
-        project_dir, new_pose_dir
+    videos, replacement_pose_files, live_annotations, identity_counts = (
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
     )
 
     assert videos == ["video1.avi"]
@@ -224,9 +227,13 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         drop_timeline_annotations,
         skip_feature_gen,
         tolerate_orphan_identities,
+        match_settings,
+        processes,
     ):
         captured.update(
             {
+                "match_settings": match_settings,
+                "processes": processes,
                 "project_dir": project_dir_arg,
                 "new_pose_dir": new_pose_dir_arg,
                 "min_iou": min_iou,
@@ -254,6 +261,15 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
             str(new_pose_dir),
             "--min-iou-thresh",
             "0.75",
+            "--min-mask-iou",
+            "0.6",
+            "--match-by",
+            "segmentation",
+            "--no-split-blocks",
+            "--min-run-frames",
+            "5",
+            "-p",
+            "3",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -267,6 +283,14 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         "project_dir": project_dir,
         "new_pose_dir": new_pose_dir,
         "min_iou": 0.75,
+        "match_settings": MatchSettings(
+            min_bbox_iou=0.75,
+            min_mask_iou=0.6,
+            match_by=MatchMetric.SEGMENTATION,
+            split_blocks=False,
+            min_run_frames=5,
+        ),
+        "processes": 3,
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
@@ -274,7 +298,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         "tolerate_orphan_identities": True,
     }
     assert "Backup archive:" in result.output
-    assert "Pose update summary: 3 label blocks assigned, 1 label blocks skipped" in result.output
+    assert "Pose update summary: 3 label parts assigned, 1 label parts skipped" in result.output
     assert "Feature regeneration: skipped (--skip-feature-gen)." in result.output
 
 
@@ -482,6 +506,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
                 ["video1.avi"],
                 {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"},
                 set(),
+                {"video1.avi": 2},
             )
         ),
     )
@@ -521,8 +546,10 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
         window_sizes_arg,
         backup_path_arg,
         skip_feature_gen_arg,
+        processes,
     ):
         sequence.append("regen")
+        captured["regen_processes"] = processes
         captured["regen_project_dir"] = project_dir_arg
         captured["regen_window_sizes"] = window_sizes_arg
         captured["regen_backup_path"] = backup_path_arg
@@ -540,6 +567,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
             project_dir,
             new_pose_dir,
             min_iou=0.5,
+            processes=3,
         )
     )
 
@@ -553,6 +581,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
         "regen_window_sizes": (2, 5),
         "regen_backup_path": project_dir.resolve() / ".backup" / "update_pose_test.zip",
         "regen_skip_feature_gen": False,
+        "regen_processes": 3,
     }
     # Preflight must run before backup, backup before the live project is modified,
     # seed before remap, remap before apply, and feature regeneration after apply.
@@ -1090,7 +1119,7 @@ def test_preflight_update_inputs_tolerates_orphans_and_warns(tmp_path, monkeypat
         staticmethod(lambda _path: 10),
     )
 
-    videos, _, live_annotations = update_pose._preflight_update_inputs(
+    videos, _, live_annotations, _ = update_pose._preflight_update_inputs(
         project_dir, new_pose_dir, tolerate_orphan_identities=True
     )
 
@@ -1288,3 +1317,455 @@ def test_apply_live_update_failure_prints_cleanup_and_restore_instructions(
     assert "video1_pose_est_v7.h5" in stderr
     assert "jabs/annotations/video1.json" in stderr
     assert "unzip -o .backup/update_pose_test.zip" in stderr
+
+
+def _diagonal_band(n: int, *, anti: bool = False) -> np.ndarray:
+    """A thin diagonal band filling the n x n box from corner to corner."""
+    band = np.array([[0, 0], [3, 0], [n, n - 3], [n, n], [n - 3, n], [0, 3]], dtype=np.int32)
+    if anti:
+        band[:, 0] = n - band[:, 0]
+    return band
+
+
+def _make_seg_pose(boxes_by_identity, bands_by_identity):
+    """Build a v8-style pose fake with bounding boxes and one mask contour per frame."""
+    pose = _make_pose(list(boxes_by_identity), boxes_by_identity)
+    num_frames = pose.num_frames
+    seg = {
+        identity: np.broadcast_to(band, (num_frames, 1, *band.shape)).copy()
+        for identity, band in bands_by_identity.items()
+    }
+    pose.has_segmentation = True
+    pose.get_segmentation_data = lambda identity: seg[identity]
+    return pose
+
+
+def test_remap_labels_for_video_prefers_segmentation_and_reports_disagreement(capsys):
+    """Segmentation decides the identity; disagreeing boxes warn and, if asked, annotate."""
+    frames = 10
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    shifted_box = np.array([[[2.0, 2.0], [42.0, 42.0]]] * frames)
+    # destination identity 1 has exactly the source's box but lies along the other
+    # diagonal; identity 0 has the source's mask with a slightly offset box
+    source_pose = _make_seg_pose({0: box}, {0: _diagonal_band(40)})
+    dest_pose = _make_seg_pose(
+        {0: shifted_box, 1: box},
+        {0: _diagonal_band(40), 1: _diagonal_band(40, anti=True)},
+    )
+
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(2, 6)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    assert (success_count, skipped_count) == (1, 0)
+    saved = label_dest_project.save_annotations.call_args[0][0]
+    walk_0 = saved.get_track_labels("0", "walk").get_labels()
+    assert np.all(walk_0[2:7] == saved.get_track_labels("0", "walk").Label.BEHAVIOR)
+    assert "1" not in {identity for identity, _, _ in saved.iter_identity_behavior_labels()}
+
+    stderr = capsys.readouterr().err
+    assert "segmentation and bounding boxes disagree" in stderr
+    [annotation] = saved.timeline_annotations.serialize()
+    assert annotation["tag"] == "remap-metric-disagreement"
+    assert is_valid_tag(annotation["tag"])
+    assert (annotation["start"], annotation["end"]) == (2, 6)
+
+
+def test_remap_labels_for_video_match_by_bbox_keeps_box_only_choice():
+    """--match-by bbox assigns the block by bounding boxes alone."""
+    frames = 10
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    shifted_box = np.array([[[2.0, 2.0], [42.0, 42.0]]] * frames)
+    source_pose = _make_seg_pose({0: box}, {0: _diagonal_band(40)})
+    dest_pose = _make_seg_pose(
+        {0: shifted_box, 1: box},
+        {0: _diagonal_band(40), 1: _diagonal_band(40, anti=True)},
+    )
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(2, 6)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        match_settings=MatchSettings(match_by=MatchMetric.BBOX),
+    )
+
+    saved = label_dest_project.save_annotations.call_args[0][0]
+    assert {identity for identity, _, _ in saved.iter_identity_behavior_labels()} == {"1"}
+
+
+def test_remap_labels_for_video_splits_block_at_identity_handoff(capsys):
+    """A labeled block is split when the destination hands the animal to a new identity."""
+    frames = 10
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    absent = np.full_like(box, np.nan)
+    band = _diagonal_band(40)
+    source_pose = _make_seg_pose({0: box}, {0: band})
+    dest_pose = _make_seg_pose(
+        {
+            1: np.where(np.arange(frames)[:, None, None] < 5, box, absent),
+            2: np.where(np.arange(frames)[:, None, None] >= 5, box, absent),
+        },
+        {1: band, 2: band},
+    )
+    seg = {
+        1: np.where(np.arange(frames)[:, None, None, None] < 5, band, -1).astype(np.int32),
+        2: np.where(np.arange(frames)[:, None, None, None] >= 5, band, -1).astype(np.int32),
+    }
+    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.identities = [1, 2]
+
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(1, 8)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    assert (success_count, skipped_count) == (2, 0)
+    saved = label_dest_project.save_annotations.call_args[0][0]
+    behavior = saved.get_track_labels("1", "walk").Label.BEHAVIOR
+    assert np.flatnonzero(
+        saved.get_track_labels("1", "walk").get_labels() == behavior
+    ).tolist() == [1, 2, 3, 4]
+    assert np.flatnonzero(
+        saved.get_track_labels("2", "walk").get_labels() == behavior
+    ).tolist() == [5, 6, 7, 8]
+    assert "SPLIT:" in capsys.readouterr().out
+    [annotation] = saved.timeline_annotations.serialize()
+    assert annotation["tag"] == "remap-split"
+    assert is_valid_tag(annotation["tag"])
+    assert (annotation["start"], annotation["end"]) == (1, 8)
+
+
+def test_remap_labels_for_video_flags_ambiguous_split(capsys):
+    """A block whose best match keeps changing is warned about and tagged for review."""
+    frames, run = 24, 4  # destination alternates between identities 1 and 2 every 4 frames
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    absent = np.full_like(box, np.nan)
+    band = _diagonal_band(40)
+    owner = (np.arange(frames) // run) % 2 + 1
+    source_pose = _make_seg_pose({0: box}, {0: band})
+    dest_pose = _make_seg_pose(
+        {i: np.where((owner == i)[:, None, None], box, absent) for i in (1, 2)},
+        {1: band, 2: band},
+    )
+    seg = {
+        i: np.where((owner == i)[:, None, None, None], band, -1).astype(np.int32) for i in (1, 2)
+    }
+    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.identities = [1, 2]
+
+    source_labels = VideoLabels("video1.avi", frames)
+    source_labels.get_track_labels("0", "walk").label_behavior(0, frames - 1)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, _ = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    assert success_count == frames // run
+    assert "likely overlapping animals" in capsys.readouterr().err
+    [annotation] = label_dest_project.save_annotations.call_args[0][
+        0
+    ].timeline_annotations.serialize()
+    assert annotation["tag"] == "remap-ambiguous-split"
+    assert is_valid_tag(annotation["tag"])
+
+
+def _crossed_projects(source_labels):
+    """Projects whose destination boxes favor identity 1 while masks favor identity 0."""
+    frames = source_labels.num_frames
+    box = np.array([[[0.0, 0.0], [40.0, 40.0]]] * frames)
+    shifted_box = np.array([[[2.0, 2.0], [42.0, 42.0]]] * frames)
+    source_pose = _make_seg_pose({0: box}, {0: _diagonal_band(40)})
+    dest_pose = _make_seg_pose(
+        {0: shifted_box, 1: box},
+        {0: _diagonal_band(40), 1: _diagonal_band(40, anti=True)},
+    )
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+    return label_source_project, label_dest_project
+
+
+def test_disagreement_is_reported_even_when_the_part_is_rejected(capsys):
+    """A disagreement on a part that fails its threshold is still warned and annotated."""
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.get_track_labels("0", "walk").label_behavior(2, 6)
+    label_source_project, label_dest_project = _crossed_projects(source_labels)
+
+    success_count, skipped_count = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+        match_settings=MatchSettings(min_mask_iou=1.01),  # nothing can pass
+    )
+
+    assert (success_count, skipped_count) == (0, 1)
+    stderr = capsys.readouterr().err
+    assert "segmentation and bounding boxes disagree" in stderr
+    assert "no match accepted" in stderr
+    tags = {
+        a["tag"]
+        for a in label_dest_project.save_annotations.call_args[0][
+            0
+        ].timeline_annotations.serialize()
+    }
+    assert {"remap-metric-disagreement", "behavior-remap-failed"} <= tags
+
+
+def test_identity_annotation_disagreement_is_annotated(capsys):
+    """--annotate-failures marks disagreements on identity-scoped timeline annotations too."""
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=2,
+            end=6,
+            tag="identity_note",
+            color="#ff0000",
+            description="identity",
+            identity_index=0,
+            display_identity="id-0",
+        )
+    )
+    label_source_project, label_dest_project = _crossed_projects(source_labels)
+
+    update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    annotations = label_dest_project.save_annotations.call_args[0][
+        0
+    ].timeline_annotations.serialize()
+    by_tag = {a["tag"]: a for a in annotations}
+    assert by_tag["identity_note"]["identity"] == 0
+    assert "remap-metric-disagreement" in by_tag
+    assert "segmentation and bounding boxes disagree" in capsys.readouterr().err
+
+
+class _SerialPool:
+    """Stand-in for multiprocessing.Pool that runs the initializer and jobs in-process."""
+
+    def __init__(self, processes, initializer=None, initargs=()):
+        self.processes = processes
+        if initializer is not None:
+            initializer(*initargs)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def imap(self, func, iterable):
+        return map(func, iterable)
+
+
+def _fake_remap(printed: list[str]):
+    """A _remap_labels_for_video stand-in that prints per-video lines and returns counts."""
+
+    def remap(video, label_source_project, label_dest_project, min_iou, **kwargs):
+        printed.append(video)
+        print(f"out {video}")
+        print(f"err {video}", file=sys.stderr)
+        return len(video), 1
+
+    return remap
+
+
+def test_run_staged_label_remap_in_parallel_keeps_video_order(monkeypatch, capsys):
+    """Parallel remaps print each video's output in order and add up the counts."""
+    pools = []
+
+    def make_pool(*args, **kwargs):
+        pools.append(_SerialPool(*args, **kwargs))
+        return pools[-1]
+
+    printed: list[str] = []
+    monkeypatch.setattr(update_pose, "Pool", make_pool)
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap(printed))
+    dest_project = MagicMock()
+
+    totals = update_pose._run_staged_label_remap(
+        MagicMock(),
+        dest_project,
+        0.5,
+        False,
+        False,
+        False,
+        videos=["a.avi", "bb.avi", "ccc.avi"],
+        processes=8,
+    )
+
+    assert totals == (5 + 6 + 7, 3)
+    assert pools[0].processes == 3  # never more workers than videos
+    dest_project.settings_manager.update_version.assert_called_once()
+    out = capsys.readouterr()
+    assert out.out.splitlines() == ["out a.avi", "out bb.avi", "out ccc.avi"]
+    assert out.err.splitlines() == ["err a.avi", "err bb.avi", "err ccc.avi"]
+
+
+def test_run_staged_label_remap_single_process_runs_in_this_process(monkeypatch, capsys):
+    """processes=1 remaps the videos in this process without starting a pool."""
+
+    def no_pool(*args, **kwargs):
+        raise AssertionError("no pool should be started")
+
+    printed: list[str] = []
+    monkeypatch.setattr(update_pose, "Pool", no_pool)
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap(printed))
+
+    totals = update_pose._run_staged_label_remap(
+        MagicMock(), MagicMock(), 0.5, False, False, False, videos=["a.avi", "bb.avi"], processes=1
+    )
+
+    assert totals == (5 + 6, 2)
+    assert printed == ["a.avi", "bb.avi"]
+    assert capsys.readouterr().out.splitlines() == ["out a.avi", "out bb.avi"]
+
+
+def test_remap_video_worker_returns_captured_output(monkeypatch, capsys):
+    """The worker returns what the remap printed instead of printing it."""
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap([]))
+    update_pose._init_remap_worker(
+        update_pose._RemapWorkerContext(
+            MagicMock(), MagicMock(), 0.5, False, False, False, "pose update", None
+        )
+    )
+
+    result = update_pose._remap_video_worker("a.avi")
+
+    assert (result.success, result.skipped) == (5, 1)
+    assert (result.stdout, result.stderr) == ("out a.avi\n", "err a.avi\n")
+    assert capsys.readouterr() == ("", "")
+
+
+def test_preflight_checks_pose_files_in_parallel_in_video_order(tmp_path, monkeypatch):
+    """With processes > 1, pose files are checked in a pool and handled in video order."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    videos = ["a.avi", "b.avi", "c.avi"]
+    monkeypatch.setattr(update_pose.Project, "is_valid_project_directory", lambda _p: True)
+    monkeypatch.setattr(update_pose, "_project_videos", lambda _p: videos)
+    monkeypatch.setattr(update_pose, "_validate_live_update_targets", lambda *_a: None)
+    pools = []
+
+    def make_pool(*args, **kwargs):
+        pools.append(_SerialPool(*args, **kwargs))
+        return pools[-1]
+
+    monkeypatch.setattr(update_pose, "Pool", make_pool)
+    monkeypatch.setattr(
+        update_pose,
+        "_check_video_pose_files",
+        lambda job: update_pose._VideoPoseCheck(
+            job[0], new_pose_dir / f"{job[0]}.h5", 2, 8, len(job[0]) + 1
+        ),
+    )
+
+    result = update_pose._preflight_update_inputs(project_dir, new_pose_dir, processes=4)
+
+    assert pools[0].processes == 3
+    assert result.videos == videos
+    assert list(result.replacement_pose_files) == videos
+    assert result.replacement_identity_counts == {"a.avi": 6, "b.avi": 6, "c.avi": 6}
+
+
+def test_refresh_identity_counts_uses_known_counts_without_reopening_pose_files():
+    """Known identity counts are written directly; only unknown videos are reopened."""
+    project = MagicMock()
+    project.video_manager.videos = ["a.avi", "b.avi"]
+    project.settings_manager.project_settings = {"video_files": {"a.avi": {"identities": 9}}}
+    project.load_pose_est.return_value = SimpleNamespace(num_identities=4)
+
+    update_pose._refresh_project_identity_counts(project, {"a.avi": 3})
+
+    project.load_pose_est.assert_called_once()  # only b.avi
+    saved = project.settings_manager.save_project_file.call_args[0][0]["video_files"]
+    assert saved == {"a.avi": {"identities": 3}, "b.avi": {"identities": 4}}
+
+
+def test_run_staged_label_remap_is_serial_when_videos_share_an_annotation_file(
+    monkeypatch, capsys
+):
+    """a.avi and a.mp4 share a.json, so they are remapped one at a time, in order."""
+
+    def no_pool(*args, **kwargs):
+        raise AssertionError("no pool should be started")
+
+    printed: list[str] = []
+    monkeypatch.setattr(update_pose, "Pool", no_pool)
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", _fake_remap(printed))
+
+    update_pose._run_staged_label_remap(
+        MagicMock(), MagicMock(), 0.5, False, False, False, videos=["a.avi", "a.mp4"], processes=8
+    )
+
+    assert printed == ["a.avi", "a.mp4"]
+    assert "share an annotation file" in capsys.readouterr().err

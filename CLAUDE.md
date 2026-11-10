@@ -371,10 +371,13 @@ def test_normalize_distance_zero_diameter() -> None:
 
 ### Creating a Release
 
-1. Update `version` in the relevant `pyproject.toml`
-2. Run `uv lock` to regenerate the lockfile
-3. Commit both `pyproject.toml` and `uv.lock`
-4. Merge to `main` via PR — CI automatically builds, publishes to PyPI, and creates a
+1. Update `version` in the root `pyproject.toml`
+2. Run `./dev/sync-versions.sh` to propagate the version to `packages/*`, the root's
+   `jabs-*` pins, and the `README.md` release URLs (CI's Version Sync Check fails
+   without it)
+3. Run `uv lock` to regenerate the lockfile
+4. Commit `pyproject.toml`, `packages/*/pyproject.toml`, `uv.lock`, and `README.md`
+5. Merge to `main` via PR — CI automatically builds, publishes to PyPI, and creates a
    GitHub release
 - Pre-release versions (e.g., `1.0.0a1`, `2.1.0rc1`) are auto-detected and marked
   accordingly

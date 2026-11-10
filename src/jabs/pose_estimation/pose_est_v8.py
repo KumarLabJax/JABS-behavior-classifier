@@ -24,29 +24,30 @@ class PoseEstimationV8(PoseEstimationV7):
 
         # Try to load reorganized bboxes (identity-first) from cache
         # if not able to use cached bboxes, load from source
-        if not self._load_bboxes_from_cache(cache_dir):
-            self._load_from_h5(cache_dir)
+        if not self._load_bboxes_from_cache():
+            self._load_from_h5()
 
     @property
     def format_major_version(self) -> int:
         """Returns the major version of the pose file format."""
         return 8
 
-    def _load_from_h5(self, cache_dir: Path | None) -> None:
+    def _load_from_h5(self) -> None:
         """Load bounding boxes from source HDF5 file, reorganizing by identity.
 
-        Args:
-            cache_dir: directory to use for caching reorganized pose files, or None to disable caching.
+        The reorganized boxes are written back to the pose cache file so later opens can
+        skip this transform. ``_cache_file_path()`` is None when this object was opened
+        without a cache directory, in which case nothing is written.
         """
+        cache_file_path = self._cache_file_path()
+
         with h5py.File(self._path, "r") as pose_h5:
             ds = pose_h5.get("poseest/bbox")
             if ds is None or not ds.attrs.get("bboxes_generated", False):
                 # No bounding box data
                 # Update cache to reflect absence of bboxes
-                if cache_dir is not None:
+                if cache_file_path is not None:
                     try:
-                        filename = self._path.name.replace(".h5", "_cache.h5")
-                        cache_file_path = self._cache_dir / filename
                         with h5py.File(cache_file_path, "a") as cache_h5:
                             grp = cache_h5.require_group("poseest")
                             if "bboxes" in grp:
@@ -100,9 +101,7 @@ class PoseEstimationV8(PoseEstimationV7):
             self._has_bounding_boxes = True
 
             # Write reorganized bboxes to cache for faster future loads
-            if cache_dir is not None:
-                filename = self._path.name.replace(".h5", "_cache.h5")
-                cache_file_path = self._cache_dir / filename
+            if cache_file_path is not None:
                 with h5py.File(cache_file_path, "a") as cache_h5:
                     cache_h5.attrs["cache_file_version"] = self._CACHE_FILE_VERSION
                     grp = cache_h5.require_group("poseest")
@@ -116,20 +115,19 @@ class PoseEstimationV8(PoseEstimationV7):
                     )
                     ds_out.attrs["bboxes_generated"] = True
 
-    def _load_bboxes_from_cache(self, cache_dir: Path | None) -> bool:
+    def _load_bboxes_from_cache(self) -> bool:
         """Attempt to load bounding boxes from cache.
 
-        Args:
-            cache_dir: directory to use for caching reorganized pose files, or None to disable caching.
-
         Returns:
-            True if bounding boxes were successfully loaded from cache, False otherwise.
+            True if the source pose file does not need to be read: either the cached
+            bounding boxes were loaded, or the cache records that this pose file has
+            none. False if the cache is absent, unreadable, or has no bounding box
+            dataset, in which case the caller falls back to the source file.
         """
         use_cache = False
-        if cache_dir is not None:
+        cache_file_path = self._cache_file_path()
+        if cache_file_path is not None:
             try:
-                filename = self._path.name.replace(".h5", "_cache.h5")
-                cache_file_path = self._cache_dir / filename
                 with h5py.File(cache_file_path, "r") as cache_h5:
                     if "poseest/bboxes" in cache_h5:
                         ds_cache = cache_h5["poseest/bboxes"]

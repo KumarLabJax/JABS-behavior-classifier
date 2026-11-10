@@ -10,6 +10,7 @@ from jabs.behavior_search.behavior_search_util import (
     SearchHit,
     TimelineAnnotationSearchQuery,
     _search_behaviors_gen,
+    search_behaviors,
 )
 
 
@@ -499,3 +500,93 @@ def test_timeline_annotation_search_query_none():
     project = _make_project(videos=["video1"])
     hits = list(_search_behaviors_gen(project, None))
     assert hits == []
+
+
+# --- result ordering tests ---
+
+
+def test_search_results_sorted_by_frame_before_identity() -> None:
+    """Hits are ordered by file then start frame, so a binary search by frame works.
+
+    ``SearchBarWidget`` finds the hit at the playhead with a binary search keyed only
+    on (file, frame range). Ordering by identity ahead of the frame would interleave a
+    video's hits and break "find next"/"find previous".
+    """
+    annotations = {
+        "video2": {
+            "labels": {
+                "1": {"foo": [{"start": 0, "end": 5, "present": True}]},
+            }
+        },
+        "video1": {
+            "labels": {
+                "2": {"foo": [{"start": 0, "end": 5, "present": True}]},
+                "1": {"foo": [{"start": 10, "end": 15, "present": True}]},
+            }
+        },
+    }
+    project = _make_project(videos=["video1", "video2"], annotations=annotations)
+    query = LabelBehaviorSearchQuery(behavior_label="foo", positive=True)
+
+    hits = search_behaviors(project, query)
+
+    assert [(hit.file, hit.start_frame, hit.identity) for hit in hits] == [
+        ("video1", 0, "2"),
+        ("video1", 10, "1"),
+        ("video2", 0, "1"),
+    ]
+
+
+def test_search_results_sort_identities_numerically() -> None:
+    """Identities that all parse as ints are ordered numerically, not as strings."""
+    annotations = {
+        "video1": {
+            "labels": {
+                "10": {"foo": [{"start": 0, "end": 5, "present": True}]},
+                "2": {"foo": [{"start": 0, "end": 5, "present": True}]},
+            }
+        }
+    }
+    project = _make_project(videos=["video1"], annotations=annotations)
+    query = LabelBehaviorSearchQuery(behavior_label="foo", positive=True)
+
+    hits = search_behaviors(project, query)
+
+    assert [hit.identity for hit in hits] == ["2", "10"]
+
+
+def test_search_results_sort_falls_back_to_string_identities() -> None:
+    """A non-numeric identity makes every identity sort as a string instead."""
+    annotations = {
+        "video1": {
+            "labels": {
+                "10": {"foo": [{"start": 0, "end": 5, "present": True}]},
+                "2": {"foo": [{"start": 0, "end": 5, "present": True}]},
+                "mouse": {"foo": [{"start": 0, "end": 5, "present": True}]},
+            }
+        }
+    }
+    project = _make_project(videos=["video1"], annotations=annotations)
+    query = LabelBehaviorSearchQuery(behavior_label="foo", positive=True)
+
+    hits = search_behaviors(project, query)
+
+    assert [hit.identity for hit in hits] == ["10", "2", "mouse"]
+
+
+def test_search_results_sort_handles_missing_identity() -> None:
+    """Timeline annotations without an identity sort without raising."""
+    annotations = {
+        "video1": {
+            "annotations": [
+                {"start": 10, "end": 15, "tag": "foo", "identity": 1},
+                {"start": 0, "end": 5, "tag": "foo"},
+            ]
+        }
+    }
+    project = _make_project(videos=["video1"], annotations=annotations)
+    query = TimelineAnnotationSearchQuery(tag="foo")
+
+    hits = search_behaviors(project, query)
+
+    assert [(hit.start_frame, hit.identity) for hit in hits] == [(0, None), (10, "1")]

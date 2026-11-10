@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -20,6 +21,8 @@ from .annotation_edit_dialog import AnnotationEditDialog
 
 if TYPE_CHECKING:
     from ..main_window.central_widget import CentralWidget
+
+logger = logging.getLogger(__name__)
 
 # Swatch size constant for color display
 SWATCH_SIZE = 20
@@ -144,11 +147,8 @@ class AnnotationInfoDialog(QDialog):
                     updated = dialog.get_annotation()
                     if central_widget:
                         central_widget.on_annotation_edited(original_key, updated)
-            except Exception as e:
-                print(f"Error during edit flow: {e}")
-                import traceback
-
-                traceback.print_exc()
+            except Exception:
+                logger.exception("error during annotation edit flow")
 
         # Close this dialog's modal session cleanly, then schedule the editor
         self.accept()

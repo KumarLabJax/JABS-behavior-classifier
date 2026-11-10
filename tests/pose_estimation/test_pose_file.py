@@ -286,3 +286,35 @@ def test_segmentation_data_by_identity_is_none_without_segmentation(monkeypatch)
     monkeypatch.setitem(pose._segmentation_dict, "seg_data", None)
 
     assert pose.get_segmentation_data_by_identity() is None
+
+
+@pytest.mark.parametrize(
+    ("lixit_shape", "expected"),
+    [
+        ((2, 3, 2), 3),
+        ((2, 2), 1),
+        ((0, 3, 2), 0),
+        ((0, 2), 0),
+    ],
+    ids=["three-keypoint", "one-keypoint", "empty-three-keypoint", "empty-one-keypoint"],
+)
+def test_get_points_per_lixit(tmp_path: Path, lixit_shape: tuple[int, ...], expected: int) -> None:
+    """An empty lixit dataset counts as no lixit, as it does for the v5+ readers.
+
+    Args:
+        tmp_path: Temporary directory to write the pose file copy into.
+        lixit_shape: Shape of the ``static_objects/lixit`` dataset to store.
+        expected: Keypoint count the helper should report.
+    """
+    pose_path = tmp_path / "vid_pose_est_v5.h5"
+    shutil.copy(Path(__file__).parent.parent / "data" / "sample_pose_est_v5.h5", pose_path)
+    with h5py.File(pose_path, "r+") as pose_h5:
+        pose_h5.create_dataset("static_objects/lixit", data=np.zeros(lixit_shape, dtype=np.uint16))
+
+    assert jabs.pose_estimation.get_points_per_lixit(pose_path) == expected
+
+
+def test_get_points_per_lixit_without_a_lixit(tmpdir_with_pose_files) -> None:
+    """A pose file with no lixit static object reports zero keypoints."""
+    pose_path = tmpdir_with_pose_files / "sample_pose_est_v5.h5"
+    assert jabs.pose_estimation.get_points_per_lixit(pose_path) == 0

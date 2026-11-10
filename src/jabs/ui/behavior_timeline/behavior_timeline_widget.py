@@ -596,12 +596,33 @@ class BehaviorTimelineWidget(QWidget):
             self._label_overview_widgets[idx].compact = False
             if self._combined_prediction_widgets[idx] is not None:
                 self._combined_prediction_widgets[idx].compact = False  # type: ignore[union-attr]
-            # Per-class bars are always compact regardless of identity view mode.
+                # Multi-class per-class bars are always compact regardless of identity mode.
+            else:
+                # Binary mode: the single prediction bar lives in the per-class list.
+                for pw in self._prediction_overview_widgets[idx]:
+                    pw.compact = False
 
         # Add FrameRulerWidget last
         self._layout.addWidget(self._frame_labels)
         self._frame_labels.show()
+        self._frame_labels.set_reference_bar(self._first_visible_detail_bar())
         self._update_frame_border()
+
+    def _first_visible_detail_bar(self) -> QWidget | None:
+        """Return the first detail bar shown in the current layout, if any."""
+        for frame, label_widget, combined_widget, pred_widgets in zip(
+            self._identity_frames,
+            self._label_overview_widgets,
+            self._combined_prediction_widgets,
+            self._prediction_overview_widgets,
+            strict=True,
+        ):
+            if not frame.isVisibleTo(self):
+                continue
+            for track_widget in (label_widget, combined_widget, *pred_widgets):
+                if track_widget is not None and track_widget.detail_bar.isVisibleTo(self):
+                    return track_widget.detail_bar
+        return None
 
     def _set_widget_visibility(
         self,

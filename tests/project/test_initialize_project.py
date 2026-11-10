@@ -1,9 +1,13 @@
+from types import SimpleNamespace
+from typing import NoReturn
+
 import pytest
 from click.testing import CliRunner
 
 import jabs.feature_extraction
 import jabs.scripts.initialize_project as initialize_project
 from jabs.core.enums import CacheFormat
+from jabs.feature_extraction.feature_timing import FeatureTimings, TimingStage
 
 
 def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
@@ -24,9 +28,13 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
         skip_feature_generation,
         project_dir,
         cache_format,
+        timing_report,
+        timing_top_n,
     ):
         captured.update(
             {
+                "timing_report": timing_report,
+                "timing_top_n": timing_top_n,
                 "force": force,
                 "processes": processes,
                 "window_sizes": window_sizes,
@@ -61,6 +69,10 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
             "--skip-feature-generation",
             "--cache-format",
             "hdf5",
+            "--timing-report",
+            str(tmp_path / "timing.md"),
+            "--timing-top-n",
+            "10",
             str(project_dir),
         ],
     )
@@ -75,6 +87,8 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
         "skip_feature_generation": True,
         "project_dir": project_dir,
         "cache_format": CacheFormat.HDF5,
+        "timing_report": tmp_path / "timing.md",
+        "timing_top_n": 10,
     }
 
 
@@ -94,9 +108,13 @@ def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
         skip_feature_generation,
         project_dir,
         cache_format,
+        timing_report,
+        timing_top_n,
     ):
         captured.update(
             {
+                "timing_report": timing_report,
+                "timing_top_n": timing_top_n,
                 "force": force,
                 "processes": processes,
                 "window_sizes": window_sizes,
@@ -127,6 +145,8 @@ def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
         "skip_feature_generation": False,
         "project_dir": project_dir,
         "cache_format": None,
+        "timing_report": None,
+        "timing_top_n": None,
     }
 
 
@@ -194,3 +214,216 @@ def test_jabs_init_uses_the_canonical_default_window_size():
     created with.
     """
     assert initialize_project.DEFAULT_WINDOW_SIZE == jabs.feature_extraction.DEFAULT_WINDOW_SIZE
+
+
+def test_generate_files_worker_processes_every_identity_with_one_pose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One job computes every identity in a video using a single PoseEstimation.
+
+    Per-video work that feature groups cache on the pose object (e.g. the social
+    contact graph) is only shared if every identity uses the same object. The worker
+    also must not pass a stray positional argument as ``labels``:
+    ``get_window_features`` takes ``labels`` as its second positional parameter.
+    """
+    constructed = []
+    window_calls = []
+
+    class _FakeIdentityFeatures:
+        def __init__(
+            self,
+            video: str,
+            identity: int,
+            feature_dir: str,
+            pose_est: SimpleNamespace,
+            **kwargs: object,
+        ) -> None:
+            constructed.append((identity, pose_est, kwargs["timings"]))
+            self._identity: int = identity
+
+        def get_window_features(self, *args: object, **kwargs: object) -> None:
+            window_calls.append((self._identity, args, kwargs))
+
+    monkeypatch.setattr(jabs.feature_extraction, "IdentityFeatures", _FakeIdentityFeatures)
+    hull_calls = []
+    pose_est = SimpleNamespace(identities=[0, 1], get_identity_convex_hulls=hull_calls.append)
+    loads = []
+    project = SimpleNamespace(
+        load_pose_est=lambda path: loads.append(path) or pose_est,
+        video_manager=SimpleNamespace(video_path=lambda video: video),
+        feature_dir="features",
+        get_project_defaults=dict,
+    )
+
+    result = initialize_project.generate_files_worker(
+        {
+            "project": project,
+            "video": "a.mp4",
+            "force": True,
+            "window_sizes": [2, 5],
+            "cache_format": CacheFormat.PARQUET.value,
+            "collect_timings": True,
+        }
+    )
+
+    assert loads == ["a.mp4"]
+    assert [identity for identity, _, _ in constructed] == [0, 1]
+    assert all(pose is pose_est for _, pose, _ in constructed)
+    # all identities share one timing collector, which is returned
+    assert result is not None
+    assert all(timings is result for _, _, timings in constructed)
+    assert window_calls == [
+        (identity, (w,), {"force": True}) for identity in (0, 1) for w in (2, 5)
+    ]
+    assert hull_calls == [0, 1]
+
+
+def test_generate_files_worker_without_timings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No collector is created unless timings are requested."""
+    monkeypatch.setattr(
+        jabs.feature_extraction,
+        "IdentityFeatures",
+        lambda *args, **kwargs: SimpleNamespace(get_window_features=lambda *a, **k: None),
+    )
+    pose_est = SimpleNamespace(identities=[0], get_identity_convex_hulls=lambda i: None)
+    project = SimpleNamespace(
+        load_pose_est=lambda path: pose_est,
+        video_manager=SimpleNamespace(video_path=lambda video: video),
+        feature_dir="features",
+        get_project_defaults=dict,
+    )
+
+    result = initialize_project.generate_files_worker(
+        {
+            "project": project,
+            "video": "a.mp4",
+            "force": False,
+            "window_sizes": [5],
+            "cache_format": CacheFormat.PARQUET.value,
+        }
+    )
+
+    assert result is None
+
+
+def test_jabs_init_click_rejects_top_n_without_report(tmp_path):
+    """--timing-top-n is meaningless without --timing-report."""
+    runner = CliRunner()
+    result = runner.invoke(
+        initialize_project.main, ["--timing-top-n", "5", str(tmp_path / "project")]
+    )
+
+    assert result.exit_code == 2
+    assert "--timing-top-n requires --timing-report" in result.output
+
+
+def test_jabs_init_click_rejects_invalid_top_n(tmp_path):
+    """--timing-top-n must be at least one."""
+    runner = CliRunner()
+    result = runner.invoke(
+        initialize_project.main,
+        ["--timing-report", str(tmp_path / "t.md"), "--timing-top-n", "0", str(tmp_path)],
+    )
+
+    assert result.exit_code == 2
+
+
+class _SerialPool:
+    """Stand-in for multiprocessing.Pool that runs jobs in the calling process."""
+
+    def imap_unordered(self, func, iterable):
+        """Apply ``func`` to each job in order."""
+        return map(func, iterable)
+
+
+def _fake_project(identities_per_video: dict[str, list[int]]) -> SimpleNamespace:
+    """Build the minimal project surface used by compute_project_features."""
+
+    def no_load(path: str) -> NoReturn:
+        raise AssertionError("pose files should only be opened by the workers")
+
+    return SimpleNamespace(
+        video_manager=SimpleNamespace(
+            videos=list(identities_per_video), video_path=lambda video: video
+        ),
+        load_pose_est=no_load,
+    )
+
+
+@pytest.mark.parametrize("collect_timings", [True, False])
+def test_compute_project_features_runs_one_job_per_video(monkeypatch, collect_timings):
+    """One job is submitted per video and worker timings are merged into one collector."""
+    identities_per_video = {"a.mp4": [0, 1], "b.mp4": [0]}
+    jobs = []
+
+    def fake_worker(params):
+        jobs.append(params)
+        if not params["collect_timings"]:
+            return None
+        timings = FeatureTimings()
+        num_identities = len(identities_per_video[params["video"]])
+        timings.record("base", "angles", TimingStage.PER_FRAME, float(num_identities))
+        return timings
+
+    monkeypatch.setattr(initialize_project, "generate_files_worker", fake_worker)
+    project = _fake_project(identities_per_video)
+
+    result = initialize_project.compute_project_features(
+        project, [5], False, _SerialPool(), collect_timings=collect_timings
+    )
+
+    assert [job["video"] for job in jobs] == ["a.mp4", "b.mp4"]
+    assert all(job["collect_timings"] is collect_timings for job in jobs)
+    if collect_timings:
+        (summary,) = result.summarize()
+        assert summary.total_seconds == pytest.approx(3.0)
+    else:
+        assert result is None
+
+
+@pytest.mark.parametrize("force", [True, False])
+def test_write_timing_report(tmp_path, force):
+    """The report is written as Markdown with a cache caveat only when not forced."""
+    timings = FeatureTimings()
+    timings.record("base", "angles", TimingStage.PER_FRAME, 2.0)
+    timings.record("base", "point_speeds", TimingStage.PER_FRAME, 1.0)
+    report_path = tmp_path / "timing.md"
+
+    initialize_project.write_timing_report(report_path, timings, 1, {"Project": "p"}, force)
+
+    report = report_path.read_text()
+    assert "`angles`" in report
+    assert "`point_speeds`" not in report
+    assert "- **Project:** p" in report
+    assert ("Run with `--force`" in report) is not force
+
+
+def test_run_initialize_project_ignores_report_when_skipping_features(
+    tmp_path, monkeypatch, capsys
+):
+    """A timing report is not requested from workers when features are skipped."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    class _StopAfterProject(Exception):
+        pass
+
+    def fake_project(*args, **kwargs):
+        raise _StopAfterProject
+
+    monkeypatch.setattr("jabs.project.Project", fake_project)
+
+    with pytest.raises(_StopAfterProject):
+        initialize_project.run_initialize_project(
+            force=False,
+            processes=1,
+            window_sizes=(),
+            force_pixel_distances=False,
+            metadata_path=None,
+            skip_feature_generation=True,
+            project_dir=project_dir,
+            timing_report=tmp_path / "timing.md",
+        )
+
+    assert "--timing-report is ignored" in capsys.readouterr().out
+    assert not (tmp_path / "timing.md").exists()

@@ -22,25 +22,39 @@ BEHAVIOR = int(TrackLabels.Label.BEHAVIOR)
 
 
 class _FakeTrackLabels:
-    """Stand-in for a per-identity ``TrackLabels`` returning a fixed vector."""
+    """Stand-in for a per-identity ``TrackLabels`` holding a fixed vector.
+
+    The aliasing behavior of the real class is reproduced deliberately:
+    ``get_labels`` hands out the stored array by reference while
+    ``labels_masked_to_identity`` returns a masked copy. A caller that masks
+    what ``get_labels`` returns therefore corrupts this stub's stored labels,
+    exactly as it would corrupt a project's annotations.
+    """
 
     def __init__(self, labels: np.ndarray) -> None:
-        self._labels = labels
+        self.labels = labels
 
     def get_labels(self) -> np.ndarray:
-        return self._labels.copy()
+        return self.labels
+
+    def labels_masked_to_identity(self, identity_mask: np.ndarray) -> np.ndarray:
+        masked = self.labels.copy()
+        masked[~np.asarray(identity_mask, dtype=bool)] = NONE
+        return masked
 
 
 class _FakeVideoLabels:
     """Stand-in for ``VideoLabels`` keyed by ``(identity, behavior)``."""
 
     def __init__(self, labels_by_identity: dict[str, np.ndarray]) -> None:
-        self._labels_by_identity = labels_by_identity
+        self.track_labels = {
+            identity: _FakeTrackLabels(labels) for identity, labels in labels_by_identity.items()
+        }
         self.requested: list[tuple[str, str]] = []
 
     def get_track_labels(self, identity: str, behavior: str) -> _FakeTrackLabels:
         self.requested.append((identity, behavior))
-        return _FakeTrackLabels(self._labels_by_identity[identity])
+        return self.track_labels[identity]
 
 
 class _FakePose:
@@ -214,6 +228,37 @@ def test_evaluation_excludes_frames_where_identity_is_absent(monkeypatch) -> Non
     assert evaluation is not None
     assert len(evaluation.truth) == 3
     assert evaluation.raw.tolist() == [BEHAVIOR] * 3
+
+
+def test_evaluation_does_not_mutate_stored_labels(monkeypatch) -> None:
+    """Masking to the identity must not edit the annotations it was read from.
+
+    ``TrackLabels.get_labels`` returns the stored array by reference, so
+    clearing the absent frames on it would leave the project's in-memory
+    annotations permanently missing those labels.
+    """
+    num_frames = 6
+    labels = np.array([BEHAVIOR] * num_frames, dtype=np.int8)
+    valid = np.array([True, True, True, False, False, False])
+
+    project = _FakeProject(
+        labels_by_video={"video.avi": {"0": labels}},
+        poses={"video.avi": _FakePose(num_frames, {0: valid})},
+    )
+    _patch_prediction(monkeypatch, {0: np.full(num_frames, BEHAVIOR, dtype=np.int8)})
+
+    evaluate_group_with_postprocessing(
+        classifier=object(),
+        project=project,
+        behavior="Walk",
+        members=[("video.avi", 0)],
+        pipeline=_stitching_pipeline(),
+        behavior_settings={"window_size": 5},
+        window_size=5,
+    )
+
+    stored = project.video_labels["video.avi"].track_labels["0"].labels
+    assert stored.tolist() == [BEHAVIOR] * num_frames
 
 
 def test_evaluation_spans_all_group_members_and_opens_each_pose_once(monkeypatch) -> None:

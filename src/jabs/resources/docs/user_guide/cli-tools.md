@@ -120,6 +120,7 @@ Commands:
   evaluate              Evaluate a trained JABS classifier against a densely labeled project.
   export-training       Export training data for a specified behavior and JABS project directory.
   export-video          Export a copy of a video with the JABS pose overlay drawn on every frame.
+  link-nwb-video        Link JABS pose NWB files to their source videos.
   merge                 Merge one JABS project into another.
   prune                 Prune unused videos from a JABS project directory.
   rename-behavior       Rename a behavior in a JABS project.
@@ -131,6 +132,8 @@ Commands:
 
 For full documentation of the `convert-to-nwb` command, including output modes, subjects
 and session metadata JSON formats, and NWB file structure, see [NWB Export](nwb-export.md).
+To add the videos to NWB files before uploading them to DANDI with `link-nwb-video`, see
+[Link the videos](nwb-export.md#3-link-the-videos).
 
 To get help for a specific command, run:
 
@@ -184,6 +187,7 @@ The `jabs-init` command initializes a JABS project directory and computes featur
 ```bash
 jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--processes <N>]
           [-w WINDOW_SIZE] [--cache-format {hdf5,parquet}] [--skip-feature-generation]
+          [--timing-report <report.md> [--timing-top-n <N>]]
 ```
 
 - `<project_dir>`: Path to the JABS project directory containing video and pose files.
@@ -193,6 +197,8 @@ jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--processes <N>]
 - `-w WINDOW_SIZE`: Window size(s) to pre-compute. Can be repeated (e.g. `-w 2 -w 5`). Defaults to 5 if omitted.
 - `--cache-format {hdf5,parquet}`: Feature cache storage format. If omitted, the existing project setting is preserved. New projects default to `parquet`; projects created before this option existed default to `hdf5`. Pass `--cache-format` explicitly only when you want to change or set the format — use `--force` alongside it to rewrite existing cache files in the new format.
 - `--skip-feature-generation`: Validate and initialize the project without computing features.
+- `--timing-report <report.md>`: Write a Markdown report listing how long each feature took to compute, sorted from slowest to fastest. Times are summed across all identities, worker processes, and window sizes. Features loaded from the cache are not timed, so combine with `--force` to time every feature.
+- `--timing-top-n <N>`: Only list the `N` slowest features in the timing report. Requires `--timing-report`.
 
 **Examples:**
 
@@ -205,6 +211,9 @@ jabs-init /path/to/project --metadata project_metadata.json --processes 8 -w 2 -
 
 # Migrate an existing HDF5 cache to Parquet (recomputes all features)
 jabs-init /path/to/project --cache-format parquet --force
+
+# Recompute all features and report the 10 slowest
+jabs-init /path/to/project --force --timing-report feature_timing.md --timing-top-n 10
 ```
 
 See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview and [Feature Cache Format](project-setup.md#feature-cache-format) for migration guidance.
@@ -252,14 +261,19 @@ The `jabs-cli update-pose` command updates an existing JABS project to use updat
 **Usage:**
 
 ```bash
-jabs-cli update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--skip-feature-gen] [--tolerate-orphan-identities]
+jabs-cli update-pose <project_dir> <updated_pose_dir> [--match-by {auto,segmentation,bbox}] [--min-mask-iou <FLOAT>] [--min-iou-thresh <FLOAT>] [--split-blocks | --no-split-blocks] [--min-run-frames <N>] [-p <N>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--skip-feature-gen] [--tolerate-orphan-identities]
 ```
 
 - `<project_dir>`: Path to the JABS project to update in place.
 - `<updated_pose_dir>`: Directory containing updated pose files for the project videos. For each video, the latest pose version in this directory is used. All videos must resolve to the same latest version, and that version must include bounding boxes.
-- `--min-iou-thresh <FLOAT>`: Minimum acceptable median IoU for a label remap match. Blocks below this threshold are skipped. Default: `0.5`.
-- `--verbose`: Print successful label remap assignments in addition to warnings.
-- `--annotate-failures`: Add timeline annotations to the project for blocks whose label remap fails.
+- `--match-by {auto,segmentation,bbox}`: Which score decides each label block's identity (see [Identity matching](#identity-matching-for-label-remapping)). Default: `auto`.
+- `--min-mask-iou <FLOAT>`: Minimum acceptable median segmentation mask IoU for a match decided by segmentation. Blocks below this threshold are skipped. Default: `0.5`.
+- `--min-iou-thresh <FLOAT>`: Minimum acceptable median bounding box IoU for a match decided by bounding boxes. Blocks below this threshold are skipped. Default: `0.5`.
+- `--split-blocks` / `--no-split-blocks`: Split a label block where its best-matching identity changes (default), or assign each whole block to one identity.
+- `--min-run-frames <N>`: When splitting, fold parts shorter than `N` frames into a neighboring part. Default: `3`.
+- `-p`, `--processes <N>`: Number of worker processes used to check pose files and remap videos in parallel (and, for `update-pose`, to regenerate features). Defaults to the logical CPU count; `1` processes videos one at a time. Each video's messages are printed together, in video order.
+- `--verbose`: Print successful label remap assignments, with both match scores, in addition to warnings.
+- `--annotate-failures`: Add timeline annotations to the project for blocks whose label remap fails, blocks that were split across identities, and blocks where segmentation and bounding boxes pick different identities.
 - `--drop-timeline-annotations`: Discard existing timeline annotations from the source project instead of copying or remapping them.
 - `--skip-feature-gen`: Skip automatic feature regeneration after a successful pose update.
 - `--tolerate-orphan-identities`: Continue past orphan-identity references in the live project's annotations (warn instead of erroring at preflight). Affected `(identity, behavior)` pairs are skipped during remap; all other labels are remapped normally. By default the command aborts at preflight when orphans are detected.
@@ -278,6 +292,19 @@ jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh
 
 If instead you want to import labels from another JABS project while keeping the target's pose untouched, see [`jabs-cli update-labels`](#jabs-cli-update-labels).
 
+### Identity matching for label remapping
+
+`update-pose` and `update-labels` move each block of labels (a contiguous run of behavior or not-behavior frames for one identity) to the identity in the other pose file that overlaps it best over the block's frames. Two scores are computed for every candidate identity:
+
+- **mask IoU**: the median, over frames where both identities have a segmentation mask, of the intersection over union of their filled segmentation contours.
+- **bbox IoU**: the median, over frames where both identities have a bounding box, of the intersection over union of their bounding boxes.
+
+With `--match-by auto` (the default), the mask IoU decides when both identities have masks on any frame of the block, and the bbox IoU decides otherwise. Masks follow the mouse's actual outline, so they separate animals that are close together better than bounding boxes do. `--match-by segmentation` uses only masks (blocks without masks are skipped), and `--match-by bbox` uses only bounding boxes. Each score has its own threshold: `--min-mask-iou` and `--min-iou-thresh`.
+
+**Splitting blocks.** A new pose file can hand one animal from one identity to another partway through a labeled block, for example after a segmentation failure splits one mouse into two. By default, the match is therefore made frame by frame: on each frame, every candidate identity is scored (a candidate with no mask or box on that frame scores 0), the block is split into runs where the best-scoring identity stays the same, and runs shorter than `--min-run-frames` are folded into a neighboring run so brief flickers do not fragment the block. Each run is checked against the threshold and written on its own. Split blocks are reported on a `SPLIT:` line, and with `--annotate-failures` they get a `remap-split` timeline annotation. A block split into more than 4 parts also gets a warning and, with `--annotate-failures`, a `remap-ambiguous-split` annotation instead: its best match keeps changing, which usually means overlapping animals rather than a clean identity handoff, so it is worth reviewing. Identity-scoped timeline annotations are split the same way. Use `--no-split-blocks` to assign each whole block to the single identity with the best median score.
+
+When both scores are available and choose different identities, the command warns and uses the deciding score. With `--annotate-failures`, it also adds a `remap-metric-disagreement` timeline annotation over the block so it can be reviewed. Use `--verbose` to print both scores for every match.
+
 ## jabs-cli update-labels
 
 The `jabs-cli update-labels` command is the inverse of [`update-pose`](#jabs-cli-update-pose): instead of keeping the target's labels and replacing its pose, it keeps the target's pose and replaces its labels with labels imported from another JABS project. The source project provides both the labels and the pose used for IoU-based identity matching.
@@ -285,18 +312,23 @@ The `jabs-cli update-labels` command is the inverse of [`update-pose`](#jabs-cli
 **Usage:**
 
 ```bash
-jabs-cli update-labels <project_dir> <source_project_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--tolerate-orphan-identities]
+jabs-cli update-labels <project_dir> <source_project_dir> [--match-by {auto,segmentation,bbox}] [--min-mask-iou <FLOAT>] [--min-iou-thresh <FLOAT>] [--split-blocks | --no-split-blocks] [--min-run-frames <N>] [-p <N>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--tolerate-orphan-identities]
 ```
 
 - `<project_dir>`: Path to the target JABS project whose labels will be replaced in place. The target's pose is unchanged. If `<project_dir>` is a directory of videos + pose files with no `jabs/` subdirectory, a minimal JABS project is scaffolded automatically — features are not generated, so you may want to run `jabs-init` separately afterwards.
 - `<source_project_dir>`: Path to a JABS project providing the replacement labels and the pose used for IoU matching. Must already be a valid JABS project; every source-labeled video must also exist in the target.
-- `--min-iou-thresh <FLOAT>`: Minimum acceptable median IoU for a label remap match. Blocks below this threshold are skipped. Default: `0.5`.
+- `--match-by {auto,segmentation,bbox}`: Which score decides each label block's identity (see [Identity matching](#identity-matching-for-label-remapping)). Default: `auto`.
+- `--min-mask-iou <FLOAT>`: Minimum acceptable median segmentation mask IoU for a match decided by segmentation. Blocks below this threshold are skipped. Default: `0.5`.
+- `--min-iou-thresh <FLOAT>`: Minimum acceptable median bounding box IoU for a match decided by bounding boxes. Blocks below this threshold are skipped. Default: `0.5`.
+- `--split-blocks` / `--no-split-blocks`: Split a label block where its best-matching identity changes (default), or assign each whole block to one identity.
+- `--min-run-frames <N>`: When splitting, fold parts shorter than `N` frames into a neighboring part. Default: `3`.
+- `-p`, `--processes <N>`: Number of worker processes used to remap videos in parallel. Defaults to the logical CPU count; `1` remaps videos one at a time. Each video's messages are printed together, in video order.
 - `--verbose`: Print successful label remap assignments in addition to warnings.
 - `--annotate-failures`: Add timeline annotations to the target for blocks whose label remap fails. Annotations use the same `behavior-remap-failed` / `not-behavior-remap-failed` tags as `update-pose`; the description text distinguishes the originating operation.
 - `--drop-timeline-annotations`: Discard source timeline annotations instead of copying or remapping them.
 - `--tolerate-orphan-identities`: Continue past orphan-identity references in the source's annotations (warn instead of erroring at preflight). Affected `(identity, behavior)` pairs are skipped during remap; all other labels are imported normally. By default the command aborts at preflight when orphans are detected.
 
-Before modifying the project, the command validates both inputs, runs the label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup` covering `jabs/project.json`, annotations, and predictions (pose files are not touched). Labels are processed block by block, matched by median bbox IoU between the source pose and the target's existing pose, and written to the staged destination label track. By default, source timeline annotations are also carried forward and remapped the same way as label blocks; use `--drop-timeline-annotations` to discard them.
+Before modifying the project, the command validates both inputs, runs the label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup` covering `jabs/project.json`, annotations, and predictions (pose files are not touched). Labels are processed block by block, matched to the target's existing identities as described in [Identity matching](#identity-matching-for-label-remapping), and written to the staged destination label track. By default, source timeline annotations are also carried forward and remapped the same way as label blocks; use `--drop-timeline-annotations` to discard them.
 
 Existing target labels for videos that the source does not cover are left untouched (per-video replace). Behaviors named in the source's `project.json` but not present in the target are merged into the target's `project.json` so the imported labels are usable in the GUI; behaviors already configured in the target keep their existing settings.
 
@@ -361,7 +393,7 @@ jabs-cli sample-frames --behavior <label> \
 ```
 
 - `<project_dir>`: Path to the JABS project directory.
-- `--behavior`: Behavior label name to sample frames for (required). Must match a behavior defined in the project.
+- `--behavior`: Behavior label name to sample frames for (required). Must match a behavior defined in the project. In multi-class projects, `None` samples frames labeled as the None (background) class.
 - `--num-frames N`: Sample a total of N frames distributed uniformly at random across all labeled bouts in the project. Mutually exclusive with `--frames-per-bout`.
 - `--frames-per-bout N`: Sample up to N frames from each individual labeled bout. If a bout contains fewer than N frames, all frames in that bout are used. Mutually exclusive with `--num-frames`.
 - `--out-dir`: Directory to write PNG files. Defaults to the current working directory. Created (including intermediate directories) if it does not exist.
@@ -391,6 +423,9 @@ jabs-cli sample-frames --behavior walking --frames-per-bout 10 /path/to/project
 # Write frames to a specific output directory
 jabs-cli sample-frames --behavior walking --num-frames 100 \
     --out-dir /data/frames /path/to/project
+
+# Sample None (background) frames from a multi-class project
+jabs-cli sample-frames --behavior None --num-frames 200 /path/to/project
 ```
 
 ## jabs-cli sample-pose-intervals

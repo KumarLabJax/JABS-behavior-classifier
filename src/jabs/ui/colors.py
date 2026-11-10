@@ -129,3 +129,28 @@ def build_multiclass_color_lut(
         *[color_map[name].getRgb() for name in behavior_names],
     ]
     return np.array(entries, dtype=np.uint8)
+
+
+# RGBA lookup table for binary (behavior vs. not-behavior) label and prediction
+# tracks, shared by the timeline widgets so there is one definition of it.
+#
+# The layout is the first three rows of the multi-class table produced by
+# :func:`build_multiclass_color_lut`, with the single behavior occupying the one
+# per-behavior slot:
+#
+# - Index 0: unlabeled / no prediction / animal absent (``BACKGROUND_COLOR`` gray)
+# - Index 1: not-behavior (``NOT_BEHAVIOR_COLOR`` blue)
+# - Index 2: behavior (``BEHAVIOR_COLOR`` orange)
+#
+# Raw ``TrackLabels.Label`` and prediction values run from -1, so callers shift
+# them by +1 to index this table; see
+# :func:`jabs.ui.behavior_timeline.track_widgets.timeline_util.track_labels_to_lut_indices`.
+BINARY_LABEL_COLOR_LUT: np.ndarray = np.array(
+    [
+        BACKGROUND_COLOR.getRgb(),
+        NOT_BEHAVIOR_COLOR.getRgb(),
+        BEHAVIOR_COLOR.getRgb(),
+    ],
+    dtype=np.uint8,
+)
+BINARY_LABEL_COLOR_LUT.flags.writeable = False

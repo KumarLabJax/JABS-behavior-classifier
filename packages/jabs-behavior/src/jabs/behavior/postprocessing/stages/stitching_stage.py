@@ -16,13 +16,7 @@ class BoutStitchingStage(PostprocessingStage):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        if "max_stitch_gap" not in kwargs:
-            raise ValueError("max_stitch_gap must be specified for BoutStitchingStage.")
-
-        if not isinstance(kwargs["max_stitch_gap"], int) or kwargs["max_stitch_gap"] <= 0:
-            raise ValueError("max_stitch_gap must be a positive integer.")
-
-        self._config["max_stitch_gap"] = kwargs["max_stitch_gap"]
+        self._config["max_stitch_gap"] = self._require_positive_int(kwargs, "max_stitch_gap")
 
     def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply stitching to the predictions.
@@ -68,7 +62,7 @@ class BoutStitchingStage(PostprocessingStage):
         """Get help information about the stage.
 
         Returns:
-            FilterHelp: Dataclass with a general description and kwarg descriptions.
+            StageHelp: Dataclass with a general description and kwarg descriptions.
         """
         return StageHelp(
             description="Combines predictions that are separated by short gaps.",

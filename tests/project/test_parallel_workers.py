@@ -5,12 +5,14 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import h5py
 import numpy as np
 import pytest
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
 from jabs.io.annotations import LocalAnnotationStore, write_document
+from jabs.pose_estimation.pose_est_v5 import PoseEstimationV5
 from jabs.project.parallel_workers import (
     VideoScanJobSpec,
     VideoScanResult,
@@ -293,6 +295,74 @@ def test_scan_video_metadata_ignores_static_objects_before_v5(tmp_path: Path) ->
 
     assert result["static_objects"] == []
     assert result["lixit_keypoints"] == 0
+
+
+def _v5_pose_with_lixit(tmp_path: Path, lixit: np.ndarray) -> Path:
+    """Copy the v5 sample pose file and give it a ``lixit`` static object.
+
+    Args:
+        tmp_path: Directory to write the copy into.
+        lixit: Array to store as the ``static_objects/lixit`` dataset.
+
+    Returns:
+        Path to the copied pose file.
+    """
+    pose_path = tmp_path / "vid_pose_est_v5.h5"
+    shutil.copy(DATA_DIR / "sample_pose_est_v5.h5", pose_path)
+    with h5py.File(pose_path, "r+") as pose_h5:
+        pose_h5.create_dataset("static_objects/lixit", data=lixit)
+    return pose_path
+
+
+@pytest.mark.parametrize(
+    ("lixit", "has_lixit", "lixit_keypoints"),
+    [
+        (np.zeros((2, 3, 2), dtype=np.uint16), True, 3),
+        (np.zeros((2, 2), dtype=np.uint16), True, 1),
+        (np.zeros((0, 3, 2), dtype=np.uint16), False, 0),
+        (np.zeros((0, 2), dtype=np.uint16), False, 0),
+    ],
+    ids=["three-keypoint", "one-keypoint", "empty-three-keypoint", "empty-one-keypoint"],
+)
+def test_scan_video_metadata_lixit_matches_the_pose_reader(
+    tmp_path: Path,
+    lixit: np.ndarray,
+    has_lixit: bool,
+    lixit_keypoints: int,
+) -> None:
+    """An empty lixit dataset is reported the way PoseEstimationV5 treats it: absent.
+
+    A project whose scan reported a lixit the pose reader drops would offer the
+    lixit landmark features in the GUI while LandmarkFeatureGroup never enables
+    them, so the two have to agree.
+
+    Args:
+        tmp_path: Temporary project directory.
+        lixit: Lixit dataset to store in the pose file.
+        has_lixit: Whether "lixit" should be reported as a static object.
+        lixit_keypoints: Lixit keypoint count the scan should report.
+    """
+    video_path = tmp_path / "vid.mp4"
+    video_path.touch()
+    pose_path = _v5_pose_with_lixit(tmp_path, lixit)
+
+    job = VideoScanJobSpec(
+        video="vid.mp4",
+        video_path=video_path,
+        pose_path=pose_path,
+        pose_major_version=5,
+        scan_frame_counts=False,
+    )
+    result = scan_video_metadata(job)
+
+    assert ("lixit" in result["static_objects"]) is has_lixit
+    assert "corners" in result["static_objects"]  # the sample file's own static object
+    assert result["lixit_keypoints"] == lixit_keypoints
+
+    # the pose reader is the authority the scan has to agree with
+    pose_est = PoseEstimationV5(pose_path)
+    assert ("lixit" in pose_est.static_objects) is has_lixit
+    assert pose_est.num_lixit_keypoints == lixit_keypoints
 
 
 # ---------------------------------------------------------------------------

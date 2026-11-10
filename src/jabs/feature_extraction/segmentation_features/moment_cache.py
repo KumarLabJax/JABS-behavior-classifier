@@ -1,7 +1,40 @@
+from math import comb
+
 import cv2
 import numpy as np
+import numpy.typing as npt
 
 from jabs.pose_estimation import PoseEstimationV6
+
+# raw (spatial) moment keys returned by cv2.moments; these depend on the image origin,
+# unlike the central (mu) and normalized (nu) moments
+_RAW_MOMENT_KEYS = ("m00", "m10", "m01", "m20", "m11", "m02", "m30", "m21", "m12", "m03")
+
+
+def _shift_raw_moments(moments: dict[str, float], x0: float, y0: float) -> dict[str, float]:
+    """Translate raw image moments computed with the origin at (x0, y0) back to (0, 0).
+
+    For pixel coordinates x = x' + x0 and y = y' + y0, the binomial expansion gives
+    m_pq = sum_i sum_j C(p, i) C(q, j) x0^(p-i) y0^(q-j) m'_ij. Central and normalized
+    moments are translation invariant and are returned unchanged.
+
+    Args:
+        moments: Moments from cv2.moments for an image whose (0, 0) pixel is at (x0, y0).
+        x0: X offset of the image origin.
+        y0: Y offset of the image origin.
+
+    Returns:
+        Copy of ``moments`` with the raw moments relative to (0, 0).
+    """
+    shifted = dict(moments)
+    for key in _RAW_MOMENT_KEYS:
+        p, q = int(key[1]), int(key[2])
+        shifted[key] = sum(
+            comb(p, i) * comb(q, j) * x0 ** (p - i) * y0 ** (q - j) * moments[f"m{i}{j}"]
+            for i in range(p + 1)
+            for j in range(q + 1)
+        )
+    return shifted
 
 
 class MomentInfo:
@@ -24,6 +57,7 @@ class MomentInfo:
         self._moment_conversion_powers = [
             self.get_pixel_power(feature_name) for feature_name in self._moment_keys
         ]
+        moment_scale = self._moment_scale_factors(pixel_scale, self._moment_conversion_powers)
         self._poses = poses
         self._pixel_scale = pixel_scale
         self._moments = np.zeros(
@@ -42,14 +76,36 @@ class MomentInfo:
         for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
             if len(contours) < 1:
-                moments = dict.fromkeys(self._moment_keys, np.nan)
-            else:
-                moments = self.calculate_moments(contours)
-            # Update the output array with the desired moments for each frame.
-            for j in range(len(self._moment_keys)):
-                self._moments[frame, j] = moments[self._moment_keys[j]] * np.power(
-                    self._pixel_scale, self._moment_conversion_powers[j]
-                )
+                self._moments[frame, :] = np.nan
+                continue
+            moments = self.calculate_moments(contours)
+            self._moments[frame, :] = (
+                np.array([moments[key] for key in self._moment_keys], dtype=moment_scale.dtype)
+                * moment_scale
+            )
+
+    @staticmethod
+    def _moment_scale_factors(pixel_scale: float, powers: list[int]) -> npt.NDArray[np.floating]:
+        """Per-moment factors converting moments from pixel to cm units.
+
+        Moments used to be scaled one value at a time, as a Python float times
+        ``np.power(pixel_scale, power)``, so the precision followed the type of
+        ``pixel_scale``: float32 arithmetic for ``np.float32`` (as read from pose files),
+        float64 for a Python float, ``np.float64``, or an integer. The returned dtype
+        reproduces that, so multiplying the moments (cast to the same dtype) by these
+        factors gives the original values.
+
+        Args:
+            pixel_scale: Scale factor to convert pixel distances to cm.
+            powers: Pixel power of each moment.
+
+        Returns:
+            ``pixel_scale ** power`` for each moment, in the dtype of the original
+            ``python_float * np.power(pixel_scale, power)``.
+        """
+        factors = [np.power(pixel_scale, power) for power in powers]
+        dtype = np.result_type(1.0 * factors[0])
+        return np.array(factors, dtype=dtype)
 
     def get_pixel_power(self, key):
         """get the degree that pixels influence this image moment
@@ -77,6 +133,17 @@ class MomentInfo:
         """
         key_idx = self._moment_keys.index(key)
         return self._moments[frame, key_idx]
+
+    def get_moment_array(self, key: str) -> npt.NDArray[np.float32]:
+        """retrieve one moment for every frame
+
+        Args:
+            key: key of moment data to retrieve
+
+        Returns:
+            moment values with shape (n_frames,); NaN where there is no segmentation
+        """
+        return self._moments[:, self._moment_keys.index(key)]
 
     def get_all_moments(self, frame):
         """retrieve moments for a frame
@@ -139,18 +206,25 @@ class MomentInfo:
         return [self.trim_contour(x) for x in arr if np.any(x != -1)]
 
     @staticmethod
-    def calculate_moments(contour_list):
-        """Renders the contour data onto a frame to calculate the moments
+    def calculate_moments(contour_list: list[npt.NDArray[np.int32]]) -> dict[str, float]:
+        """Renders the contour data onto an image to calculate the moments
+
+        The contours are filled into an image covering only their bounding box, rather
+        than the whole frame, and the raw moments are then translated back to frame
+        coordinates. This gives the same pixels as rendering onto a full frame while
+        scanning far fewer of them.
 
         Args:
             contour_list: list of polygons, the format opencv returns
                 from cv2.findContours
 
         Returns:
-            dict of cv2.moments image moments
+            dict of cv2.moments image moments, in frame pixel coordinates
         """
-        frame_size = np.max(np.concatenate(contour_list)) + 1
-        # Render the contours on a frame
-        render = np.zeros([frame_size, frame_size, 1], dtype=np.uint8)
-        _ = cv2.drawContours(render, contour_list, -1, [1], -1)
-        return cv2.moments(render)
+        points = np.concatenate(contour_list).reshape(-1, 2)
+        x0, y0 = points.min(axis=0)
+        width, height = points.max(axis=0) - (x0, y0) + 1
+        # Render the contours, translated so the bounding box starts at (0, 0)
+        render = np.zeros((int(height), int(width), 1), dtype=np.uint8)
+        _ = cv2.drawContours(render, contour_list, -1, [1], -1, offset=(-int(x0), -int(y0)))
+        return _shift_raw_moments(cv2.moments(render), float(x0), float(y0))

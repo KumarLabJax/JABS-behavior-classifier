@@ -1,4 +1,4 @@
-import sys
+import logging
 import typing
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +8,8 @@ import numpy as np
 from jabs import io
 from jabs.core.types.prediction import BehaviorPrediction, ClassifierMetadata
 from jabs.version import version_str
+
+logger = logging.getLogger(__name__)
 
 MULTICLASS_PREDICTION_KEY = "__multiclass__"
 
@@ -184,13 +186,19 @@ class PredictionManager:
             # invalid/corrupted prediction record (e.g. a schema mismatch such as
             # class_names present with 2-D probabilities); treat as no usable
             # predictions rather than propagating the load error
-            print(f"unable to open saved inferences for {video}: {e}", file=sys.stderr)
+            logger.error("unable to open saved inferences for %s: %s", video, e, exc_info=True)
             return {}, {}, {}, None
 
         if nident is None or nident <= 0:
             nident = pred.predicted_class.shape[0]
         if pred.predicted_class.shape[0] != nident or pred.probabilities.shape[0] != nident:
-            print(f"unable to open saved inferences for {video}", file=sys.stderr)
+            logger.error(
+                "unable to open saved inferences for %s: expected %d identities, "
+                "but the stored record has %d",
+                video,
+                nident,
+                pred.predicted_class.shape[0],
+            )
             return {}, {}, {}, None
 
         # Guard against reading a record in the wrong mode: multi-class records

@@ -1,5 +1,7 @@
 """Unit tests for the sliding window statistics helpers."""
 
+import warnings
+
 import numpy as np
 import pytest
 from scipy import stats
@@ -29,27 +31,6 @@ def test_pad_sliding_window_uses_constant_padding(pad_const: float) -> None:
     view = window_stats.pad_sliding_window(values, window=1, pad_const=pad_const)
     np.testing.assert_array_equal(view[0], [pad_const, 3.0, 4.0])
     np.testing.assert_array_equal(view[-1], [4.0, 5.0, pad_const])
-
-
-def test_get_window_masks_marks_pad_values_invalid() -> None:
-    """Values equal to the pad constant are False, real values are True."""
-    view = np.array([[np.nan, 1.0, 2.0], [1.0, 2.0, 3.0]])
-    masks = window_stats.get_window_masks(view, np.nan)
-    np.testing.assert_array_equal(masks, [[False, True, True], [True, True, True]])
-
-
-def test_get_window_masks_non_nan_constant() -> None:
-    """A non-nan pad constant is compared by equality."""
-    view = np.array([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]])
-    masks = window_stats.get_window_masks(view, 0.0)
-    np.testing.assert_array_equal(masks, [[False, True, True], [True, True, True]])
-
-
-def test_get_window_masks_all_pad_row_is_all_valid() -> None:
-    """A row consisting entirely of pad values is left fully unmasked."""
-    view = np.array([[np.nan, np.nan, np.nan], [1.0, np.nan, 3.0]])
-    masks = window_stats.get_window_masks(view, np.nan)
-    np.testing.assert_array_equal(masks, [[True, True, True], [True, False, True]])
 
 
 def test_window_mean_ignores_padding() -> None:
@@ -126,3 +107,91 @@ def test_np_kurtosis_is_pearson_not_fisher() -> None:
         result, stats.kurtosis(view, axis=1, nan_policy="omit", fisher=False)
     )
     np.testing.assert_allclose(result - 3.0, stats.kurtosis(view, axis=1, nan_policy="omit"))
+
+
+def _sliding_window_oracle(values: np.ndarray, window: int, op) -> np.ndarray:
+    """Apply ``op`` to the non-nan values of each (edge-clipped) window, one frame at a time."""
+    result = np.full(values.shape, np.nan)
+    for i in range(values.size):
+        in_window = values[max(0, i - window) : i + window + 1]
+        valid = in_window[~np.isnan(in_window)]
+        if valid.size:
+            result[i] = op(valid)
+    return result
+
+
+def _window_test_series() -> dict[str, np.ndarray]:
+    """Series exercising nan gaps, nan runs wider than the window, constants and all-nan."""
+    rng = np.random.default_rng(seed=7)
+    n = 120
+    scattered_nan = rng.normal(0.0, 20.0, n)
+    scattered_nan[rng.random(n) < 0.2] = np.nan
+    nan_runs = rng.normal(0.0, 20.0, n)
+    nan_runs[:15] = np.nan
+    nan_runs[60:80] = np.nan
+    mostly_zero = np.zeros(n)
+    mostly_zero[40:55] = rng.random(15)
+    return {
+        "scattered_nan": scattered_nan,
+        "nan_runs": nan_runs,
+        "constant": np.full(n, 3.0),
+        "all_nan": np.full(n, np.nan),
+        "mostly_zero": mostly_zero,
+    }
+
+
+@pytest.mark.parametrize("window", [1, 3, 10], ids=["w1", "w3", "w10"])
+@pytest.mark.parametrize("case", list(_window_test_series()))
+@pytest.mark.parametrize(
+    ("op_name", "oracle_op"),
+    [
+        ("window_median", np.median),
+        ("window_min", np.min),
+        ("window_max", np.max),
+        ("window_skew", stats.skew),
+        ("window_kurtosis", lambda x: stats.kurtosis(x, fisher=False)),
+    ],
+)
+def test_window_ops_match_per_window_reference(
+    op_name: str, oracle_op, case: str, window: int
+) -> None:
+    """Each sliding window op agrees with applying the numpy/scipy op to one window at a time."""
+    values = _window_test_series()[case]
+
+    with np.errstate(all="ignore"):
+        result = getattr(window_stats, op_name)(values, window)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        expected = _sliding_window_oracle(values, window, oracle_op)
+
+    np.testing.assert_allclose(result, expected, rtol=1e-9, atol=1e-9, equal_nan=True)
+
+
+def _infinity_test_series() -> dict[str, np.ndarray]:
+    """Series with infinities, which produce nan via inf - inf when windows are centered."""
+    rng = np.random.default_rng(seed=11)
+    mixed = rng.normal(0.0, 20.0, 60)
+    mixed[[5, 17, 30]] = np.inf
+    mixed[[22, 41]] = -np.inf
+    with_nan = mixed.copy()
+    with_nan[rng.random(60) < 0.2] = np.nan
+    return {"all_inf": np.full(60, np.inf), "mixed_inf": mixed, "inf_and_nan": with_nan}
+
+
+@pytest.mark.parametrize("window", [1, 3, 10], ids=["w1", "w3", "w10"])
+@pytest.mark.parametrize("case", list(_window_test_series()) + list(_infinity_test_series()))
+def test_window_std_skew_kurtosis_matches_separate_ops(case: str, window: int) -> None:
+    """The combined op is bit-identical to running the three window ops separately."""
+    values = {**_window_test_series(), **_infinity_test_series()}[case]
+
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        std_dev, skew, kurtosis = window_stats.window_std_skew_kurtosis(values, window)
+        expected = (
+            window_stats.window_std_dev(values, window),
+            window_stats.window_skew(values, window),
+            window_stats.window_kurtosis(values, window),
+        )
+
+    for actual, want in zip((std_dev, skew, kurtosis), expected, strict=True):
+        np.testing.assert_array_equal(actual, want)

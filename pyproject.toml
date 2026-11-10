@@ -1,6 +1,6 @@
 [project]
 name = "jabs-behavior-classifier"
-version = "0.47.1"
+version = "0.51.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
@@ -15,9 +15,9 @@ authors = [
 ]
 
 dependencies = [
-  "jabs-behavior==0.47.1",
-  "jabs-core==0.47.1",
-  "jabs-io==0.47.1",
+  "jabs-behavior==0.51.0",
+  "jabs-core==0.51.0",
+  "jabs-io==0.51.0",
   "h5py>=3.10.0,<4.0.0",
   "markdown2>=2.5.1,<3.0.0",
   "numpy>=2.0.0,<3.0.0",
@@ -54,23 +54,33 @@ mlflow = ["mlflow>=3.8.1"]
 # the fix durable: a later `uv lock` cannot resolve back down to a vulnerable
 # version.
 #
-# Two known-vulnerable packages are deliberately not floored here, because both
-# are capped by a dependency we do not want this file to move:
-#
-#   - cryptography: mlflow 3.15.2 requires `cryptography<50,>=43.0.0`, so 49.x
-#     is the highest reachable version while the optional `mlflow` extra
-#     exists. Raise to >=50 once mlflow relaxes its cap.
-#   - setuptools: torch 2.11.0 requires `setuptools<82`, so a >=83 floor would
-#     force torch/torchvision to upgrade. That belongs with the jabs-vision
-#     torch bump, not here. setuptools is build-time only and is not installed
-#     in the runtime environment.
+# pillow and filelock are floored only on Python 3.11+: their patched releases
+# (pillow 13.0.0, filelock 4.2.1) dropped Python 3.10, so the 3.10 fork stays on
+# the newest release that still supports it. Remove the markers when 3.10
+# support is dropped.
 constraint-dependencies = [
-  "aiohttp>=3.14.3",
-  "cryptography>=49.0.0",
-  "gitpython>=3.1.58",
+  "aiohttp>=3.14.4",
+  "anyio>=4.14.2",
+  "certifi>=2026.10.18",
+  "cryptography>=50.0.0",
+  "filelock>=4.2.1; python_full_version >= '3.11'",
+  "fsspec>=2026.6.0",
+  "gitpython>=3.2.1",
+  "graphql-core>=3.2.12",
+  "hydra-core>=1.3.8",
+  "mako>=1.4.2",
+  "mlflow>=3.17.2",
+  "multidict>=6.9.1",
+  "opentelemetry-api>=1.45.1",
   "pillow>=12.3.0",
-  "pyasn1>=0.6.4",
+  "pillow>=13.0.0; python_full_version >= '3.11'",
+  "pyasn1>=0.6.5",
+  "setuptools>=84.1.0",
   "sqlparse>=0.6.0",
+  "torch>=2.13.0",
+  "urllib3>=2.8.0",
+  "virtualenv>=21.14.9",
+  "werkzeug>=3.1.9",
 ]
 
 [tool.uv.sources]
@@ -108,6 +118,7 @@ jabs = "jabs.scripts.gui_entrypoint:main"
 "jabs-init" = "jabs.scripts.initialize_project:main"
 "jabs-features" = "jabs.scripts.generate_features:main"
 "jabs-cli" = "jabs.scripts.cli:main"
+"jabs-viewer" = "jabs.scripts.viewer_entrypoint:main"
 
 [tool.uv.workspace]
 members = ["packages/*"]

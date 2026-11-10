@@ -17,8 +17,12 @@ predictions. If a failure occurs after the final live apply begins, the script
 prints the backup path plus cleanup and manual restore instructions instead of
 restoring automatically.
 
-Labels are processed block by block, matched by median bbox IoU, and written
-directly to the destination label track.
+Labels are processed block by block and written directly to the destination
+label track. Each block goes to the destination identity it overlaps best: by
+segmentation mask IoU when both identities have masks, otherwise by bounding
+box IoU (``--match-by`` changes this). Blocks are matched frame by frame and
+split where the best-matching identity changes (``--no-split-blocks`` turns
+this off).
 Timeline annotations are also carried forward: video-level annotations are
 copied as-is, and identity-scoped annotations are remapped by the same
 interval-matching logic. If ``--drop-timeline-annotations`` is provided,
@@ -36,6 +40,8 @@ Example:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shlex
@@ -43,15 +49,19 @@ import shutil
 import sys
 import tempfile
 import zipfile
+from dataclasses import dataclass, replace
 from datetime import datetime
+from multiprocessing import Pool
 from pathlib import Path
+from typing import NamedTuple
 
 import click
 import h5py
 import numpy as np
 
 from jabs.core.utils import copy_file_atomic
-from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
+from jabs.io.annotations import annotation_filename
+from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
@@ -61,6 +71,15 @@ from jabs.scripts.initialize_project import (
     validate_window_sizes,
 )
 from jabs.video_reader import VideoReader
+
+from .label_remap_matching import (
+    IdentityMatch,
+    IdentityMatcher,
+    MatchMetric,
+    MatchSettings,
+    RunMatch,
+)
+from .label_remap_options import identity_match_options, match_settings_from_options
 
 
 def _project_videos(project_dir: Path) -> list[str]:
@@ -88,120 +107,6 @@ def _require_writable_existing_path(path: Path, description: str) -> None:
     """Raise if an existing file or directory is not writable."""
     if path.exists() and not os.access(path, os.W_OK):
         raise PermissionError(f"{description} is not writable: {path}")
-
-
-def _bboxes_for_identity(pose: PoseEstimation, identity: int) -> np.ndarray | None:
-    """Return per-frame bboxes for an identity as [x1,y1,x2,y2], or None if unavailable."""
-    bbox_getter = getattr(pose, "get_bounding_boxes", None)
-    if bbox_getter is None or not getattr(pose, "has_bounding_boxes", False):
-        return None
-    bboxes = bbox_getter(identity)
-    if bboxes is None:
-        return None
-    # flatten [frames,2,2] -> [frames,4]
-    return bboxes.reshape(bboxes.shape[0], 4)
-
-
-def _bbox_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
-    """Compute IoU for two boxes shaped (4,) = [x1,y1,x2,y2]."""
-    x1 = max(box_a[0], box_b[0])
-    y1 = max(box_a[1], box_b[1])
-    x2 = min(box_a[2], box_b[2])
-    y2 = min(box_a[3], box_b[3])
-    inter_w = x2 - x1
-    inter_h = y2 - y1
-    if inter_w <= 0 or inter_h <= 0:
-        return 0.0
-    inter = inter_w * inter_h
-    area_a = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
-    area_b = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
-    if area_a <= 0 or area_b <= 0:
-        return 0.0
-    return inter / (area_a + area_b - inter)
-
-
-def _interval_cost(
-    src_pose: PoseEstimation,
-    dst_pose: PoseEstimation,
-    src_identity: int,
-    dst_identity: int,
-    start: int,
-    end: int,
-) -> float:
-    """Compute the median bbox IoU across one source-identity/destination-identity interval.
-
-    Only frames where both boxes are finite and have positive area contribute to
-    the score. If no such frames exist, returns 0.0.
-
-    Args:
-        src_pose: Source pose object.
-        dst_pose: Destination pose object.
-        src_identity: Source identity index.
-        dst_identity: Destination identity index.
-        start: Inclusive start frame for the interval.
-        end: Inclusive end frame for the interval.
-
-    Returns:
-        Median IoU across valid overlapping boxes in the interval, or ``0.0`` if none exist.
-    """
-    src_b = _bboxes_for_identity(src_pose, src_identity)
-    dst_b = _bboxes_for_identity(dst_pose, dst_identity)
-    if src_b is None or dst_b is None:
-        return 0.0
-
-    src_slice = src_b[start : end + 1]
-    dst_slice = dst_b[start : end + 1]
-
-    # valid boxes: finite coords and positive width/height
-    def _valid_boxes(boxes):
-        finite = np.isfinite(boxes).all(axis=1)
-        widths = boxes[:, 2] - boxes[:, 0]
-        heights = boxes[:, 3] - boxes[:, 1]
-        positive = (widths > 0) & (heights > 0)
-        return finite & positive
-
-    mask = _valid_boxes(src_slice) & _valid_boxes(dst_slice)
-    if not np.any(mask):
-        return 0.0
-
-    ious = [_bbox_iou(a, b) for a, b in zip(src_slice[mask], dst_slice[mask], strict=True)]
-    return float(np.median(ious)) if ious else 0.0
-
-
-def _find_best_identity(
-    src_pose: PoseEstimation,
-    dst_pose: PoseEstimation,
-    src_identity: int,
-    start: int,
-    end: int,
-) -> tuple[int | None, float]:
-    """Find the single best destination identity for one source block interval.
-
-    Destination identities are compared independently and the highest-IoU match
-    is returned. The chosen identity is not reserved, so later blocks may match
-    to the same destination identity.
-
-    Args:
-        src_pose: Source pose object.
-        dst_pose: Destination pose object.
-        src_identity: Source identity index.
-        start: Inclusive start frame for the interval.
-        end: Inclusive end frame for the interval.
-
-    Returns:
-        Tuple of ``(best_identity, best_iou)``. ``best_identity`` is ``None`` only if no
-        destination identities are available.
-    """
-    best_id: int | None = None
-    best_score = -float("inf")
-
-    for dst_id in dst_pose.identities:
-        iou = _interval_cost(src_pose, dst_pose, src_identity, dst_id, start, end)
-        if iou > best_score:
-            best_score = iou
-            best_id = dst_id
-
-    return best_id, best_score
 
 
 def _warn_on_label_overlap(
@@ -243,6 +148,147 @@ def _warn_on_label_overlap(
     print(message, file=sys.stderr)
 
 
+def _threshold_text(match: IdentityMatch) -> str:
+    """Describe the threshold a match was held to, e.g. ``mask IoU ≥ 0.50``."""
+    name = "mask IoU" if match.metric is MatchMetric.SEGMENTATION else "bbox IoU"
+    return f"{name} ≥ {match.threshold:.2f}"
+
+
+def _match_outcome(match: IdentityMatch) -> str:
+    """Describe what was done with a match, e.g. ``using segmentation -> dst_id=1``."""
+    if match.accepted:
+        return f"using {match.metric.value} -> dst_id={match.identity}"
+    return f"no match accepted by {match.metric.value}"
+
+
+def _warn_on_metric_disagreement(context: str, match: IdentityMatch) -> bool:
+    """Warn when segmentation and bounding boxes pick different destination identities.
+
+    Reported whether or not the match is accepted, so low-confidence disagreements
+    are not hidden.
+
+    Args:
+        context: Description of the block or annotation being matched.
+        match: The match.
+
+    Returns:
+        Whether the two scores disagreed.
+    """
+    if not match.disagreement:
+        return False
+    print(
+        f"WARNING: {context} segmentation and bounding boxes disagree "
+        f"({match.describe()}); {_match_outcome(match)}.",
+        file=sys.stderr,
+    )
+    return True
+
+
+def _annotate_disagreement(
+    dest_labels: VideoLabels,
+    start: int,
+    end: int,
+    match: IdentityMatch,
+    failure_description_phrase: str,
+) -> None:
+    """Add a timeline annotation marking a block whose two match scores disagreed."""
+    tag = "remap-metric-disagreement"
+    if dest_labels.timeline_annotations.annotation_exists(
+        start=start, end=end, tag=tag, identity_index=None
+    ):
+        return
+    dest_labels.timeline_annotations.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=start,
+            end=end,
+            tag=tag,
+            color="#CC44CC",
+            description=(
+                f"segmentation and bounding boxes disagreed during {failure_description_phrase}: "
+                f"{match.describe()}; {_match_outcome(match)}"
+            ),
+            identity_index=None,
+        )
+    )
+
+
+# a block split into more parts than this is reported as ambiguous: the best match keeps
+# changing, which usually means overlapping animals rather than a clean identity handoff
+_AMBIGUOUS_SPLIT_PARTS = 4
+
+
+def _is_ambiguous_split(runs: list[RunMatch]) -> bool:
+    """Whether an interval was split into more parts than a clean handoff would produce."""
+    return len(runs) > _AMBIGUOUS_SPLIT_PARTS
+
+
+def _report_split(context: str, start: int, end: int, runs: list[RunMatch]) -> bool:
+    """Print how an interval was split across destination identities, if it was.
+
+    Splits into more than ``_AMBIGUOUS_SPLIT_PARTS`` parts also get a warning, since
+    they usually mean overlapping animals and are worth reviewing.
+
+    Args:
+        context: Description of the block or annotation being matched.
+        start: First frame of the interval.
+        end: Last frame of the interval, inclusive.
+        runs: The runs the interval was split into.
+
+    Returns:
+        Whether the interval was split.
+    """
+    if len(runs) < 2:
+        return False
+    parts = ", ".join(f"{r.start}-{r.end} -> dst_id={r.match.identity}" for r in runs)
+    print(f"SPLIT: {context} frames={start}-{end} into {len(runs)} parts: {parts}")
+    if _is_ambiguous_split(runs):
+        print(
+            f"WARNING: {context} frames={start}-{end} split into {len(runs)} parts; the best "
+            "match keeps changing (likely overlapping animals). Review this block.",
+            file=sys.stderr,
+        )
+    return True
+
+
+def _annotate_split(
+    dest_labels: VideoLabels, start: int, end: int, runs: list[RunMatch], context: str
+) -> None:
+    """Add a timeline annotation marking a block that was split across identities.
+
+    Ambiguous splits (see `_is_ambiguous_split`) get their own tag so they can be
+    reviewed separately from clean identity handoffs.
+    """
+    tag = "remap-ambiguous-split" if _is_ambiguous_split(runs) else "remap-split"
+    if dest_labels.timeline_annotations.annotation_exists(
+        start=start, end=end, tag=tag, identity_index=None
+    ):
+        return
+    parts = ", ".join(f"{r.start}-{r.end} -> {r.match.identity}" for r in runs)
+    dest_labels.timeline_annotations.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=start,
+            end=end,
+            tag=tag,
+            color="#22AAAA",
+            description=f"label block split across identities: {context}: {parts}",
+            identity_index=None,
+        )
+    )
+
+
+def _add_timeline_annotation(
+    dest_labels: VideoLabels, annotation: TimelineAnnotations.Annotation
+) -> None:
+    """Add ``annotation`` to ``dest_labels`` unless an identical one is already there."""
+    if not dest_labels.timeline_annotations.annotation_exists(
+        start=annotation.start,
+        end=annotation.end,
+        tag=annotation.tag,
+        identity_index=annotation.identity_index,
+    ):
+        dest_labels.add_annotation(annotation)
+
+
 def _remap_labels_for_video(
     video: str,
     label_source_project: Project,
@@ -253,12 +299,19 @@ def _remap_labels_for_video(
     drop_timeline_annotations: bool = False,
     *,
     failure_description_phrase: str = "pose update",
+    match_settings: MatchSettings | None = None,
 ):
     """Remap labels for a single video.
 
     Source labels are read as contiguous blocks per source identity and
     behavior. Each block is matched independently to the destination identity
-    with the highest median bbox IoU over that interval. The destination label
+    that overlaps it best: by segmentation mask IoU when both identities have
+    masks, otherwise by bbox IoU (see `label_remap_matching.MatchMetric`). By
+    default the match is made frame by frame and a block is split where its best
+    destination identity changes, so an animal handed from one destination
+    identity to another mid-block keeps its labels; each part is accepted or
+    skipped on its own. When both scores are available and pick different
+    identities, a warning is printed. The destination label
     track is updated immediately after each successful match, so later overlapping
     writes for the same destination identity and behavior replace earlier frame
     values. Overlaps are warned before the write occurs.
@@ -267,7 +320,7 @@ def _remap_labels_for_video(
         video: Video filename to remap.
         label_source_project: Project providing the current labels and source pose.
         label_dest_project: Staging project providing the replacement pose and output location.
-        min_iou: Minimum median IoU required to accept a block match.
+        min_iou: Minimum median bbox IoU required to accept a bbox-decided match.
         verbose: Whether to print successful block matches.
         annotate_failures: Whether to add timeline annotations for failed block matches.
         drop_timeline_annotations: Whether to discard existing source timeline annotations
@@ -276,9 +329,12 @@ def _remap_labels_for_video(
             annotation description (e.g. ``"pose update"`` → "label remap failed
             during pose update: ..."). Both ``update-pose`` and ``update-labels``
             share the same tag names; this only affects the description text.
+        match_settings: Matching options other than the bbox threshold, which comes
+            from ``min_iou``. Defaults to `MatchSettings` defaults.
 
     Returns:
-        Tuple of ``(success_count, skipped_count)``.
+        Tuple of ``(success_count, skipped_count)``, counting each part of a split
+        block separately.
     """
     source_pose = label_source_project.load_pose_est(
         label_source_project.video_manager.video_path(video)
@@ -305,6 +361,9 @@ def _remap_labels_for_video(
         )
         return 0, 0
 
+    settings = replace(match_settings or MatchSettings(), min_bbox_iou=min_iou)
+    matcher = IdentityMatcher(source_pose, dest_pose, settings)
+
     source_labels = label_source_project.video_manager.load_video_labels(video, pose=source_pose)
     if source_labels is None:
         print(f"INFO: No labels in source for {video}; skipping.")
@@ -322,8 +381,13 @@ def _remap_labels_for_video(
             src_annotation_identity = annotation.get("identity")
 
             if src_annotation_identity is None:
-                dst_annotation_identity = None
-                display_identity = None
+                # video-level annotations are copied as-is
+                _add_timeline_annotation(
+                    dest_labels,
+                    TimelineAnnotations.Annotation(
+                        start=start, end=end, tag=tag, color=color, description=description
+                    ),
+                )
             else:
                 try:
                     src_annotation_identity = int(src_annotation_identity)
@@ -335,40 +399,42 @@ def _remap_labels_for_video(
                     )
                     continue
 
-                dst_annotation_identity, iou = _find_best_identity(
-                    source_pose,
-                    dest_pose,
-                    src_annotation_identity,
+                runs = matcher.match_runs(src_annotation_identity, start, end)
+                _report_split(
+                    f"{video} annotation tag={tag} src_id={src_annotation_identity}",
                     start,
                     end,
+                    runs,
                 )
-                if dst_annotation_identity is None or not np.isfinite(iou) or iou < min_iou:
-                    print(
-                        f"WARNING: {video} annotation tag={tag} src_id={src_annotation_identity} "
-                        f"frames={start}-{end} no match meeting IoU ≥ {min_iou:.2f} "
-                        f"(best {iou:.2f}). Skipping annotation.",
-                        file=sys.stderr,
+                for run in runs:
+                    match = run.match
+                    context = (
+                        f"{video} annotation tag={tag} src_id={src_annotation_identity} "
+                        f"frames={run.start}-{run.end}"
                     )
-                    continue
-                display_identity = dest_pose.identity_index_to_display(dst_annotation_identity)
-
-            if not dest_labels.timeline_annotations.annotation_exists(
-                start=start,
-                end=end,
-                tag=tag,
-                identity_index=dst_annotation_identity,
-            ):
-                dest_labels.add_annotation(
-                    TimelineAnnotations.Annotation(
-                        start=start,
-                        end=end,
-                        tag=tag,
-                        color=color,
-                        description=description,
-                        identity_index=dst_annotation_identity,
-                        display_identity=display_identity,
+                    if _warn_on_metric_disagreement(context, match) and annotate_failures:
+                        _annotate_disagreement(
+                            dest_labels, run.start, run.end, match, failure_description_phrase
+                        )
+                    if not match.accepted:
+                        print(
+                            f"WARNING: {context} no match meeting {_threshold_text(match)} "
+                            f"({match.describe()}). Skipping annotation.",
+                            file=sys.stderr,
+                        )
+                        continue
+                    _add_timeline_annotation(
+                        dest_labels,
+                        TimelineAnnotations.Annotation(
+                            start=run.start,
+                            end=run.end,
+                            tag=tag,
+                            color=color,
+                            description=description,
+                            identity_index=match.identity,
+                            display_identity=dest_pose.identity_index_to_display(match.identity),
+                        ),
                     )
-                )
 
     success_count = 0
     skipped_count = 0
@@ -402,60 +468,80 @@ def _remap_labels_for_video(
             continue
 
         for block in track_labels.get_blocks():
-            start, end, present = block["start"], block["end"], block["present"]
-            dst_identity, iou = _find_best_identity(
-                source_pose, dest_pose, src_identity, start, end
-            )
+            present = block["present"]
+            runs = matcher.match_runs(src_identity, block["start"], block["end"])
+            block_context = f"{video} behavior={behavior} src_id={src_identity}"
+            if (
+                _report_split(block_context, block["start"], block["end"], runs)
+                and annotate_failures
+            ):
+                _annotate_split(dest_labels, block["start"], block["end"], runs, block_context)
 
-            if dst_identity is None or not np.isfinite(iou) or iou < min_iou:
-                print(
-                    f"WARNING: {video} behavior={behavior} src_id={src_identity} frames={start}-{end} "
-                    f"no match meeting IoU ≥ {min_iou:.2f} (best {iou:.2f}). Skipping block.",
-                    file=sys.stderr,
-                )
-                skipped_count += 1
+            for run in runs:
+                start, end, match = run.start, run.end, run.match
+                dst_identity = match.identity
 
-                tag = "behavior-remap-failed" if present else "not-behavior-remap-failed"
-                if annotate_failures and not dest_labels.timeline_annotations.annotation_exists(
-                    start=start, end=end, tag=tag, identity_index=None
+                if (
+                    _warn_on_metric_disagreement(f"{block_context} frames={start}-{end}", match)
+                    and annotate_failures
                 ):
-                    dest_labels.timeline_annotations.add_annotation(
-                        TimelineAnnotations.Annotation(
-                            start=start,
-                            end=end,
-                            tag=tag,
-                            color="#FF8800" if present else "#8888FF",
-                            description=(
-                                f"label remap failed during {failure_description_phrase}: "
-                                f"behavior={behavior}, present={present}, "
-                                f"src_id={src_identity}, best_iou={iou:.2f}"
-                            ),
-                            identity_index=None,
-                        )
+                    _annotate_disagreement(
+                        dest_labels, start, end, match, failure_description_phrase
                     )
-                continue
 
-            dst_track_labels = dest_labels.get_track_labels(str(dst_identity), behavior)
-            _warn_on_label_overlap(
-                video,
-                behavior,
-                src_identity,
-                dst_identity,
-                start,
-                end,
-                present,
-                dst_track_labels,
-            )
-            if present:
-                dst_track_labels.label_behavior(start, end)
-            else:
-                dst_track_labels.label_not_behavior(start, end)
-            if verbose:
-                print(
-                    f"MATCH: {video} behavior={behavior} src_id={src_identity} -> "
-                    f"dst_id={dst_identity} frames={start}-{end} iou={iou:.2f}"
+                if not match.accepted:
+                    print(
+                        f"WARNING: {block_context} frames={start}-{end} "
+                        f"no match meeting {_threshold_text(match)} ({match.describe()}). "
+                        "Skipping block.",
+                        file=sys.stderr,
+                    )
+                    skipped_count += 1
+
+                    tag = "behavior-remap-failed" if present else "not-behavior-remap-failed"
+                    if (
+                        annotate_failures
+                        and not dest_labels.timeline_annotations.annotation_exists(
+                            start=start, end=end, tag=tag, identity_index=None
+                        )
+                    ):
+                        dest_labels.timeline_annotations.add_annotation(
+                            TimelineAnnotations.Annotation(
+                                start=start,
+                                end=end,
+                                tag=tag,
+                                color="#FF8800" if present else "#8888FF",
+                                description=(
+                                    f"label remap failed during {failure_description_phrase}: "
+                                    f"behavior={behavior}, present={present}, "
+                                    f"src_id={src_identity}, {match.describe()}"
+                                ),
+                                identity_index=None,
+                            )
+                        )
+                    continue
+
+                dst_track_labels = dest_labels.get_track_labels(str(dst_identity), behavior)
+                _warn_on_label_overlap(
+                    video,
+                    behavior,
+                    src_identity,
+                    dst_identity,
+                    start,
+                    end,
+                    present,
+                    dst_track_labels,
                 )
-            success_count += 1
+                if present:
+                    dst_track_labels.label_behavior(start, end)
+                else:
+                    dst_track_labels.label_not_behavior(start, end)
+                if verbose:
+                    print(
+                        f"MATCH: {block_context} -> dst_id={dst_identity} frames={start}-{end} "
+                        f"by {match.metric.value} ({match.describe()})"
+                    )
+                success_count += 1
 
     label_dest_project.save_annotations(dest_labels, dest_pose)
     print(
@@ -669,13 +755,78 @@ def _validate_live_update_targets(
                 _require_writable_existing_path(child, f"live {derived_dir_name} file")
 
 
+class _VideoPoseCheck(NamedTuple):
+    """Result of validating one video's live and replacement pose files."""
+
+    video: str
+    replacement_pose_path: Path
+    live_num_identities: int
+    replacement_version: int
+    replacement_num_identities: int
+
+
+def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
+    """Validate one video's live and replacement pose files (picklable worker function).
+
+    Args:
+        job: ``(video, project_dir, new_pose_dir)``.
+
+    Returns:
+        The replacement pose path, its version and identity count, and the live pose
+        file's identity count.
+
+    Raises:
+        ValueError: If either pose file is missing, unreadable, lacks bounding boxes, or
+            does not match the video's frame count.
+    """
+    video, project_dir, new_pose_dir = job
+    video_path = project_dir / video
+    live_pose_path = get_pose_path(video_path)
+    replacement_pose_path = get_pose_path(video_path, new_pose_dir)
+    _, live_num_identities = _validate_pose_file(
+        video,
+        video_path,
+        live_pose_path,
+        "source",
+        require_bboxes=True,
+    )
+    replacement_version, replacement_num_identities = _validate_pose_file(
+        video,
+        video_path,
+        replacement_pose_path,
+        "replacement",
+        require_bboxes=True,
+    )
+    return _VideoPoseCheck(
+        video,
+        replacement_pose_path,
+        live_num_identities,
+        replacement_version,
+        replacement_num_identities,
+    )
+
+
+class _PreflightResult(NamedTuple):
+    """Inputs validated by `_preflight_update_inputs`."""
+
+    videos: list[str]
+    replacement_pose_files: dict[str, Path]
+    live_annotation_videos: set[str]
+    replacement_identity_counts: dict[str, int]
+
+
 def _preflight_update_inputs(
     project_dir: Path,
     new_pose_dir: Path,
     *,
     tolerate_orphan_identities: bool = False,
-) -> tuple[list[str], dict[str, Path], set[str]]:
+    processes: int = 1,
+) -> _PreflightResult:
     """Validate live and replacement inputs before any live mutation occurs.
+
+    Opening and checking each video's pose files is the slow part, so with
+    ``processes`` > 1 it runs in parallel worker processes. Results are handled in
+    video order, so the first problem reported is the same as with one process.
 
     Args:
         project_dir: Live project directory.
@@ -685,6 +836,11 @@ def _preflight_update_inputs(
             continues, with the affected ``(identity, behavior)`` pairs skipped
             during remap. When ``False`` (default), the orphan check raises
             before any backup or mutation.
+        processes: Number of worker processes used to check pose files.
+
+    Returns:
+        The project videos, each video's replacement pose file, the videos with live
+        annotation files, and each replacement pose file's identity count.
     """
     if not Project.is_valid_project_directory(project_dir):
         raise ValueError(f"{project_dir} is not a valid JABS project directory")
@@ -701,41 +857,34 @@ def _preflight_update_inputs(
     replacement_version: int | None = None
     orphan_issues: list[tuple[str, int, list[int]]] = []
 
-    for video in videos:
-        video_path = project_dir / video
-        live_pose_path = get_pose_path(video_path)
-        replacement_pose_path = get_pose_path(video_path, new_pose_dir)
-
-        _, live_num_identities = _validate_pose_file(
-            video,
-            video_path,
-            live_pose_path,
-            "source",
-            require_bboxes=True,
-        )
-        video_replacement_version, _ = _validate_pose_file(
-            video,
-            video_path,
-            replacement_pose_path,
-            "replacement",
-            require_bboxes=True,
-        )
-
-        if replacement_version is None:
-            replacement_version = video_replacement_version
-        elif video_replacement_version != replacement_version:
-            raise ValueError(
-                f"{video} replacement pose version v{video_replacement_version} does not match "
-                f"replacement pose version v{replacement_version} used by other videos"
-            )
-
-        replacement_pose_files[video] = replacement_pose_path
-        annotation_path = annotations_dir / Path(video).with_suffix(".json")
-        if annotation_path.exists():
-            live_annotations.add(video)
-            orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
-            if orphans:
-                orphan_issues.append((video, live_num_identities, orphans))
+    replacement_identity_counts: dict[str, int] = {}
+    jobs = [(video, project_dir, new_pose_dir) for video in videos]
+    with contextlib.ExitStack() as stack:
+        if processes > 1 and len(jobs) > 1:
+            pool = stack.enter_context(Pool(min(processes, len(jobs))))
+            checks = pool.imap(_check_video_pose_files, jobs)
+        else:
+            checks = map(_check_video_pose_files, jobs)
+        for check in checks:
+            video = check.video
+            live_num_identities = check.live_num_identities
+            replacement_pose_path = check.replacement_pose_path
+            video_replacement_version = check.replacement_version
+            replacement_identity_counts[video] = check.replacement_num_identities
+            if replacement_version is None:
+                replacement_version = video_replacement_version
+            elif video_replacement_version != replacement_version:
+                raise ValueError(
+                    f"{video} replacement pose version v{video_replacement_version} does not "
+                    f"match replacement pose version v{replacement_version} used by other videos"
+                )
+            replacement_pose_files[video] = replacement_pose_path
+            annotation_path = annotations_dir / Path(video).with_suffix(".json")
+            if annotation_path.exists():
+                live_annotations.add(video)
+                orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
+                if orphans:
+                    orphan_issues.append((video, live_num_identities, orphans))
 
     _handle_orphan_identities(
         orphan_issues, source_label="live", tolerate=tolerate_orphan_identities
@@ -743,7 +892,9 @@ def _preflight_update_inputs(
 
     _validate_live_update_targets(project_dir, videos, live_annotations)
 
-    return videos, replacement_pose_files, live_annotations
+    return _PreflightResult(
+        videos, replacement_pose_files, live_annotations, replacement_identity_counts
+    )
 
 
 def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
@@ -837,15 +988,27 @@ def _seed_stage_project(stage_root: Path, project_dir: Path, copy_annotations: b
             shutil.copytree(live_annotations_dir, stage_annotations_dir, dirs_exist_ok=True)
 
 
-def _refresh_project_identity_counts(project: Project) -> None:
-    """Recompute the per-video identity counts stored in project.json."""
+def _refresh_project_identity_counts(
+    project: Project, identity_counts: dict[str, int] | None = None
+) -> None:
+    """Recompute the per-video identity counts stored in project.json.
+
+    Args:
+        project: Project whose ``project.json`` is updated.
+        identity_counts: Identity count of each video's pose file, if already known
+            (e.g. from preflight). Videos not in it have their pose file opened.
+    """
     video_metadata = project.settings_manager.project_settings.get("video_files", {})
     refreshed = dict(video_metadata)
+    identity_counts = identity_counts or {}
 
     for video in project.video_manager.videos:
         vinfo = dict(refreshed.get(video, {}))
-        pose = project.load_pose_est(project.video_manager.video_path(video))
-        vinfo["identities"] = pose.num_identities
+        if video in identity_counts:
+            vinfo["identities"] = identity_counts[video]
+        else:
+            pose = project.load_pose_est(project.video_manager.video_path(video))
+            vinfo["identities"] = pose.num_identities
         refreshed[video] = vinfo
 
     project.settings_manager.save_project_file({"video_files": refreshed})
@@ -1058,6 +1221,7 @@ def _regenerate_features_after_update(
     window_sizes: tuple[int, ...],
     backup_path: Path,
     skip_feature_gen: bool,
+    processes: int = DEFAULT_PROCESSES,
 ) -> str:
     """Regenerate features after a successful pose update when requested by project settings."""
     if skip_feature_gen:
@@ -1069,7 +1233,7 @@ def _regenerate_features_after_update(
     try:
         run_initialize_project(
             force=False,
-            processes=DEFAULT_PROCESSES,
+            processes=processes,
             window_sizes=validate_window_sizes(window_sizes),
             force_pixel_distances=False,
             metadata_path=None,
@@ -1093,6 +1257,64 @@ def _regenerate_features_after_update(
     return "regenerated"
 
 
+@dataclass(frozen=True)
+class _RemapWorkerContext:
+    """Arguments shared by every video in a parallel label remap."""
+
+    label_source_project: Project
+    label_dest_project: Project
+    min_iou: float
+    verbose: bool
+    annotate_failures: bool
+    drop_timeline_annotations: bool
+    failure_description_phrase: str
+    match_settings: MatchSettings | None
+
+
+@dataclass(frozen=True)
+class _RemapWorkerResult:
+    """One video's remap counts and the output it printed."""
+
+    success: int
+    skipped: int
+    stdout: str
+    stderr: str
+
+
+# set once in each worker process by _init_remap_worker
+_worker_context: _RemapWorkerContext | None = None
+
+
+def _init_remap_worker(context: _RemapWorkerContext) -> None:
+    """Pool initializer: keep the shared remap arguments in the worker process."""
+    global _worker_context
+    _worker_context = context
+
+
+def _remap_video_worker(video: str) -> _RemapWorkerResult:
+    """Remap one video's labels in a worker process, capturing what it prints.
+
+    The output is returned rather than printed so the parent can print each video's
+    messages together, in video order.
+    """
+    context = _worker_context
+    assert context is not None, "worker not initialized"
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        success, skipped = _remap_labels_for_video(
+            video,
+            context.label_source_project,
+            context.label_dest_project,
+            context.min_iou,
+            verbose=context.verbose,
+            annotate_failures=context.annotate_failures,
+            drop_timeline_annotations=context.drop_timeline_annotations,
+            failure_description_phrase=context.failure_description_phrase,
+            match_settings=context.match_settings,
+        )
+    return _RemapWorkerResult(success, skipped, stdout.getvalue(), stderr.getvalue())
+
+
 def _run_staged_label_remap(
     label_source_project: Project,
     label_dest_project: Project,
@@ -1103,8 +1325,15 @@ def _run_staged_label_remap(
     *,
     videos: list[str] | None = None,
     failure_description_phrase: str = "pose update",
+    match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int]:
     """Run the existing per-video label-remap semantics from source to destination.
+
+    With ``processes`` > 1, videos are remapped in parallel worker processes. Each
+    video's messages are printed together, in video order, once it finishes. Videos
+    whose names differ only by extension share an annotation file; if any do, the
+    videos are remapped one at a time so the result matches a serial run.
 
     Args:
         label_source_project: Source-side staged project providing labels and source pose.
@@ -1122,11 +1351,53 @@ def _run_staged_label_remap(
             annotation description (e.g. ``"pose update"`` → "label remap failed
             during pose update: ..."). Both ``update-pose`` and ``update-labels``
             share the same tag names; this only affects the description text.
+        match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes; 1 remaps the videos one at a time in
+            this process.
     """
     total_success = 0
     total_skipped = 0
 
     iteration_videos = videos if videos is not None else label_source_project.video_manager.videos
+
+    parallel = processes > 1 and len(iteration_videos) > 1
+    annotation_names = [annotation_filename(video) for video in iteration_videos]
+    if parallel and len(set(annotation_names)) < len(annotation_names):
+        # e.g. a.avi and a.mp4 both save to a.json; in parallel the last worker to
+        # finish would win, so keep the serial order (the later video wins)
+        print(
+            "NOTE: some videos share an annotation file (same name, different extension); "
+            "remapping videos one at a time.",
+            file=sys.stderr,
+        )
+        parallel = False
+
+    if parallel:
+        # Saving annotations updates the app version in project.json when it differs.
+        # Do that once here, so the workers' copies of the project are already current
+        # and do not race to rewrite project.json.
+        label_dest_project.settings_manager.update_version()
+        context = _RemapWorkerContext(
+            label_source_project,
+            label_dest_project,
+            min_iou,
+            verbose,
+            annotate_failures,
+            drop_timeline_annotations,
+            failure_description_phrase,
+            match_settings,
+        )
+        with Pool(
+            min(processes, len(iteration_videos)),
+            initializer=_init_remap_worker,
+            initargs=(context,),
+        ) as pool:
+            for result in pool.imap(_remap_video_worker, iteration_videos):
+                sys.stdout.write(result.stdout)
+                sys.stderr.write(result.stderr)
+                total_success += result.success
+                total_skipped += result.skipped
+        return total_success, total_skipped
 
     for video in iteration_videos:
         success, skipped = _remap_labels_for_video(
@@ -1138,6 +1409,7 @@ def _run_staged_label_remap(
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,
             failure_description_phrase=failure_description_phrase,
+            match_settings=match_settings,
         )
         total_success += success
         total_skipped += skipped
@@ -1154,6 +1426,9 @@ def update_project_pose_in_place(
     drop_timeline_annotations: bool = False,
     skip_feature_gen: bool = False,
     tolerate_orphan_identities: bool = False,
+    *,
+    match_settings: MatchSettings | None = None,
+    processes: int = 1,
 ) -> tuple[int, int, Path, str]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``.
 
@@ -1170,6 +1445,9 @@ def update_project_pose_in_place(
             references in the live project's annotations and skip the affected
             ``(identity, behavior)`` pairs during remap instead of aborting at
             preflight.
+        match_settings: Matching options other than the bbox threshold (``min_iou``).
+        processes: Number of worker processes for the label remap and feature
+            regeneration.
 
     Returns:
         Tuple of ``(total_success, total_skipped, backup_path, feature_regen_status)`` for
@@ -1179,10 +1457,13 @@ def update_project_pose_in_place(
     new_pose_dir = new_pose_dir.resolve()
     preexisting_window_sizes = _load_preexisting_window_sizes(project_dir)
 
-    videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
-        project_dir,
-        new_pose_dir,
-        tolerate_orphan_identities=tolerate_orphan_identities,
+    videos, replacement_pose_files, live_annotation_videos, identity_counts = (
+        _preflight_update_inputs(
+            project_dir,
+            new_pose_dir,
+            tolerate_orphan_identities=tolerate_orphan_identities,
+            processes=processes,
+        )
     )
     backup_path = _create_backup_archive(project_dir, videos)
 
@@ -1217,9 +1498,11 @@ def update_project_pose_in_place(
             verbose,
             annotate_failures,
             drop_timeline_annotations,
+            match_settings=match_settings,
+            processes=processes,
             videos=videos,
         )
-        _refresh_project_identity_counts(label_dest_project)
+        _refresh_project_identity_counts(label_dest_project, identity_counts)
         _apply_live_update(
             project_dir,
             label_dest_project,
@@ -1234,6 +1517,7 @@ def update_project_pose_in_place(
         preexisting_window_sizes,
         backup_path,
         skip_feature_gen,
+        processes=processes,
     )
 
     return total_success, total_skipped, backup_path, feature_regen_status
@@ -1262,13 +1546,18 @@ def update_project_pose_in_place(
         path_type=Path,
     ),
 )
+@identity_match_options
 @click.option(
-    "--min-iou-thresh",
-    "min_iou",
-    type=float,
-    default=0.5,
+    "-p",
+    "--processes",
+    "processes",
+    type=click.IntRange(min=1),
+    default=DEFAULT_PROCESSES,
     show_default=True,
-    help="Minimum acceptable median IoU for a label remap match.",
+    help=(
+        "Number of worker processes used to remap videos in parallel"
+        " and to regenerate features; defaults to the logical CPU count. 1 remaps videos one at a time."
+    ),
 )
 @click.option(
     "--verbose",
@@ -1308,6 +1597,11 @@ def update_pose_command(
     project: Path,
     new_pose_dir: Path,
     min_iou: float,
+    min_mask_iou: float,
+    match_by: str,
+    split_blocks: bool,
+    min_run_frames: int,
+    processes: int,
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
@@ -1319,6 +1613,14 @@ def update_pose_command(
         project,
         new_pose_dir,
         min_iou,
+        match_settings=match_settings_from_options(
+            min_iou=min_iou,
+            min_mask_iou=min_mask_iou,
+            match_by=match_by,
+            split_blocks=split_blocks,
+            min_run_frames=min_run_frames,
+        ),
+        processes=processes,
         verbose=verbose,
         annotate_failures=annotate_failures,
         drop_timeline_annotations=drop_timeline_annotations,
@@ -1328,9 +1630,11 @@ def update_pose_command(
 
     click.echo(f"Backup archive: {backup_path}")
     click.echo(
-        f"Pose update summary: {total_success} label blocks assigned, "
-        f"{total_skipped} label blocks skipped "
-        f"(IoU threshold={min_iou})"
+        f"Pose update summary: {total_success} label parts assigned, "
+        f"{total_skipped} label parts skipped "
+        f"(match by {match_by}, mask IoU threshold={min_mask_iou}, "
+        f"bbox IoU threshold={min_iou}, "
+        f"split blocks={'on' if split_blocks else 'off'})"
     )
     if feature_regen_status == "regenerated":
         click.echo("Feature regeneration: completed using window_sizes from jabs/project.json")

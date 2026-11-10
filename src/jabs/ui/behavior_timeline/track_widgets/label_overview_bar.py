@@ -20,13 +20,8 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from jabs.behavior_search import SearchHit
 
-from ...colors import (
-    BACKGROUND_COLOR,
-    BEHAVIOR_COLOR,
-    NOT_BEHAVIOR_COLOR,
-    POSITION_MARKER_COLOR,
-)
-from .timeline_util import diamond_at
+from ...colors import BINARY_LABEL_COLOR_LUT, POSITION_MARKER_COLOR
+from .timeline_util import DETAIL_WINDOW_SIZE, diamond_at, window_frame_count
 
 
 def _srgb_to_linear(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
@@ -133,17 +128,11 @@ class LabelOverviewBar(QWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    COLOR_LUT: np.ndarray = np.array(
-        [
-            BACKGROUND_COLOR.getRgb(),
-            NOT_BEHAVIOR_COLOR.getRgb(),
-            BEHAVIOR_COLOR.getRgb(),
-        ],
-        dtype=np.uint8,
-    )
+    #: Binary label palette; see :data:`jabs.ui.colors.BINARY_LABEL_COLOR_LUT`
+    #: for the index layout.
+    COLOR_LUT: np.ndarray = BINARY_LABEL_COLOR_LUT
     _BAR_HEIGHT = 6  # height of the bar in pixels
     _BAR_PADDING = 2  # padding around the bar in pixels
-    _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -151,8 +140,10 @@ class LabelOverviewBar(QWidget):
         self._bar_height = self._BAR_HEIGHT
         self._bar_padding = self._BAR_PADDING
         self._height = self._bar_height + 2 * self._bar_padding
-        self._window_size = self._WINDOW_SIZE
-        self._frames_in_view = 2 * self._window_size + 1
+        # number of frames shown on either side of the current frame by the detail
+        # bars; the highlight box drawn here marks that window on the overview
+        self._window_size: int = DETAIL_WINDOW_SIZE
+        self._frames_in_view = window_frame_count(self._window_size)
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -227,14 +218,11 @@ class LabelOverviewBar(QWidget):
         qp = QPainter(self)
 
         # Highlight the window around the current position
-        mapped_position = int(self._current_frame / fbs)
-        window_px = int(self._frames_in_view / fbs)
-        window_half_px = int(self._window_size / fbs)
-        highlight_start = mapped_position - window_half_px
+        highlight_start, highlight_width = self._highlight_span(fbs)
 
         qp.setPen(QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine))
         qp.setBrush(QBrush(POSITION_MARKER_COLOR, Qt.BrushStyle.Dense4Pattern))
-        qp.drawRect(highlight_start, 0, window_px, self.size().height() - 1)
+        qp.drawRect(highlight_start, 0, highlight_width, self.size().height() - 1)
 
         # Draw the label bar (fills the full widget width)
         qp.drawPixmap(0, 0, self._pixmap)
@@ -250,6 +238,26 @@ class LabelOverviewBar(QWidget):
             qp.drawLine(start_pos, center_y, end_pos, center_y)
             qp.drawPolygon(diamond_at(start_pos, center_y, diamond_w, diamond_h))
             qp.drawPolygon(diamond_at(end_pos, center_y, diamond_w, diamond_h))
+
+    def _highlight_span(self, frames_per_pixel: float) -> tuple[int, int]:
+        """Return the pixel span of the box marking the detail bars' window.
+
+        Both edges are mapped from frame positions, so the box covers exactly the
+        frames the detail bars show and stays centered on the current frame.
+        Rounding the width and the half-width separately could leave it off by a
+        pixel.
+
+        Args:
+            frames_per_pixel: Number of video frames each pixel of the bar covers.
+
+        Returns:
+            The left edge and the width of the box, in pixels.
+        """
+        start = int((self._current_frame - self._window_size) / frames_per_pixel)
+        end = int(
+            (self._current_frame - self._window_size + self._frames_in_view) / frames_per_pixel
+        )
+        return start, end - start
 
     def set_labels(self, labels: npt.NDArray[np.int16]) -> None:
         """Load and display a new label track.

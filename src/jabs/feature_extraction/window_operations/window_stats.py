@@ -22,30 +22,6 @@ def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float | None = N
     return np.lib.stride_tricks.sliding_window_view(arr_ext, window_shape=window * 2 + 1)
 
 
-def get_window_masks(sliding_window_view: np.ndarray, const: float) -> np.ndarray:
-    """Creates a mask identifying the usable values in a sliding window matrix.
-
-    Args:
-        sliding_window_view: sliding window matrix from `pad_sliding_window`
-        const: constant pad value
-
-    Returns:
-        boolean matrix that is True for valid window values and False for values
-        equal to the pad constant. Rows where every value is the pad constant are
-        returned as all True, since masking them entirely would leave the
-        downstream reduction with no data to operate on.
-    """
-    if np.isnan(const):
-        window_masks = ~np.isnan(sliding_window_view)
-    else:
-        window_masks = sliding_window_view != const
-
-    no_data_rows = np.all(~window_masks, axis=1)
-    window_masks[no_data_rows] = True
-
-    return window_masks
-
-
 def window_mean(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked mean of a window
 
@@ -76,8 +52,12 @@ def window_median(values: np.ndarray, window: int) -> np.ndarray:
         sliding window median values
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    window_masks = get_window_masks(window_values, np.nan)
-    return np.ma.median(np.ma.array(window_values, mask=~window_masks), axis=1).filled()
+    # nan sorts to the end of each row, so the first `counts` entries are the valid values
+    sorted_values = np.sort(window_values, axis=1)
+    counts = np.sum(~np.isnan(window_values), axis=1)
+    lower = np.take_along_axis(sorted_values, np.maximum((counts - 1) // 2, 0)[:, None], axis=1)
+    upper = np.take_along_axis(sorted_values, (counts // 2)[:, None], axis=1)
+    return np.where(counts > 0, (lower[:, 0] + upper[:, 0]) / 2, np.nan)
 
 
 def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
@@ -96,6 +76,87 @@ def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
         warnings.simplefilter("ignore", category=RuntimeWarning)
         return_values = np.nanstd(window_values, axis=1)
     return return_values
+
+
+def _center_windows(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Subtracts each window's mean from its non-nan values.
+
+    Args:
+        values: 2d array with time on the first axis and the window on the second
+
+    Returns:
+        tuple of the number of non-nan values in each window and the array of window
+        values minus their window mean (nan stays nan). A window that is entirely nan
+        has a count of 0 and a nan mean.
+    """
+    valid = ~np.isnan(values)
+    counts = np.sum(valid, axis=1)
+    mean = np.where(valid, values, 0.0).sum(axis=1) / counts
+    return counts, values - mean[:, None]
+
+
+def _central_moment_terms(
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Compute the terms shared by the window standard deviation, skew, and kurtosis.
+
+    Args:
+        values: 2d array with time on the first axis and the window on the second
+
+    Returns:
+        tuple of (number of non-nan values in each window, window values minus their
+        window mean, the square of those centered values, and the biased variance of
+        each window). nan values stay nan.
+    """
+    counts, centered = _center_windows(values)
+    squared = centered * centered
+    variance = np.nansum(squared, axis=1) / counts
+    return counts, centered, squared, variance
+
+
+def _skew_from_terms(
+    counts: np.ndarray, centered: np.ndarray, squared: np.ndarray, variance: np.ndarray
+) -> np.ndarray:
+    """Biased skew of each window from the terms of `_central_moment_terms`."""
+    return np.nansum(squared * centered, axis=1) / counts / variance**1.5
+
+
+def _kurtosis_from_terms(
+    counts: np.ndarray, squared: np.ndarray, variance: np.ndarray
+) -> np.ndarray:
+    """Pearson kurtosis of each window from the terms of `_central_moment_terms`."""
+    return np.nansum(squared * squared, axis=1) / counts / (variance * variance)
+
+
+def window_std_skew_kurtosis(
+    values: np.ndarray, window: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Calculates the masked standard deviation, skew, and kurtosis of each window at once.
+
+    Equal to calling `window_std_dev`, `window_skew`, and `window_kurtosis` separately,
+    but the window mean, centered values, and variance they share are computed only
+    once.
+
+    Args:
+        values: 1d np.ndarray of values
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
+
+    Returns:
+        tuple of sliding window standard deviation, skew, and kurtosis values
+    """
+    window_values = pad_sliding_window(values, window, pad_const=np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        counts, centered, squared, variance = _central_moment_terms(window_values)
+        # np.nanstd only skips values that were nan in the input; a nan produced by
+        # inf - inf still makes the result nan. Sum the same way so windows containing
+        # infinities give the same result as window_std_dev.
+        input_nan = np.isnan(window_values)
+        std_dev = np.sqrt(np.sum(np.where(input_nan, 0.0, squared), axis=1) / counts)
+        skew = _skew_from_terms(counts, centered, squared, variance)
+        kurtosis = _kurtosis_from_terms(counts, squared, variance)
+    return std_dev, skew, kurtosis
 
 
 def np_kurtosis(values: np.ndarray) -> np.ndarray:
@@ -122,12 +183,8 @@ def np_kurtosis(values: np.ndarray) -> np.ndarray:
         numpy emits (does not raise) a RuntimeWarning when an entire window is nan.
         Callers such as `window_kurtosis` suppress that warning.
     """
-    mean = np.nanmean(values, axis=1)
-    std = np.nanstd(values, axis=1)
-    counts = np.sum(~np.isnan(values), axis=1)
-    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T) ** 4, axis=1) / (
-        counts * std**4
-    )
+    counts, _, squared, variance = _central_moment_terms(values)
+    return _kurtosis_from_terms(counts, squared, variance)
 
 
 def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
@@ -165,12 +222,8 @@ def np_skew(values: np.ndarray) -> np.ndarray:
         numpy emits (does not raise) a RuntimeWarning when an entire window is nan.
         Callers such as `window_skew` suppress that warning.
     """
-    mean = np.nanmean(values, axis=1)
-    std = np.nanstd(values, axis=1)
-    counts = np.sum(~np.isnan(values), axis=1)
-    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T) ** 3, axis=1) / (
-        counts * std**3
-    )
+    counts, centered, squared, variance = _central_moment_terms(values)
+    return _skew_from_terms(counts, centered, squared, variance)
 
 
 def window_skew(values: np.ndarray, window: int) -> np.ndarray:
@@ -202,11 +255,8 @@ def window_min(values: np.ndarray, window: int) -> np.ndarray:
     Returns:
         sliding window minimum values
     """
-    window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    window_masks = get_window_masks(window_values, np.nan)
-    if np.all(np.isnan(values)):
-        return np.full(values.shape, np.nan)
-    return np.min(window_values, axis=1, initial=np.nanmax(values), where=window_masks)
+    # fmin ignores nan, and is nan only when every value in the window is nan
+    return np.fmin.reduce(pad_sliding_window(values, window, pad_const=np.nan), axis=1)
 
 
 def window_max(values: np.ndarray, window: int) -> np.ndarray:
@@ -220,8 +270,5 @@ def window_max(values: np.ndarray, window: int) -> np.ndarray:
     Returns:
         sliding window maximum values
     """
-    window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    window_masks = get_window_masks(window_values, np.nan)
-    if np.all(np.isnan(values)):
-        return np.full(values.shape, np.nan)
-    return np.max(window_values, axis=1, initial=np.nanmin(values), where=window_masks)
+    # fmax ignores nan, and is nan only when every value in the window is nan
+    return np.fmax.reduce(pad_sliding_window(values, window, pad_const=np.nan), axis=1)

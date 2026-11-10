@@ -2,7 +2,8 @@ import typing
 
 import cv2
 import numpy as np
-from shapely.geometry import Point
+import numpy.typing as npt
+import shapely
 
 from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.feature_base_class import Feature
@@ -43,95 +44,62 @@ class CornerDistanceInfo:
         if identity in self._cached_distances and identity in self._cached_bearings:
             return
 
-        corner_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        center_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        wall_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        all_wall_distances = np.full([self._poses.num_frames, 4], np.nan, dtype=np.float32)
-        center_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        corner_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        num_frames = self._poses.num_frames
+        corner_distances = np.full(num_frames, np.nan, dtype=np.float32)
+        center_distances = np.full(num_frames, np.nan, dtype=np.float32)
+        wall_distances = np.full(num_frames, np.nan, dtype=np.float32)
+        all_wall_distances = np.full([num_frames, 4], np.nan, dtype=np.float32)
+        center_bearings = np.full(num_frames, np.nan, dtype=np.float32)
+        corner_bearings = np.full(num_frames, np.nan, dtype=np.float32)
         closest_corners = None
-        self_convex_hulls = self._poses.get_identity_convex_hulls(identity)
-        idx = PoseEstimation.KeypointIndex
         avg_wall_length = np.nan
 
         if "corners" in self._poses.static_objects:
-            closest_corners = np.full(self._poses.num_frames, -1, dtype=np.int8)
+            closest_corners = np.full(num_frames, -1, dtype=np.int8)
             corners = self.sort_points_clockwise(self._poses.static_objects["corners"])
-            wall_vectors = corners.astype(np.float32) - np.roll(
-                corners.astype(np.float32), 1, axis=0
-            )
+            corners_f32 = corners.astype(np.float32)
+            wall_vectors = corners_f32 - np.roll(corners_f32, 1, axis=0)
             avg_wall_length = (
                 np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1])) * self._pixel_scale
             )
+            arena_center = np.mean(corners, axis=0)
 
-            arena_center_np = np.mean(corners, axis=0)
-            arena_center = Point(arena_center_np[0], arena_center_np[1])
+            # frames where the identity is present and has a convex hull. Hulls omit the
+            # tail, so a present identity can occasionally lack one; those frames are
+            # left as NaN like frames where the identity is absent.
+            hulls = np.array(self._poses.get_identity_convex_hulls(identity), dtype=object)
+            present = np.asarray(self._poses.identity_mask(identity), dtype=bool)
+            frames = np.flatnonzero(present & ~shapely.is_missing(hulls))
+            frame_hulls = hulls[frames]
 
-            for frame in range(self._poses.num_frames):
-                # don't scale the point coordinates by the pixel_scale value,
-                # since the corners are in pixel space. we'll adjust the
-                # distance units later
-                points, mask = self._poses.get_points(frame, identity)
+            # don't scale the point coordinates by the pixel_scale value, since the
+            # corners are in pixel space. we'll adjust the distance units later
+            points, _ = self._poses.get_identity_poses(identity)
+            idx = PoseEstimation.KeypointIndex
+            nose = points[frames, idx.NOSE, :]
+            base_neck = points[frames, idx.BASE_NECK, :]
 
-                if points is None:
-                    continue
+            # distance to closest corner; argmin keeps the first corner on ties
+            corner_dists = shapely.distance(
+                frame_hulls[:, np.newaxis], shapely.points(corners)[np.newaxis, :]
+            )
+            closest_idx = np.argmin(corner_dists, axis=1)
+            distance = corner_dists[np.arange(len(frames)), closest_idx]
 
-                # find distance to closest corner
-                self_shape = self_convex_hulls[frame]
-                distance = float("inf")
-                corner_coordinates = (0, 0)
-                closest_idx = -1
-                for i in range(4):
-                    d = self_shape.distance(Point(corners[i, 0], corners[i, 1]))
-                    if d < distance:
-                        distance = d
-                        corner_coordinates = (corners[i, 0], corners[i, 1])
-                        closest_idx = i
+            corner_bearing = signed_angle_degrees(nose, base_neck, corners[closest_idx])
+            center_bearing = signed_angle_degrees(nose, base_neck, arena_center)
+            center_dist = shapely.distance(frame_hulls, shapely.points(arena_center))
 
-                self_base_neck_point = points[idx.BASE_NECK, :]
-                self_nose_point = points[idx.NOSE, :]
+            centroids = shapely.get_coordinates(shapely.centroid(frame_hulls))
+            all_walls, wall_dist_cv2 = self._wall_distances(centroids, corners_f32)
 
-                corner_bearing = signed_angle_degrees(
-                    self_nose_point, self_base_neck_point, corner_coordinates
-                )
-
-                center_bearing = signed_angle_degrees(
-                    self_nose_point, self_base_neck_point, arena_center_np
-                )
-
-                center_dist = self_shape.distance(arena_center)
-
-                # Calculate distance to all walls using cross product
-                p1 = corners.astype(np.float32)
-                p2 = np.roll(p1, 1, axis=0)
-                centroid_point = np.asarray(self_shape.centroid.xy).squeeze()
-
-                # Ensure 3D vectors for np.cross to avoid deprecation warning
-                centroid_point_3d = np.hstack([centroid_point, 0])
-                p1_3d = np.hstack([p1, np.zeros((p1.shape[0], 1), dtype=np.float32)])
-                p2_3d = np.hstack([p2, np.zeros((p2.shape[0], 1), dtype=np.float32)])
-
-                # Note that we can skip dividing by the norm of p2-p1 because we re-scale it anyway
-                wall_dist = np.abs(
-                    np.cross(centroid_point_3d - p1_3d, p2_3d - p1_3d)
-                )  # shape (N, 3)
-                wall_dist = wall_dist[:, 2]  # Take the z-component
-
-                shortest_wall_dist = np.min(wall_dist)
-                wall_dist_cv2 = cv2.pointPolygonTest(
-                    corners.astype(np.float32), centroid_point, True
-                )
-                correction_scale = wall_dist_cv2 / shortest_wall_dist
-                wall_dist *= correction_scale
-                wall_dist = np.abs(wall_dist)
-
-                corner_distances[frame] = distance * self._pixel_scale
-                center_distances[frame] = center_dist * self._pixel_scale
-                wall_distances[frame] = wall_dist_cv2 * self._pixel_scale
-                all_wall_distances[frame] = wall_dist * self._pixel_scale
-                corner_bearings[frame] = corner_bearing
-                center_bearings[frame] = center_bearing
-                closest_corners[frame] = closest_idx
+            corner_distances[frames] = distance * self._pixel_scale
+            center_distances[frames] = center_dist * self._pixel_scale
+            wall_distances[frames] = wall_dist_cv2 * self._pixel_scale
+            all_wall_distances[frames] = all_walls * self._pixel_scale
+            corner_bearings[frames] = corner_bearing
+            center_bearings[frames] = center_bearing
+            closest_corners[frames] = closest_idx
 
         self._cached_distances[identity] = {
             "distance to corner": corner_distances,
@@ -149,6 +117,36 @@ class CornerDistanceInfo:
             f"wall_{i}": all_wall_distances[:, i] for i in np.arange(all_wall_distances.shape[1])
         }
         self._avg_wall_length = avg_wall_length
+
+    @staticmethod
+    def _wall_distances(
+        centroids: npt.NDArray[np.float64], corners: npt.NDArray[np.float32]
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Compute distances from hull centroids to each arena wall.
+
+        Args:
+            centroids: Hull centroids, shape (n, 2), in pixels.
+            corners: Arena corners sorted clockwise, shape (4, 2), in pixels.
+
+        Returns:
+            Tuple of (distance to each wall, shape (n, 4); signed distance to the
+            arena boundary from cv2.pointPolygonTest, positive inside, shape (n,)).
+        """
+        p1 = corners
+        wall_vectors = np.roll(p1, 1, axis=0) - p1
+        offsets = centroids[:, np.newaxis, :] - p1[np.newaxis, :, :]
+        # z component of the cross product of (centroid - p1) and (p2 - p1). We skip
+        # dividing by the norm of p2 - p1 because the values are re-scaled below.
+        wall_dist = np.abs(
+            offsets[..., 0] * wall_vectors[np.newaxis, :, 1]
+            - offsets[..., 1] * wall_vectors[np.newaxis, :, 0]
+        )
+        wall_dist_cv2 = np.array(
+            [cv2.pointPolygonTest(corners, (float(x), float(y)), True) for x, y in centroids],
+            dtype=np.float64,
+        )
+        correction_scale = wall_dist_cv2 / np.min(wall_dist, axis=1)
+        return np.abs(wall_dist * correction_scale[:, np.newaxis]), wall_dist_cv2
 
     def get_distances(self, identity: int) -> dict:
         """get corner distance features for a given identity

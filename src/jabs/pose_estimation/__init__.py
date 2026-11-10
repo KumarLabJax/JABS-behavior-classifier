@@ -7,6 +7,7 @@ import h5py
 
 from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.exceptions import PoseHashException
+from jabs.core.utils.static_objects import lixit_keypoint_count
 
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
@@ -137,11 +138,13 @@ def get_static_objects_in_file(path: Path):
 def get_points_per_lixit(path: Path) -> int:
     """inspect a pose file to get the number of keypoints per lixit
 
-    returns zero if the pose file does not have any lixit keypoints.
+    returns zero if the pose file does not have any lixit keypoints, which
+    includes a lixit dataset that is present but empty -- the same rule the
+    v5+ readers and the project scan apply.
     """
     points_per_lixit = 0
     if get_pose_file_major_version(path) >= 5:
         with h5py.File(path, "r") as pose_h5:
             if "static_objects" in pose_h5 and "lixit" in pose_h5["static_objects"]:
-                points_per_lixit = 3 if pose_h5["static_objects"]["lixit"].ndim == 3 else 1
+                points_per_lixit = lixit_keypoint_count(pose_h5["static_objects"]["lixit"].shape)
     return points_per_lixit

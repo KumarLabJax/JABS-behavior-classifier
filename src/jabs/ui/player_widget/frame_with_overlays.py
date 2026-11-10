@@ -91,6 +91,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
         self._id_overlay_mode = self.IdentityOverlayMode.BBOX
         self._label_color_lut: npt.NDArray[np.uint8] | None = None
+        self._emphasize_active_identity = True
 
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
@@ -105,8 +106,8 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._landmark_overlay = LandmarkOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
         floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
-        bbox_overlay = BoundingBoxOverlay(self)
-        bbox_overlay.id_label_clicked.connect(self.id_label_clicked)
+        self._bbox_overlay = BoundingBoxOverlay(self)
+        self._bbox_overlay.id_label_clicked.connect(self.id_label_clicked)
 
         # overlays are listed in the order they should be painted
         # an overlay on top of another overlay will have priority when handling click events
@@ -120,7 +121,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             self._landmark_overlay,
             PoseOverlay(self),
             LabelOverlay(self),
-            bbox_overlay,
+            self._bbox_overlay,
             self._annotation_overlay,
             floating_id_overlay,
             self._control_overlay,
@@ -184,6 +185,18 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         """Set whether the segmentation overlay is enabled."""
         if self._segmentation_overlay.enabled != enabled:
             self._segmentation_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def bounding_box_overlay_enabled(self) -> bool:
+        """Get whether bounding boxes are drawn in the bounding box identity mode."""
+        return self._bbox_overlay.enabled
+
+    @bounding_box_overlay_enabled.setter
+    def bounding_box_overlay_enabled(self, enabled: bool) -> None:
+        """Set whether bounding boxes are drawn in the bounding box identity mode."""
+        if self._bbox_overlay.enabled != enabled:
+            self._bbox_overlay.enabled = enabled
             self.update()
 
     @property
@@ -304,13 +317,33 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             return self._pose.identity_index_to_display(identity)
         return str(identity)
 
-    def set_pose(self, pose: PoseEstimation) -> None:
+    def set_pose(self, pose: PoseEstimation | None) -> None:
         """Set the pose estimation for the frame widget.
 
         Pose is used to annotate the frame, this method muse be called any time the
         a new video is loaded.
         """
         self._pose = pose
+
+    @property
+    def emphasize_active_identity(self) -> bool:
+        """Get whether the pose and segmentation overlays emphasize the active identity."""
+        return self._emphasize_active_identity
+
+    @emphasize_active_identity.setter
+    def emphasize_active_identity(self, enabled: bool) -> None:
+        """Set whether the pose and segmentation overlays emphasize the active identity.
+
+        When disabled, every identity is drawn as the active one would be, matching the
+        video export, for a viewer with no notion of a selected animal.
+        """
+        if self._emphasize_active_identity != enabled:
+            self._emphasize_active_identity = enabled
+            self.update()
+
+    def is_drawn_active(self, identity: int) -> bool:
+        """Return whether an identity's overlays are drawn as the active identity's."""
+        return not self._emphasize_active_identity or identity == self._active_identity
 
     def set_active_identity(self, identity: int) -> None:
         """Set the active identity for the frame widget.

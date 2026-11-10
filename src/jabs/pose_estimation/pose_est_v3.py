@@ -6,6 +6,7 @@ import numpy as np
 
 from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.exceptions import PoseHashException
+from jabs.core.utils.pose_util import build_identity_mask
 
 from .identity_indexed_pose import IdentityIndexedPoseMixin
 
@@ -135,14 +136,9 @@ class PoseEstimationV3(IdentityIndexedPoseMixin, PoseEstimation):
                 ] = track["point_masks"]
 
             # build a mask for each identity that indicates if it exists or not
-            # in the frame
-            init_func = np.vectorize(
-                lambda x, y: 0 if np.sum(self._point_mask[x][y][:-2]) == 0 else 1,
-                otypes=[np.uint8],
-            )
-            self._identity_mask = np.fromfunction(
-                init_func, (self._max_instances, self._num_frames), dtype=np.int_
-            )
+            # in the frame. a single body point is enough here, so a frame can be
+            # masked present and still have too few points for a convex hull.
+            self._identity_mask = build_identity_mask(self._point_mask, min_valid_keypoints=1)
 
             if self._cache_dir is not None:
                 with h5py.File(cache_file_path, "w") as cache_h5:

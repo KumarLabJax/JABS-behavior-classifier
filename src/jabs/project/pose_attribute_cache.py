@@ -17,8 +17,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Bump when the cached entry schema changes so stale caches are ignored wholesale.
-SCHEMA_VERSION = 1
+# Bump when the cached entry schema changes, or when the meaning of an entry's
+# contents changes, so stale caches are ignored wholesale.
+# 2: an empty static_objects/lixit dataset is no longer reported as a usable
+#    "lixit" static object, so entries written by version 1 can name a lixit the
+#    pose readers drop.
+SCHEMA_VERSION = 2
 
 
 def pose_token(pose_path: Path) -> str:

@@ -28,6 +28,7 @@ from .convert_to_nwb import run_conversion
 from .cross_validation import run_cross_validation
 from .evaluate import evaluate_command
 from .export_video import export_video_command
+from .link_nwb_video import link_nwb_video_command
 from .merge_projects import merge_projects_command
 from .postprocessing import apply_postprocessing_command
 from .sample_frames import sample_frames_command
@@ -63,6 +64,7 @@ cli.add_command(update_labels_command)
 cli.add_command(sample_pose_intervals_command)
 cli.add_command(sample_frames_command)
 cli.add_command(export_video_command)
+cli.add_command(link_nwb_video_command)
 
 
 @cli.command(name="export-training")
@@ -551,7 +553,9 @@ def cross_validation(
         "sex ('M', 'F', 'O' or 'U'), and age (ISO 8601 duration, e.g. 'P70D') "
         "or date_of_birth (ISO 8601 datetime). "
         "Optional fields: subject_id (defaults to the identity name), genotype, "
-        "strain, weight ('[numeric] [unit]', e.g. '25 g'), description."
+        "strain, weight ('[numeric] [unit]', e.g. '25 g'), description, and the "
+        "study-specific fields cfi, cfi_norm, pll (numbers), diet, housing_id, "
+        "test_chamber (strings)."
     ),
 )
 @click.option(
@@ -564,7 +568,7 @@ def cross_validation(
         "Supported keys: session_start_time (ISO 8601 string), "
         "experimenter (string or list of strings), "
         "lab, institution, experiment_description, session_id (strings), "
-        "keywords (list of strings)."
+        "keywords (list of strings), batch and tester (strings, aging study)."
     ),
 )
 @click.option(

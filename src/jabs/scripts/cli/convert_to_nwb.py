@@ -440,6 +440,8 @@ _SESSION_METADATA_FIELDS = frozenset(
         "experiment_description",
         "session_id",
         "keywords",
+        "batch",
+        "tester",
     }
 )
 
@@ -517,7 +519,9 @@ def run_conversion(
             Supported keys: ``session_start_time`` (ISO 8601 string),
             ``experimenter`` (str or list[str]), ``lab``, ``institution``,
             ``experiment_description``, ``session_id``, ``keywords``
-            (list[str]).  Unknown keys are ignored with a warning.
+            (list[str]), and the aging study fields ``batch`` and ``tester``
+            (strings, stored in an ndx-jabs ``JaxAgingStudyMetaData``).  Unknown
+            keys are ignored with a warning.
         segmentation: Whether to include instance segmentation contours when the
             pose file has them.  Pose files before v6, and v6+ files generated
             without segmentation, carry none either way.

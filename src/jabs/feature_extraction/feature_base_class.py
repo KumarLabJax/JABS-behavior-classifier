@@ -3,7 +3,7 @@ import typing
 import warnings
 
 import numpy as np
-from scipy import signal, stats
+from scipy import signal
 
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
@@ -50,13 +50,24 @@ def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
     return segment - trend
 
 
+# window operations computed together by `Feature._shared_moment_features`
+_SHARED_MOMENT_OPERATIONS: dict[str, typing.Callable] = {
+    "std_dev": window_stats.window_std_dev,
+    "skew": window_stats.window_skew,
+    "kurtosis": window_stats.window_kurtosis,
+}
+
+
 class Feature(abc.ABC):
     """Abstract Base Class to define a common interface for classes that implement one or more related features"""
 
-    # each subclass needs to define this name and feature_names
+    # every subclass must define a name
     _name = None
-    # list of feature names, correspond to columns of feature values
-    _feature_names = None
+    # optional fixed list of feature names, corresponding to the columns of feature
+    # values a subclass produces. Only subclasses whose column names are known
+    # without computing anything set this (currently HuMoments); the rest leave it
+    # None and derive their column names in per_frame().
+    _feature_names: typing.ClassVar[list[str] | None] = None
 
     # requirements for this feature to be available
     _min_pose = 2
@@ -94,10 +105,7 @@ class Feature(abc.ABC):
 
     # most angles are bearings in the range [-180, 180)
     # if an angle feature is in a different range, the subclass needs to override this
-    _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
-        "std_dev": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
-    }
+    _circular_range: typing.ClassVar[tuple[float, float]] = (-180.0, 180.0)
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
@@ -126,8 +134,14 @@ class Feature(abc.ABC):
         return cls._name
 
     @classmethod
-    def feature_names(cls) -> list[str]:
-        """return a list of strings containing the names of the features for the feature set"""
+    def feature_names(cls) -> list[str] | None:
+        """Return this feature set's fixed column names, or None if it has none.
+
+        Returns:
+            The subclass's ``_feature_names`` list, or ``None`` for the subclasses
+            that do not declare one (most of them) and build their column names in
+            :meth:`per_frame` instead.
+        """
         return cls._feature_names
 
     @classmethod
@@ -229,17 +243,53 @@ class Feature(abc.ABC):
         Returns:
             dict of window and signal processing feature values
         """
+        shared = self._shared_moment_features(window_size, per_frame_values)
         values = {}
         for op in self._window_operations:
-            values[op] = self._compute_window_feature(
-                per_frame_values,
-                window_size,
-                self._window_operations[op],
-            )
+            if op in shared:
+                values[op] = shared[op]
+            else:
+                values[op] = self._compute_window_feature(
+                    per_frame_values,
+                    window_size,
+                    self._window_operations[op],
+                )
         # Also include signal features
         signal_features = self._window_signal(window_size, per_frame_values)
         values.update(signal_features)
         return values
+
+    def _shared_moment_features(self, window_size: int, per_frame_values: dict) -> dict:
+        """Compute the standard deviation, skew, and kurtosis window features together.
+
+        These three share the window mean, centered values, and variance, so computing
+        them in one pass is faster than running each window operation separately. Only
+        operations still using the default implementations are computed here, so a
+        subclass that replaces one of them gets its own implementation.
+
+        Args:
+            window_size: number of frames (in each direction) to include in the window
+            per_frame_values: dict of per-frame values for this identity
+
+        Returns:
+            dict mapping each of "std_dev", "skew", and "kurtosis" that uses its default
+            implementation to a dict of per-frame feature name to window values
+        """
+        shared_ops = [
+            op
+            for op, default in _SHARED_MOMENT_OPERATIONS.items()
+            if self._window_operations.get(op) is default
+        ]
+        if not shared_ops:
+            return {}
+
+        results: dict[str, dict] = {op: {} for op in _SHARED_MOMENT_OPERATIONS}
+        for key, val in per_frame_values.items():
+            std_dev, skew, kurtosis = window_stats.window_std_skew_kurtosis(val, window_size)
+            results["std_dev"][key] = std_dev
+            results["skew"][key] = skew
+            results["kurtosis"][key] = kurtosis
+        return {op: results[op] for op in shared_ops}
 
     def _window_signal(self, window_size: int, per_frame_values: dict) -> dict:
         """The standard method for computing signal processing window features.
@@ -312,12 +362,9 @@ class Feature(abc.ABC):
         Returns:
             a dictionary of the circular window features.
         """
-        values = {}
-        for op_name, op in self._circular_window_operations.items():
-            values[op_name] = self._compute_window_features_circular(
-                per_frame_values, self._poses.identity_mask(identity), window_size, op
-            )
-        return values
+        return self._compute_window_features_circular(
+            per_frame_values, self._poses.identity_mask(identity), window_size
+        )
 
     def _compute_window_feature(
         self,
@@ -370,45 +417,54 @@ class Feature(abc.ABC):
         feature_values: dict,
         frame_mask: np.ndarray,
         window_size: int,
-        op: typing.Callable,
     ) -> dict:
         """special case compute_window_features for circular measurements
+
+        Computes the circular mean and standard deviation of every window at once from
+        sliding-window sums of sin and cos. Frames where the identity is absent, and nan
+        values, are omitted from each window. Windows with no valid values are nan.
 
         Args:
             feature_values: dict of per-frame feature values
             frame_mask: numpy array that indicates if the frame is valid for the specific identity we are computing features for
             window_size: number of frames (in each direction) to include in the window. The actual number of frames is 2 * window_size + 1
-            op: function to perform the actual computation, such as scipy.stats.circmean or scipy.stats.circstd
 
         Returns:
-            dict with circular feature values
+            dict mapping each circular window operation name ("mean", "std_dev") to a dict
+            of per-frame feature name to window values
         """
-        nframes = self._poses.num_frames
-        values = {}
+        low, high = self._circular_range
+        period = high - low
+        present = np.asarray(frame_mask, dtype=bool)
+        width = 2 * window_size + 1
 
+        def window_sum(x: np.ndarray) -> np.ndarray:
+            padded = np.pad(x, window_size)
+            return np.lib.stride_tricks.sliding_window_view(padded, width).sum(axis=1)
+
+        means = {}
+        std_devs = {}
         for key, val in feature_values.items():
-            op_result = np.full(val.shape, np.nan)
+            # some features (e.g. lixit and corner bearings) are float32; the sliding sums
+            # of sin and cos lose too much precision if they accumulate in float32
+            val = np.asarray(val, dtype=np.float64)
+            valid = present & np.isfinite(val)
+            theta = np.where(valid, (val - low) * (2 * np.pi / period), 0.0)
+            count = window_sum(valid.astype(np.float64))
+            has_values = present & (count > 0)
 
-            # unfortunately the scipy.stats.circmean/circstd functions don't work
-            # with numpy masked arrays, so we need to iterate over each window and
-            # create a view with only the valid values
+            with np.errstate(invalid="ignore", divide="ignore"):
+                mean_sin = window_sum(np.where(valid, np.sin(theta), 0.0)) / count
+                mean_cos = window_sum(np.where(valid, np.cos(theta), 0.0)) / count
+                resultant = np.minimum(1.0, np.hypot(mean_sin, mean_cos))
+                mean = np.mod(np.arctan2(mean_sin, mean_cos), 2 * np.pi) * (period / (2 * np.pi))
+                std_dev = np.sqrt(-2.0 * np.log(resultant)) * (period / (2 * np.pi))
 
-            for i in range(nframes):
-                # identity doesn't exist for this frame don't bother to compute
-                if not frame_mask[i]:
-                    continue
+            # np.mod can round a tiny negative angle up to exactly 2*pi, which would put the
+            # mean on `high`; fold it back to `low` to keep the result in [low, high)
+            mean = np.where(mean + low >= high, low, mean + low)
 
-                slice_start = max(0, i - window_size)
-                slice_end = min(i + window_size + 1, nframes)
+            means[key] = np.where(has_values, mean, np.nan)
+            std_devs[key] = np.where(has_values, std_dev, np.nan)
 
-                slice_frames_valid = frame_mask[slice_start:slice_end]
-
-                window_values = val[slice_start:slice_end][slice_frames_valid == 1]
-
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=RuntimeWarning)
-                    op_result[i] = op(window_values)
-
-            values[f"{key}"] = op_result
-
-        return values
+        return {"mean": means, "std_dev": std_devs}

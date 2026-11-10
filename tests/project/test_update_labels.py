@@ -9,6 +9,7 @@ from click.testing import CliRunner
 import jabs.scripts.cli.update_labels as update_labels
 import jabs.scripts.cli.update_pose as update_pose
 from jabs.scripts.cli.cli import cli
+from jabs.scripts.cli.label_remap_matching import MatchMetric, MatchSettings
 
 
 def _make_valid_project_dir(
@@ -594,9 +595,13 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         annotate_failures,
         drop_timeline_annotations,
         tolerate_orphan_identities,
+        match_settings,
+        processes,
     ):
         captured.update(
             {
+                "match_settings": match_settings,
+                "processes": processes,
                 "project_dir": project_dir_arg,
                 "source_project_dir": source_project_dir_arg,
                 "min_iou": min_iou,
@@ -623,6 +628,15 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
             str(source_dir),
             "--min-iou-thresh",
             "0.75",
+            "--min-mask-iou",
+            "0.6",
+            "--match-by",
+            "segmentation",
+            "--no-split-blocks",
+            "--min-run-frames",
+            "5",
+            "-p",
+            "3",
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
@@ -635,13 +649,21 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         "project_dir": project_dir,
         "source_project_dir": source_dir,
         "min_iou": 0.75,
+        "match_settings": MatchSettings(
+            min_bbox_iou=0.75,
+            min_mask_iou=0.6,
+            match_by=MatchMetric.SEGMENTATION,
+            split_blocks=False,
+            min_run_frames=5,
+        ),
+        "processes": 3,
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
         "tolerate_orphan_identities": True,
     }
     assert "Backup archive:" in result.output
-    assert "Label update summary: 4 label blocks assigned, 2 label blocks skipped" in result.output
+    assert "Label update summary: 4 label parts assigned, 2 label parts skipped" in result.output
     assert "Behaviors added to project.json from source: Climbing" in result.output
 
 

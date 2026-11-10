@@ -30,11 +30,8 @@ class LandmarkFeatureGroup(FeatureGroup):
         get_corner_info(identity): Get or create the CornerDistanceInfo for an identity.
         get_lixit_info(identity): Get or create the LixitDistanceInfo for an identity.
         static_object_features(static_object): List features derived from a static object.
-        static_object_per_frame_features(feature_name): List per-frame features for a feature.
-        static_object_window_features(feature_name): List window features for a feature.
         get_supported_objects(): List all supported static objects.
         get_objects_from_features(features): Get required objects for a list of features.
-        get_feature_names(static_objects): Get per-frame and window features for objects.
     """
 
     _name = "landmark"
@@ -159,37 +156,6 @@ class LandmarkFeatureGroup(FeatureGroup):
             return []
 
     @classmethod
-    def static_object_per_frame_features(cls, feature_name: str):
-        """get a list of per frame features derived from a static object feature
-
-        Args:
-            feature_name: name of feature to retrieve the per frame
-                feature names
-
-        Returns:
-            list of strings containing per frame features derived from that object
-        """
-        try:
-            return cls._features[feature_name].feature_names()
-        except KeyError:
-            return []
-
-    @classmethod
-    def static_object_window_features(cls, feature_name: str):
-        """get a list of window features derived from a static object feature
-
-        Args:
-            feature_name: name of feature to retrieve the window feature names
-
-        Returns:
-            list of strings containing window features derived from that object
-        """
-        try:
-            return list(cls._features[feature_name]._window_operations.keys())
-        except KeyError:
-            return []
-
-    @classmethod
     def get_supported_objects(cls):
         """get a list of all objects supported
 
@@ -216,32 +182,3 @@ class LandmarkFeatureGroup(FeatureGroup):
                 if cur_feature in feats:
                     found_objects.append(obj)
         return list(set(found_objects))
-
-    @classmethod
-    def get_feature_names(cls, static_objects: list | None = None):
-        """get the features supported
-
-        Args:
-            static_objects: list of static objects. if None, get features for all supported static objects
-        """
-        if static_objects is None:
-            valid_objects = cls.get_supported_objects()
-        else:
-            valid_objects = [x for x in static_objects if x in cls.get_supported_objects()]
-
-        per_frame_features = {}
-        window_features = {}
-        for static_object in valid_objects:
-            object_features = cls.static_object_features(static_object)
-            for current_feature in object_features:
-                object_feature_list = []
-                window_feature_dict = {}
-                per_frame_feature_names = cls.static_object_per_frame_features(current_feature)
-                window_feature_mods = cls.static_object_window_features(current_feature)
-                for frame_feature in per_frame_feature_names:
-                    window_feature_dict.update({frame_feature: window_feature_mods})
-                object_feature_list += per_frame_feature_names
-                per_frame_features.update({current_feature: object_feature_list})
-                window_features.update({current_feature: window_feature_dict})
-
-        return per_frame_features, window_features

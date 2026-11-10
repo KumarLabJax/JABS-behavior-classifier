@@ -1,11 +1,43 @@
-"""Helpers deriving simple geometry from a pose estimation object."""
+"""Helpers deriving identity presence and simple geometry from pose estimation data."""
 
 from collections.abc import Generator, Iterable
 
 import numpy as np
 import numpy.typing as npt
+import shapely
 
 from jabs.core.abstract import PoseEstimation
+
+
+def build_identity_mask(
+    point_mask: npt.NDArray[np.integer] | npt.NDArray[np.bool_],
+    min_valid_keypoints: int,
+) -> npt.NDArray[np.uint8]:
+    """Build a per-frame identity presence mask from a keypoint validity mask.
+
+    An identity counts as present in a frame when at least ``min_valid_keypoints`` of
+    its body keypoints are valid. The last two keypoints (``MID_TAIL`` and
+    ``TIP_TAIL``) are dropped before counting, matching the body-only keypoint set
+    :meth:`PoseEstimation.get_identity_convex_hulls` builds its hulls from.
+
+    The threshold is the caller's because it differs by pose version: v2 and v4
+    require the three keypoints a convex hull needs, while v3 requires only one, so
+    a v3 frame can be masked present and still have no hull.
+
+    Args:
+        point_mask: Per-keypoint validity mask with the keypoints on the last axis,
+            shape ``(..., #keypoints)``. Single-identity readers pass
+            ``(#frames, #keypoints)``; identity-indexed readers pass
+            ``(#identities, #frames, #keypoints)``. Any dtype that sums as 0/1 per
+            keypoint is accepted.
+        min_valid_keypoints: Number of valid body keypoints a frame needs for the
+            identity to count as present.
+
+    Returns:
+        ``uint8`` array of 0/1 values with shape ``point_mask.shape[:-1]``.
+    """
+    valid_body_keypoints = np.sum(point_mask[..., :-2], axis=-1)
+    return (valid_body_keypoints >= min_valid_keypoints).astype(np.uint8)
 
 
 def gen_line_fragments(
@@ -60,10 +92,13 @@ def identity_centroids(poses: PoseEstimation, identity: int) -> npt.NDArray[np.f
         units. Rows are NaN for frames with no centroid.
     """
     centroids = np.full((poses.num_frames, 2), np.nan, dtype=np.float32)
-    frame_valid = poses.identity_mask(identity)
-    convex_hulls = poses.get_identity_convex_hulls(identity)
-    for i in np.arange(poses.num_frames)[frame_valid == 1]:
-        hull = convex_hulls[i]
-        if hull is not None:
-            centroids[i, :] = np.asarray(hull.centroid.xy).squeeze()
+    # an object array of hulls; filled by assignment so numpy does not try to unpack
+    # the geometries
+    hulls = np.empty(poses.num_frames, dtype=object)
+    hulls[:] = poses.get_identity_convex_hulls(identity)
+    present = np.asarray(poses.identity_mask(identity)) == 1
+    frames = np.flatnonzero(present & ~shapely.is_missing(hulls))
+    hull_centroids = shapely.centroid(hulls[frames])
+    centroids[frames, 0] = shapely.get_x(hull_centroids)
+    centroids[frames, 1] = shapely.get_y(hull_centroids)
     return centroids

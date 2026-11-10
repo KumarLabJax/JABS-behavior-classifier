@@ -9,6 +9,8 @@ overwrite existing feature H5 files.
 import json
 import logging
 import os
+import time
+from datetime import datetime
 from multiprocessing.pool import Pool
 from pathlib import Path
 
@@ -22,8 +24,11 @@ import jabs.project
 from jabs.core.constants import CACHE_FORMAT_KEY
 from jabs.core.enums import CacheFormat, ProjectDistanceUnit
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE
+from jabs.feature_extraction.feature_timing import FeatureTimings
+from jabs.feature_extraction.feature_timing_report import render_timing_report
 from jabs.project.video_manager import VideoManager
 from jabs.schema.metadata import validate_metadata
+from jabs.version import version_str
 from jabs.video_reader import VideoReader
 
 logger = logging.getLogger(__name__)
@@ -31,36 +36,45 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROCESSES = os.cpu_count() or 1
 
 
-def generate_files_worker(params: dict):
-    """worker function used for generating project feature and cache files"""
+def generate_files_worker(params: dict) -> FeatureTimings | None:
+    """worker function used for generating project feature and cache files for one video
+
+    All identities in the video are processed with the same PoseEstimation object, so
+    per-video work that feature groups cache on it (such as the social contact graph
+    shared by every identity) is done once per video rather than once per identity.
+
+    Returns:
+        Feature compute times for every identity in the video if
+        ``params["collect_timings"]`` is set, otherwise None.
+    """
     project = params["project"]
     pose_est = project.load_pose_est(project.video_manager.video_path(params["video"]))
     cache_format = CacheFormat(params["cache_format"])
-
-    features = jabs.feature_extraction.IdentityFeatures(
-        params["video"],
-        params["identity"],
-        project.feature_dir,
-        pose_est,
-        force=params["force"],
-        op_settings=project.get_project_defaults(),
-        cache_format=cache_format,
-    )
-
-    # unlike per frame features, window features are not automatically
-    # generated when opening the file. They are computed as needed based
-    # on the requested window size. Force each window size to be
-    # pre-computed by fetching it
-    for w in params["window_sizes"]:
-        # get the social features if they are supported, although this doesn't
-        # matter with current implementation, as they are always computed if
-        # the file supports them, they are just not included in the returned
-        # features if this param is false
-        use_social = pose_est.format_major_version > 2
-        _ = features.get_window_features(w, use_social, force=params["force"])
+    timings = FeatureTimings() if params.get("collect_timings", False) else None
+    op_settings = project.get_project_defaults()
 
     for identity in pose_est.identities:
+        features = jabs.feature_extraction.IdentityFeatures(
+            params["video"],
+            identity,
+            project.feature_dir,
+            pose_est,
+            force=params["force"],
+            op_settings=op_settings,
+            cache_format=cache_format,
+            timings=timings,
+        )
+
+        # unlike per frame features, window features are not automatically
+        # generated when opening the file. They are computed as needed based
+        # on the requested window size. Force each window size to be
+        # pre-computed by fetching it
+        for w in params["window_sizes"]:
+            _ = features.get_window_features(w, force=params["force"])
+
         _ = pose_est.get_identity_convex_hulls(identity)
+
+    return timings
 
 
 def validate_video_worker(params: dict):
@@ -139,28 +153,81 @@ def compute_project_features(
     force: bool,
     pool: Pool,
     cache_format: CacheFormat = CacheFormat.PARQUET,
-) -> None:
-    """Compute features for all identities in the project."""
+    collect_timings: bool = False,
+) -> FeatureTimings | None:
+    """Compute features for all identities in the project.
+
+    Work is split into one job per video, so parallelism is limited to the number of
+    videos in the project.
+
+    Args:
+        project: Project to compute features for.
+        window_sizes: Window sizes to pre-compute.
+        force: Recompute features even if they are already cached.
+        pool: Worker pool used to compute features in parallel.
+        cache_format: Feature cache storage format.
+        collect_timings: Record how long each feature module takes to compute.
+
+    Returns:
+        Feature compute times merged across all identities if ``collect_timings`` is
+        set, otherwise None.
+    """
 
     def feature_job_producer():
         for video in project.video_manager.videos:
-            for identity in project.load_pose_est(
-                project.video_manager.video_path(video)
-            ).identities:
-                yield {
-                    "video": video,
-                    "identity": identity,
-                    "project": project,
-                    "force": force,
-                    "window_sizes": window_sizes,
-                    "cache_format": cache_format.value,
-                }
+            yield {
+                "video": video,
+                "project": project,
+                "force": force,
+                "window_sizes": window_sizes,
+                "cache_format": cache_format.value,
+                "collect_timings": collect_timings,
+            }
 
-    total_identities = project.total_project_identities
+    timings = FeatureTimings() if collect_timings else None
     with Progress() as progress:
-        task = progress.add_task(" Computing Features", total=total_identities)
-        for _ in pool.imap_unordered(generate_files_worker, feature_job_producer()):
+        task = progress.add_task(" Computing Features", total=len(project.video_manager.videos))
+        for result in pool.imap_unordered(generate_files_worker, feature_job_producer()):
+            if timings is not None and result is not None:
+                timings.merge(result)
             progress.update(task, advance=1)
+    return timings
+
+
+def write_timing_report(
+    report_path: Path,
+    timings: FeatureTimings,
+    top_n: int | None,
+    metadata: dict[str, str],
+    force: bool,
+) -> None:
+    """Write the feature compute time report to a Markdown file.
+
+    Args:
+        report_path: Destination file.
+        timings: Feature compute times collected during feature generation.
+        top_n: If given, list only the ``top_n`` slowest entries.
+        metadata: Key/value pairs describing the run.
+        force: Whether features were recomputed even if cached.
+
+    Raises:
+        OSError: If the report cannot be written.
+    """
+    notes = [
+        "Times are wall-clock seconds summed across all identities and worker processes, "
+        "so the total can exceed the elapsed time of the run.",
+        "Window times are summed across all window sizes.",
+        "`(group setup)` is shared work a feature group does before computing its features. "
+        "Shared data a group computes lazily is attributed to the first feature that uses it.",
+    ]
+    if not force:
+        notes.append(
+            "Features loaded from the cache were not computed and are not timed. "
+            "Run with `--force` to time every feature."
+        )
+    report = render_timing_report(timings, top_n=top_n, metadata=metadata, notes=notes)
+    report_path.write_text(report)
+    logger.info("Wrote feature timing report to %s", report_path)
 
 
 def _exit_with_message(message: str) -> None:
@@ -233,8 +300,27 @@ def run_initialize_project(
     skip_feature_generation: bool,
     project_dir: Path,
     cache_format: CacheFormat | None = None,
+    timing_report: Path | None = None,
+    timing_top_n: int | None = None,
 ) -> None:
-    """Run project initialization and optional feature generation."""
+    """Run project initialization and optional feature generation.
+
+    Args:
+        force: Recompute features even if they already exist.
+        processes: Number of worker processes.
+        window_sizes: Window sizes to pre-compute; the default is used if empty.
+        force_pixel_distances: Use pixel distances even if the project supports cm.
+        metadata_path: Optional project metadata JSON file.
+        skip_feature_generation: Only initialize and validate the project.
+        project_dir: JABS project directory.
+        cache_format: Feature cache format, or None to keep the project setting.
+        timing_report: If given, write a Markdown report of feature compute times here.
+        timing_top_n: Limit the timing report to the slowest ``timing_top_n`` entries.
+    """
+    if timing_report is not None and skip_feature_generation:
+        click.echo("Warning: --timing-report is ignored with --skip-feature-generation")
+        timing_report = None
+
     pool = Pool(processes)
     try:
         validated_window_sizes = validate_window_sizes(window_sizes)
@@ -303,7 +389,36 @@ def run_initialize_project(
 
         # compute features in parallel, this might take a while
         if not skip_feature_generation:
-            compute_project_features(project, resolved_window_sizes, force, pool, cache_format)
+            start = time.perf_counter()
+            timings = compute_project_features(
+                project,
+                resolved_window_sizes,
+                force,
+                pool,
+                cache_format,
+                collect_timings=timing_report is not None,
+            )
+            elapsed = time.perf_counter() - start
+
+            if timing_report is not None and timings is not None:
+                report_metadata = {
+                    "Project": str(project_dir),
+                    "Generated": datetime.now().isoformat(timespec="seconds"),
+                    "JABS version": version_str(),
+                    "Identities": str(project.total_project_identities),
+                    "Window sizes": ", ".join(str(w) for w in sorted(resolved_window_sizes)),
+                    "Worker processes": str(processes),
+                    "Cache format": cache_format.value,
+                    "Forced recompute": "yes" if force else "no",
+                    "Elapsed feature generation time": f"{elapsed:.1f} s",
+                }
+                try:
+                    write_timing_report(
+                        timing_report, timings, timing_top_n, report_metadata, force
+                    )
+                except OSError as e:
+                    _exit_with_message(f"Error writing timing report {timing_report}: {e}")
+                click.echo(f"Feature timing report written to {timing_report}")
 
         # save window sizes to project settings
         deduped_window_sizes = set(
@@ -390,6 +505,22 @@ def run_initialize_project(
         "option existed default to HDF5."
     ),
 )
+@click.option(
+    "--timing-report",
+    type=click.Path(path_type=Path, dir_okay=False),
+    default=None,
+    help=(
+        "Write a Markdown report of how long each feature took to compute, sorted from "
+        "slowest to fastest. Cached features are not timed; combine with --force to time "
+        "every feature."
+    ),
+)
+@click.option(
+    "--timing-top-n",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Only list the N slowest features in the timing report (requires --timing-report).",
+)
 @click.argument("project_dir", type=click.Path(path_type=Path))
 def main(
     force: bool,
@@ -399,9 +530,14 @@ def main(
     metadata: Path | None,
     skip_feature_generation: bool,
     cache_format: str | None,
+    timing_report: Path | None,
+    timing_top_n: int | None,
     project_dir: Path,
 ) -> None:
     """jabs-init."""
+    if timing_top_n is not None and timing_report is None:
+        raise click.UsageError("--timing-top-n requires --timing-report")
+
     run_initialize_project(
         force=force,
         processes=processes,
@@ -411,6 +547,8 @@ def main(
         skip_feature_generation=skip_feature_generation,
         project_dir=project_dir,
         cache_format=CacheFormat(cache_format) if cache_format is not None else None,
+        timing_report=timing_report,
+        timing_top_n=timing_top_n,
     )
 
 

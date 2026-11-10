@@ -68,6 +68,20 @@ def test_angular_velocity_handles_wraparound() -> None:
     np.testing.assert_allclose(velocities, [20.0 * _FPS, -20.0 * _FPS, np.nan])
 
 
+def test_angular_velocity_half_turn_keeps_direct_difference_sign() -> None:
+    """Test that an exact half turn keeps the sign of the direct difference."""
+    # A 180 degree turn is the same distance either way around the circle, so
+    # the two candidate turns tie. The tie is broken toward the direct
+    # difference, which is +180 going up and -180 coming back down.
+    bearings = np.array([0.0, 180.0, 0.0])
+
+    velocities = AngularVelocity(_pose_with_bearings(bearings), 1.0).per_frame(0)[
+        "angular_velocity"
+    ]
+
+    np.testing.assert_allclose(velocities, [180.0 * _FPS, -180.0 * _FPS, np.nan])
+
+
 def test_angular_velocity_consecutive_same_angles():
     """Test angular velocity for consecutive frames with same bearing.
 
