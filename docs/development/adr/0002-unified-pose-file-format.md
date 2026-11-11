@@ -72,7 +72,7 @@ contour in the whole video:
 | v6 · 1 mouse · 1 hour | 7.3% | 1,184 MB | 16.5 MB |
 | v8 · 3 mice · 60 seconds | 0.82% | 1,123 MB | 3.4 MB |
 
-### Identity slots are already aligned — the format just never promised it
+### Identity slots are often not aligned — and the format never promised it
 
 | file | version | slots | valid instances in the wrong slot |
 |---|---|---:|---|
@@ -80,11 +80,16 @@ contour in the whole video:
 | 3-mouse clips ×3 (JABS-pose) | v8 | 3 | 0 / ~3,600 each |
 | multi-mouse test file | v6 | 5 | 1,102 / 2,444 |
 | multi-mouse samples ×2 | v5 | 5 | 10,914 / 14,393 |
+| JABS Hub dev, `spal_seg_and_pose_multihead_effv2s_fpn_12kp_2026-06-04_v1` ×62 | v8 | 1–4 | 121,945 / 275,114 (44%) |
+| JABS Hub dev, `pose_v4` ×52 | v8 | 2–6 | 161,058 / 266,343 (60%) |
+| one clip, `spal_seg_and_pose_multihead_effv2s_fpn_12kp_2026-10-22_dax3_pseudo_v1_60ep` | v8 | 5 | 1,903 / 5,002 (38%) |
 
-Current inference recycles instance ids (`"recycle_instance_ids": true` in v8
-`model_metadata_json`), so slot *k* already holds identity *k*. Older multi-animal files do not.
-Because the format never guaranteed it, every consumer scatters defensively — and against v5/v6
-files it genuinely must.
+"Wrong slot" means a valid instance (`id_mask == 0`) whose `instance_embed_id` *e* is not at index
+*e − 1*. The three JABS-pose clips are aligned. Files from three other models, all v8, are not: the
+JABS Hub's census of its dev uploads (2026-11) found 52% of 541,457 valid instances out of slot.
+Alignment is therefore a property of a particular pipeline, never of the format version. Because
+the format never guaranteed it, every consumer scatters defensively, and it genuinely must. The
+converter scatters unconditionally (Conversion).
 
 ### Requirements
 
@@ -135,7 +140,9 @@ citizen with declared axes, not an escape hatch.
     mask or an explicit length. Sentinels are banned. Keypoint validity is *both* raw confidence and
     a producer mask, with the threshold recorded.
 12. **Each component kind has one baseline encoding.** Readers must implement the baseline and may
-    implement others; producers are strongly encouraged to write it and may override per run.
+    implement others; producers are strongly encouraged to write it and may override per run. A
+    component may also carry named **alternates**: derived copies of its data in another encoding,
+    which a reader may use and a tool may drop.
 13. **Keypoint-scale data is uncompressed and chunked along frames**; segmentation-scale data is
     chunked and compressed.
 14. **The file knows its video and its time base**, including frame width and height.
@@ -303,7 +310,8 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
           "properties": {
             "kind": { "const": "ragged" },
             "group_offsets": { "$ref": "#/$defs/hdf5Path" },
-            "instance_offsets": { "$ref": "#/$defs/hdf5Path" }
+            "instance_offsets": { "$ref": "#/$defs/hdf5Path" },
+            "level": { "enum": ["leaf", "group"] }
           }
         },
         {
@@ -427,6 +435,67 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
         "skeleton": { "$ref": "#/$defs/componentId" },
         "provenance": { "type": "string" },
         "description": { "type": "string" },
+        "alternates": { "type": "array", "items": { "$ref": "#/$defs/alternate" } },
+        "extra": { "type": "object" }
+      }
+    },
+
+    "alternateName": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$" },
+
+    "alternate": {
+      "type": "object",
+      "required": ["name", "path", "axes", "dtype", "shape", "encoding", "missing"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["axes"],
+            "properties": { "axes": { "contains": { "const": "coord" } } }
+          },
+          "then": { "required": ["units", "coord_order"] }
+        },
+        {
+          "if": {
+            "required": ["missing"],
+            "properties": {
+              "missing": {
+                "properties": { "policy": { "const": "nan" } },
+                "required": ["policy"]
+              }
+            }
+          },
+          "then": { "properties": { "dtype": { "enum": ["float32", "float64"] } } }
+        },
+        {
+          "if": {
+            "required": ["encoding"],
+            "properties": {
+              "encoding": {
+                "properties": { "kind": { "const": "rle" } },
+                "required": ["kind"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dtype": { "enum": ["uint8", "uint16", "uint32", "uint64"] },
+              "axes": { "const": ["run"] }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "name": { "$ref": "#/$defs/alternateName" },
+        "path": { "$ref": "#/$defs/hdf5Path" },
+        "axes": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "dtype": { "$ref": "#/$defs/dtype" },
+        "shape": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "units": { "enum": ["pixel", "cm", "second", "frame", "radian", "unitless"] },
+        "coord_order": { "enum": ["xy", "yx"] },
+        "encoding": { "$ref": "#/$defs/encoding" },
+        "missing": { "$ref": "#/$defs/missing" },
+        "layout": { "$ref": "#/$defs/layout" },
+        "description": { "type": "string" },
         "extra": { "type": "object" }
       }
     },
@@ -542,25 +611,42 @@ anyone using the reference library.
 | `ragged` | — | two-level CSR, see below |
 | `rle` | — | run-length masks; loses contour hierarchy |
 
-**The payload always lives at the component's `path`**, whatever the encoding. `dtype` and `shape`
-describe that dataset. An encoding object names only its *index* datasets, never the payload — so
-there is exactly one place a validator looks for a component's data.
+**A component's payload lives at its `path`**, whatever the encoding, and an alternate's payload
+lives at the alternate's own `path` (Alternate encodings, below). `dtype` and `shape` describe the
+dataset at that path. An encoding object names only its *index* datasets, never the payload — so
+for each declared encoding there is exactly one place a validator looks for its data.
 
-**Ragged.** The payload at `path` holds all leaf items concatenated. `group_offsets` is a CSR index
-into the payload; `instance_offsets` is a CSR index into `group_offsets`, in row-major
-`(frame, slot)` order. Decoding, precisely:
-
-```
-group g          spans payload[group_offsets[g] : group_offsets[g + 1]]
-instance (f, s)  owns groups g for g in [instance_offsets[f*S + s], instance_offsets[f*S + s + 1])
-```
-
-Note the index spaces: `instance_offsets` holds **group indices**, and `group_offsets` holds
-**payload indices**. Applying `group_offsets[...]` to an instance's group range would yield payload
-offsets, not the groups themselves — a formula that reads naturally and decodes wrongly, so it is
-spelled out here. Both offset arrays are `uint64` and carry one trailing element:
+**Ragged.** Two CSR arrays index a two-level structure of leaf items grouped into groups.
+`group_offsets` is a CSR index into the leaf items; `instance_offsets` is a CSR index into the
+groups, in row-major `(frame, slot)` order. Both are `uint64` and carry one trailing element:
 `len(group_offsets) == num_groups + 1` and `len(instance_offsets) == F*S + 1`. No cap on group
 count or group length exists.
+
+The encoding's `level` says what the payload at `path` holds:
+
+- **`leaf`** (the default when `level` is omitted): every leaf item, concatenated. For
+  segmentation, every contour point. Decoding, precisely:
+
+  ```
+  group g          spans payload[group_offsets[g] : group_offsets[g + 1]]
+  instance (f, s)  owns groups g for g in [instance_offsets[f*S + s], instance_offsets[f*S + s + 1])
+  ```
+
+  Note the index spaces: `instance_offsets` holds **group indices**, and `group_offsets` holds
+  **payload indices**. Applying `group_offsets[...]` to an instance's group range would yield
+  payload offsets, not the groups themselves — a formula that reads naturally and decodes wrongly,
+  so it is spelled out here. `group_offsets` ends at `shape[0]`, and `instance_offsets` ends at
+  `len(group_offsets) - 1`.
+
+- **`group`**: one value per group, in group order. For segmentation, one value per contour.
+  Instance `(f, s)` owns `payload[instance_offsets[f*S + s] : instance_offsets[f*S + s + 1]]`
+  directly, because the payload is indexed by group. `shape[0] == len(group_offsets) - 1`, and
+  `instance_offsets` ends at `shape[0]`. A group-level component still names `group_offsets`, and it
+  must be the same dataset a leaf-level component in the same file names: that shared pair of
+  offsets is what makes the association between them machine-readable.
+
+The level is **declared, not inferred**. When every group holds exactly one leaf, the number of
+leaves equals the number of groups, and no length check can tell the two levels apart.
 
 **RLE.** The payload at `path` holds concatenated run lengths in the given `order` (default
 `column-major`, the COCO convention); `instance_offsets` is a `uint64` CSR index into it, in
@@ -578,6 +664,58 @@ Three further constraints, without which two conforming readers decode the same 
 - **Each instance's runs sum to exactly `video.width * video.height`.** A short or long run list
   decodes to a mask of the wrong size, which no shape check catches because the payload is a flat
   buffer.
+
+#### Alternate encodings
+
+A component may declare **alternates**: derived copies of its data in another encoding, each under
+a name. The baseline stays at the component's `path` and remains the component's data. An alternate
+exists so a reader with different access needs — a browser reading a frame window over HTTP — can
+read the same data without decoding the baseline.
+
+```json
+{ "id": "jabs.segmentation.contours", "path": "/jabs/segmentation/contours",
+  "axes": ["frame", "slot", "contour", "point", "coord"],
+  "dtype": "int32", "shape": [1800, 5, 5, 1108, 2],
+  "units": "pixel", "coord_order": "xy",
+  "encoding": { "kind": "dense" },
+  "missing": { "policy": "length", "length": "jabs.segmentation.contour_length" },
+  "alternates": [
+    { "name": "ragged", "path": "/jabs/segmentation/ragged/contours",
+      "axes": ["point", "coord"], "dtype": "int32", "shape": [3845301, 2],
+      "units": "pixel", "coord_order": "xy", "missing": { "policy": "none" },
+      "encoding": { "kind": "ragged", "level": "leaf",
+                    "group_offsets": "/jabs/segmentation/ragged/contour_offsets",
+                    "instance_offsets": "/jabs/segmentation/ragged/instance_offsets" } }
+  ] }
+```
+
+The rules:
+
+- **Fields.** An alternate carries every field a component requires except `id`, which it shares
+  with its component, plus `units` and `coord_order` wherever it has a `coord` axis. It does not
+  repeat `skeleton` or `provenance`; it has the component's.
+- **One name, one encoding.** Alternates with the same `name` on different components of one file
+  are one encoding. A reader looks an encoding up by name, and a tool keeps or drops them together.
+  `jabs.segmentation.external_flag`, for instance, carries a group-level `ragged` alternate naming
+  the same two offset datasets.
+- **Paths.** An alternate's path is distinct from every component's and every other alternate's.
+  An alternate of a `jabs.*` component lives in that component's group, under its name, so
+  `/jabs/segmentation/ragged/` holds the `ragged` alternates of `jabs.segmentation`.
+- **The baseline wins.** An alternate is derived. A tool that changes a baseline's payload must drop
+  or regenerate that baseline's alternates, and a reader that finds them disagreeing trusts the
+  baseline.
+- **Alternates are droppable.** A tool that does not implement an alternate's encoding drops the
+  whole named set and lists it in its history entry's `dropped`, as `alternate:<name>`. This is the
+  one place a tool may drop data without refusing: what it drops is derived, and the baseline it
+  keeps can regenerate it.
+- **Adding one writes a derived file.** History is written once and never edited, so a tool that
+  adds alternates writes a new file and appends an `encode` entry (Provenance).
+
+Defined by this revision: the **`ragged`** alternate of `jabs.segmentation.contours` (leaf level)
+and `jabs.segmentation.external_flag` (group level), at `/jabs/segmentation/ragged/`, with offsets
+`contour_offsets` and `instance_offsets` there. A producer writing it should lay its offsets, flags
+and payload out so they occupy one contiguous byte range, with the payload chunked along `point`.
+That is a property a writer guarantees and tests, not a validation rule.
 
 ### Component catalog
 
@@ -606,6 +744,14 @@ what its keypoint axis means. A schema conditional enforces it.
 producer's recommendation; the threshold that produced it is recorded in that component's
 provenance as `parameters.confidence_threshold`. A consumer may ignore the mask and re-threshold
 `confidence` itself — that is the entire reason both are present.
+
+**`NaN` in `points` means no coordinate, never low confidence.** A producer writes `NaN` only where
+it has no coordinate: confidence 0, or a source coordinate that is already `NaN`. A point with
+confidence above 0 and at or below the threshold keeps its coordinates, with `point_valid` false.
+Writing `NaN` wherever `point_valid` is false would make the threshold permanent, which is the very
+thing keeping both arrays exists to avoid. It matters in practice: in the JABS Hub's dev corpus
+(2026-11), 18.5% of the valid keypoints written by the `pose_v4` model have confidence in
+(0, 0.3], and 97.4% of those lie inside their instance's bounding box.
 
 `tracklet_id` values are gap-free intervals: a tracklet occupies a contiguous run of frames with no
 breaks. This invariant is **normative** here rather than a footnote in a producer document, because
@@ -672,11 +818,13 @@ Under the ragged encoding, `jabs.segmentation.contours` has `axes: ["point", "co
 `/jabs/segmentation/instance_offsets`. `contour_count` and `contour_length` are then derivable from
 the offsets and must be omitted.
 
-`external_flag` becomes a flat `contour`-axis array, and **it declares the same ragged encoding,
-naming the same two offset datasets**. That is what makes its relationship to the contours
-machine-readable: a tool holding the manifest can see that the two components are indexed by one
-pair of offsets, rather than having to know that `external_flag` happens to be per-contour. It
-reuses the mechanism already there instead of adding a sidecar-association field.
+`external_flag` becomes a flat `contour`-axis array that declares the same ragged encoding at
+**`level: "group"`**, naming the same two offset datasets; `contours` is at `level: "leaf"`. That is
+what makes its relationship to the contours machine-readable: a tool holding the manifest can see
+that the two components are indexed by one pair of offsets, and the level says which index the
+payload follows. It reuses the mechanism already there instead of adding a sidecar-association
+field. The same holds when ragged segmentation is carried as the `ragged` alternate rather than as
+the baseline.
 
 There is no `instance_seg_id` and no `longterm_seg_id`. Segmentation is indexed by the same
 `(frame, slot)` as pose, so the pose↔segmentation link **is** the slot, and the matching step those
@@ -914,7 +1062,7 @@ identifier that components reference, and `history`, an ordered list.
       "required": ["operation", "tool", "version", "time"],
       "additionalProperties": false,
       "properties": {
-        "operation": { "enum": ["infer", "convert", "clip", "merge", "annotate"] },
+        "operation": { "enum": ["infer", "convert", "clip", "merge", "annotate", "encode"] },
         "tool": { "type": "string", "minLength": 1 },
         "version": { "type": "string", "minLength": 1 },
         "time": { "type": "string", "format": "date-time" },
@@ -937,6 +1085,11 @@ identifier that components reference, and `history`, an ordered list.
           "if": { "properties": { "operation": { "const": "convert" } },
                   "required": ["operation"] },
           "then": { "required": ["source", "synthesized"] }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "encode" } },
+                  "required": ["operation"] },
+          "then": { "required": ["synthesized"] }
         }
       ]
     }
@@ -955,6 +1108,10 @@ mask it derived by thresholding both read as ground truth.
 
 The history is written once at creation and never edited. A tool producing a *derived* file
 appends its own entry to the copy.
+
+**`encode`** is the entry a tool appends when it adds alternates to a copy of a file (Alternate
+encodings). Its `synthesized` is required, and names each alternate it added as
+`<component id>:alternate:<name>` — for example `jabs.segmentation.contours:alternate:ragged`.
 
 ### Attachments
 
@@ -987,11 +1144,14 @@ So:
 - **A tool that does not implement a component's encoding must refuse to clip the file**, naming the
   component and its encoding. It must not drop the component, and it must not copy it through with
   its offsets untouched.
+- **A tool that does not implement an alternate's encoding drops that alternate's whole named set**
+  and lists it in the `clip` entry's `dropped`. It does not refuse: an alternate is derived, and the
+  baseline it keeps can regenerate it (Alternate encodings).
 - **A tool that does implement the encoding** clips it as follows. `instance_offsets` is row-major
   over `(frame, slot)`, so frames `[a, b)` are rows `[a*S, b*S]`: take that row range, rebase it to
   zero, slice `group_offsets` over the group range those rows span and rebase it likewise, and slice
-  the payload over the point range the groups span. Components sharing those offsets — the
-  per-contour sidecars above — are sliced by the same group range.
+  the payload over the point range the groups span. Group-level components sharing those offsets —
+  `external_flag` above — are sliced by the group range itself.
 - Either way the operation appends a `clip` entry to `history` recording the frame offset, as
   `video.clip_of` records it structurally.
 
@@ -1014,8 +1174,10 @@ question, not a requirement of this revision.
 | a component with a `sample` axis declares `sparse`, and vice versa | error |
 | `sparse.index` resolves to a 1-D `sample`-axis component, strictly increasing, within `[0, video.frame_count)` | error |
 | `sparse.index` length equals the `sample`-axis length of every component referencing it | error |
-| ragged `group_offsets` is non-decreasing, starts at 0, ends at `shape[0]` of the payload, length `num_groups + 1` | error |
+| ragged `group_offsets` is non-decreasing, starts at 0, has length `num_groups + 1`, and ends at `shape[0]` of a leaf-level payload | error |
+| a group-level ragged payload has `shape[0] == len(group_offsets) - 1` | error |
 | ragged/RLE `instance_offsets` is non-decreasing, starts at 0, has length `frame*slot + 1`, and ends at `len(group_offsets) - 1` (ragged) or `shape[0]` of the payload (RLE) | error |
+| a group-level ragged component or alternate names the same two offset datasets as a leaf-level one in the same file | error |
 | every component `provenance` id resolves to a record in `/provenance` | error |
 | a component whose `axes` contain `coord` declares `units` and `coord_order` | error |
 | an RLE component's file has non-null `video.width` and `video.height` | error |
@@ -1028,7 +1190,10 @@ question, not a requirement of this revision.
 | a component with a `keypoint` axis declares a `skeleton` | error |
 | every skeleton edge index is `< len(body_parts)` | error |
 | a `mask`/`length` reference's axes are the target's leading axes, not merely the same lengths | error |
-| ragged `group_offsets` / `instance_offsets`, and RLE `instance_offsets`: present, one-dimensional, non-decreasing, starting at 0, ending at the correct terminal value, with `frame*slot+1` instance entries | error |
+| ragged `group_offsets` / `instance_offsets`, and RLE `instance_offsets`: present, one-dimensional, non-decreasing, starting at 0, ending at the terminal value for the declared `level`, with `frame*slot+1` instance entries | error |
+| every alternate is checked as a component is: its `path` exists and holds its payload, `dtype` and `shape` match, `len(axes) == len(shape)`, and its encoding's offsets pass the rows above | error |
+| alternate names are unique within a component, and every alternate's `path` is distinct from every component and alternate path | error |
+| **opt-in deep check:** each alternate decodes to its baseline, per `(frame, slot)` | error when requested |
 | an RLE instance's runs sum to `video.width * video.height` | error |
 | a sparse index is integer-typed | error |
 | a `coord` axis has length exactly 2 — `coord_order` describes two values and nothing else | error |
@@ -1051,11 +1216,16 @@ segmentation-only file from a third party would become invalid for omitting a fi
 about. A warning says the same thing without deciding it for every producer, and a consumer that
 needs provenance can require it.
 
+**The deep check is opt-in** because it decodes every alternate in full, which costs as much as
+reading the payload. A tool that writes or ingests alternates runs it; a reader need not.
+
 **Conformance fixtures ship with the specification** in `packages/jabs-io/tests/data/pose-format/`:
 a minimal valid file, one file per defined encoding, one with a sparse component, one with a
-foreign component and an attachment, and a set of deliberately invalid files, one per error check
-above. Three repositories have independently reimplemented the identity scatter; fixtures are the
-cheapest available defense against a fourth.
+foreign component and an attachment, one with the `ragged` segmentation alternate — including an
+instance whose every contour has exactly one point, the case in which the two ragged levels have
+equal lengths — and a set of deliberately invalid files, one per error check above. Three
+repositories have independently reimplemented the identity scatter; fixtures are the cheapest
+available defense against a fourth.
 
 ## Consequences
 
@@ -1097,9 +1267,12 @@ about the HDF5 layout, and `validate()` warns when it disagrees with the file.
   implementation (199×, identical output). The cache existed for the scatter; this array never
   needed it.
 - `poseest/instance_seg_id` and `poseest/longterm_seg_id`.
-- `poseest/instance_count`, now the row-sum of `slot_occupied` — matching that field's documented
-  meaning ("instances containing at least one non-zero keypoint confidence"). Note this is *not*
-  the count JABS uses anywhere; JABS counts usable identities, which is `slot_usable`.
+- `poseest/instance_count`. Its replacement is the row-sum of `slot_occupied`, defined by the
+  confidence rule directly. The field's documented meaning is "instances containing at least one
+  non-zero keypoint confidence", but measured files count `id_mask == 0` instances instead (947
+  frames in 41 files disagree in the JABS Hub's dev corpus, 2026-11), and some v8 files have no
+  `instance_count` at all. So the converter never reads it. Note this is *not* the count JABS uses
+  anywhere; JABS counts usable identities, which is `slot_usable`.
 - `gen_line_fragments`, replaced by edges drawn when both endpoints are valid.
 - Filename version parsing, and the `*_pose_est_v*.h5` glob in `ProjectPaths`.
 - `poseest/instance_embedding`, which no consumer reads.
@@ -1108,9 +1281,39 @@ about the HDF5 layout, and `validate()` warns when it disagrees with the file.
 
 | source | conversion |
 |---|---|
-| v4–v8 | scatter to identity-aligned slots once; flip (y,x)→(x,y); derive `slot_occupied` from `instance_count` semantics (any keypoint confidence > 0) and `point_valid` at confidence > 0.3; write `jabs.mouse12` explicitly; carry embeddings, centers, tracklets and bbox forward; segmentation as the dense baseline with `contour_count` / `contour_length` computed from the `-1` padding |
+| v4–v8 | the rules below; write `jabs.mouse12` explicitly; carry embeddings, centers, tracklets and bbox forward; segmentation as the dense baseline with `contour_count` / `contour_length` computed from the `-1` padding |
 | v2 | single animal → one slot; `slot_occupied` derived from confidence > 0 |
 | v3 | tracklets only: `tracklet_id` populated, `dimensions.identity = 0`, no long-term identity. The file is valid and honest; JABS declines it for identity-requiring work |
+
+**v4–v8 rules.** Each of these was measured against real files, and each is a place where a
+plausible converter goes wrong:
+
+- **Identity count.** The number of rows of `poseest/instance_id_center` when it has at least one,
+  otherwise the largest valid `instance_embed_id`.
+- **Scatter, unconditionally.** A valid instance (`id_mask == 0`) whose `instance_embed_id` *e* is
+  in `1..identity` goes to slot *e − 1*, whatever the file's model or version (Context).
+- **Tail slots.** Every other instance with anything to place — a valid instance with *e* = 0 or
+  *e* > identity, or a masked instance with any confidence above 0 or any contour — goes to a tail
+  slot, in legacy index order. `dimensions.slot` is the identity count plus the most tail instances
+  in any frame.
+- **Duplicates are refused.** If two valid instances in one frame share an *e* in `1..identity`, the
+  converter stops with an error naming the frame and identity, rather than choose which one the
+  identity follows.
+- **Coordinates.** `poseest/points` is `(y, x)` and is flipped to `(x, y)`. `poseest/seg_data` and
+  `poseest/bbox` are already `(x, y)` and are **not** flipped: applying the keypoint flip to them
+  transposes every outline and box.
+- **Contours follow the instance.** A slot's contours come from `seg_data` at the same legacy
+  instance index as the pose instance placed there. `longterm_seg_id` is not used to find them; it
+  is ambiguous when ids repeat, and is only checked against `instance_embed_id`.
+- **`slot_occupied`** is true where any of the slot's confidences is above 0 — stated directly,
+  never read from `instance_count`. A valid instance with every confidence 0 keeps its contours, with
+  `slot_occupied` false.
+- **`point_valid`** is true where confidence is above 0.3. **`NaN`** is written only where confidence
+  is 0 or the source coordinate is already `NaN` (`jabs.pose`). Raw confidences are always kept.
+
+`jabs-io`'s conformance fixtures must include real legacy files of both kinds in the table above —
+aligned and unaligned, with and without segmentation — so a fourth reimplementation has something
+to be checked against.
 
 Every conversion writes a `convert` history entry naming what it synthesized.
 
@@ -1167,6 +1370,13 @@ an `ndx-pose` adapter already exists. Rejected as the *native* form: segmentatio
 the dependency footprint is heavy for a file read by shell scripts on a cluster, and the archival
 requirement is a nice-to-have that a converter satisfies.
 
+Reconsidered after `ndx-jabs` (2026-10), which stores contours as a per-animal `ContourSeries`, and
+rejected again. `ndx-jabs` removes the first objection. The others stand, and its layout adds one:
+a series per animal is the identity-major layout rejected below, so a time window costs one read
+per animal and unassigned instances have no place, and its contours are dense and padded to
+per-file maxima. NWB with `ndx-pose` and `ndx-jabs` is the archival export, which can now carry
+segmentation.
+
 **Identity-major keypoint layout** (`[identity][frame][keypoint][coord]`). Matches what every
 consumer builds in memory and makes per-identity reads contiguous. Rejected: a time window costs N
 ranges, and unassigned instances have no lane — retaining them needs a duplicate component costing
@@ -1211,10 +1421,11 @@ it makes one threshold permanent and destroys the ability to re-evaluate it.
    reader, or only by `validate()`?** The coverage rule is now normative, but checking it means
    summing every run of every instance, which is the one validation rule whose cost scales with the
    payload rather than the manifest.
-10. **Is ragged clipping worth implementing before a producer writes a ragged file?** The semantics
-    are now specified, and a tool that does not implement them must refuse. Whether `jabs-io` should
-    implement them now, or keep refusing until segmentation is actually written ragged, is a
-    scheduling call rather than a specification one.
+10. **Is ragged clipping worth implementing before a producer writes a ragged baseline?** The
+    semantics are now specified. A tool that does not implement them drops a ragged *alternate* and
+    refuses a ragged *baseline*. Since the first ragged segmentation written is an alternate, whether
+    `jabs-io` should implement ragged clipping now is a scheduling call rather than a specification
+    one.
 11. **Does `jabs.identity.embeddings` need its network name preserved as a first-class field?**
    `JABS-postprocess` reads `identity_embeds.attrs["network"]`; this ADR puts it in provenance as
    `model.name`, which is a rename that consumer will have to follow.
