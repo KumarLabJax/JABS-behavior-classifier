@@ -352,6 +352,177 @@ def _check_component(
     _check_layout(component_id, spec, node, findings)
 
 
+def _alternate_label(component_id: str, name: str) -> str:
+    """The name an alternate goes by in findings and in history entries.
+
+    Args:
+        component_id: The component that carries the alternate.
+        name: The alternate's name.
+
+    Returns:
+        ``<component id>:alternate:<name>``, the form ADR 0002 uses in an
+        ``encode`` entry's ``synthesized``.
+    """
+    return f"{component_id}:alternate:{name}"
+
+
+def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[Finding]) -> None:
+    """Validate a component's alternates the way a component is validated.
+
+    An alternate is a derived copy of the component's data in another
+    encoding. It shares the component's id, skeleton and provenance, so only
+    the checks that concern its own payload apply. Decoding it against the
+    baseline is the ADR's opt-in deep check, which this does not perform.
+
+    Args:
+        h5: The open file.
+        spec: The component's manifest entry.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    for alternate in spec.get("alternates", []):
+        label = _alternate_label(spec["id"], alternate["name"])
+        view = {**alternate, "id": label}
+        node = h5.get(alternate["path"])
+        if not isinstance(node, h5py.Dataset):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "alternate_path_exists",
+                    f"{label}: no dataset at {alternate['path']}",
+                )
+            )
+            continue
+        if list(node.shape) != list(alternate["shape"]) or not _dtype_matches(
+            node, alternate["dtype"]
+        ):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "dtype_shape_match",
+                    f"{label}: declares {alternate['dtype']}{tuple(alternate['shape'])} but the "
+                    f"dataset is {node.dtype.name}{node.shape}",
+                )
+            )
+        if len(alternate["axes"]) != len(alternate["shape"]):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "axes_arity",
+                    f"{label}: {len(alternate['axes'])} axes for "
+                    f"{len(alternate['shape'])} dimensions",
+                )
+            )
+            continue
+        _check_missing_reference(view, by_id, findings)
+        if "coord" in alternate["axes"]:
+            pair = _axis_length(view, "coord")
+            if pair is not None and pair != 2:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "coord_axis_length",
+                        f"{label}: coord axis is {pair} wide; coord_order describes two "
+                        "values and nothing else",
+                    )
+                )
+        for axis, length in zip(alternate["axes"], alternate["shape"], strict=True):
+            declared = manifest["dimensions"].get(axis)
+            if declared is not None and length != declared:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "frame_axis_length" if axis == "frame" else "axis_length",
+                        f"{label}: {axis} axis is {length} but dimensions.{axis} is {declared}",
+                    )
+                )
+        if alternate["encoding"].get("kind") == "rle":
+            video = manifest["video"]
+            if video.get("width") is None or video.get("height") is None:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "rle_needs_dimensions",
+                        f"{label}: an RLE mask needs video.width and video.height",
+                    )
+                )
+        _check_offsets(h5, view, manifest, node, findings)
+        _check_layout(label, view, node, findings)
+
+
+def _check_alternate_names_and_paths(manifest: dict, findings: list[Finding]) -> None:
+    """Alternate names are unique per component, and every payload path is distinct.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    owners: dict[str, str] = {c["path"]: c["id"] for c in manifest["components"]}
+    for spec in manifest["components"]:
+        seen: set[str] = set()
+        for alternate in spec.get("alternates", []):
+            label = _alternate_label(spec["id"], alternate["name"])
+            if alternate["name"] in seen:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "alternate_unique",
+                        f"{spec['id']}: alternate {alternate['name']!r} is declared twice",
+                    )
+                )
+            seen.add(alternate["name"])
+            other = owners.get(alternate["path"])
+            if other is not None:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "alternate_unique",
+                        f"{label}: path {alternate['path']} is already {other}'s payload",
+                    )
+                )
+            owners[alternate["path"]] = label
+
+
+def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
+    """A group-level ragged payload shares its offsets with a leaf-level one.
+
+    The pair of offset datasets is what associates a per-group payload (one
+    value per contour) with the leaf payload it describes (the contour points),
+    and it is also where the group-level payload's group_offsets terminal is
+    checked. A group-level payload with no leaf-level partner has neither.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    declared: list[tuple[str, dict]] = []
+    for spec in manifest["components"]:
+        declared.append((spec["id"], spec["encoding"]))
+        for alternate in spec.get("alternates", []):
+            declared.append(
+                (_alternate_label(spec["id"], alternate["name"]), alternate["encoding"])
+            )
+    ragged = [(label, e) for label, e in declared if e.get("kind") == "ragged"]
+    leaf_pairs = {
+        (e["group_offsets"], e["instance_offsets"])
+        for _, e in ragged
+        if e.get("level", "leaf") == "leaf"
+    }
+    for label, encoding in ragged:
+        if encoding.get("level", "leaf") != "group":
+            continue
+        if (encoding["group_offsets"], encoding["instance_offsets"]) not in leaf_pairs:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "ragged_group_pairing",
+                    f"{label}: a group-level ragged payload must name the same two offset "
+                    "datasets as a leaf-level one in this file",
+                )
+            )
+
+
 def _dtype_matches(node: h5py.Dataset, declared: str) -> bool:
     """Whether a dataset's dtype matches a declared one.
 
@@ -697,10 +868,26 @@ def _check_offsets(
                     "not one-dimensional, or not an unsigned integer",
                 )
             )
-        else:
+        elif encoding.get("level", "leaf") == "leaf":
+            # A leaf-level payload holds the leaf items, which group_offsets indexes.
             _check_monotonic(
                 component_id, "group_offsets", group_offsets, node.shape[0], check, findings
             )
+        else:
+            # A group-level payload holds one value per group, so group_offsets
+            # ends at the leaf count of a sibling, not at this payload's length:
+            # check its ordering here, its terminal on the leaf-level component,
+            # and this payload's length against the group count.
+            _check_monotonic(component_id, "group_offsets", group_offsets, None, check, findings)
+            if node.shape[0] != len(group_offsets) - 1:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        check,
+                        f"{component_id}: a group-level payload has {node.shape[0]} values for "
+                        f"{len(group_offsets) - 1} groups",
+                    )
+                )
 
     instance_offsets = _offsets(h5, encoding["instance_offsets"])
     if instance_offsets is None:
@@ -780,7 +967,7 @@ def _check_monotonic(
     component_id: str,
     name: str,
     values: np.ndarray,
-    terminal: int,
+    terminal: int | None,
     check: str,
     findings: list[Finding],
 ) -> None:
@@ -790,7 +977,8 @@ def _check_monotonic(
         component_id: The component being checked.
         name: The offsets array's role, for the message.
         values: The offsets, as int64.
-        terminal: The value the array must end at.
+        terminal: The value the array must end at, or None when another
+            component's check owns it.
         check: The finding's check name.
         findings: Accumulator.
     """
@@ -803,7 +991,7 @@ def _check_monotonic(
         )
     if np.any(np.diff(values) < 0):
         findings.append(Finding(ERROR, check, f"{component_id}: {name} is not non-decreasing"))
-    if values[-1] != terminal:
+    if terminal is not None and values[-1] != terminal:
         findings.append(
             Finding(
                 ERROR,
@@ -1035,7 +1223,10 @@ def validate(path: str | Path) -> list[Finding]:
         _check_manifest_wide(h5, manifest, findings)
         _check_skeletons(manifest, findings)
         _check_sparse_index_values(h5, manifest, findings)
+        _check_alternate_names_and_paths(manifest, findings)
+        _check_ragged_pairing(manifest, findings)
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
+            _check_alternates(h5, spec, manifest, findings)
 
     return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))

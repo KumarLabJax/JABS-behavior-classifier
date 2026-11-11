@@ -262,6 +262,12 @@
             },
             "instance_offsets": {
               "$ref": "#/$defs/hdf5Path"
+            },
+            "level": {
+              "enum": [
+                "leaf",
+                "group"
+              ]
             }
           }
         },
@@ -595,6 +601,172 @@
         },
         "provenance": {
           "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "alternates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/alternate"
+          }
+        },
+        "extra": {
+          "type": "object"
+        }
+      }
+    },
+    "alternateName": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$"
+    },
+    "alternate": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "axes",
+        "dtype",
+        "shape",
+        "encoding",
+        "missing"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "axes"
+            ],
+            "properties": {
+              "axes": {
+                "contains": {
+                  "const": "coord"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "units",
+              "coord_order"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "missing"
+            ],
+            "properties": {
+              "missing": {
+                "properties": {
+                  "policy": {
+                    "const": "nan"
+                  }
+                },
+                "required": [
+                  "policy"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dtype": {
+                "enum": [
+                  "float32",
+                  "float64"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "encoding"
+            ],
+            "properties": {
+              "encoding": {
+                "properties": {
+                  "kind": {
+                    "const": "rle"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dtype": {
+                "enum": [
+                  "uint8",
+                  "uint16",
+                  "uint32",
+                  "uint64"
+                ]
+              },
+              "axes": {
+                "const": [
+                  "run"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/alternateName"
+        },
+        "path": {
+          "$ref": "#/$defs/hdf5Path"
+        },
+        "axes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "dtype": {
+          "$ref": "#/$defs/dtype"
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "units": {
+          "enum": [
+            "pixel",
+            "cm",
+            "second",
+            "frame",
+            "radian",
+            "unitless"
+          ]
+        },
+        "coord_order": {
+          "enum": [
+            "xy",
+            "yx"
+          ]
+        },
+        "encoding": {
+          "$ref": "#/$defs/encoding"
+        },
+        "missing": {
+          "$ref": "#/$defs/missing"
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
         },
         "description": {
           "type": "string"

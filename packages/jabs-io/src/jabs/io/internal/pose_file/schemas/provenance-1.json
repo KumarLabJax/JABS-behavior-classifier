@@ -100,7 +100,8 @@
             "convert",
             "clip",
             "merge",
-            "annotate"
+            "annotate",
+            "encode"
           ]
         },
         "tool": {
@@ -170,6 +171,23 @@
           "then": {
             "required": [
               "source",
+              "synthesized"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "encode"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "required": [
               "synthesized"
             ]
           }
