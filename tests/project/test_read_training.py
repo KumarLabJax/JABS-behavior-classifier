@@ -105,9 +105,9 @@ def test_load_training_data_reads_distance_unit_from_settings(
 
     ``export_training_data`` writes no top-level ``distance_unit`` attribute, so a
     reader that consults only the attribute reports PIXEL for every file it
-    writes - including exports of a cm-unit project. ``cm_units`` reaches the
-    file as a bool from the GUI and as a ``ProjectDistanceUnit`` from the project
-    defaults, so both spellings are checked.
+    writes - including exports of a cm-unit project. ``cm_units`` is a bool, but
+    files exported by older releases may hold a ``ProjectDistanceUnit`` from the
+    project defaults, so both spellings are checked.
     """
     project = _make_binary_project(
         tmp_path,

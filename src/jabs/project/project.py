@@ -854,7 +854,7 @@ class Project:
             static_objects = set()
 
         return {
-            "cm_units": distance_unit,
+            "cm_units": distance_unit == ProjectDistanceUnit.CM,
             "window_size": fe.DEFAULT_WINDOW_SIZE,
             "social": pose_version >= 3,
             "static_objects": {
