@@ -144,8 +144,9 @@ def _read_distance_unit(in_h5: h5py.File, settings: dict) -> ProjectDistanceUnit
     unit = in_h5.attrs.get("distance_unit")
     if unit is not None:
         return ProjectDistanceUnit[unit]
-    # cm_units is written as a bool by the GUI and as a ProjectDistanceUnit
-    # (PIXEL == 0, CM == 1) by the project defaults, so both read as truthy for cm
+    # cm_units is a bool, but files exported by older releases may hold a
+    # ProjectDistanceUnit (PIXEL == 0, CM == 1) from the project defaults; both
+    # read as truthy for cm
     return ProjectDistanceUnit.CM if settings.get("cm_units") else ProjectDistanceUnit.PIXEL
 
 

@@ -1123,6 +1123,21 @@ def test_refresh_feature_manager_matches_reopening_the_project(tmp_path: Path) -
     assert project.get_project_defaults() == reopened.get_project_defaults()
 
 
+@pytest.mark.parametrize(
+    ("distance_unit", "expected"),
+    [(ProjectDistanceUnit.CM, True), (ProjectDistanceUnit.PIXEL, False)],
+    ids=["cm", "pixel"],
+)
+def test_settings_by_pose_version_cm_units_is_bool(
+    distance_unit: ProjectDistanceUnit, expected: bool
+) -> None:
+    """The defaults store cm_units as a bool, the same type the GUI writes."""
+    cm_units = Project.settings_by_pose_version(6, distance_unit)["cm_units"]
+
+    assert type(cm_units) is bool
+    assert cm_units is expected
+
+
 def test_refresh_feature_manager_persists_updated_defaults(tmp_path: Path) -> None:
     """The per-behavior defaults written to project.json follow the new video set."""
     project = _mixed_pose_version_project(tmp_path)
@@ -1138,7 +1153,7 @@ def test_refresh_feature_manager_persists_updated_defaults(tmp_path: Path) -> No
     defaults_after = json.loads(project_file.read_text())["defaults"]
     assert defaults_after["segmentation"] is True
     assert defaults_after["static_objects"]["corners"] is True
-    assert defaults_after["cm_units"] == ProjectDistanceUnit.CM
+    assert defaults_after["cm_units"] is True
 
 
 def test_refresh_feature_manager_reads_no_pose_files(tmp_path: Path) -> None:
