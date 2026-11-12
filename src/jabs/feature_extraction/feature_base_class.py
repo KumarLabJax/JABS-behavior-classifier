@@ -169,14 +169,26 @@ class Feature(abc.ABC):
 
     @abc.abstractmethod
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
-        """each FeatureSet subclass will implement this to compute the features in the set
+        """Compute this feature set's per-frame values for one identity.
 
-        returns a ndarray containing the feature values.
-        The feature set could be a single feature, where this would be a 1D
-        numpy ndarray, or it could be a 2D ndarray for a set of related
-        features (for example the pairwise point distances, which is a 2D
-        ndarray where each row corresponds to the frame index, and each column
-        is one of the pairwise point distances)
+        A subclass that produces several related values (for example
+        ``PairwisePointDistances``, one distance per pair of keypoints) returns one
+        entry per value rather than a single two-dimensional array: the column name
+        is the key, and the whole pipeline downstream keys off those names. They
+        become the column names of the training matrix, the names the feature cache
+        stores, and the keys :meth:`window` iterates to build window features. Window
+        and signal operations are applied to each array independently and require it
+        to be one-dimensional, so a two-dimensional value would not survive them.
+
+        Args:
+            identity: Identity to compute feature values for.
+
+        Returns:
+            Dict mapping each feature column name to a one-dimensional array holding
+            that column's value for every frame of the video, so every array has
+            length ``PoseEstimation.num_frames``. Keypoint-derived values are nan on
+            frames where the identity is absent or a keypoint they depend on is
+            missing, which the window and signal operations are written to tolerate.
         """
         pass
 

@@ -56,7 +56,7 @@ class CentroidVelocityMag(Feature):
             identity: identity to compute features for
 
         Returns:
-            np.ndarray with feature values
+            dict with feature values
         """
         fps = self._poses.fps
 
