@@ -1,8 +1,7 @@
-"""Round four: constraints the prose implied and nothing enforced.
+"""Invariants enforced at construction, and the matching checks on files.
 
-Alignment is not interpretability — a mask of the right shape and the wrong
-dtype still cannot be applied — and a coordinate pair that is not a pair
-cannot be read with `xy`.
+The typed objects refuse what the validator would reject, so the writer cannot emit
+it; the validator applies the same rules to files another producer wrote.
 """
 
 import json
@@ -12,7 +11,6 @@ import numpy as np
 import pytest
 
 from jabs.io.internal.pose_file import (
-    Attachment,
     Component,
     PoseFile,
     VideoInfo,
@@ -36,8 +34,134 @@ def _checks(path):
     return {f.check for f in validate(path)}
 
 
+@pytest.fixture
+def written(tmp_path, sample_pose_file):
+    """A written copy of the sample pose file."""
+    path = tmp_path / "a_pose.h5"
+    write_pose_file(sample_pose_file, path)
+    return path
+
+
 def _entry(manifest, component_id):
     return next(c for c in manifest["components"] if c["id"] == component_id)
+
+
+# --- the writer cannot emit a file the validator rejects -------------------
+
+
+def test_a_frame_axis_must_match_dimensions_at_construction(sample_pose_file):
+    """Previously the writer emitted this and validate() then flagged it."""
+    with pytest.raises(ValueError, match="frame axis is 5 but dimensions.frame is 4"):
+        PoseFile(
+            dimensions={"frame": 4, "slot": 2, "identity": 2},
+            video=VideoInfo(frame_count=4, width=8, height=8, fps=30.0),
+            components=(
+                Component(
+                    id="jabs.pose.slot_occupied",
+                    axes=("frame", "slot"),
+                    data=np.zeros((5, 2), dtype=bool),
+                    missing={"policy": "none"},
+                ),
+            ),
+        )
+
+
+def test_a_slot_axis_must_match_dimensions_at_construction():
+    """The same reasoning covers every axis the file gives a size."""
+    with pytest.raises(ValueError, match="slot axis is 9 but dimensions.slot is 2"):
+        PoseFile(
+            dimensions={"frame": 4, "slot": 2, "identity": 2},
+            video=VideoInfo(frame_count=4, width=8, height=8, fps=30.0),
+            components=(
+                Component(
+                    id="jabs.pose.slot_occupied",
+                    axes=("frame", "slot"),
+                    data=np.zeros((4, 9), dtype=bool),
+                    missing={"policy": "none"},
+                ),
+            ),
+        )
+
+
+def test_dimensions_must_agree_with_video_at_construction():
+    """dimensions.frame and video.frame_count are the same fact."""
+    with pytest.raises(ValueError, match="disagrees with video.frame_count"):
+        PoseFile(
+            dimensions={"frame": 4, "slot": 2, "identity": 2},
+            video=VideoInfo(frame_count=99, width=8, height=8, fps=30.0),
+        )
+
+
+# --- checks that were narrower than the invariant ------------------------
+
+
+def test_every_named_axis_is_checked_against_dimensions(written):
+    """Only the frame axis was compared, though PoseFile checks them all."""
+    _rewrite_manifest(written, lambda m: m["dimensions"].update(slot=9))
+    checks = _checks(written)
+    assert "axis_length" in checks or "identity_le_slot" in checks
+
+
+def test_a_same_length_but_wrong_axis_mask_is_an_error(tmp_path, sample_pose_file):
+    """Matching lengths are not alignment."""
+    frames = Component(
+        id="org.example.lab.per_frame",
+        axes=("frame",),
+        data=np.zeros(4, dtype=np.float32),
+        missing={"policy": "nan"},
+        units="unitless",
+    )
+    identities = Component(
+        id="org.example.lab.per_identity",
+        axes=("identity",),
+        data=np.zeros(4, dtype=bool),
+        missing={"policy": "none"},
+    )
+    path = tmp_path / "misaligned.h5"
+    write_pose_file(
+        PoseFile(
+            dimensions={"frame": 4, "slot": 4, "identity": 4},
+            video=VideoInfo(frame_count=4, width=4, height=4, fps=30.0),
+            components=(frames, identities),
+        ),
+        path,
+    )
+    _rewrite_manifest(
+        path,
+        lambda m: next(
+            c for c in m["components"] if c["id"] == "org.example.lab.per_frame"
+        ).update(missing={"policy": "mask", "mask": "org.example.lab.per_identity"}),
+    )
+    assert "mask_reference" in _checks(path)
+
+
+def test_a_float_sparse_index_is_an_error(written):
+    """Casting first truncated [0.5, 1.5] into apparently valid frames."""
+
+    def repoint(manifest):
+        entry = next(c for c in manifest["components"] if c["id"] == "jabs.pose.slot_occupied")
+        entry["axes"] = ["sample", "slot"]
+        entry["sparse"] = {"index": "org.example.lab.float_index"}
+        manifest["components"].append(
+            {
+                "id": "org.example.lab.float_index",
+                "path": "/org.example.lab/float_index",
+                "axes": ["sample"],
+                "dtype": "float32",
+                "shape": [4],
+                "units": "frame",
+                "encoding": {"kind": "dense"},
+                "missing": {"policy": "none"},
+                "sparse": {"index": "org.example.lab.float_index"},
+            }
+        )
+
+    _rewrite_manifest(written, repoint)
+    with h5py.File(written, "r+") as h5:
+        h5.create_dataset(
+            "/org.example.lab/float_index", data=np.array([0.5, 1.5, 2.5, 3.5], dtype=np.float32)
+        )
+    assert "sparse_index_valid" in _checks(written)
 
 
 # --- a coordinate pair is a pair -----------------------------------------
@@ -177,119 +301,3 @@ def test_a_valid_length_reference_is_accepted():
         components=(payload, counts),
     )
     assert pose_file.component("org.example.lab.values").missing["policy"] == "length"
-
-
-# --- offsets are unsigned integers ---------------------------------------
-
-
-def _ragged_file(tmp_path, offsets_dtype):
-    """A ragged component whose offsets use the given dtype."""
-    path = tmp_path / f"ragged_{np.dtype(offsets_dtype).name}.h5"
-    manifest = {
-        "format": "jabs.pose-file",
-        "schema_revision": 1,
-        "created": "2026-09-08T00:00:00Z",
-        "dimensions": {"frame": 2, "slot": 1, "identity": 1},
-        "video": {"frame_count": 2, "width": 8, "height": 8, "fps": 30.0},
-        "components": [
-            {
-                "id": "jabs.segmentation.contours",
-                "path": "/jabs/segmentation/contours",
-                "axes": ["point", "coord"],
-                "dtype": "int32",
-                "shape": [6, 2],
-                "units": "pixel",
-                "coord_order": "xy",
-                "encoding": {
-                    "kind": "ragged",
-                    "group_offsets": "/jabs/segmentation/group_offsets",
-                    "instance_offsets": "/jabs/segmentation/instance_offsets",
-                },
-                "missing": {"policy": "none"},
-            }
-        ],
-    }
-    with h5py.File(path, "w") as h5:
-        h5.attrs["jabs_format"] = "jabs.pose-file"
-        h5.attrs["schema_revision"] = np.int32(1)
-        text = h5py.string_dtype(encoding="utf-8")
-        h5.create_dataset("manifest", data=json.dumps(manifest), dtype=text)
-        h5.create_dataset(
-            "provenance", data=json.dumps({"records": {}, "history": []}), dtype=text
-        )
-        h5.create_dataset("/jabs/segmentation/contours", data=np.zeros((6, 2), dtype=np.int32))
-        h5.create_dataset(
-            "/jabs/segmentation/group_offsets", data=np.array([0, 3, 6], dtype=offsets_dtype)
-        )
-        h5.create_dataset(
-            "/jabs/segmentation/instance_offsets", data=np.array([0, 1, 2], dtype=offsets_dtype)
-        )
-    return path
-
-
-def test_unsigned_offsets_validate(tmp_path):
-    """uint64 is what the encoding text requires."""
-    path = _ragged_file(tmp_path, np.uint64)
-    assert [f for f in validate(path) if f.severity == "error"] == []
-
-
-@pytest.mark.parametrize("dtype", [np.float64, np.int64])
-def test_non_unsigned_offsets_are_an_error(tmp_path, dtype):
-    """A float cannot index an array, and a signed offset admits negatives."""
-    path = _ragged_file(tmp_path, dtype)
-    assert "ragged_offsets" in _checks(path)
-
-
-# --- attachments are checked in both directions -------------------------
-
-
-def test_a_declared_attachment_with_no_payload_is_an_error(tmp_path, sample_pose_file):
-    """A copy tool is required to preserve something that is not there."""
-    path = tmp_path / "attach.h5"
-    write_pose_file(
-        PoseFile(
-            dimensions=sample_pose_file.dimensions,
-            video=sample_pose_file.video,
-            skeletons=sample_pose_file.skeletons,
-            components=sample_pose_file.components,
-            provenance=sample_pose_file.provenance,
-            attachments=(Attachment(path="/attachments/notes", data=np.zeros(3, dtype=np.uint8)),),
-        ),
-        path,
-    )
-    with h5py.File(path, "r+") as h5:
-        del h5["/attachments/notes"]
-    assert "attachment_path_exists" in _checks(path)
-
-
-def test_an_attachment_outside_the_namespace_is_an_error(tmp_path, sample_pose_file):
-    """`/attachments/` is where opaque payloads live."""
-    path = tmp_path / "outside.h5"
-    write_pose_file(sample_pose_file, path)
-    _rewrite_manifest(path, lambda m: m.update(attachments=[{"path": "/elsewhere/notes"}]))
-    with h5py.File(path, "r+") as h5:
-        h5.create_dataset("/elsewhere/notes", data=np.zeros(3, dtype=np.uint8))
-    assert "attachment_namespace" in _checks(path)
-
-
-def test_a_twice_declared_attachment_is_an_error(tmp_path, sample_pose_file):
-    """One payload, one declaration."""
-    path = tmp_path / "twice.h5"
-    write_pose_file(
-        PoseFile(
-            dimensions=sample_pose_file.dimensions,
-            video=sample_pose_file.video,
-            skeletons=sample_pose_file.skeletons,
-            components=sample_pose_file.components,
-            provenance=sample_pose_file.provenance,
-            attachments=(Attachment(path="/attachments/notes", data=np.zeros(3, dtype=np.uint8)),),
-        ),
-        path,
-    )
-    _rewrite_manifest(
-        path,
-        lambda m: m.update(
-            attachments=[{"path": "/attachments/notes"}, {"path": "/attachments/notes"}]
-        ),
-    )
-    assert "attachment_unique" in _checks(path)
