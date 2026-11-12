@@ -243,6 +243,271 @@ def valid_sparse() -> PoseFile:
     )
 
 
+# --- segmentation: one set of contours, written in each encoding ------------
+#
+# Per (frame, slot), a list of contours; each contour a list of (x, y) points.
+# Instance (1, 0) has only one-point contours: there the leaf and group counts
+# of an instance are equal, which is the case where a reader that guesses the
+# ragged level instead of reading it goes wrong.
+
+
+def _contours() -> dict[tuple[int, int], list[list[tuple[int, int]]]]:
+    shapes = {
+        (0, 0): [[(10, 10), (20, 10), (20, 20)], [(12, 12), (14, 12), (14, 14), (12, 14)]],
+        (0, 1): [[(100, 100), (140, 100), (140, 140), (120, 160), (100, 140)]],
+        (1, 0): [[(30, 30)], [(40, 40)]],
+        (1, 1): [[(200, 200), (210, 200), (205, 210)]],
+        (3, 2): [[(300, 300), (330, 300), (330, 330), (300, 330)], [(310, 310), (315, 315)]],
+        (7, 0): [[(700, 700), (710, 700), (705, 710)]],
+    }
+    return {(f, s): shapes.get((f, s), []) for f in range(FRAMES) for s in range(SLOTS)}
+
+
+def _external(contour_index: int) -> bool:
+    """The first contour of an instance is its outer boundary; the rest are holes."""
+    return contour_index == 0
+
+
+def _ragged_arrays():
+    """Leaf payload, per-contour flags, and the two shared CSR offsets."""
+    points, flags, contour_offsets, instance_offsets = [], [], [0], [0]
+    for (_, _), contours in sorted(_contours().items()):
+        for index, contour in enumerate(contours):
+            points.extend(contour)
+            flags.append(_external(index))
+            contour_offsets.append(len(points))
+        instance_offsets.append(len(contour_offsets) - 1)
+    return (
+        np.array(points, dtype=np.int32).reshape(-1, 2),
+        np.array(flags, dtype=bool),
+        np.array(contour_offsets, dtype=np.uint64),
+        np.array(instance_offsets, dtype=np.uint64),
+    )
+
+
+def _dense_segmentation_components():
+    contours = _contours()
+    max_contours = max(len(c) for c in contours.values())
+    max_points = max(len(p) for c in contours.values() for p in c)
+    data = np.full((FRAMES, SLOTS, max_contours, max_points, 2), -1, dtype=np.int32)
+    count = np.zeros((FRAMES, SLOTS), dtype=np.uint32)
+    length = np.zeros((FRAMES, SLOTS, max_contours), dtype=np.uint32)
+    flag = np.zeros((FRAMES, SLOTS, max_contours), dtype=bool)
+    for (f, s), instance in contours.items():
+        count[f, s] = len(instance)
+        for c, contour in enumerate(instance):
+            data[f, s, c, : len(contour)] = contour
+            length[f, s, c] = len(contour)
+            flag[f, s, c] = _external(c)
+    return (
+        Component(
+            id="jabs.segmentation.contours",
+            axes=("frame", "slot", "contour", "point", "coord"),
+            data=data,
+            missing={"policy": "length", "length": "jabs.segmentation.contour_length"},
+            units="pixel",
+            coord_order="xy",
+            provenance="jabs.pose",
+        ),
+        Component(
+            id="jabs.segmentation.contour_count",
+            axes=("frame", "slot"),
+            data=count,
+            missing={"policy": "none"},
+            provenance="jabs.pose",
+        ),
+        Component(
+            id="jabs.segmentation.contour_length",
+            axes=("frame", "slot", "contour"),
+            data=length,
+            missing={"policy": "none"},
+            provenance="jabs.pose",
+        ),
+        Component(
+            id="jabs.segmentation.external_flag",
+            axes=("frame", "slot", "contour"),
+            data=flag,
+            missing={"policy": "none"},
+            provenance="jabs.pose",
+        ),
+    )
+
+
+def valid_dense_segmentation() -> PoseFile:
+    """Pose plus dense segmentation: the base the ragged alternates are added to."""
+    return PoseFile(
+        dimensions={"frame": FRAMES, "slot": SLOTS, "identity": IDENTITIES},
+        video=_video(),
+        skeletons={"jabs.mouse12": MOUSE12},
+        components=_core_components() + _dense_segmentation_components(),
+        provenance=Provenance(records={"jabs.pose": INFER}, history=HISTORY),
+    )
+
+
+def _ragged_encoding(prefix: str, level: str) -> dict:
+    return {
+        "kind": "ragged",
+        "level": level,
+        "group_offsets": f"{prefix}/contour_offsets",
+        "instance_offsets": f"{prefix}/instance_offsets",
+    }
+
+
+def _write_ragged_datasets(h5: h5py.File, prefix: str) -> tuple[int, int]:
+    """Write the ragged payloads and offsets under a group; return (points, contours)."""
+    points, flags, contour_offsets, instance_offsets = _ragged_arrays()
+    h5.create_dataset(f"{prefix}/contours", data=points)
+    h5.create_dataset(f"{prefix}/external_flag", data=flags)
+    h5.create_dataset(f"{prefix}/contour_offsets", data=contour_offsets)
+    h5.create_dataset(f"{prefix}/instance_offsets", data=instance_offsets)
+    return points.shape[0], flags.shape[0]
+
+
+def _ragged_entries(prefix: str, n_points: int, n_contours: int) -> tuple[dict, dict]:
+    """Manifest fields for the leaf-level contours and the group-level flags."""
+    contours = {
+        "path": f"{prefix}/contours",
+        "axes": ["point", "coord"],
+        "dtype": "int32",
+        "shape": [n_points, 2],
+        "units": "pixel",
+        "coord_order": "xy",
+        "encoding": _ragged_encoding(prefix, "leaf"),
+        "missing": {"policy": "none"},
+    }
+    flags = {
+        "path": f"{prefix}/external_flag",
+        "axes": ["contour"],
+        "dtype": "bool",
+        "shape": [n_contours],
+        "encoding": _ragged_encoding(prefix, "group"),
+        "missing": {"policy": "none"},
+    }
+    return contours, flags
+
+
+def _write_ragged_baseline(path: Path) -> None:
+    """Segmentation stored ragged as the component itself, not as an alternate.
+
+    The writer implements only the dense encoding, so the file is written with
+    pose alone and the ragged datasets and their manifest entries are added.
+    """
+    write_pose_file(valid_minimal(), path, created=CREATED)
+    prefix = "/jabs/segmentation"
+    with h5py.File(path, "r+") as h5:
+        n_points, n_contours = _write_ragged_datasets(h5, prefix)
+    contours, flags = _ragged_entries(prefix, n_points, n_contours)
+
+    def add(manifest: dict) -> None:
+        manifest["components"] += [
+            {"id": "jabs.segmentation.contours", **contours, "provenance": "jabs.pose"},
+            {"id": "jabs.segmentation.external_flag", **flags, "provenance": "jabs.pose"},
+        ]
+
+    _rewrite_manifest(path, add)
+
+
+def _write_ragged_alternate(path: Path) -> None:
+    """Dense segmentation with the ragged alternate beside it, as ADR 0002 defines it.
+
+    Adding an alternate is an ``encode`` operation, so the history records it.
+    """
+    write_pose_file(valid_dense_segmentation(), path, created=CREATED)
+    prefix = "/jabs/segmentation/ragged"
+    with h5py.File(path, "r+") as h5:
+        n_points, n_contours = _write_ragged_datasets(h5, prefix)
+    contours, flags = _ragged_entries(prefix, n_points, n_contours)
+
+    def add(manifest: dict) -> None:
+        _entry(manifest, "jabs.segmentation.contours")["alternates"] = [
+            {"name": "ragged", **contours}
+        ]
+        _entry(manifest, "jabs.segmentation.external_flag")["alternates"] = [
+            {"name": "ragged", **flags}
+        ]
+
+    _rewrite_manifest(path, add)
+    _rewrite_document(
+        path,
+        "provenance",
+        lambda p: p["history"].append(
+            {
+                "operation": "encode",
+                "tool": "jabs-io conformance fixtures",
+                "version": "1",
+                "time": "2026-09-03T00:00:00Z",
+                "synthesized": [
+                    "jabs.segmentation.contours:alternate:ragged",
+                    "jabs.segmentation.external_flag:alternate:ragged",
+                ],
+            }
+        ),
+    )
+
+
+def _rle_runs() -> tuple[np.ndarray, np.ndarray]:
+    """Column-major runs per (frame, slot), each starting with background.
+
+    One instance is foreground from its first pixel, so its runs start with a
+    zero-length background run, as the specification requires.
+    """
+    pixels = 800 * 800
+    runs, offsets = [], [0]
+    for f in range(FRAMES):
+        for s in range(SLOTS):
+            if (f, s) == (0, 0):
+                instance = [0, 50, pixels - 50]
+            elif (f + s) % 3 == 0:
+                instance = [1000 * (s + 1), 200, pixels - 1000 * (s + 1) - 200]
+            else:
+                instance = [pixels]
+            runs.extend(instance)
+            offsets.append(len(runs))
+    return np.array(runs, dtype=np.uint32), np.array(offsets, dtype=np.uint64)
+
+
+def _write_rle(path: Path) -> None:
+    """A foreign per-instance mask in the RLE encoding."""
+    write_pose_file(valid_minimal(), path, created=CREATED)
+    runs, offsets = _rle_runs()
+    with h5py.File(path, "r+") as h5:
+        h5.create_dataset("/org.example.lab/mask", data=runs)
+        h5.create_dataset("/org.example.lab/mask_offsets", data=offsets)
+
+    def add(manifest: dict) -> None:
+        manifest["components"].append(
+            {
+                "id": "org.example.lab.mask",
+                "path": "/org.example.lab/mask",
+                "axes": ["run"],
+                "dtype": "uint32",
+                "shape": [int(runs.shape[0])],
+                "encoding": {
+                    "kind": "rle",
+                    "instance_offsets": "/org.example.lab/mask_offsets",
+                    "order": "column-major",
+                },
+                "missing": {"policy": "none"},
+                "provenance": "jabs.pose",
+            }
+        )
+
+    _rewrite_manifest(path, add)
+
+
+def _rewrite_document(path: Path, name: str, mutate) -> None:
+    """Replace a written file's /manifest or /provenance document."""
+    with h5py.File(path, "r+") as h5:
+        document = json.loads(h5[name][()])
+        mutate(document)
+        del h5[name]
+        h5.create_dataset(
+            name,
+            data=json.dumps(document),
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+
+
 def _rewrite_manifest(path: Path, mutate) -> None:
     """Replace a written file's manifest, leaving its arrays untouched."""
     with h5py.File(path, "r+") as h5:
@@ -265,6 +530,18 @@ def main() -> None:
     write_pose_file(valid_minimal(), HERE / "valid-minimal.h5", created=CREATED)
     write_pose_file(valid_full(), HERE / "valid-full.h5", created=CREATED)
     write_pose_file(valid_sparse(), HERE / "valid-sparse.h5", created=CREATED)
+    _write_ragged_baseline(HERE / "valid-ragged.h5")
+    _write_ragged_alternate(HERE / "valid-ragged-alternate.h5")
+    _write_rle(HERE / "valid-rle.h5")
+
+    # Per-contour flags declared at the leaf level: their payload is one value
+    # per contour, so the shared group_offsets cannot also end at its length.
+    # The bug the ragged level exists to prevent (#445).
+    shutil.copy(HERE / "valid-ragged.h5", HERE / "invalid-ragged-level.h5")
+    _rewrite_manifest(
+        HERE / "invalid-ragged-level.h5",
+        lambda m: _entry(m, "jabs.segmentation.external_flag")["encoding"].update(level="leaf"),
+    )
 
     # The invalid fixtures are copies of a clean base, taken BEFORE the
     # undeclared attachment goes in: injecting it first gave every invalid
