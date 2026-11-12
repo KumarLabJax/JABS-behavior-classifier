@@ -1,11 +1,15 @@
 """Tests for reading pose files."""
 
+from pathlib import Path
+
 import h5py
 import numpy as np
 import pytest
 
+from jabs.io.internal.pose_file import reader
 from jabs.io.internal.pose_file.reader import (
     NotAPoseFileError,
+    PoseFileError,
     read_component,
     read_manifest,
     read_pose_file,
@@ -132,3 +136,34 @@ def test_read_manifest_does_not_load_arrays(written):
         "jabs.pose.point_valid",
         "jabs.pose.slot_occupied",
     }
+
+
+FIXTURES = Path(__file__).parents[2] / "data" / "pose-format"
+
+
+def test_a_parsed_manifest_spares_the_reread(written, monkeypatch):
+    """A caller reading many windows reads and validates the manifest once.
+
+    The JABS Hub's viewer follows a playhead over a network, where re-reading
+    and re-validating the manifest for every window costs round trips for a
+    document that cannot change.
+    """
+    manifest = read_manifest(written)
+    whole = read_component(written, "jabs.pose.points", frames=slice(0, 2))
+
+    def no_reread(path):
+        raise AssertionError("read_component re-read the manifest it was given")
+
+    monkeypatch.setattr(reader, "read_manifest", no_reread)
+    window = read_component(written, "jabs.pose.points", frames=slice(0, 2), manifest=manifest)
+    np.testing.assert_array_equal(window, whole)
+
+
+def test_a_file_whose_declarations_disagree_is_a_pose_file_error():
+    """A mask naming an undeclared component is the file disagreeing with itself.
+
+    It used to escape the reader as a bare ValueError from the typed objects,
+    which a caller catching PoseFileError, as documented, would miss.
+    """
+    with pytest.raises(PoseFileError, match="no_such_mask"):
+        read_pose_file(FIXTURES / "invalid-dangling-mask.h5")

@@ -274,8 +274,20 @@ def _component_from(spec: dict, data: np.ndarray) -> Component:
     )
 
 
-def read_component(path: str | Path, component_id: str, frames: slice | None = None) -> np.ndarray:
+def read_component(
+    path: str | Path,
+    component_id: str,
+    frames: slice | None = None,
+    *,
+    manifest: dict | None = None,
+) -> np.ndarray:
     """Read one component's payload.
+
+    Reading the manifest means opening the file and running a full JSON Schema
+    validation. A caller reading many windows of one file -- a viewer
+    following a playhead, especially over a network -- should call
+    ``read_manifest`` once and pass the result as ``manifest``: a pose file is
+    read-only once written, so the manifest cannot change between calls.
 
     Args:
         path: The pose file.
@@ -283,6 +295,9 @@ def read_component(path: str | Path, component_id: str, frames: slice | None = N
         frames: An optional window over the component's ``frame`` axis. Only
             that window is read from disk, and it is applied to whichever axis
             the manifest names ``frame`` — not necessarily axis 0.
+        manifest: The file's manifest, as returned by ``read_manifest``. When
+            given, the file's own manifest is neither re-read nor
+            re-validated. Passing any other document is the caller's error.
 
     Returns:
         The payload, or the requested window of it.
@@ -294,7 +309,8 @@ def read_component(path: str | Path, component_id: str, frames: slice | None = N
         PoseFileError: If the file disagrees with its own manifest.
         NotAPoseFileError: If the file is not a ``jabs.pose-file``.
     """
-    manifest = read_manifest(path)
+    if manifest is None:
+        manifest = read_manifest(path)
     spec = _spec_for(manifest, component_id)
     _check_decodable(spec)
     _check_skeleton(manifest, spec)
@@ -329,7 +345,8 @@ def read_pose_file(path: str | Path) -> PoseFile:
 
     Raises:
         NotImplementedError: If a component's encoding cannot be decoded.
-        PoseFileError: If the file disagrees with its own manifest.
+        PoseFileError: If the file disagrees with its own manifest, or its
+            declarations disagree with one another.
         NotAPoseFileError: If the file is not a ``jabs.pose-file``.
     """
     manifest = read_manifest(path)
@@ -357,7 +374,11 @@ def read_pose_file(path: str | Path) -> PoseFile:
         for spec in parsed.component_specs:
             _check_decodable(spec)
             _check_skeleton(manifest, spec)
-            components.append(_component_from(spec, _payload(_dataset_for(h5, spec), spec)))
+            payload = _payload(_dataset_for(h5, spec), spec)
+            try:
+                components.append(_component_from(spec, payload))
+            except ValueError as error:
+                raise PoseFileError(f"{path}: {spec['id']}: {error}") from error
 
         attachments = []
         for spec in parsed.attachment_specs:
@@ -366,21 +387,31 @@ def read_pose_file(path: str | Path) -> PoseFile:
                 raise PoseFileError(
                     f"declared attachment {spec['path']} is missing or is not a dataset"
                 )
-            attachments.append(
-                Attachment(
-                    path=spec["path"],
-                    data=node[()],
-                    description=spec.get("description"),
-                    content_type=spec.get("content_type"),
+            try:
+                attachments.append(
+                    Attachment(
+                        path=spec["path"],
+                        data=node[()],
+                        description=spec.get("description"),
+                        content_type=spec.get("content_type"),
+                    )
                 )
-            )
+            except ValueError as error:
+                raise PoseFileError(f"{path}: attachment {spec['path']}: {error}") from error
 
-    return PoseFile(
-        dimensions=parsed.dimensions,
-        video=parsed.video,
-        skeletons=parsed.skeletons,
-        components=tuple(components),
-        provenance=provenance,
-        attachments=tuple(attachments),
-        extra=parsed.extra,
-    )
+    # The typed objects enforce cross-references the schema cannot (a mask
+    # naming an undeclared component, for one) by raising ValueError. On the
+    # read path that is a file disagreeing with itself, which callers catch as
+    # PoseFileError, so it must not escape as a bare ValueError.
+    try:
+        return PoseFile(
+            dimensions=parsed.dimensions,
+            video=parsed.video,
+            skeletons=parsed.skeletons,
+            components=tuple(components),
+            provenance=provenance,
+            attachments=tuple(attachments),
+            extra=parsed.extra,
+        )
+    except ValueError as error:
+        raise PoseFileError(f"{path}: the file's contents are inconsistent: {error}") from error
