@@ -120,6 +120,36 @@ def read_project_settings(h5_file: h5py.Group) -> dict:
     return all_settings
 
 
+def _read_distance_unit(in_h5: h5py.File, settings: dict) -> ProjectDistanceUnit:
+    """Determine which distance unit a training file's features were computed in.
+
+    ``export_training_data()`` does not write a top-level ``distance_unit``
+    attribute; the unit it exports is the behavior's ``cm_units`` setting, which
+    ``write_project_settings()`` stores inside the file's ``settings`` group.
+    Reading only the attribute therefore reported ``PIXEL`` for every file the
+    current exporter writes, including exports of cm-unit projects.
+
+    The attribute is still honored when present, so a training file written by an
+    older JABS release that did store it keeps reading back as it used to.
+
+    Args:
+        in_h5: Open training HDF5 file.
+        settings: Project settings already read from the file, as returned by
+            :func:`read_project_settings`.
+
+    Returns:
+        ``ProjectDistanceUnit.CM`` when the features were computed in cm,
+        ``ProjectDistanceUnit.PIXEL`` otherwise.
+    """
+    unit = in_h5.attrs.get("distance_unit")
+    if unit is not None:
+        return ProjectDistanceUnit[unit]
+    # cm_units is a bool, but files exported by older releases may hold a
+    # ProjectDistanceUnit (PIXEL == 0, CM == 1) from the project defaults; both
+    # read as truthy for cm
+    return ProjectDistanceUnit.CM if settings.get("cm_units") else ProjectDistanceUnit.PIXEL
+
+
 def load_training_data(training_file: Path) -> tuple[dict[str, Any], dict[int, dict[str, Any]]]:
     """Load binary training data from an exported HDF5 file.
 
@@ -135,7 +165,8 @@ def load_training_data(training_file: Path) -> tuple[dict[str, Any], dict[int, d
             - ``per_frame``: DataFrame of per-frame features
             - ``window``: DataFrame of window features
             - ``classifier_type``: ClassifierType enum
-            - ``distance_unit``: ProjectDistanceUnit enum
+            - ``distance_unit``: ProjectDistanceUnit enum, taken from the
+              exported ``cm_units`` setting (see :func:`_read_distance_unit`)
             - ``training_seed``: int
             - ``settings``: dict of project settings
             - ``min_pose_version``: int
@@ -174,15 +205,7 @@ def load_training_data(training_file: Path) -> tuple[dict[str, Any], dict[int, d
         else:
             # New string format: "Random Forest" or "XGBoost"
             features["classifier_type"] = ClassifierType(classifier_type_value)
-        # convert the string distance_unit attr to corresponding
-        # ProjectDistanceUnit enum
-        unit = in_h5.attrs.get("distance_unit")
-        if unit is None:
-            # if the training file doesn't include distance_unit it is old and
-            # definitely used pixel based distances
-            features["distance_unit"] = ProjectDistanceUnit.PIXEL
-        else:
-            features["distance_unit"] = ProjectDistanceUnit[unit]
+        features["distance_unit"] = _read_distance_unit(in_h5, features["settings"])
 
         features["labels"] = in_h5["label"][:]
         features["groups"] = in_h5["group"][:]

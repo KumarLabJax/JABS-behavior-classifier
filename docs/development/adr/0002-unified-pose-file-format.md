@@ -84,10 +84,12 @@ contour in the whole video:
 | JABS Hub dev, `pose_v4` ×52 | v8 | 2–6 | 161,058 / 266,343 (60%) |
 | one clip, `spal_seg_and_pose_multihead_effv2s_fpn_12kp_2026-10-22_dax3_pseudo_v1_60ep` | v8 | 5 | 1,903 / 5,002 (38%) |
 
-"Wrong slot" means a valid instance (`id_mask == 0`) whose `instance_embed_id` *e* is not at index
-*e − 1*. The three JABS-pose clips are aligned. Files from three other models, all v8, are not: the
-JABS Hub's census of its dev uploads (2026-11) found 52% of 541,457 valid instances out of slot.
-Alignment is therefore a property of a particular pipeline, never of the format version. Because
+In the last three rows, measured by the JABS Hub in 2026-11 (the first two by its census of dev
+uploads, the third by a probe of one file), "wrong slot" means a valid instance (`id_mask == 0`)
+whose `instance_embed_id` *e* is not at index *e − 1*; the earlier rows were measured before that
+definition was written down. The JABS-pose clips are reported aligned. Files from three other
+models, all v8, are not: the census found 52% of 541,457 valid instances out of slot. Alignment is
+therefore a property of a particular pipeline, never of the format version. Because
 the format never guaranteed it, every consumer scatters defensively, and it genuinely must. The
 converter scatters unconditionally (Conversion).
 

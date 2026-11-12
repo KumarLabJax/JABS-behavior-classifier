@@ -64,10 +64,25 @@ class TimelineAnnotationSearchQuery(BehaviorSearchQuery):
 
 @dataclass(frozen=True)
 class SearchHit:
-    """Represents a search hit with file, identity, and frame range information."""
+    """One matching frame range found by :func:`search_behaviors`.
+
+    Attributes:
+        file: Name of the video the match was found in.
+        identity: Identity the match belongs to, as a string. ``None`` for a
+            timeline annotation that is not tied to an identity, which is the
+            only way a hit is produced without one - label and prediction
+            searches always name an identity.
+        behavior: Behavior the match belongs to, or ``None`` for every hit of a
+            timeline annotation search, since annotations are tagged rather
+            than attached to a behavior.
+        start_frame: First frame of the match, inclusive.
+        end_frame: Last frame of the match, inclusive. A single-frame match has
+            ``end_frame == start_frame``, so the match spans
+            ``end_frame - start_frame + 1`` frames.
+    """
 
     file: str
-    identity: str
+    identity: str | None
     behavior: str | None
     start_frame: int
     end_frame: int
