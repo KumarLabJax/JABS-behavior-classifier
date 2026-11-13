@@ -81,7 +81,7 @@ class PairwiseSocialFovDistances(PairwiseSocialDistances):
             identity: identity to compute features for
 
         Returns:
-            np.ndarray with feature values
+            dict with feature values
         """
         return self._social_distance_info.compute_pairwise_social_distances(
             _social_point_subset, self._social_distance_info.closest_fov_identities
