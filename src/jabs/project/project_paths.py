@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from jabs.core.utils import find_video_files
+
 
 class ProjectPaths:
     """Class to manage project paths."""
@@ -117,15 +119,11 @@ class ProjectPaths:
                 the jabs directory. Defaults to True.
         """
         if validate and not self._jabs_dir.exists():
+            has_video = bool(find_video_files(self._video_dir))
             # Skip dotfiles (e.g. macOS AppleDouble "._*" sidecars created on
-            # exFAT/NTFS external drives), which are not real videos or valid
-            # pose HDF5 files and must not make a directory look like a project.
-            has_video = any(
-                file
-                for ext in ("*.mp4", "*.avi")
-                for file in self._video_dir.glob(ext)
-                if not file.name.startswith(".")
-            )
+            # exFAT/NTFS external drives), which are not valid pose HDF5 files and
+            # must not make a directory look like a project. find_video_files
+            # applies the same rule to the video files.
             has_pose = any(
                 p for p in self._pose_dir.glob("*_pose_est_v*.h5") if not p.name.startswith(".")
             )

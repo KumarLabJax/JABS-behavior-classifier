@@ -59,7 +59,7 @@ import click
 import h5py
 import numpy as np
 
-from jabs.core.utils import copy_file_atomic
+from jabs.core.utils import copy_file_atomic, find_video_files
 from jabs.io.annotations import annotation_filename
 from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.project import Project
@@ -83,8 +83,16 @@ from .label_remap_options import identity_match_options, match_settings_from_opt
 
 
 def _project_videos(project_dir: Path) -> list[str]:
-    """Return the sorted set of project video filenames."""
-    return sorted(f.name for f in project_dir.glob("*") if f.suffix in {".avi", ".mp4"})
+    """Return the sorted set of project video filenames.
+
+    Uses the same rule as the rest of JABS, so a dotfile is never taken for a
+    project video. That matters here because every video found is sent straight
+    to a pose file lookup: a macOS AppleDouble ``._<video>.mp4`` sidecar, which
+    appears whenever a project is copied to an exFAT/NTFS drive, would otherwise
+    be checked for a ``._<video>_pose_est_v*.h5`` pose file that is not valid
+    HDF5, failing the update of a project that is perfectly fine.
+    """
+    return find_video_files(project_dir)
 
 
 def _pose_files_for_video(video: str, pose_dir: Path) -> list[Path]:
