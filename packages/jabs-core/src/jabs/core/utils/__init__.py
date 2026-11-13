@@ -11,10 +11,13 @@ from .utilities import (
     pose_file_stem,
     to_safe_name,
 )
+from .video_files import VIDEO_FILE_EXTENSIONS, find_video_files
 
 __all__ = [
+    "VIDEO_FILE_EXTENSIONS",
     "check_for_update",
     "copy_file_atomic",
+    "find_video_files",
     "get_bool_env_var",
     "hash_file",
     "hide_stderr",

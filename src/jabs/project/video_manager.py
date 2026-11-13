@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jabs.core.utils import find_video_files
 from jabs.io.annotations import AnnotationStore
 from jabs.pose_estimation import (
     PoseEstimation,
@@ -176,21 +177,21 @@ class VideoManager:
             raise ValueError(f"{video_filename} not in project")
 
     @staticmethod
-    def get_videos(dir_path: Path):
+    def get_videos(dir_path: Path) -> list[str]:
         """Get list of video filenames (without path) in a directory.
 
-        Dotfiles are skipped. In particular this excludes macOS AppleDouble
-        sidecar files (``._<name>``) that the OS creates when writing to
-        non-APFS/HFS+ volumes (e.g. exFAT/NTFS external drives). Those are not
-        real videos, and ``pathlib.Path.glob`` matches them (unlike the shell);
-        their companion ``._..._pose_est_v*.h5`` sidecars are not valid HDF5 and
-        would otherwise break the project video scan.
+        Delegates to :func:`jabs.core.utils.find_video_files`, which holds the
+        one definition of what counts as a project video - notably that dotfiles
+        (including the macOS AppleDouble ``._*`` sidecars written on exFAT/NTFS
+        volumes) are not videos.
+
+        Args:
+            dir_path: Directory to scan.
+
+        Returns:
+            Video filenames without their directory, sorted by name.
         """
-        return [
-            f.name
-            for f in dir_path.glob("*")
-            if f.suffix in [".avi", ".mp4"] and not f.name.startswith(".")
-        ]
+        return find_video_files(dir_path)
 
     def get_video_identity_count(self, video_name: str) -> int:
         """Get the number of identity count for a specific video.

@@ -64,6 +64,28 @@ def _make_metadata_project(pose_paths: dict[str, Path]) -> SimpleNamespace:
     )
 
 
+def test_project_videos_lists_sorted_video_files(tmp_path: Path) -> None:
+    """Only video files are listed, by name, without their directory."""
+    for name in ("b.mp4", "a.avi", "a_pose_est_v6.h5", "notes.txt"):
+        (tmp_path / name).touch()
+
+    assert update_pose._project_videos(tmp_path) == ["a.avi", "b.mp4"]
+
+
+def test_project_videos_excludes_appledouble_sidecars(tmp_path: Path) -> None:
+    """A macOS '._*' sidecar is not a project video, matching the rest of JABS.
+
+    Counting one as a video would send the pose file check after
+    ``._video_pose_est_v*.h5``, which is not valid HDF5, and fail the update of
+    a project that is fine.
+    """
+    (tmp_path / "video.mp4").touch()
+    (tmp_path / "._video.mp4").touch()
+    (tmp_path / ".DS_Store").touch()
+
+    assert update_pose._project_videos(tmp_path) == ["video.mp4"]
+
+
 def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
     """Preflight should keep only the latest replacement pose file for each video."""
     project_dir = tmp_path / "project"
