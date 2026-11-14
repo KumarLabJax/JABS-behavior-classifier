@@ -15,6 +15,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import jabs.pose_estimation as pose_est
+from jabs.feature_extraction import FEATURE_VERSION
 from jabs.feature_extraction.social_features import (
     ClosestDistances,
     ClosestFovAngles,
@@ -380,6 +381,11 @@ def test_social_feature_group_on_real_pose_v6_slice() -> None:
             "social chain bottleneck distance",
             "closest neighbor speed",
             "second closest neighbor speed",
+            "torso blob distance",
+            "torso blob centroid distance",
+            "torso connected group size",
+            "torso group blob hull area",
+            "torso group blob solidity",
         } == set(per_frame["huddle_features"].keys())
 
         hull_d = per_frame["closest_distances"]["closest social distance"]
@@ -654,3 +660,260 @@ def test_pairwise_social_distances_nan_without_neighbor_or_subject() -> None:
     np.testing.assert_array_equal(
         dists["social dist. BASE_NECK-BASE_NECK"], [20.0, np.nan, np.nan]
     )
+
+
+def test_torso_blob_morphological_opening_strips_tail_bridge_and_preserves_torso_contact() -> None:
+    """Resolution-scaled opening removes thin tail bridges while preserving torso contact."""
+    # Frame 0: Two 200x200 4K-scale torsos separated by 120 px (x in [0, 200] and [320, 520]),
+    # bridged by a 12-px-wide tail from Animal 0 reaching x=320 (raw contour gap = 0 px).
+    # Frame 1: Two 200x200 torsos directly touching at x=200 (opened torso gap = 0 px, size = 2).
+    tail_bridge_ring = np.array(
+        [
+            [0, 0],
+            [200, 0],
+            [200, 94],
+            [320, 94],
+            [320, 106],
+            [200, 106],
+            [200, 200],
+            [0, 200],
+        ],
+        dtype=np.int16,
+    )
+    torso_0_f1 = np.array(
+        [[0, 0], [200, 0], [200, 200], [0, 200], [0, 0], [0, 0], [0, 0], [0, 0]],
+        dtype=np.int16,
+    )
+    seg_0 = np.full((2, 1, 8, 2), -1, dtype=np.int16)
+    seg_0[0, 0, :, :] = tail_bridge_ring
+    seg_0[1, 0, :4, :] = torso_0_f1[:4]
+
+    seg_1 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_1[0, 0, :, :] = np.array([[320, 0], [520, 0], [520, 200], [320, 200]], dtype=np.int16)
+    seg_1[1, 0, :, :] = np.array([[200, 0], [400, 0], [400, 200], [200, 200]], dtype=np.int16)
+
+    pose = _MultiFrameStubPose(
+        {
+            0: [(100.0, 100.0), (100.0, 100.0)],
+            1: [(420.0, 100.0), (300.0, 100.0)],
+        },
+        hull_size=140.0,
+        format_major_version=6,
+        seg_contours_by_id={0: seg_0, 1: seg_1},
+    )
+    info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
+    dists = ClosestDistances(pose, 1.0, info).per_frame(0)
+    huddle = HuddleFeatures(pose, 1.0, info).per_frame(0)
+
+    # Frame 0 raw contour distance is 0.0 px due to the tail bridge, but opened torso gap > 110 px.
+    np.testing.assert_allclose(dists["closest social segmentation distance"], [0.0, 0.0])
+    assert float(huddle["torso blob distance"][0]) > 110.0
+    assert float(huddle["torso blob distance"][1]) <= 2.5
+    np.testing.assert_allclose(huddle["torso connected group size"], [1.0, 2.0])
+
+
+def test_torso_blob_standard_resolution_strips_tail_and_handles_sample_v6(
+    sample_pose_v6: PoseEstimation,
+) -> None:
+    """Body-size scaling strips tails and measures real group topology at standard resolution."""
+    # Synthetic open-field scale (~50 px body length, 50x40 torsos, 4 px tail bridge).
+    tail_bridge_ring = np.array(
+        [
+            [0, 0],
+            [50, 0],
+            [50, 18],
+            [100, 18],
+            [100, 22],
+            [50, 22],
+            [50, 40],
+            [0, 40],
+        ],
+        dtype=np.int16,
+    )
+    seg_0 = np.full((2, 1, 8, 2), -1, dtype=np.int16)
+    seg_0[0, 0, :, :] = tail_bridge_ring
+    seg_0[1, 0, :4, :] = np.array([[0, 0], [50, 0], [50, 40], [0, 40]], dtype=np.int16)
+
+    seg_1 = np.full((2, 1, 4, 2), -1, dtype=np.int16)
+    seg_1[0, 0, :, :] = np.array([[100, 0], [150, 0], [150, 40], [100, 40]], dtype=np.int16)
+    seg_1[1, 0, :, :] = np.array([[50, 0], [100, 0], [100, 40], [50, 40]], dtype=np.int16)
+
+    std_pose = _MultiFrameStubPose(
+        {
+            0: [(25.0, 20.0), (25.0, 20.0)],
+            1: [(125.0, 20.0), (75.0, 20.0)],
+        },
+        hull_size=30.0,
+        format_major_version=6,
+        seg_contours_by_id={0: seg_0, 1: seg_1},
+    )
+    std_info = ClosestIdentityInfo(std_pose, identity=0, pixel_scale=1.0)
+    std_huddle = HuddleFeatures(std_pose, 1.0, std_info).per_frame(0)
+
+    assert float(std_huddle["torso blob distance"][0]) > 40.0
+    assert float(std_huddle["torso blob distance"][1]) <= 2.0
+    np.testing.assert_allclose(std_huddle["torso connected group size"], [1.0, 2.0])
+
+    # Verify the real 4-mouse standard-resolution sample_pose_est_v6.h5 file extracts valid
+    # non-degenerate torso features with realistic group sizes (not falsely eroded/inflated).
+    group_sizes = []
+    for identity in sample_pose_v6.identities:
+        info = ClosestIdentityInfo(sample_pose_v6, identity, pixel_scale=1.0)
+        huddle = HuddleFeatures(sample_pose_v6, 1.0, info).per_frame(identity)
+        gs = huddle["torso connected group size"]
+        assert np.mean(np.isfinite(gs)) > 0.99
+        assert np.nanmean(gs) < 1.5
+        group_sizes.append(gs)
+    for vals in group_sizes:
+        assert np.nanmax(vals) <= float(len(sample_pose_v6.identities))
+
+
+def test_torso_blob_fallback_hull_does_not_overinflate_separated_mice() -> None:
+    """Skeletal fallback hulls buffer only by 1x r_open instead of 2x on v3-v5 or dropouts."""
+    # Standard-res 30x30 skeletal hulls centered 55 px apart -> 25 px hull gap; 1x r_open (~2.25 px)
+    # leaves > 18 px separation, whereas the old 2x (+30 px/side) bug caused false touching.
+    for fmt_ver, seg_by_id in [
+        (5, None),
+        (
+            6,
+            {
+                0: np.full((2, 1, 4, 2), -1, dtype=np.int16),
+                1: np.full((2, 1, 4, 2), -1, dtype=np.int16),
+            },
+        ),
+    ]:
+        pose = _MultiFrameStubPose(
+            {
+                0: [(0.0, 0.0), (0.0, 0.0)],
+                1: [(55.0, 0.0), (55.0, 0.0)],
+            },
+            hull_size=30.0,
+            format_major_version=fmt_ver,
+            seg_contours_by_id=seg_by_id,
+        )
+        info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
+        huddle = HuddleFeatures(pose, 1.0, info).per_frame(0)
+        assert float(huddle["torso blob distance"][0]) > 15.0
+        np.testing.assert_allclose(huddle["torso connected group size"], [1.0, 1.0])
+
+
+def test_torso_blob_small_eroded_polygon_and_multipolygon_behave_consistently() -> None:
+    """Single Polygons and MultiPolygons below min_area follow the same largest-piece rule."""
+    small_sq = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    tiny_sq = Polygon([(50, 0), (55, 0), (55, 5), (50, 5)])
+    multi_small = social_distance.MultiPolygon([small_sq, tiny_sq])
+
+    arr = np.array([small_sq, multi_small], dtype=object)
+    filtered = social_distance._filter_small_torso_fragments_vec(arr, min_area=200.0)
+
+    assert not filtered[0].is_empty
+    assert not filtered[1].is_empty
+    np.testing.assert_allclose([filtered[0].area, filtered[1].area], [100.0, 100.0])
+
+
+def test_torso_blob_buried_cagemate_scales_to_four_mouse_cages_and_visible_cagemates() -> None:
+    """Buried-pile headcount generalizes to 4-mouse cages and requires absent resident cagemates."""
+    # Frame 0: Mice 0, 1, 2 form a 3-mouse touching pile (240x240 each) while Mouse 3 sits solo far
+    # away at x=[1100, 1340]. Group sizes should be [3, 3, 3, 1].
+    # Frame 1: Mouse 2 burrows under Mice 0 & 1 (each 360x240, 172,800 px^2 total), while Mouse 3
+    # stays solo at x=[1100, 1340]. Mice 0 & 1 stay 3.0 and Mouse 3 stays 1.0 (> 300 px away).
+    # Frame 2: All 4 mice are visible; Mouse 0 is elongated (720x240) at x=[0, 720] while Mice 1, 2, 3
+    # are visible solo far away. With zero absent cagemates, Mouse 0 must report eff_n == 1.0!
+    seg_0 = np.full((3, 1, 4, 2), -1, dtype=np.int16)
+    seg_0[0, 0] = [[0, 0], [240, 0], [240, 240], [0, 240]]
+    seg_0[1, 0] = [[0, 0], [360, 0], [360, 240], [0, 240]]
+    seg_0[2, 0] = [[0, 0], [720, 0], [720, 240], [0, 240]]
+
+    seg_1 = np.full((3, 1, 4, 2), -1, dtype=np.int16)
+    seg_1[0, 0] = [[240, 0], [480, 0], [480, 240], [240, 240]]
+    seg_1[1, 0] = [[360, 0], [720, 0], [720, 240], [360, 240]]
+    seg_1[2, 0] = [[0, 600], [240, 600], [240, 840], [0, 840]]
+
+    seg_2 = np.full((3, 1, 4, 2), -1, dtype=np.int16)
+    seg_2[0, 0] = [[480, 0], [720, 0], [720, 240], [480, 240]]
+    # Frame 1 of seg_2 stays -1 (buried/occluded)
+    seg_2[2, 0] = [[500, 600], [740, 600], [740, 840], [500, 840]]
+
+    seg_3 = np.full((3, 1, 4, 2), -1, dtype=np.int16)
+    seg_3[0, 0] = [[1100, 0], [1340, 0], [1340, 240], [1100, 240]]
+    seg_3[1, 0] = [[1100, 0], [1340, 0], [1340, 240], [1100, 240]]
+    seg_3[2, 0] = [[1100, 600], [1340, 600], [1340, 840], [1100, 840]]
+
+    pose = _MultiFrameStubPose(
+        {
+            0: [(120.0, 120.0), (180.0, 120.0), (360.0, 120.0)],
+            1: [(360.0, 120.0), (540.0, 120.0), (120.0, 720.0)],
+            2: [(600.0, 120.0), None, (620.0, 720.0)],
+            3: [(1220.0, 120.0), (1220.0, 120.0), (1220.0, 720.0)],
+        },
+        hull_size=140.0,
+        format_major_version=6,
+        seg_contours_by_id={0: seg_0, 1: seg_1, 2: seg_2, 3: seg_3},
+    )
+    huddle_0 = HuddleFeatures(pose, 1.0, ClosestIdentityInfo(pose, 0, 1.0)).per_frame(0)
+    huddle_3 = HuddleFeatures(pose, 1.0, ClosestIdentityInfo(pose, 3, 1.0)).per_frame(3)
+
+    np.testing.assert_allclose(huddle_0["torso connected group size"], [3.0, 3.0, 1.0])
+    np.testing.assert_allclose(huddle_3["torso connected group size"], [1.0, 1.0, 1.0])
+    assert float(huddle_3["torso blob distance"][1]) > 300.0
+    np.testing.assert_allclose(
+        huddle_0["torso group blob hull area"][0],
+        huddle_0["torso group blob hull area"][1],
+        rtol=0.05,
+    )
+
+
+def test_torso_blob_overlapping_polygons_use_union_area_not_sum() -> None:
+    """Group solidity uses ``unary_union(geoms).area`` so overlaps are never double-counted."""
+    # Overlapping L-shaped pair: [0, 200]x[0, 200] and [100, 300]x[100, 300] (overlap 10k px^2).
+    # True union / convex hull is ~0.875 (< 0.92), whereas summing individual areas gives 1.0.
+    seg_0 = np.full((1, 1, 4, 2), -1, dtype=np.int16)
+    seg_0[0, 0] = [[0, 0], [200, 0], [200, 200], [0, 200]]
+
+    seg_1 = np.full((1, 1, 4, 2), -1, dtype=np.int16)
+    seg_1[0, 0] = [[100, 100], [300, 100], [300, 300], [100, 300]]
+
+    pose = _MultiFrameStubPose(
+        {0: [(100.0, 100.0)], 1: [(200.0, 200.0)]},
+        hull_size=140.0,
+        format_major_version=6,
+        seg_contours_by_id={0: seg_0, 1: seg_1},
+    )
+    huddle = HuddleFeatures(pose, 1.0, ClosestIdentityInfo(pose, 0, 1.0)).per_frame(0)
+    assert 0.80 < float(huddle["torso group blob solidity"][0]) < 0.92
+
+
+def test_torso_blob_despiking_preserves_nan_boundaries_and_brief_contacts() -> None:
+    """Despiking runs per contiguous non-NaN segment with kernel size 5 (<=2-frame flickers)."""
+    arr = np.array(
+        [
+            3.0,
+            3.0,
+            3.0,
+            1.0,  # 1-frame flicker before gap: smoothed to 3.0
+            3.0,  # last frame before gap: must stay 3.0 (never smeared by post-gap 1.0s)
+            np.nan,
+            np.nan,
+            1.0,
+            1.0,
+            2.0,  # 4-frame real contact bout: preserved by kernel size 5 (would vanish at 11)
+            2.0,
+            2.0,
+            2.0,
+            1.0,
+            1.0,
+        ],
+        dtype=np.float32,
+    )
+    social_distance._despike_contiguous_segments(arr)
+
+    expected = np.array(
+        [3.0, 3.0, 3.0, 3.0, 3.0, np.nan, np.nan, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 1.0, 1.0],
+        dtype=np.float32,
+    )
+    np.testing.assert_array_equal(arr, expected)
+
+
+def test_feature_version_bumped_for_torso_blob_features() -> None:
+    """FEATURE_VERSION must be >= 19 after adding the five torso-blob features."""
+    assert FEATURE_VERSION >= 19
