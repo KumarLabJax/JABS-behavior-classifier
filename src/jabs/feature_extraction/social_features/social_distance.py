@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
+import math
 import weakref
 from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
 import shapely
+from scipy.ndimage import median_filter
 from shapely.geometry import (
-    GeometryCollection,
     LineString,
     MultiLineString,
     MultiPolygon,
@@ -274,66 +275,136 @@ def _connected_group_sizes(
     return np.where(present, reach.sum(axis=2), np.nan).astype(np.float32)
 
 
-# Morphological opening parameters for tail-stripped torso-blob segmentation features:
-# r = 15.0 px strips mouse tails (10-18 px wide < 2r = 30 px) while preserving torso blobs;
-# min_area = 800.0 px^2 retains all torso pieces (including middle mice bisected into two
-# pieces by an overlying partner) while discarding tiny tail islands.
-_TORSO_OPENING_RADIUS_PX = 15.0
-_TORSO_MIN_FRAGMENT_AREA_PX2 = 800.0
-_TORSO_TOUCH_TOL_PX = 2.5
-_TORSO_SIMPLIFY_TOL_PX = 2.0
-_TORSO_BURIED_3MOUSE_UNION_AREA_PX2 = 125000.0
-_TORSO_BURIED_3MOUSE_HULL_AREA_PX2 = 135000.0
-_TORSO_FULL_MASK_MIN_AREA_PX2 = 28000.0
+# Resolution-invariant morphological opening parameters for torso-blob segmentation features,
+# expressed relative to each video's characteristic body length L (~50 px at standard
+# open-field resolution, ~200 px at 4K home-cage resolution):
+# - r_open = max(1.5 px, 0.075 * L) strips mouse tails while preserving torso blobs;
+# - min_area = max(9.0 px^2, 0.02 * L^2) retains bisected torso halves while dropping
+#   tiny tail-knot islands;
+# - solo_area_ref = 1.40 * L^2 approximates one opened torso's footprint for occluded/buried
+#   cagemate attribution across videos with arbitrary camera height and cage group size.
+_TORSO_OPENING_BODY_SCALE = 0.075
+_TORSO_OPENING_MIN_PX = 1.5
+_TORSO_SIMPLIFY_BODY_SCALE = 0.01
+_TORSO_SIMPLIFY_MIN_PX = 0.5
+_TORSO_MIN_FRAG_AREA_SCALE = 0.02
+_TORSO_MIN_FRAG_AREA_MIN_PX2 = 9.0
+_TORSO_TOUCH_BODY_SCALE = 0.0125
+_TORSO_TOUCH_MIN_PX = 2.0
+_TORSO_SOLO_AREA_BODY_SCALE = 1.40
+_TORSO_SEG_LEN_FROM_AREA_SCALE = 0.80
+_TORSO_FULL_MASK_SOLO_FRAC = 0.50
+_TORSO_SLIVER_MERGE_BODY_SCALE = 0.50
+_TORSO_BURIED_PAIR_SOLO_MULT = 1.80
+_TORSO_BURIED_MULTI_SOLO_OFFSET = 0.77
+_TORSO_BURIED_HULL_INFLATION = 1.08
+_TORSO_DESPIKE_KERNEL_FRAMES = 5
+_DEFAULT_CHAR_BODY_LEN_PX = 50.0
 
 
-def _extract_raw_polygon(
-    frame_seg: npt.NDArray[np.generic] | None,
-    fallback_hull: BaseGeometry | None = None,
-) -> BaseGeometry:
+def _extract_raw_seg_polygon(frame_seg: npt.NDArray[np.generic] | None) -> BaseGeometry:
     """Build a closed Shapely Polygon/MultiPolygon from one frame's segmentation array."""
-    if frame_seg is not None:
-        mp: list[Polygon] = []
-        for contour in frame_seg:
-            valid_mask = contour[:, 0] != -1
-            if int(np.sum(valid_mask)) >= 3:
-                pts = contour[valid_mask]
-                mp.append(Polygon(pts))
-        if len(mp) == 1:
-            return mp[0]
-        if len(mp) > 1:
-            return MultiPolygon(mp)
-    if fallback_hull is not None and not fallback_hull.is_empty and fallback_hull.area > 0.0:
-        if fallback_hull.area >= _TORSO_MIN_FRAGMENT_AREA_PX2:
-            return fallback_hull.buffer(_TORSO_OPENING_RADIUS_PX * 2.0, quad_segs=2)
-        return fallback_hull
+    if frame_seg is None:
+        return Polygon()
+    mp: list[Polygon] = []
+    for contour in frame_seg:
+        valid_mask = contour[:, 0] != -1
+        if int(np.sum(valid_mask)) >= 3:
+            mp.append(Polygon(contour[valid_mask]))
+    if len(mp) == 1:
+        return mp[0]
+    if len(mp) > 1:
+        return MultiPolygon(mp)
     return Polygon()
 
 
 def _filter_small_torso_fragments_vec(
     geom_arr: npt.NDArray[np.object_],
-    min_area: float = _TORSO_MIN_FRAGMENT_AREA_PX2,
+    min_area: float,
 ) -> npt.NDArray[np.object_]:
-    """Keep all eroded torso components with area >= min_area while dropping tiny tail islands."""
+    """Keep eroded torso pieces ``>= min_area``, falling back uniformly to the largest piece."""
     out = np.empty_like(geom_arr, dtype=object)
     flat = geom_arr.ravel()
     out_flat = out.ravel()
     for i, g in enumerate(flat):
         if g is None or g.is_empty:
             out_flat[i] = Polygon()
-        elif isinstance(g, Polygon):
-            out_flat[i] = g if g.area >= min_area else Polygon()
-        elif isinstance(g, MultiPolygon):
-            kept = [p for p in g.geoms if p.area >= min_area]
-            if not kept:
-                kept = [max(g.geoms, key=lambda p: p.area)]
-            out_flat[i] = unary_union(kept) if len(kept) > 1 else kept[0]
+            continue
+        if isinstance(g, Polygon):
+            polys = [g]
         else:
             polys = [
-                p for p in getattr(g, "geoms", []) if isinstance(p, Polygon) and p.area >= min_area
+                p for p in getattr(g, "geoms", []) if isinstance(p, Polygon) and not p.is_empty
             ]
-            out_flat[i] = unary_union(polys) if polys else Polygon()
+        if not polys:
+            out_flat[i] = Polygon()
+            continue
+        kept = [p for p in polys if p.area >= min_area]
+        if not kept:
+            kept = [max(polys, key=lambda p: p.area)]
+        out_flat[i] = unary_union(kept) if len(kept) > 1 else kept[0]
     return out
+
+
+def _despike_contiguous_segments(
+    arr: npt.NDArray[np.float32],
+    kernel_size: int = _TORSO_DESPIKE_KERNEL_FRAMES,
+) -> None:
+    """Apply a median filter independently inside each contiguous finite run of ``arr``."""
+    finite = np.isfinite(arr)
+    if not np.any(finite):
+        return
+    padded = np.empty(len(arr) + 2, dtype=bool)
+    padded[0] = False
+    padded[-1] = False
+    padded[1:-1] = finite
+    runs = np.flatnonzero(padded[1:] != padded[:-1]).reshape(-1, 2)
+    for start, stop in runs:
+        if stop - start >= kernel_size:
+            arr[start:stop] = median_filter(arr[start:stop], size=kernel_size, mode="nearest")
+
+
+def _extract_seg_polys_and_body_scale(
+    identities: list[int],
+    num_frames: int,
+    seg_by_id: dict[int, npt.NDArray[np.generic] | None],
+    body_lengths_px_by_id: dict[int, npt.NDArray[np.float64]],
+) -> tuple[float, npt.NDArray[np.object_], npt.NDArray[np.bool_]]:
+    """Extract segmentation polygons and estimate the video's characteristic body length."""
+    n_ids = len(identities)
+    pose_chunks = [
+        vals[np.isfinite(vals)]
+        for vals in body_lengths_px_by_id.values()
+        if np.any(np.isfinite(vals))
+    ]
+    l_pose = (
+        float(np.median(np.concatenate(pose_chunks))) if pose_chunks else _DEFAULT_CHAR_BODY_LEN_PX
+    )
+
+    seg_polys = np.full((num_frames, n_ids), Polygon(), dtype=object)
+    has_seg_poly = np.zeros((num_frames, n_ids), dtype=bool)
+    id_seg_medians: list[float] = []
+    for m_idx, curr_id in enumerate(identities):
+        seg_arr = seg_by_id.get(curr_id)
+        if seg_arr is None:
+            continue
+        for fr in range(min(num_frames, len(seg_arr))):
+            poly = _extract_raw_seg_polygon(seg_arr[fr])
+            if not poly.is_empty and poly.area > 0.0:
+                seg_polys[fr, m_idx] = poly
+                has_seg_poly[fr, m_idx] = True
+        if np.any(has_seg_poly[:, m_idx]):
+            id_seg_medians.append(
+                float(np.median(shapely.area(seg_polys[has_seg_poly[:, m_idx], m_idx])))
+            )
+
+    l_seg = (
+        _TORSO_SEG_LEN_FROM_AREA_SCALE * math.sqrt(float(np.median(id_seg_medians)))
+        if id_seg_medians
+        else 0.0
+    )
+    l_ref = max(l_pose, l_seg, _MIN_BODY_CHAR_LEN_PX)
+    return l_ref, seg_polys, has_seg_poly
 
 
 def _compute_video_torso_blob_features(
@@ -341,6 +412,8 @@ def _compute_video_torso_blob_features(
     num_frames: int,
     seg_by_id: dict[int, npt.NDArray[np.generic] | None],
     hulls_by_id: dict[int, list[BaseGeometry | None] | npt.NDArray[np.object_]],
+    is_fallback_by_id: dict[int, npt.NDArray[np.bool_]],
+    body_lengths_px_by_id: dict[int, npt.NDArray[np.float64]],
 ) -> tuple[
     dict[int, npt.NDArray[np.float32]],
     dict[int, npt.NDArray[np.float32]],
@@ -348,7 +421,7 @@ def _compute_video_torso_blob_features(
     dict[int, npt.NDArray[np.float32]],
     dict[int, npt.NDArray[np.float32]],
 ]:
-    """Compute the 5 morphologically opened (r = 15 px) torso-blob features across all identities."""
+    """Compute resolution-invariant tail-stripped torso-blob features across all identities."""
     n_ids = len(identities)
     torso_blob_dists_px = {
         curr_id: np.full(num_frames, np.nan, dtype=np.float32) for curr_id in identities
@@ -374,42 +447,63 @@ def _compute_video_torso_blob_features(
             torso_group_solidities,
         )
 
-    raw_polys = np.empty((num_frames, n_ids), dtype=object)
-    for m_idx, curr_id in enumerate(identities):
-        seg_arr = seg_by_id.get(curr_id)
-        hulls = hulls_by_id[curr_id]
-        for fr in range(num_frames):
-            f_seg = seg_arr[fr] if (seg_arr is not None and fr < len(seg_arr)) else None
-            raw_polys[fr, m_idx] = _extract_raw_polygon(f_seg, hulls[fr])
+    l_ref, seg_polys, has_seg_poly = _extract_seg_polys_and_body_scale(
+        identities, num_frames, seg_by_id, body_lengths_px_by_id
+    )
+    r_open = max(_TORSO_OPENING_MIN_PX, _TORSO_OPENING_BODY_SCALE * l_ref)
+    simp_tol = max(_TORSO_SIMPLIFY_MIN_PX, _TORSO_SIMPLIFY_BODY_SCALE * l_ref)
+    min_frag = max(_TORSO_MIN_FRAG_AREA_MIN_PX2, _TORSO_MIN_FRAG_AREA_SCALE * l_ref * l_ref)
+    touch_tol = max(_TORSO_TOUCH_MIN_PX, _TORSO_TOUCH_BODY_SCALE * l_ref)
+    solo_area_ref = _TORSO_SOLO_AREA_BODY_SCALE * l_ref * l_ref
+    full_mask_min = _TORSO_FULL_MASK_SOLO_FRAC * solo_area_ref
+    sliver_merge_dist = _TORSO_SLIVER_MERGE_BODY_SCALE * l_ref
 
-    simp = shapely.simplify(raw_polys, tolerance=_TORSO_SIMPLIFY_TOL_PX, preserve_topology=False)
-    eroded = shapely.buffer(simp, -_TORSO_OPENING_RADIUS_PX, quad_segs=2)
-    eroded_kept = _filter_small_torso_fragments_vec(eroded, min_area=_TORSO_MIN_FRAGMENT_AREA_PX2)
-    opened = shapely.buffer(eroded_kept, _TORSO_OPENING_RADIUS_PX, quad_segs=2)
-    opened = np.where(shapely.is_empty(opened), simp, opened)
+    # Skeletal hulls already omit MID_TAIL and TIP_TAIL, so buffering them once by
+    # r_open (and 0.0 for contour-derived fallback hulls) approximates the torso coat
+    # without morphological opening or double-buffering convex polygons.
+    fallback_polys = np.full((num_frames, n_ids), Polygon(), dtype=object)
+    for m_idx, curr_id in enumerate(identities):
+        h_arr = np.asarray(hulls_by_id[curr_id], dtype=object)
+        is_fb = is_fallback_by_id[curr_id]
+        has_hull = np.flatnonzero(~shapely.is_missing(h_arr))
+        if len(has_hull) > 0:
+            buf_dist = np.where(is_fb[has_hull], 0.0, r_open)
+            buffered = shapely.buffer(h_arr[has_hull], buf_dist, quad_segs=2)
+            valid_buf = ~shapely.is_empty(buffered) & (shapely.area(buffered) > 0.0)
+            fallback_polys[has_hull[valid_buf], m_idx] = buffered[valid_buf]
+
+    opened = fallback_polys.copy()
+    if np.any(has_seg_poly):
+        seg_sub = seg_polys[has_seg_poly]
+        simp = shapely.simplify(seg_sub, tolerance=simp_tol, preserve_topology=False)
+        eroded = shapely.buffer(simp, -r_open, quad_segs=2)
+        eroded_kept = _filter_small_torso_fragments_vec(eroded, min_area=min_frag)
+        seg_opened = shapely.buffer(eroded_kept, r_open, quad_segs=2)
+        empty_mask = shapely.is_empty(seg_opened)
+        if np.any(empty_mask):
+            fb_sub = fallback_polys[has_seg_poly][empty_mask]
+            seg_opened[empty_mask] = np.where(~shapely.is_empty(fb_sub), fb_sub, simp[empty_mask])
+        opened[has_seg_poly] = seg_opened
 
     is_present = ~shapely.is_empty(opened)
     cents = shapely.centroid(opened)
     single_areas = shapely.area(opened)
-    single_hull_areas = shapely.area(shapely.convex_hull(opened))
 
     pair_b_dist: dict[tuple[int, int], npt.NDArray[np.float64]] = {}
     pair_c_dist: dict[tuple[int, int], npt.NDArray[np.float64]] = {}
     for a_idx in range(n_ids):
         for b_idx in range(a_idx + 1, n_ids):
             both_present = is_present[:, a_idx] & is_present[:, b_idx]
-            d_ab = np.where(
+            pair_b_dist[(a_idx, b_idx)] = np.where(
                 both_present,
                 shapely.distance(opened[:, a_idx], opened[:, b_idx]),
                 np.inf,
             )
-            c_ab = np.where(
+            pair_c_dist[(a_idx, b_idx)] = np.where(
                 both_present,
                 shapely.distance(cents[:, a_idx], cents[:, b_idx]),
                 np.inf,
             )
-            pair_b_dist[(a_idx, b_idx)] = d_ab
-            pair_c_dist[(a_idx, b_idx)] = c_ab
 
     for a_idx, curr_id in enumerate(identities):
         other_b = [
@@ -430,6 +524,12 @@ def _compute_video_torso_blob_features(
             torso_blob_dists_px[curr_id][valid_b] = min_b[valid_b].astype(np.float32)
             torso_centroid_dists_px[curr_id][valid_c] = min_c[valid_c].astype(np.float32)
 
+    # Ignore unused or single-frame noise identity slots when counting absent resident cagemates.
+    min_resident_frames = 1 if num_frames < 20 else max(2, int(0.01 * num_frames))
+    resident_set = {
+        m_idx for m_idx in range(n_ids) if int(np.sum(is_present[:, m_idx])) >= min_resident_frames
+    }
+
     for fr in range(num_frames):
         present_indices = [m_idx for m_idx in range(n_ids) if is_present[fr, m_idx]]
         if not present_indices:
@@ -437,7 +537,15 @@ def _compute_video_torso_blob_features(
         adj: dict[int, set[int]] = {m_idx: {m_idx} for m_idx in present_indices}
         for i_pos, a_idx in enumerate(present_indices):
             for b_idx in present_indices[i_pos + 1 :]:
-                if pair_b_dist[(a_idx, b_idx)][fr] <= _TORSO_TOUCH_TOL_PX:
+                d_ab = pair_b_dist[(a_idx, b_idx)][fr]
+                area_a = float(single_areas[fr, a_idx])
+                area_b = float(single_areas[fr, b_idx])
+                is_adjacent_sliver = (
+                    min(area_a, area_b) < full_mask_min
+                    and max(area_a, area_b) >= full_mask_min
+                    and d_ab <= sliver_merge_dist
+                )
+                if d_ab <= touch_tol or is_adjacent_sliver:
                     adj[a_idx].add(b_idx)
                     adj[b_idx].add(a_idx)
         for k_idx in present_indices:
@@ -445,62 +553,55 @@ def _compute_video_torso_blob_features(
                 if k_idx in adj[i_idx]:
                     adj[i_idx] |= adj[k_idx]
 
+        # Attribute absent resident cagemates to oversized merged piles in descending area order
+        # so total effective headcount never exceeds the cage's active resident animal count.
+        remaining_absent = sum(1 for m_idx in resident_set if not is_present[fr, m_idx])
+        comps = sorted(
+            {frozenset(adj[m_idx]) for m_idx in present_indices},
+            key=lambda c: sum(single_areas[fr, idx] for idx in c),
+            reverse=True,
+        )
         computed_comp: dict[frozenset[int], tuple[float, float, float]] = {}
-        for m_idx in present_indices:
-            comp = frozenset(adj[m_idx])
-            if comp not in computed_comp:
-                if len(comp) == 1:
-                    only_idx = next(iter(comp))
-                    u_area = float(single_areas[fr, only_idx])
-                    h_area = max(float(single_hull_areas[fr, only_idx]), 1.0)
-                    eff_n = 1
-                    if n_ids >= 3:
-                        other_full_masks = sum(
-                            1
-                            for idx in range(n_ids)
-                            if idx not in comp
-                            and single_areas[fr, idx] >= _TORSO_FULL_MASK_MIN_AREA_PX2
-                        )
-                        if other_full_masks == 0 and (
-                            u_area >= _TORSO_BURIED_3MOUSE_UNION_AREA_PX2
-                            or h_area >= _TORSO_BURIED_3MOUSE_HULL_AREA_PX2
-                        ):
-                            eff_n = 3
-                            torso_blob_dists_px[identities[only_idx]][fr] = 0.0
-                            torso_centroid_dists_px[identities[only_idx]][fr] = 0.0
-                else:
-                    geoms = [opened[fr, idx] for idx in comp]
-                    u_area = float(sum(single_areas[fr, idx] for idx in comp))
-                    h_area = max(float(GeometryCollection(geoms).convex_hull.area), 1.0)
-                    eff_n = len(comp)
-                    if eff_n == 2 and n_ids >= 3:
-                        other_full_masks = sum(
-                            1
-                            for idx in range(n_ids)
-                            if idx not in comp
-                            and single_areas[fr, idx] >= _TORSO_FULL_MASK_MIN_AREA_PX2
-                        )
-                        if other_full_masks == 0 and (
-                            u_area >= _TORSO_BURIED_3MOUSE_UNION_AREA_PX2
-                            or h_area >= _TORSO_BURIED_3MOUSE_HULL_AREA_PX2
-                        ):
-                            eff_n = 3
-                computed_comp[comp] = (
-                    float(eff_n),
-                    float(h_area / eff_n),
-                    min(float(u_area / h_area), 1.0),
+        for comp in comps:
+            geoms = [opened[fr, idx] for idx in comp]
+            comp_union = geoms[0] if len(geoms) == 1 else unary_union(geoms)
+            u_area = float(comp_union.area)
+            h_area = max(float(comp_union.convex_hull.area), 1.0)
+            eff_n = len(comp)
+            if remaining_absent > 0:
+                eff_area_mice = max(
+                    u_area / solo_area_ref,
+                    h_area / (_TORSO_BURIED_HULL_INFLATION * solo_area_ref),
                 )
-            gs, hapm, sol = computed_comp[comp]
+                for cand_n in range(eff_n + remaining_absent, eff_n, -1):
+                    req = (
+                        _TORSO_BURIED_PAIR_SOLO_MULT
+                        if cand_n == 2
+                        else (cand_n - _TORSO_BURIED_MULTI_SOLO_OFFSET)
+                    )
+                    if eff_area_mice >= req:
+                        remaining_absent -= cand_n - eff_n
+                        eff_n = cand_n
+                        break
+                if len(comp) == 1 and eff_n > 1:
+                    only_cid = identities[next(iter(comp))]
+                    torso_blob_dists_px[only_cid][fr] = 0.0
+                    torso_centroid_dists_px[only_cid][fr] = 0.0
+            computed_comp[comp] = (
+                float(eff_n),
+                float(h_area / eff_n),
+                min(float(u_area / h_area), 1.0),
+            )
+        for m_idx in present_indices:
+            gs, hapm, sol = computed_comp[frozenset(adj[m_idx])]
             curr_id = identities[m_idx]
             torso_group_sizes[curr_id][fr] = gs
             torso_group_hull_areas_px2[curr_id][fr] = hapm
             torso_group_solidities[curr_id][fr] = sol
 
-    # Suppress isolated 1-2 frame (<= 67 ms) segmentation mask flickers on real videos
-    # so single-frame mask dropouts do not corrupt 61-frame (2.03 s) rolling min/max windows.
-    if num_frames >= 15:
-        from scipy.ndimage import median_filter
-
+    # Suppress isolated 1-2 frame (<= 67 ms) segmentation flickers within each contiguous
+    # finite run without mixing pre-gap and post-gap values across tracking absences.
+    if num_frames >= _TORSO_DESPIKE_KERNEL_FRAMES:
         for curr_id in identities:
             for feat_dict in (
                 torso_blob_dists_px,
@@ -509,10 +610,9 @@ def _compute_video_torso_blob_features(
                 torso_group_hull_areas_px2,
                 torso_group_solidities,
             ):
-                arr = feat_dict[curr_id]
-                fin = np.isfinite(arr)
-                if int(fin.sum()) >= 11:
-                    arr[fin] = median_filter(arr[fin], size=11, mode="nearest")
+                _despike_contiguous_segments(
+                    feat_dict[curr_id], kernel_size=_TORSO_DESPIKE_KERNEL_FRAMES
+                )
 
     return (
         torso_blob_dists_px,
@@ -719,7 +819,14 @@ class _VideoSocialCache:
             torso_group_sizes_by_id,
             torso_group_hull_areas_px2_by_id,
             torso_group_solidities_by_id,
-        ) = _compute_video_torso_blob_features(identities, num_frames, seg_by_id, hulls_by_id)
+        ) = _compute_video_torso_blob_features(
+            identities,
+            num_frames,
+            seg_by_id,
+            hulls_by_id,
+            is_fallback_by_id,
+            body_lengths_px_by_id,
+        )
 
         return cls(
             has_seg=has_seg,
@@ -832,7 +939,7 @@ class ClosestIdentityInfo:
         self._social_contact_counts = cache.contact_counts_by_id[identity].copy()
         self._social_connected_group_sizes = cache.group_sizes_by_id[identity].copy()
 
-        # Morphologically opened (r = 15 px) tail-stripped torso-blob features
+        # Resolution-invariant morphologically opened tail-stripped torso-blob features
         self._torso_blob_distances = (
             cache.torso_blob_dists_px_by_id[identity] * float(self._pixel_scale)
         ).astype(np.float32)
