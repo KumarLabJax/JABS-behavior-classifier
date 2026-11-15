@@ -160,19 +160,19 @@ def _pose_with_constant_motion(
     return typing.cast("_PoseLike", _PoseWithConstantMotion())
 
 
-# (delta, bearing, intended, emitted): `intended` is the bearing-relative angle the
-# feature is meant to report, `emitted` is what it actually reports. The cases with a
-# non-zero bearing are what distinguish a bearing-relative result from one that only
-# looks at the global motion direction.
+# (delta, bearing, expected): `expected` is the bearing-relative angle, in [-180, 180).
+# The cases with a non-zero bearing are what distinguish a bearing-relative result from
+# one that only looks at the global motion direction.
 _BEARING_RELATIVE_CASES = [
-    ((1.0, 0.0), 0.0, 0.0, -180.0),
-    ((0.0, 1.0), 0.0, 90.0, -90.0),
-    ((-1.0, 0.0), 0.0, 180.0, 0.0),
-    ((0.0, -1.0), 0.0, -90.0, 90.0),
-    ((0.0, 1.0), 90.0, 0.0, -180.0),
-    ((1.0, 0.0), 90.0, -90.0, 90.0),
-    ((1.0, 0.0), -135.0, 135.0, -45.0),
-    ((0.0, -1.0), 135.0, 135.0, -45.0),
+    ((1.0, 0.0), 0.0, 0.0),
+    ((0.0, 1.0), 0.0, 90.0),
+    # directly against the bearing sits on the wrap boundary, which is -180, not 180
+    ((-1.0, 0.0), 0.0, -180.0),
+    ((0.0, -1.0), 0.0, -90.0),
+    ((0.0, 1.0), 90.0, 0.0),
+    ((1.0, 0.0), 90.0, -90.0),
+    ((1.0, 0.0), -135.0, 135.0),
+    ((0.0, -1.0), 135.0, 135.0),
 ]
 
 _BEARING_RELATIVE_IDS = [
@@ -188,13 +188,11 @@ _BEARING_RELATIVE_IDS = [
 
 
 @pytest.mark.parametrize(
-    ("delta", "bearing", "intended", "emitted"),
+    ("delta", "bearing", "expected"),
     _BEARING_RELATIVE_CASES,
     ids=_BEARING_RELATIVE_IDS,
 )
-def test_point_velocity_dirs_bearing_relative_convention(
-    pose_est_v5, delta, bearing, intended, emitted
-):
+def test_point_velocity_dirs_bearing_relative_convention(pose_est_v5, delta, bearing, expected):
     """Pin the bearing-relative angle convention this feature emits.
 
     Every keypoint translates by ``delta`` each frame against a constant ``bearing``,
@@ -203,57 +201,23 @@ def test_point_velocity_dirs_bearing_relative_convention(
     bearings and must give different answers, so an implementation that reported the
     global motion direction and ignored the bearing would fail.
 
-    The expectations encode the 180 degree offset documented on
-    :class:`PointVelocityDirs`: motion straight along the bearing reads ``-180`` rather
-    than ``0``. ``intended`` is unused here and carried only to keep the case table
-    readable alongside :func:`test_point_velocity_dirs_offset_is_a_constant_rotation`.
-    Correcting the offset changes cached feature values, so it needs a
-    ``FEATURE_VERSION`` bump - and rotating the ``emitted`` column by 180 degrees.
+    Motion straight along the bearing reads ``0``, the same convention as
+    ``CentroidVelocityDir``. Before ``FEATURE_VERSION`` 19 it read ``-180``.
     """
     poses = _pose_with_constant_motion(pose_est_v5, delta, bearing)
     values = PointVelocityDirs(poses, 1.0).per_frame(0)
 
     for keypoint in PoseEstimation.KeypointIndex:
         direction = values[f"{keypoint.name} velocity direction"]
-        assert direction == pytest.approx(emitted), keypoint.name
+        assert direction == pytest.approx(expected), keypoint.name
 
         # sine/cosine must stay consistent with the direction they are derived from
         assert values[f"{keypoint.name} velocity direction sine"] == pytest.approx(
-            np.sin(np.deg2rad(emitted)), abs=1e-6
+            np.sin(np.deg2rad(expected)), abs=1e-6
         )
         assert values[f"{keypoint.name} velocity direction cosine"] == pytest.approx(
-            np.cos(np.deg2rad(emitted)), abs=1e-6
+            np.cos(np.deg2rad(expected)), abs=1e-6
         )
-
-
-@pytest.mark.parametrize(
-    ("delta", "bearing", "intended", "emitted"),
-    # the against-bearing case is excluded: its intended angle sits exactly on the
-    # +/-180 wrap boundary, where 180 and -180 are the same angle
-    [case for case in _BEARING_RELATIVE_CASES if abs(case[2]) != 180.0],
-    ids=[
-        name
-        for name, case in zip(_BEARING_RELATIVE_IDS, _BEARING_RELATIVE_CASES, strict=True)
-        if abs(case[2]) != 180.0
-    ],
-)
-def test_point_velocity_dirs_offset_is_a_constant_rotation(
-    pose_est_v5, delta, bearing, intended, emitted
-):
-    """Rotating the emitted angles by 180 degrees recovers the intended convention.
-
-    This records that the gap against ``CentroidVelocityDir`` is one constant rotation
-    rather than a sporadic discrepancy, so whoever fixes the wrap can confirm it closes
-    the gap for every direction and bearing at once.
-    """
-    poses = _pose_with_constant_motion(pose_est_v5, delta, bearing)
-    values = PointVelocityDirs(poses, 1.0).per_frame(0)
-
-    for keypoint in PoseEstimation.KeypointIndex:
-        # undo the offset, then wrap back into [-180, 180) the way
-        # jabs.core.utils.geometry.signed_angle_degrees does
-        rotated = ((values[f"{keypoint.name} velocity direction"] + 180.0) + 180.0) % 360.0 - 180.0
-        assert rotated == pytest.approx(intended), keypoint.name
 
 
 def test_point_velocity_dirs_name_and_circular_flag() -> None:
