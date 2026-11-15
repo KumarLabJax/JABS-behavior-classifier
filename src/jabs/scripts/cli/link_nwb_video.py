@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 
+from jabs.core.exceptions import MissingOptionalDependencyError
 from jabs.io.internal.pose import (
     NWBVideoLinkInfo,
     link_external_video,
@@ -27,6 +28,8 @@ from jabs.io.internal.pose import (
     relative_video_path,
     require_video_link_support,
 )
+
+from .optional_extras import missing_extra_error
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +370,8 @@ def link_nwb_video_command(
 
     try:
         require_video_link_support()
+    except MissingOptionalDependencyError as exc:
+        raise missing_extra_error(exc) from exc
     except ImportError as exc:
         raise click.ClickException(str(exc)) from exc
 

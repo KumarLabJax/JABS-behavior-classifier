@@ -15,6 +15,7 @@ from rich.console import Console
 
 from jabs.classifier import Classifier, MlflowLoggingError, mlflow_available, parse_kv_tags
 from jabs.core.enums import ClassifierMode, ClassifierType, CrossValidationGroupingStrategy
+from jabs.core.exceptions import MissingOptionalDependencyError
 from jabs.project import (
     Project,
     export_training_data,
@@ -30,6 +31,7 @@ from .evaluate import evaluate_command
 from .export_video import export_video_command
 from .link_nwb_video import link_nwb_video_command
 from .merge_projects import merge_projects_command
+from .optional_extras import missing_extra_error
 from .postprocessing import apply_postprocessing_command
 from .sample_frames import sample_frames_command
 from .sample_pose_intervals import sample_pose_intervals_command
@@ -672,6 +674,8 @@ def convert_to_nwb(
                 session_metadata=session_metadata,
                 segmentation=segmentation,
             )
+        except MissingOptionalDependencyError as e:
+            raise missing_extra_error(e) from e
         except Exception as e:
             raise click.ClickException(str(e)) from e
 

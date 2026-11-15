@@ -23,6 +23,7 @@ try:
 except ImportError:
     _PYNWB_AVAILABLE = False
 
+from jabs.core.exceptions import MissingOptionalDependencyError
 from jabs.io.internal.pose.nwb import _IDENTITY_MASK_KEY, _PROCESSING_MODULE_NAME
 
 logger = logging.getLogger(__name__)
@@ -61,12 +62,14 @@ def require_video_link_support() -> None:
     once per file.
 
     Raises:
-        ImportError: If pynwb is not installed, or is older than 4.0.
+        MissingOptionalDependencyError: If pynwb is not installed.
+        ImportError: If pynwb is older than 4.0.
     """
     if not _PYNWB_AVAILABLE:
-        raise ImportError(
+        raise MissingOptionalDependencyError(
             "Linking videos to NWB files requires the 'nwb' extra "
-            "(install with: pip install 'jabs-io[nwb]')."
+            "(install with: pip install 'jabs-io[nwb]').",
+            extra="nwb",
         )
     if int(pynwb.__version__.split(".")[0]) < _MIN_PYNWB_MAJOR:
         raise ImportError(

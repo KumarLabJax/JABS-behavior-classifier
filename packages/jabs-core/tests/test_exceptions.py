@@ -6,6 +6,7 @@ from jabs.core.exceptions import (
     DistanceScaleException,
     FeatureVersionException,
     MissingBehaviorError,
+    MissingOptionalDependencyError,
     PoseHashException,
     PoseIdEmbeddingException,
 )
@@ -180,3 +181,19 @@ class TestExceptionDistinctness:
         """Test that exceptions work without a message."""
         exc = exception_class()
         assert str(exc) == ""
+
+
+class TestMissingOptionalDependencyError:
+    """Tests for MissingOptionalDependencyError."""
+
+    def test_is_an_import_error(self):
+        """Existing ``except ImportError`` handlers still catch it."""
+        with pytest.raises(ImportError):
+            raise MissingOptionalDependencyError("pynwb is required", extra="nwb")
+
+    def test_message_and_extra_preserved(self):
+        """The message and the name of the extra are both kept."""
+        exc = MissingOptionalDependencyError("pynwb is required", extra="nwb")
+
+        assert str(exc) == "pynwb is required"
+        assert exc.extra == "nwb"
