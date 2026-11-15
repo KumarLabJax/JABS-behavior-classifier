@@ -116,6 +116,13 @@ Two batch scripts are included for Windows users working with a local clone:
 
 Double-click these scripts in Windows Explorer to run them.
 
+### Optional Extras
+
+Some features, such as the CatBoost and LightGBM classifiers and NWB export, need
+packages that are not installed by default. See
+[Optional Extras](../user-guide/optional-extras.md) for the list and how to install
+them with uv, pipx, or pip.
+
 ### Enabling XGBoost Classifier
 
 The XGBoost Classifier has a dependency on the OpenMP library. This does not ship with macOS. XGBoost should work "out of the box" on other platforms. On macOS, you can install libomp with Homebrew (preferred) with the following command `brew install libomp`. You can also install libomp from source if you can't use Homebrew, but this is beyond the scope of this Readme.

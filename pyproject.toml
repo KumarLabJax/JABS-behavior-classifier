@@ -38,13 +38,18 @@ dependencies = [
   "click>=8.2.1",
   "argparse-formatter>=1.4",
   "distinctipy>=1.3.4",
-  "catboost>=1.2.8",
 ]
 
 [project.optional-dependencies]
 nwb = ["jabs-io[nwb]"]
 yaml = ["pyyaml>=6.0.0"]
 mlflow = ["mlflow>=3.8.1"]
+# Optional classifier algorithms. CatBoost publishes a wheel per CPython version and
+# has none for 3.15 yet, so it is skipped there; drop the marker once it does.
+extra-classifiers = [
+    "catboost>=1.2.8; python_version < '3.15'",
+    "lightgbm>=4.5.0,<5.0.0",
+]
 
 [tool.uv]
 # Security floors for transitive dependencies (Dependabot). These packages are

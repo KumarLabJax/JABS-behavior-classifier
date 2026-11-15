@@ -29,6 +29,34 @@ from jabs.core.utils import hash_file
 
 from . import classifier_utils, factories
 
+# Optional classifier packages, installed with the ``extra-classifiers`` extra.
+# Unpickling a classifier trained with one of these fails if it is not installed.
+_OPTIONAL_CLASSIFIER_PACKAGES: frozenset[str] = frozenset({"catboost", "lightgbm"})
+
+
+def _load_pickle(path: Path) -> typing.Any:
+    """Unpickle a saved classifier, explaining a missing optional classifier package.
+
+    Args:
+        path: Path to the saved classifier.
+
+    Returns:
+        The unpickled object.
+
+    Raises:
+        ValueError: If the classifier needs an optional package that is not installed.
+    """
+    try:
+        return joblib.load(path)
+    except ModuleNotFoundError as e:
+        package = (e.name or "").split(".")[0]
+        if package not in _OPTIONAL_CLASSIFIER_PACKAGES:
+            raise
+        raise ValueError(
+            f"Classifier {path} requires the '{package}' package, which is not installed. "
+            "Install JABS with the 'extra-classifiers' extra to use it."
+        ) from e
+
 
 class BaseClassifier:
     """Shared persistence and identity machinery for JABS classifiers.
@@ -166,6 +194,11 @@ class BaseClassifier:
         """
         if self._classifier_type == ClassifierType.XGBOOST:
             classifier_columns = self._classifier.get_booster().feature_names
+        elif self._classifier_type == ClassifierType.LIGHTGBM:
+            # LightGBM replaces whitespace in feature names with underscores when it is
+            # trained, and records only the replaced names, so match them the same way.
+            features = features.rename(columns=lambda name: name.replace(" ", "_"))
+            classifier_columns = list(self._classifier.feature_name_)
         elif hasattr(self._classifier, "feature_names_in_"):
             classifier_columns = list(self._classifier.feature_names_in_)
         elif hasattr(self._classifier, "feature_names_"):
@@ -272,7 +305,7 @@ class BaseClassifier:
         """
         with warnings.catch_warnings(record=True) as caught_warnings:
             warnings.simplefilter("always", InconsistentVersionWarning)
-            c = joblib.load(path)
+            c = _load_pickle(path)
             for warning in caught_warnings:
                 if issubclass(warning.category, InconsistentVersionWarning):
                     raise ValueError("Classifier trained with different version of sklearn.")
@@ -309,7 +342,7 @@ class BaseClassifier:
         """
         with warnings.catch_warnings(record=True) as caught_warnings:
             warnings.simplefilter("always", InconsistentVersionWarning)
-            c = joblib.load(path)
+            c = _load_pickle(path)
             for warning in caught_warnings:
                 if issubclass(warning.category, InconsistentVersionWarning):
                     raise ValueError("Classifier trained with different version of sklearn.")

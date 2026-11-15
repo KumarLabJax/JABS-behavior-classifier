@@ -1,6 +1,14 @@
 # Choosing a Classifier Type
 
-JABS supports three machine learning classifier types: **Random Forest**, **CatBoost**, and **XGBoost**. Each has different characteristics that may make it more suitable for your specific use case.
+JABS supports four machine learning classifier types: **Random Forest**, **XGBoost**, **CatBoost**, and **LightGBM**. Random Forest and XGBoost are installed with JABS. CatBoost and LightGBM are optional and are installed with the `extra-classifiers` extra:
+
+```bash
+pip install "jabs-behavior-classifier[extra-classifiers]"
+```
+
+See [Optional Extras](optional-extras.md) for how to add an extra to an existing installation, including with uv or pipx. An optional classifier that is not installed, or cannot be loaded, is left out of the classifier choices in JABS. CatBoost does not yet publish packages for Python 3.15, so on Python 3.15 the extra installs LightGBM only.
+
+Each has different characteristics that may make it more suitable for your specific use case.
 
 > **Classifier type vs. classifier mode:** This page covers the machine learning *algorithm*. Separately, JABS can train one binary classifier per behavior (the default) or a single classifier across all behaviors at once. See [Multi-Class Classification (Preview)](multi-class.md) for the experimental multi-class mode.
 
@@ -25,20 +33,21 @@ Random Forest is the default classifier and a good starting point for most users
 
 ## CatBoost
 
-CatBoost is a gradient boosting algorithm that can achieve excellent performance, particularly for complex behaviors.
+CatBoost is a gradient boosting algorithm that can achieve excellent performance, particularly for complex behaviors. It is installed with the `extra-classifiers` extra.
 
 **Pros:**
 
 - ✅ **High accuracy** - Often achieves the best classification performance
 - ✅ **Handles missing data natively** - No imputation needed for NaN values
 - ✅ **Robust to overfitting** - Built-in regularization techniques
-- ✅ **No external dependencies** - Installs cleanly without additional libraries
+- ✅ **No external dependencies** - Installs cleanly without additional libraries (on Python 3.10-3.14)
 
 **Cons:**
 
 - ⚠️ **Slower training** - Takes significantly longer to train than Random Forest
 - ⚠️ **Higher memory usage** - May require more RAM during training
 - ⚠️ **Longer to classify** - Prediction can be slower on very large datasets
+- ⚠️ **Optional install** - Requires installing the `extra-classifiers` extra, and is not yet available on Python 3.15
 
 **Best for:** Final production classifiers where accuracy is paramount, complex behaviors with subtle patterns, or when you have time for longer training sessions.
 
@@ -61,15 +70,34 @@ XGBoost is another gradient boosting algorithm known for winning machine learnin
 
 **Best for:** When you need better accuracy than Random Forest but faster training than CatBoost, or when you're familiar with gradient boosting methods.
 
+## LightGBM
+
+LightGBM is a gradient boosting algorithm designed for fast training and low memory use. It is installed with the `extra-classifiers` extra.
+
+**Pros:**
+
+- ✅ **Fast training** - Faster than XGBoost and CatBoost
+- ✅ **Good accuracy** - Typically comparable to XGBoost
+- ✅ **Handles missing data natively** - Like CatBoost and XGBoost, works with NaN values
+- ✅ **Low memory usage** - Efficient with system resources
+
+**Cons:**
+
+- ⚠️ **Optional install** - Requires installing the `extra-classifiers` extra
+- ⚠️ **Fixed hyperparameters** - JABS uses hyperparameters tuned on a single dataset, which may not suit every behavior. Tuning them is not currently supported in JABS
+- ⚠️ **Dependency on libomp** - Like XGBoost, may require a separate OpenMP installation on macOS
+
+**Best for:** When you want gradient boosting accuracy with faster training, especially on large projects.
+
 ## Quick Comparison
 
-| Feature | Random Forest | CatBoost | XGBoost |
-|---------|--------------|----------|---------|
-| **Training Speed** | ⚡⚡⚡ Fast | 🐌 Slow | ⚡⚡ Moderate |
-| **Accuracy** | ⭐⭐⭐ Good | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐⭐ Very Good |
-| **Missing Data Handling** | Imputation to 0 | Native support | Native support |
-| **Setup Complexity** | ✅ Simple | ✅ Simple | ⚠️ May need libomp |
-| **Best Use Case** | Quick iterations | Production accuracy | Balanced performance |
+| Feature | Random Forest | CatBoost | XGBoost | LightGBM |
+|---------|--------------|----------|---------|----------|
+| **Training Speed** | ⚡⚡⚡ Fast | 🐌 Slow | ⚡⚡ Moderate | ⚡⚡⚡ Fast |
+| **Accuracy** | ⭐⭐⭐ Good | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐⭐ Very Good | ⭐⭐⭐⭐ Very Good |
+| **Missing Data Handling** | Imputation to 0 | Native support | Native support | Native support |
+| **Setup Complexity** | ✅ Simple | ⚠️ Optional extra | ⚠️ May need libomp | ⚠️ Optional extra; may need libomp |
+| **Best Use Case** | Quick iterations | Production accuracy | Balanced performance | Fast gradient boosting |
 
 ## Recommendations
 

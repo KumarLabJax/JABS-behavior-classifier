@@ -28,7 +28,7 @@ class Classifier(BaseClassifier):
     """A binary behavior classifier (behavior vs. not-behavior).
 
     Supports training, evaluating, saving, and loading classifiers for
-    behavioral data using Random Forest, CatBoost, or XGBoost algorithms.
+    behavioral data using Random Forest, CatBoost, XGBoost, or LightGBM algorithms.
     Persistence and identity machinery are inherited from
     :class:`BaseClassifier`.
 

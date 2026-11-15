@@ -76,6 +76,8 @@ optionally override the classifier specified in the training file:
 
 > Note: XGBoost may be unavailable on macOS if `libomp` isn't installed. See `jabs-classify classify --help` output for list of classifiers supported in the current execution environment.
 
+> Note: CatBoost (`--catboost`) and LightGBM (`--lightgbm`) are only offered when JABS is installed with the `extra-classifiers` extra. See [Choosing a Classifier Type](classifier-types.md).
+
 > Note: fps parameter is used to specify the frames per second (used for scaling time unit for speed and velocity features from "per frame" to "per second").
 
 ## jabs-features
@@ -680,7 +682,7 @@ jabs-cli cross-validation DIRECTORY [--behavior BEHAVIOR] \
     [-k SPLITS] \
     [--grouping-strategy {video|individual|filename}] \
     [--grouping-pattern REGEX] \
-    [--classifier {catboost|random_forest|xgboost}] \
+    [--classifier {catboost|lightgbm|random_forest|xgboost}] \
     [--postprocessing | --no-postprocessing] \
     [--report-file FILE] \
     [--mlflow [ENV_FILE]] [--mlflow-experiment NAME] [--mlflow-tag KEY=VALUE] \
@@ -692,7 +694,7 @@ jabs-cli cross-validation DIRECTORY [--behavior BEHAVIOR] \
 - `-k SPLITS`: Number of cross-validation iterations. `0` (the default) uses the maximum number of splits supported by the data and grouping strategy.
 - `--grouping-strategy {video|individual|filename}`: How labeled frames are grouped into cross-validation folds (see [Grouping strategies](#grouping-strategies)). If omitted, the project's saved setting is used.
 - `--grouping-pattern REGEX`: Regular expression applied to each video filename to derive a grouping key. Only used with `--grouping-strategy filename`. If omitted, the pattern saved in the project is used.
-- `--classifier {catboost|random_forest|xgboost}`: Classifier to evaluate. Defaults to `xgboost`. The available choices depend on which classifier libraries are installed; see [Classifier Types](classifier-types.md).
+- `--classifier {catboost|lightgbm|random_forest|xgboost}`: Classifier to evaluate. Defaults to `xgboost`. The available choices depend on which classifier libraries are installed; see [Classifier Types](classifier-types.md).
 - `--postprocessing` / `--no-postprocessing`: Whether to also report metrics with the behavior's prediction postprocessing pipeline applied. If omitted, the behavior's saved **Evaluate in Cross-Validation** setting is used. Evaluating postprocessing re-predicts each held-out animal's full track, so it costs roughly one extra classification pass over the labeled animals. Binary classifiers only; on a multi-class project the evaluation is skipped with a warning.
 - `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`, or `multiclass_<timestamp>_training_report.md` for a multi-class project).
 - `--mlflow`, `--mlflow-experiment`, `--mlflow-tag`, `--mlflow-no-report`, `--mlflow-no-annotations`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).

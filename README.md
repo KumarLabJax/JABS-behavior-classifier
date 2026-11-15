@@ -74,6 +74,7 @@ Available extras:
 | Extra | Description                              |
 |-------|------------------------------------------|
 | `nwb` | NWB export support (`pynwb`, `ndx-pose`, `ndx-multisubjects`, `ndx-jabs`) |
+| `extra-classifiers` | Additional classifier choices: CatBoost (`catboost`, Python 3.10-3.14 only) and LightGBM (`lightgbm`) |
 
 </details>
 

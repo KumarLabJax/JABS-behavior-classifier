@@ -25,6 +25,7 @@ site_url = "https://kumarlabjax.github.io/JABS-behavior-classifier/"
             { "The GUI" = "user-guide/gui.md" },
             { "Labeling" = "user-guide/labeling.md" },
             { "Classifiers" = "user-guide/classifier-types.md" },
+            { "Optional Extras" = "user-guide/optional-extras.md" },
             { "Features" = "user-guide/features.md" },
             { "Command Line Tools" = "user-guide/cli-tools.md" },
             { "File Formats" = "user-guide/file-formats.md" },

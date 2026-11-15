@@ -96,11 +96,14 @@ class UserGuideDialog(QDialog):
     with a hierarchical tree navigation panel for browsing different topics.
     """
 
-    def __init__(self, app_name: str, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self, app_name: str, *args: Any, initial_page: str = "overview.md", **kwargs: Any
+    ) -> None:
         """Initialize the user guide dialog.
 
         Args:
             app_name: The application name to display in the window title.
+            initial_page: Page shown when the dialog opens. May include an anchor.
             *args: Variable length argument list passed to QDialog.
             **kwargs: Arbitrary keyword arguments passed to QDialog.
         """
@@ -156,7 +159,7 @@ class UserGuideDialog(QDialog):
 
         # Defer initial content loading to avoid compositor texture errors (compositor needs window shown first).
         self._build_tree()
-        QtCore.QTimer.singleShot(0, lambda: self._load_content_from_path("overview.md"))
+        QtCore.QTimer.singleShot(0, lambda: self._load_content_from_path(initial_page))
 
     def _build_tree(self) -> None:
         """Build the hierarchical tree structure for documentation navigation.
@@ -215,6 +218,7 @@ class UserGuideDialog(QDialog):
                 "Feature File": "file-formats.md#feature-file",
             },
             "Choosing a Classifier": "classifier-types.md",
+            "Optional Extras": "optional-extras.md",
             "Multi-Class Classification (Preview)": "multi-class.md",
             "Post-Processing": "postprocessing.md",
             "Features Reference": "features.md",
@@ -338,6 +342,15 @@ class UserGuideDialog(QDialog):
     def _update_back_button(self) -> None:
         """Update the back button enabled state based on history."""
         self._back_button.setEnabled(self._history_position > 0)
+
+    def show_page(self, path_str: str) -> None:
+        """Display a user guide page and select it in the navigation tree.
+
+        Args:
+            path_str: Path of the page within the user guide, e.g.
+                ``"optional-extras.md"``. May include an anchor.
+        """
+        self._load_content_from_path(path_str)
 
     def _load_content_from_path(self, path_str: str) -> None:
         """Load and render markdown content from a documentation file.

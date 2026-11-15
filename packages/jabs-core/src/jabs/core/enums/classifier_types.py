@@ -7,3 +7,4 @@ class ClassifierType(str, Enum):
     RANDOM_FOREST = "Random Forest"
     CATBOOST = "CatBoost"
     XGBOOST = "XGBoost"
+    LIGHTGBM = "LightGBM"

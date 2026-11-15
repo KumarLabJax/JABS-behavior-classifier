@@ -1,7 +1,9 @@
 """Factory functions and registry for behavior classifiers.
 
-``XGBOOST_AVAILABLE`` is set at import time by probing for the ``xgboost``
-package. The factory registry below maps each ``ClassifierType`` to its
+``XGBOOST_AVAILABLE``, ``CATBOOST_AVAILABLE`` and ``LIGHTGBM_AVAILABLE`` are set
+at import time by probing for the ``xgboost``, ``catboost`` and ``lightgbm``
+packages. CatBoost and LightGBM are optional dependencies, installed with the
+``extra-classifiers`` extra. The factory registry below maps each ``ClassifierType`` to its
 constructor for both binary and multi-class modes; mode-specific lookup is
 exposed via :func:`get_factory` and :func:`supported_classifier_types`.
 """
@@ -9,7 +11,6 @@ exposed via :func:`get_factory` and :func:`supported_classifier_types`.
 import logging
 import typing
 
-from catboost import CatBoostClassifier
 from sklearn.base import ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 
@@ -29,6 +30,42 @@ except ImportError:
     )
 
 
+try:
+    import catboost as _catboost  # noqa: F401
+
+    CATBOOST_AVAILABLE: bool = True
+except (ImportError, OSError):
+    # catboost is optional, and the extra skips it on Python versions it has no wheels
+    # for, so a missing package is expected and not worth a warning.
+    CATBOOST_AVAILABLE = False
+    logger.debug("catboost is not available. CatBoost support will be unavailable.")
+
+try:
+    import lightgbm as _lightgbm  # noqa: F401
+
+    LIGHTGBM_AVAILABLE: bool = True
+except (ImportError, OSError):
+    # lightgbm is optional, so a missing package is expected and not worth a warning.
+    # OSError covers an installed package whose native library cannot load (e.g. macOS
+    # without libomp), which would otherwise only fail when a classifier is trained.
+    LIGHTGBM_AVAILABLE = False
+    logger.debug("lightgbm is not available. LightGBM support will be unavailable.")
+
+# Hyperparameters for LightGBM, from an optimization run on a single dataset. They may
+# not generalize to every behavior, and JABS does not yet expose them for tuning.
+_LIGHTGBM_PARAMS: dict[str, int | float] = {
+    "n_estimators": 187,
+    "learning_rate": 0.013940346079873234,
+    "max_depth": 11,
+    "num_leaves": 138,
+    "min_child_samples": 16,
+    "subsample": 0.7475884550556351,
+    "colsample_bytree": 0.5171942605576092,
+    "reg_alpha": 1.527156759251193,
+    "reg_lambda": 2.133142332373004e-06,
+}
+
+
 ClassifierFactory = typing.Callable[[int, int | None], typing.Any]
 
 
@@ -45,17 +82,39 @@ def make_random_forest(n_jobs: int, random_seed: int | None) -> RandomForestClas
     return RandomForestClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
-def make_catboost(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
+def _import_catboost() -> typing.Any:
+    """Import and return the optional ``catboost`` module.
+
+    Raises:
+        RuntimeError: If CatBoost is not available in the current environment.
+    """
+    try:
+        import catboost
+    except (ImportError, OSError) as e:
+        raise RuntimeError(
+            "CatBoost classifier requested but 'catboost' is not available in this "
+            "environment. Install it with the 'extra-classifiers' extra."
+        ) from e
+    return catboost
+
+
+def make_catboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """Construct a CatBoost classifier for binary classification.
+
+    CatBoost is an optional dependency, so the import is deferred to call time.
 
     Args:
         n_jobs: Number of parallel jobs.
         random_seed: Random seed for reproducibility.
 
     Returns:
-        A configured ``CatBoostClassifier``.
+        A configured ``CatBoostClassifier``. Typed as ``ClassifierMixin`` to avoid a
+        hard dependency on catboost in type hints.
+
+    Raises:
+        RuntimeError: If CatBoost is not available in the current environment.
     """
-    return CatBoostClassifier(
+    return _import_catboost().CatBoostClassifier(
         thread_count=n_jobs,
         random_state=random_seed,
         verbose=False,
@@ -63,7 +122,7 @@ def make_catboost(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
     )
 
 
-def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
+def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """Construct a CatBoost classifier for multi-class classification.
 
     Uses ``loss_function="MultiClass"`` (softmax over all classes), required
@@ -74,9 +133,13 @@ def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> CatBoostCl
         random_seed: Random seed for reproducibility.
 
     Returns:
-        A configured ``CatBoostClassifier`` with multi-class loss.
+        A configured ``CatBoostClassifier`` with multi-class loss, typed as
+        ``ClassifierMixin`` to avoid a hard dependency on catboost in type hints.
+
+    Raises:
+        RuntimeError: If CatBoost is not available in the current environment.
     """
-    return CatBoostClassifier(
+    return _import_catboost().CatBoostClassifier(
         loss_function="MultiClass",
         thread_count=n_jobs,
         random_state=random_seed,
@@ -111,19 +174,55 @@ def make_xgboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     return xgboost.XGBClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
+def make_lightgbm(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
+    """Construct a LightGBM classifier.
+
+    LightGBM is an optional dependency, so the import is deferred to call time. The
+    same estimator serves binary and multi-class mode: LightGBM chooses its objective
+    from the number of classes in the training labels.
+
+    Args:
+        n_jobs: Number of parallel jobs.
+        random_seed: Random seed for reproducibility.
+
+    Returns:
+        A configured ``LGBMClassifier``. Typed as ``ClassifierMixin`` to avoid a
+        hard dependency on lightgbm in type hints.
+
+    Raises:
+        RuntimeError: If LightGBM is not available in the current environment.
+    """
+    try:
+        import lightgbm
+    except (ImportError, OSError) as e:
+        raise RuntimeError(
+            "LightGBM classifier requested but 'lightgbm' is not available in this "
+            "environment. Install it with the 'extra-classifiers' extra."
+        ) from e
+    return lightgbm.LGBMClassifier(
+        n_jobs=n_jobs, random_state=random_seed, verbose=-1, **_LIGHTGBM_PARAMS
+    )
+
+
 _BINARY_FACTORIES: dict[ClassifierType, ClassifierFactory] = {
     ClassifierType.RANDOM_FOREST: make_random_forest,
-    ClassifierType.CATBOOST: make_catboost,
 }
 
 _MULTICLASS_FACTORIES: dict[ClassifierType, ClassifierFactory] = {
     ClassifierType.RANDOM_FOREST: make_random_forest,
-    ClassifierType.CATBOOST: make_catboost_multiclass,
 }
+
+if CATBOOST_AVAILABLE:
+    _BINARY_FACTORIES[ClassifierType.CATBOOST] = make_catboost
+    _MULTICLASS_FACTORIES[ClassifierType.CATBOOST] = make_catboost_multiclass
 
 if XGBOOST_AVAILABLE:
     _BINARY_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
     _MULTICLASS_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
+
+if LIGHTGBM_AVAILABLE:
+    _BINARY_FACTORIES[ClassifierType.LIGHTGBM] = make_lightgbm
+    _MULTICLASS_FACTORIES[ClassifierType.LIGHTGBM] = make_lightgbm
 
 
 def get_factory(classifier_type: ClassifierType, *, multiclass: bool) -> ClassifierFactory:

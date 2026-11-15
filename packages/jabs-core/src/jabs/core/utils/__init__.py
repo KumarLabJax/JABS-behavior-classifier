@@ -1,6 +1,7 @@
 """JABS utilities"""
 
 from .behavior_names import validate_behavior_names
+from .extras import ExtraStatus, extras_status
 from .geometry import signed_angle_degrees
 from .update_checker import check_for_update, is_pypi_install
 from .utilities import (
@@ -15,8 +16,10 @@ from .video_files import VIDEO_FILE_EXTENSIONS, find_video_files
 
 __all__ = [
     "VIDEO_FILE_EXTENSIONS",
+    "ExtraStatus",
     "check_for_update",
     "copy_file_atomic",
+    "extras_status",
     "find_video_files",
     "get_bool_env_var",
     "hash_file",
