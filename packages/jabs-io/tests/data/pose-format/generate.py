@@ -547,6 +547,13 @@ def main() -> None:
         lambda m: _entry(m, "jabs.segmentation.external_flag")["encoding"].update(level="leaf"),
     )
 
+    # An alternate that passes every structural check and still disagrees with
+    # its baseline: one contour point moved. Only the opt-in deep check, which
+    # decodes both, can see it.
+    shutil.copy(HERE / "valid-ragged-alternate.h5", HERE / "invalid-alternate-disagrees.h5")
+    with h5py.File(HERE / "invalid-alternate-disagrees.h5", "r+") as h5:
+        h5["/jabs/segmentation/ragged/contours"][0, 0] += 1
+
     # The invalid fixtures are copies of a clean base, taken BEFORE the
     # undeclared attachment goes in: injecting it first gave every invalid
     # fixture an unrelated attachment_undeclared warning.

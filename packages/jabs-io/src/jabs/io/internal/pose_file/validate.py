@@ -34,6 +34,19 @@ from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE
 ERROR = "error"
 WARNING = "warning"
 
+# The deep check reads the dense baseline a block of frames at a time, so a
+# full-size baseline (tens of gigabytes for the worst legacy segmentation) never
+# sits in memory at once. A block is at least one frame.
+DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
+
+# The alternates this revision defines, by name and component, with the level
+# each must declare. The deep check can decode exactly these.
+_SEGMENTATION_ALTERNATE = "ragged"
+_CONTOURS = "jabs.segmentation.contours"
+_EXTERNAL_FLAG = "jabs.segmentation.external_flag"
+_CONTOUR_COUNT = "jabs.segmentation.contour_count"
+_CONTOUR_LENGTH = "jabs.segmentation.contour_length"
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -372,7 +385,7 @@ def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[
     An alternate is a derived copy of the component's data in another
     encoding. It shares the component's id, skeleton and provenance, so only
     the checks that concern its own payload apply. Decoding it against the
-    baseline is the ADR's opt-in deep check, which this does not perform.
+    baseline is the ADR's opt-in deep check, ``_check_alternates_decode``.
 
     Args:
         h5: The open file.
@@ -1192,13 +1205,256 @@ def _check_attachments(h5: h5py.File, manifest: dict, findings: list[Finding]) -
     root.visititems(note_undeclared)
 
 
-def validate(path: str | Path) -> list[Finding]:
+def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """The opt-in deep check: each alternate decodes to its baseline.
+
+    Every structural check can pass while an alternate says something its
+    baseline does not -- a moved point, a flipped flag, a contour handed to the
+    neighbouring slot -- because those checks read offsets and shapes, not
+    values. This decodes both and compares them.
+
+    Decoding trusts the offsets and shapes the structural checks vouch for, so
+    a file that already has errors is not decoded. This revision defines one
+    alternate, ``ragged`` on ``jabs.segmentation``; any other is reported as
+    unchecked rather than passed, because a dense baseline does not say
+    generically how many groups an instance has.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    alternates = [
+        (spec, alternate)
+        for spec in manifest["components"]
+        for alternate in spec.get("alternates", [])
+    ]
+    if not alternates:
+        return
+    if any(f.severity == ERROR for f in findings):
+        findings.append(
+            Finding(
+                WARNING,
+                "alternate_deep_unchecked",
+                "alternates were not decoded: the file has errors, and decoding trusts the "
+                "offsets and shapes those checks cover",
+            )
+        )
+        return
+
+    by_id = {c["id"]: c for c in manifest["components"]}
+    contours = flags = None
+    for spec, alternate in alternates:
+        label = _alternate_label(spec["id"], alternate["name"])
+        reason = _undecodable_reason(spec, alternate, by_id)
+        if reason is not None:
+            findings.append(Finding(WARNING, "alternate_deep_unchecked", f"{label}: {reason}"))
+        elif spec["id"] == _CONTOURS:
+            contours = alternate
+        else:
+            flags = alternate
+    if contours is None:
+        # A group-level flag alternate is decoded through the contours' offsets.
+        if flags is not None:
+            findings.append(
+                Finding(
+                    WARNING,
+                    "alternate_deep_unchecked",
+                    f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
+                    "contours alternate's offsets, and that alternate is not decodable here",
+                )
+            )
+        return
+    _compare_segmentation_alternate(h5, manifest, by_id, contours, flags, findings)
+
+
+def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> str | None:
+    """Why the deep check cannot decode this alternate, or None when it can.
+
+    Args:
+        spec: The component carrying the alternate.
+        alternate: The alternate's manifest entry.
+        by_id: Components by id.
+
+    Returns:
+        A sentence for the finding, or None.
+    """
+    expected_level = {_CONTOURS: "leaf", _EXTERNAL_FLAG: "group"}.get(spec["id"])
+    encoding = alternate["encoding"]
+    if alternate["name"] != _SEGMENTATION_ALTERNATE or expected_level is None:
+        return (
+            "this revision defines only the ragged alternate of jabs.segmentation, so this "
+            "alternate cannot be decoded against its baseline"
+        )
+    if encoding.get("kind") != "ragged" or encoding.get("level", "leaf") != expected_level:
+        return f"the ragged alternate must be a {expected_level}-level ragged encoding"
+    needed = (_CONTOURS, _CONTOUR_COUNT, _CONTOUR_LENGTH) + (
+        (_EXTERNAL_FLAG,) if spec["id"] == _EXTERNAL_FLAG else ()
+    )
+    for component_id in needed:
+        baseline = by_id.get(component_id)
+        if baseline is None or baseline["encoding"].get("kind") != "dense":
+            return f"its dense baseline needs a dense {component_id}"
+    contour_axis = by_id[_CONTOURS]["shape"][2]
+    if by_id[_CONTOUR_COUNT]["shape"] != by_id[_CONTOURS]["shape"][:2]:
+        return f"{_CONTOUR_COUNT} is not indexed by the contours' (frame, slot)"
+    if by_id[_CONTOUR_LENGTH]["shape"] != by_id[_CONTOURS]["shape"][:3]:
+        return f"{_CONTOUR_LENGTH} is not indexed by the contours' (frame, slot, contour)"
+    if spec["id"] == _EXTERNAL_FLAG and by_id[_EXTERNAL_FLAG]["shape"][2] != contour_axis:
+        return f"{_EXTERNAL_FLAG} does not share the contours' contour axis"
+    return None
+
+
+def _compare_segmentation_alternate(
+    h5: h5py.File,
+    manifest: dict,
+    by_id: dict[str, dict],
+    contours: dict,
+    flags: dict | None,
+    findings: list[Finding],
+) -> None:
+    """Compare the ragged segmentation alternate with its dense baseline.
+
+    Vectorized per block of frames. For each block, the dense baseline implies
+    the alternate exactly: each instance owns ``contour_count`` groups, group
+    sizes are the valid ``contour_length`` entries in ``(frame, slot, contour)``
+    order, the payload is the valid points in the same order, and the
+    group-level flags are the valid ``external_flag`` entries. The first
+    difference in each of the four is reported, against the instance it
+    belongs to.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        by_id: Components by id.
+        contours: The contours' ragged alternate (leaf level).
+        flags: The flags' ragged alternate (group level), or None.
+        findings: Accumulator.
+    """
+    frames, slots = manifest["dimensions"]["frame"], manifest["dimensions"]["slot"]
+    dense = h5[by_id[_CONTOURS]["path"]]
+    count_node = h5[by_id[_CONTOUR_COUNT]["path"]]
+    length_node = h5[by_id[_CONTOUR_LENGTH]["path"]]
+    flag_node = h5[by_id[_EXTERNAL_FLAG]["path"]] if flags is not None else None
+    payload = h5[contours["path"]]
+    flag_payload = h5[flags["path"]] if flags is not None else None
+    group_offsets = _offsets(h5, contours["encoding"]["group_offsets"])
+    instance_offsets = _offsets(h5, contours["encoding"]["instance_offsets"])
+    contour_axis, point_axis = dense.shape[2], dense.shape[3]
+
+    points_label = _alternate_label(_CONTOURS, contours["name"])
+    flags_label = _alternate_label(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
+    frame_bytes = max(1, int(np.prod(dense.shape[1:])) * dense.dtype.itemsize)
+    block = max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes)
+
+    def instance_of(group: int) -> str:
+        position = int(np.searchsorted(instance_offsets, group, side="right")) - 1
+        return f"frame {position // slots}, slot {position % slots}"
+
+    def disagree(label: str, where: str, what: str) -> None:
+        findings.append(
+            Finding(
+                ERROR,
+                "alternate_decodes",
+                f"{label} disagrees with its baseline at {where}: {what}. The baseline wins; "
+                "the alternate must be dropped or regenerated",
+            )
+        )
+
+    points_ok = flags_ok = True
+    for first in range(0, frames, block):
+        last = min(frames, first + block)
+        count = np.asarray(count_node[first:last]).astype(np.int64)
+        length = np.asarray(length_node[first:last]).astype(np.int64)
+        if count.min(initial=0) < 0 or count.max(initial=0) > contour_axis:
+            findings.append(
+                Finding(
+                    WARNING,
+                    "alternate_deep_unchecked",
+                    f"{points_label}: {_CONTOUR_COUNT} exceeds the contour axis in frames "
+                    f"[{first}, {last}), so the baseline cannot be decoded there",
+                )
+            )
+            return
+        valid_contour = np.arange(contour_axis) < count[..., None]
+
+        # Which groups each instance owns.
+        lo, hi = first * slots, last * slots
+        owned = np.diff(instance_offsets[lo : hi + 1])
+        expected_owned = count.ravel()
+        if not np.array_equal(owned, expected_owned):
+            position = lo + int(np.flatnonzero(owned != expected_owned)[0])
+            disagree(
+                points_label,
+                f"frame {position // slots}, slot {position % slots}",
+                f"it owns {owned[position - lo]} contours where the baseline has "
+                f"{expected_owned[position - lo]}",
+            )
+            return
+        g0, g1 = int(instance_offsets[lo]), int(instance_offsets[hi])
+
+        # Each group's size.
+        sizes = np.diff(group_offsets[g0 : g1 + 1])
+        expected_sizes = length[valid_contour]
+        if points_ok and not np.array_equal(sizes, expected_sizes):
+            group = g0 + int(np.flatnonzero(sizes != expected_sizes)[0])
+            disagree(
+                points_label,
+                instance_of(group),
+                f"contour {group} has {sizes[group - g0]} points where the baseline has "
+                f"{expected_sizes[group - g0]}",
+            )
+            points_ok = False
+
+        # The points themselves.
+        if points_ok:
+            valid_point = valid_contour[..., None] & (
+                np.arange(point_axis) < np.minimum(length, point_axis)[..., None]
+            )
+            expected_points = np.asarray(dense[first:last])[valid_point]
+            actual = np.asarray(payload[int(group_offsets[g0]) : int(group_offsets[g1])])
+            mismatch = np.flatnonzero(np.any(actual != expected_points, axis=-1))
+            if mismatch.size:
+                point = int(group_offsets[g0]) + int(mismatch[0])
+                group = int(np.searchsorted(group_offsets, point, side="right")) - 1
+                disagree(
+                    points_label,
+                    instance_of(group),
+                    f"point {point} is {actual[mismatch[0]].tolist()} where the baseline has "
+                    f"{expected_points[mismatch[0]].tolist()}",
+                )
+                points_ok = False
+
+        # The group-level flags.
+        if flags_ok and flag_node is not None:
+            expected_flags = np.asarray(flag_node[first:last])[valid_contour]
+            actual_flags = np.asarray(flag_payload[g0:g1])
+            mismatch = np.flatnonzero(actual_flags != expected_flags)
+            if mismatch.size:
+                group = g0 + int(mismatch[0])
+                disagree(
+                    flags_label,
+                    instance_of(group),
+                    f"contour {group}'s flag is {bool(actual_flags[mismatch[0]])} where the "
+                    f"baseline has {bool(expected_flags[mismatch[0]])}",
+                )
+                flags_ok = False
+
+        if not (points_ok or flags_ok):
+            return
+
+
+def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
     """Validate a pose file.
 
     Never raises for a malformed file: every problem comes back as a Finding.
 
     Args:
         path: The file to validate.
+        deep: Also run ADR 0002's opt-in deep check: decode every alternate
+            and compare it with its baseline, per ``(frame, slot)``. It reads
+            the baseline in full, so it costs as much as reading the payload.
+            A tool that writes or ingests alternates runs it; a reader need not.
 
     Returns:
         Findings, errors first. An empty list means the file conforms.
@@ -1228,5 +1484,7 @@ def validate(path: str | Path) -> list[Finding]:
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)
+        if deep:
+            _check_alternates_decode(h5, manifest, findings)
 
     return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))

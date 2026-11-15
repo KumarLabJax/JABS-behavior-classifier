@@ -33,6 +33,11 @@ INVALID = {
     "invalid-not-a-pose-file.h5": "root_attrs",
 }
 
+# Files that pass every structural check and fail only the opt-in deep check.
+DEEP_INVALID = {
+    "invalid-alternate-disagrees.h5": "alternate_decodes",
+}
+
 
 @pytest.mark.parametrize("name", VALID)
 def test_valid_fixtures_have_no_errors(name):
@@ -73,10 +78,25 @@ def test_nan_points_mean_no_coordinate_never_low_confidence(name):
     assert (~point_valid & (confidence > 0) & ~no_coordinate).any()
 
 
+@pytest.mark.parametrize("name", VALID)
+def test_valid_fixtures_pass_the_deep_check(name):
+    """Every alternate in a valid fixture decodes to its baseline."""
+    errors = [f for f in validate(DATA / name, deep=True) if f.severity == "error"]
+    assert errors == [], f"{name} should pass the deep check, got {[f.message for f in errors]}"
+
+
+@pytest.mark.parametrize("name,expected_check", sorted(DEEP_INVALID.items()))
+def test_deep_invalid_fixtures_fail_only_when_asked(name, expected_check):
+    """Structurally valid; the deep check alone finds what is wrong."""
+    assert [f for f in validate(DATA / name) if f.severity == "error"] == []
+    findings = validate(DATA / name, deep=True)
+    assert any(f.check == expected_check and f.severity == "error" for f in findings)
+
+
 def test_fixture_corpus_is_complete():
-    """The corpus on disk covers everything the suite names."""
+    """The corpus on disk covers everything the suite names, and nothing more."""
     present = {p.name for p in DATA.glob("*.h5")}
-    assert present >= set(VALID) | set(INVALID)
+    assert present == set(VALID) | set(INVALID) | set(DEEP_INVALID)
 
 
 def test_full_fixture_carries_a_foreign_component():
