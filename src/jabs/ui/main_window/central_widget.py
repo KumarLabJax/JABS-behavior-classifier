@@ -645,6 +645,24 @@ class CentralWidget(QtWidgets.QWidget):
         """set the overlay segmentation property of the player widget"""
         self._player_widget.overlay_segmentation(checked)
 
+    @property
+    def segmentation_color_mode(self) -> PlayerWidget.SegmentationColorMode:
+        """return how the player colors segmentation contours"""
+        return self._player_widget.segmentation_color_mode
+
+    @segmentation_color_mode.setter
+    def segmentation_color_mode(self, mode: PlayerWidget.SegmentationColorMode) -> None:
+        """set how the player colors segmentation contours
+
+        Switching to prediction coloring pushes the current predictions to the player.
+
+        Args:
+            mode: The new segmentation color mode.
+        """
+        if mode != self._player_widget.segmentation_color_mode:
+            self._player_widget.segmentation_color_mode = mode
+            self._refresh_segmentation_predictions()
+
     def remove_behavior(self, behavior: str) -> None:
         """remove a behavior from the list of behaviors"""
         self._controls.remove_behavior(behavior)
@@ -1689,6 +1707,36 @@ class CentralWidget(QtWidgets.QWidget):
             )
 
         self._refresh_label_overlay()
+        self._refresh_segmentation_predictions()
+
+    def _refresh_segmentation_predictions(self) -> None:
+        """Push the predictions the segmentation overlay colors contours by to the player.
+
+        Uses the same per-identity values, colors, and raw/post-processed choice as the
+        label overlay's prediction marker. Only pushed while the contours are colored by
+        prediction, so the multi-class arrays are not rebuilt for nothing.
+        """
+        if (
+            self._player_widget.segmentation_color_mode
+            != PlayerWidget.SegmentationColorMode.PREDICTION
+        ):
+            self._player_widget.set_segmentation_predictions(None)
+            return
+
+        multiclass = (
+            self._project is not None
+            and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        )
+        color_lut = self._jabs_timeline.multiclass_color_lut if multiclass else None
+        if multiclass and color_lut is None:
+            # multi-class values are LUT indices: without the table there is nothing to
+            # color by, so every contour is drawn as having no prediction
+            self._player_widget.set_segmentation_predictions(None)
+            return
+
+        self._player_widget.set_segmentation_predictions(
+            self._prediction_overlay_labels(multiclass), color_lut
+        )
 
     @property
     def _showing_postprocessed_predictions(self) -> bool:

@@ -62,6 +62,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     PoseOverlayMode = FrameWithOverlaysWidget.PoseOverlayMode
     IdentityOverlayMode = FrameWithOverlaysWidget.IdentityOverlayMode
+    SegmentationColorMode = FrameWithOverlaysWidget.SegmentationColorMode
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -213,6 +214,27 @@ class PlayerWidget(QtWidgets.QWidget):
     def overlay_annotations_enabled(self, enabled: bool) -> None:
         """set the overlay annotations in the frame widget"""
         self._frame_widget.overlay_annotations_enabled = enabled
+
+    @property
+    def segmentation_color_mode(self) -> FrameWithOverlaysWidget.SegmentationColorMode:
+        """return how segmentation contours are colored"""
+        return self._frame_widget.segmentation_color_mode
+
+    @segmentation_color_mode.setter
+    def segmentation_color_mode(self, mode: FrameWithOverlaysWidget.SegmentationColorMode) -> None:
+        """set how segmentation contours are colored"""
+        self._frame_widget.segmentation_color_mode = mode
+
+    def set_segmentation_predictions(
+        self, predictions: list[np.ndarray] | None, color_lut: np.ndarray | None = None
+    ) -> None:
+        """Set the per-identity predictions used to color segmentation contours.
+
+        Args:
+            predictions: One array per identity, in sorted identity order, or None.
+            color_lut: RGBA LUT when the values are multi-class LUT indices, else None.
+        """
+        self._frame_widget.set_segmentation_predictions(predictions, color_lut)
 
     @property
     def emphasize_active_identity(self) -> bool:

@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as npt
 from PySide6 import QtCore, QtGui
 
+from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 from .mapping import visible_runs
 from .scaling import native_overlay_scale
 
@@ -28,6 +29,15 @@ if TYPE_CHECKING:
 # the colors the cv2 drawing used, converted from its BGR tuples.
 SEGMENTATION_ACTIVE_COLOR = QtGui.QColor(255, 0, 0)
 SEGMENTATION_INACTIVE_COLOR = QtGui.QColor(0, 0, 255)
+
+# When contours are colored by prediction instead, a frame with no prediction is white.
+# Behavior and not-behavior reuse the label marker colors so the two overlays agree.
+SEGMENTATION_NO_PREDICTION_COLOR = QtGui.QColor(255, 255, 255)
+
+# Binary prediction values, matching jabs.project.TrackLabels.Label. Repeated as plain
+# integers for the same reason as in labels.py: jabs.project is too heavy to import here.
+_PREDICTION_NOT_BEHAVIOR = 0
+_PREDICTION_BEHAVIOR = 1
 
 # Contour line width at the reference frame size, matching the single pixel cv2 drew.
 _BASE_LINE_WIDTH = 1
@@ -52,6 +62,38 @@ def native_segmentation_line_width(width: int, height: int) -> int:
         :func:`~jabs.overlay_drawing.scaling.native_overlay_scale`.
     """
     return max(_BASE_LINE_WIDTH, round(_BASE_LINE_WIDTH * native_overlay_scale(width, height)))
+
+
+def segmentation_prediction_color(
+    prediction: int, color_lut: npt.NDArray[np.uint8] | None = None
+) -> QtGui.QColor:
+    """Return the contour color for one identity's prediction on one frame.
+
+    Args:
+        prediction: The prediction for this identity and frame. With a ``color_lut`` this
+            is an index into that table, where ``0`` means no prediction; without one it
+            is a binary ``TrackLabels.Label`` value.
+        color_lut: RGBA table of shape ``(N, 4)`` for multi-class coloring, or ``None``
+            for binary behavior/not-behavior coloring. Out-of-range indices are clamped.
+
+    Returns:
+        :data:`SEGMENTATION_NO_PREDICTION_COLOR` when there is no prediction, otherwise
+        the behavior or not-behavior color (binary) or the predicted class's color
+        (multi-class).
+    """
+    value = int(prediction)
+    if color_lut is not None:
+        if value <= 0:
+            return SEGMENTATION_NO_PREDICTION_COLOR
+        r, g, b, _ = color_lut[min(value, len(color_lut) - 1)]
+        # contours are a thin line, so draw them opaque whatever the table's alpha
+        return QtGui.QColor(int(r), int(g), int(b))
+
+    if value == _PREDICTION_BEHAVIOR:
+        return BEHAVIOR_COLOR
+    if value == _PREDICTION_NOT_BEHAVIOR:
+        return NOT_BEHAVIOR_COLOR
+    return SEGMENTATION_NO_PREDICTION_COLOR
 
 
 def identity_contours(
@@ -97,6 +139,7 @@ def draw_identity_segmentation(
     to_output: Callable[[float, float], tuple[int, int] | None],
     line_width: int,
     active: bool,
+    color: QtGui.QColor | None = None,
 ) -> None:
     """Draw one identity's segmentation contours with ``painter``.
 
@@ -110,8 +153,12 @@ def draw_identity_segmentation(
         line_width: Width of the contour outline in pixels.
         active: Whether this is the active identity, which is drawn in a different
             color. An export has no active identity and draws every identity the same.
+        color: Color to draw the contours with, overriding the active/inactive colors
+            (e.g. a color from :func:`segmentation_prediction_color`).
     """
-    pen = QtGui.QPen(SEGMENTATION_ACTIVE_COLOR if active else SEGMENTATION_INACTIVE_COLOR)
+    if color is None:
+        color = SEGMENTATION_ACTIVE_COLOR if active else SEGMENTATION_INACTIVE_COLOR
+    pen = QtGui.QPen(color)
     pen.setWidth(line_width)
     painter.setPen(pen)
     painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
