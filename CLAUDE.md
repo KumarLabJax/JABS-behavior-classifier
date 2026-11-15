@@ -83,7 +83,7 @@ pass in CI:
 
 | suite | plain `uv sync` | needs |
 |---|---|---|
-| `packages/jabs-io/tests` | 238 pass, 1 skipped | `--extra nwb` for the remaining 61 |
+| `packages/jabs-io/tests` | 327 pass, 2 skipped (the two NWB modules) | `--extra nwb` for the remaining 119 |
 | `packages/jabs-vision/tests` | 0 collected, 17 errors | `--all-packages` (installs `jabs.vision` + torch) |
 | `tests/scripts/test_convert_to_nwb_dandi_validation.py` | skipped | `--extra nwb --group nwb-test` (nwbinspector) |
 
