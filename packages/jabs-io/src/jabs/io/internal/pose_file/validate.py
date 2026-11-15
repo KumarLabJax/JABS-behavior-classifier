@@ -20,6 +20,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
@@ -35,6 +36,10 @@ ERROR = "error"
 WARNING = "warning"
 
 _INTEGER_DTYPES = ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64")
+
+# The length-bound check reads a length reference this many bytes at a time,
+# for the same reason: legacy contour_length arrays run to a gigabyte.
+VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
 
 # The deep check reads the dense baseline a block of frames at a time, so a
 # full-size baseline (tens of gigabytes for the worst legacy segmentation) never
@@ -292,8 +297,7 @@ def _check_component(
         )
         return
 
-    _check_missing_reference(spec, by_id, findings)
-    _check_length_values(h5, spec, by_id, findings)
+    _check_missing_reference(h5, spec, by_id, findings)
 
     if spec.get("provenance") is not None and spec["provenance"] not in provenance_records:
         findings.append(
@@ -431,8 +435,7 @@ def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[
                 )
             )
             continue
-        _check_missing_reference(view, by_id, findings)
-        _check_length_values(h5, view, by_id, findings)
+        _check_missing_reference(h5, view, by_id, findings)
         if "coord" in alternate["axes"]:
             pair = _axis_length(view, "coord")
             if pair is not None and pair != 2:
@@ -557,15 +560,19 @@ def _dtype_matches(node: h5py.Dataset, declared: str) -> bool:
     return node.dtype.name == declared
 
 
-def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[Finding]) -> None:
-    """Validate a mask or length reference, including its shape.
+def _check_missing_reference(
+    h5: h5py.File, spec: dict, by_id: dict[str, dict], findings: list[Finding]
+) -> None:
+    """Validate a mask or length reference, including its shape and a length's values.
 
     The ADR requires the reference to resolve "to an existing component with a
     compatible shape". Compatible means aligning with the leading axes of what
     it describes: a per-slot mask over per-keypoint data is meaningful, a mask
-    of higher rank than its target is not.
+    of higher rank than its target is not. A length that aligns must also fit
+    the axis it bounds.
 
     Args:
+        h5: The open file.
         spec: The component's manifest entry.
         by_id: Every component entry, keyed by id.
         findings: Accumulator.
@@ -606,48 +613,56 @@ def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[
                 f"{tuple(own_axes)}{tuple(own_shape)}",
             )
         )
+    elif (
+        policy == "length"
+        and len(other_axes) < len(own_axes)
+        and target["dtype"] in _INTEGER_DTYPES
+    ):
+        _check_length_bound(h5, spec, target, len(other_axes), findings)
 
 
-def _check_length_values(
-    h5: h5py.File, spec: dict, by_id: dict[str, dict], findings: list[Finding]
+def _check_length_bound(
+    h5: h5py.File, spec: dict, target: dict, bounded: int, findings: list[Finding]
 ) -> None:
-    """Validate that a length reference's values fit the axis they bound.
+    """Validate that an aligned length reference's values fit the axis they bound.
 
     ADR 0002: a length is "a non-negative integer no larger than the axis it
     bounds". A contour_length of 99 over a 5-point axis passes every shape and
     dtype check, and a reader that trusts it slices past the end of the data.
-    The bounded axis is the one after the reference's leading axes. References
-    that fail their shape or dtype checks are left to those checks.
+    The values are read in blocks along the first axis, so a gigabyte-sized
+    legacy length array never sits in memory at once. A reference whose dataset
+    is missing or misdeclared is left to the checks that report that.
 
     Args:
         h5: The open file.
         spec: The component's (or alternate's) manifest entry.
-        by_id: Every component entry, keyed by id.
+        target: The length reference's manifest entry, already aligned with
+            ``spec``'s leading axes.
+        bounded: Index of the axis the lengths bound, in ``spec``'s axes.
         findings: Accumulator.
     """
-    if spec["missing"].get("policy") != "length":
-        return
-    target = by_id.get(spec["missing"].get("length"))
-    if target is None or target["dtype"] not in _INTEGER_DTYPES:
-        return
-    own_axes, other_axes = list(spec["axes"]), list(target["axes"])
-    if len(other_axes) >= len(own_axes) or other_axes != own_axes[: len(other_axes)]:
-        return
     node = h5.get(target["path"])
     if not isinstance(node, h5py.Dataset) or list(node.shape) != list(target["shape"]):
         return
-    if node.dtype.kind not in "iu":
+    if node.dtype.kind not in "iu" or node.size == 0:
         return
-    bound = spec["shape"][len(other_axes)]
-    values = np.asarray(node[()])
-    if values.size and (values.min() < 0 or values.max() > bound):
+    bound = spec["shape"][bounded]
+    row_bytes = max(1, int(np.prod(node.shape[1:])) * node.dtype.itemsize)
+    block = max(1, VALUE_CHECK_BLOCK_BYTES // row_bytes)
+    low, high = None, None
+    for first in range(0, node.shape[0], block):
+        values = np.asarray(node[first : first + block])
+        if values.size:
+            low = int(values.min()) if low is None else min(low, int(values.min()))
+            high = int(values.max()) if high is None else max(high, int(values.max()))
+    if low is not None and (low < 0 or high > bound):
         findings.append(
             Finding(
                 ERROR,
                 "mask_reference",
                 f"{spec['id']}: length reference {target['id']!r} holds values in "
-                f"[{values.min()}, {values.max()}], outside [0, {bound}], the length of the "
-                f"{own_axes[len(other_axes)]} axis it bounds",
+                f"[{low}, {high}], outside [0, {bound}], the length of the "
+                f"{spec['axes'][bounded]} axis it bounds",
             )
         )
 
@@ -1249,7 +1264,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
 
     Every structural check can pass while an alternate says something its
     baseline does not -- a moved point, a flipped flag, a contour handed to the
-    neighbouring slot -- because those checks read offsets and shapes, not
+    neighboring slot -- because those checks read offsets and shapes, not
     values. This decodes both and compares them.
 
     Decoding trusts the offsets and shapes the structural checks vouch for, so
@@ -1292,6 +1307,26 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
             contours = alternate
         else:
             flags = alternate
+    if (
+        contours is not None
+        and flags is not None
+        and (
+            flags["encoding"]["group_offsets"],
+            flags["encoding"]["instance_offsets"],
+        )
+        != (contours["encoding"]["group_offsets"], contours["encoding"]["instance_offsets"])
+    ):
+        # Pairing only requires some leaf-level partner. Decoding these flags
+        # through the contours' offsets would compare the wrong groups.
+        findings.append(
+            Finding(
+                WARNING,
+                "alternate_deep_unchecked",
+                f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
+                "the contours alternate's, so it cannot be decoded through them",
+            )
+        )
+        flags = None
     if contours is None:
         # A group-level flag alternate is decoded through the contours' offsets.
         if flags is not None:
@@ -1309,6 +1344,12 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
 
 def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> str | None:
     """Why the deep check cannot decode this alternate, or None when it can.
+
+    The decode assumes the catalog's segmentation layout, and no structural
+    check requires a file to follow it: a foreign producer may lay segmentation
+    out differently and still conform. Every assumption the decode makes is
+    therefore checked here, so a different layout is reported as unchecked
+    rather than raising mid-comparison.
 
     Args:
         spec: The component carrying the alternate.
@@ -1334,14 +1375,62 @@ def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> 
         baseline = by_id.get(component_id)
         if baseline is None or baseline["encoding"].get("kind") != "dense":
             return f"its dense baseline needs a dense {component_id}"
-    contour_axis = by_id[_CONTOURS]["shape"][2]
-    if by_id[_CONTOUR_COUNT]["shape"] != by_id[_CONTOURS]["shape"][:2]:
-        return f"{_CONTOUR_COUNT} is not indexed by the contours' (frame, slot)"
-    if by_id[_CONTOUR_LENGTH]["shape"] != by_id[_CONTOURS]["shape"][:3]:
-        return f"{_CONTOUR_LENGTH} is not indexed by the contours' (frame, slot, contour)"
-    if spec["id"] == _EXTERNAL_FLAG and by_id[_EXTERNAL_FLAG]["shape"][2] != contour_axis:
-        return f"{_EXTERNAL_FLAG} does not share the contours' contour axis"
+
+    contours = by_id[_CONTOURS]
+    axes, shape = list(contours["axes"]), list(contours["shape"])
+    if axes[:4] != ["frame", "slot", "contour", "point"]:
+        return f"{_CONTOURS} must have axes (frame, slot, contour, point, ...) to be decoded"
+    layout = {
+        _CONTOUR_COUNT: (["frame", "slot"], shape[:2]),
+        _CONTOUR_LENGTH: (["frame", "slot", "contour"], shape[:3]),
+        _EXTERNAL_FLAG: (["frame", "slot", "contour"], shape[:3]),
+    }
+    for component_id in needed[1:]:
+        want_axes, want_shape = layout[component_id]
+        entry = by_id[component_id]
+        if list(entry["axes"]) != want_axes or list(entry["shape"]) != want_shape:
+            return f"{component_id} is not indexed by the contours' {tuple(want_axes)}"
+    # The length policy is what makes the length-bound check run on
+    # contour_length, and the deep check only runs on a file with no errors,
+    # so every length it decodes through fits the point axis.
+    missing = contours["missing"]
+    if missing.get("policy") != "length" or missing.get("length") != _CONTOUR_LENGTH:
+        return (
+            f"{_CONTOURS} must declare a length policy naming {_CONTOUR_LENGTH}, which is what "
+            "bounds each contour's points"
+        )
+    if spec["id"] == _CONTOURS:
+        if list(alternate["axes"]) != ["point", *axes[4:]] or (
+            list(alternate["shape"][1:]) != shape[4:]
+        ):
+            return (
+                f"its axes {tuple(alternate['axes'])}{tuple(alternate['shape'])} do not hold "
+                f"the baseline's points, whose trailing axes are "
+                f"{tuple(axes[4:])}{tuple(shape[4:])}"
+            )
+    elif list(alternate["axes"]) != ["contour"]:
+        return f"a group-level flag alternate has the single axis contour, not {alternate['axes']}"
     return None
+
+
+def _rows_differ(
+    actual: npt.NDArray[np.generic], expected: npt.NDArray[np.generic]
+) -> npt.NDArray[np.bool_]:
+    """Which leading-axis rows of two equal-shape arrays differ, with NaN equal to NaN.
+
+    Args:
+        actual: The alternate's values.
+        expected: The baseline's values.
+
+    Returns:
+        One boolean per row of the first axis.
+    """
+    differ = actual != expected
+    if actual.dtype.kind == "f" and expected.dtype.kind == "f":
+        differ &= ~(np.isnan(actual) & np.isnan(expected))
+    # Reduce over the trailing axes; reshape(0, -1) is undefined for a block
+    # whose instances own no points.
+    return differ.any(axis=tuple(range(1, differ.ndim))) if differ.ndim > 1 else differ
 
 
 def _compare_segmentation_alternate(
@@ -1400,21 +1489,23 @@ def _compare_segmentation_alternate(
             )
         )
 
-    points_ok = flags_ok = True
+    points_ok, flags_ok = True, flags is not None
     for first in range(0, frames, block):
         last = min(frames, first + block)
         count = np.asarray(count_node[first:last]).astype(np.int64)
         length = np.asarray(length_node[first:last]).astype(np.int64)
         if count.min(initial=0) < 0 or count.max(initial=0) > contour_axis:
+            # The baseline itself cannot be decoded here. Skip this block only:
+            # the offsets are absolute, so later blocks still compare.
             findings.append(
                 Finding(
                     WARNING,
                     "alternate_deep_unchecked",
-                    f"{points_label}: {_CONTOUR_COUNT} exceeds the contour axis in frames "
-                    f"[{first}, {last}), so the baseline cannot be decoded there",
+                    f"{points_label}: {_CONTOUR_COUNT} is outside [0, {contour_axis}] in frames "
+                    f"[{first}, {last}), so those frames were not compared",
                 )
             )
-            return
+            continue
         valid_contour = np.arange(contour_axis) < count[..., None]
 
         # Which groups each instance owns.
@@ -1447,12 +1538,10 @@ def _compare_segmentation_alternate(
 
         # The points themselves.
         if points_ok:
-            valid_point = valid_contour[..., None] & (
-                np.arange(point_axis) < np.minimum(length, point_axis)[..., None]
-            )
+            valid_point = valid_contour[..., None] & (np.arange(point_axis) < length[..., None])
             expected_points = np.asarray(dense[first:last])[valid_point]
             actual = np.asarray(payload[int(group_offsets[g0]) : int(group_offsets[g1])])
-            mismatch = np.flatnonzero(np.any(actual != expected_points, axis=-1))
+            mismatch = np.flatnonzero(_rows_differ(actual, expected_points))
             if mismatch.size:
                 point = int(group_offsets[g0]) + int(mismatch[0])
                 group = int(np.searchsorted(group_offsets, point, side="right")) - 1

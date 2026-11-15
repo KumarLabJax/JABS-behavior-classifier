@@ -17,10 +17,13 @@ produce.
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeAlias
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from jabs.io.internal.pose_file.skeletons import jabs_mouse12
 from jabs.io.internal.pose_file.types import (
@@ -538,20 +541,27 @@ def _entry(manifest: dict, component_id: str) -> dict:
 # no other error.
 
 
-def _recreate(h5: h5py.File, path: str, data: np.ndarray) -> None:
+# A change applied to a copied fixture, and an edit applied to one array.
+Mutation: TypeAlias = Callable[[Path], None]
+ArrayEdit: TypeAlias = Callable[[npt.NDArray[np.generic]], npt.NDArray[np.generic]]
+
+
+def _recreate(h5: h5py.File, path: str, data: npt.NDArray[np.generic]) -> None:
     """Replace a dataset's contents, shape and dtype at the same path."""
     del h5[path]
     h5.create_dataset(path, data=data)
 
 
-def _declare(manifest: dict, component_id: str, data: np.ndarray, **fields) -> None:
+def _declare(
+    manifest: dict, component_id: str, data: npt.NDArray[np.generic], **fields: object
+) -> None:
     """Make a component's declared shape and dtype match a recreated dataset."""
     _entry(manifest, component_id).update(
         shape=list(data.shape), dtype=np.dtype(data.dtype).name, **fields
     )
 
 
-def _whisker(data: np.ndarray):
+def _whisker(data: npt.NDArray[np.generic]) -> Mutation:
     """Replace the foreign whisker_angle payload, declaration included."""
 
     def mutate(path: Path) -> None:
@@ -562,7 +572,7 @@ def _whisker(data: np.ndarray):
     return mutate
 
 
-def _arrays(**datasets):
+def _arrays(**datasets: ArrayEdit) -> Mutation:
     """Mutate datasets in place: each value is ``fn(array) -> array``."""
 
     def mutate(path: Path) -> None:
@@ -573,11 +583,14 @@ def _arrays(**datasets):
     return mutate
 
 
-def _manifest(fn):
+def _manifest(fn: Callable[[dict], object]) -> Mutation:
+    """Rewrite the manifest with ``fn``, leaving the arrays untouched."""
     return lambda path: _rewrite_manifest(path, fn)
 
 
-def _set_root(name: str, value):
+def _set_root(name: str, value: object | None) -> Mutation:
+    """Set a root attribute, or delete it when ``value`` is None."""
+
     def mutate(path: Path) -> None:
         with h5py.File(path, "r+") as h5:
             if value is None:
@@ -588,7 +601,9 @@ def _set_root(name: str, value):
     return mutate
 
 
-def _in_order(*steps):
+def _in_order(*steps: Mutation) -> Mutation:
+    """Apply several mutations in turn."""
+
     def mutate(path: Path) -> None:
         for step in steps:
             step(path)
@@ -596,7 +611,9 @@ def _in_order(*steps):
     return mutate
 
 
-def _add_dataset(path: str, data: np.ndarray):
+def _add_dataset(path: str, data: npt.NDArray[np.generic]) -> Mutation:
+    """Create a dataset the manifest may or may not declare."""
+
     def mutate(file: Path) -> None:
         with h5py.File(file, "r+") as h5:
             h5.create_dataset(path, data=data)
@@ -604,7 +621,9 @@ def _add_dataset(path: str, data: np.ndarray):
     return mutate
 
 
-def _replace_dataset(path: str, data: np.ndarray):
+def _replace_dataset(path: str, data: npt.NDArray[np.generic]) -> Mutation:
+    """Replace a dataset's contents, shape and dtype, leaving its declaration alone."""
+
     def mutate(file: Path) -> None:
         with h5py.File(file, "r+") as h5:
             _recreate(h5, path, data)
@@ -613,6 +632,7 @@ def _replace_dataset(path: str, data: np.ndarray):
 
 
 def _first_alternate(manifest: dict, component_id: str) -> dict:
+    """A component's first declared alternate."""
     return _entry(manifest, component_id)["alternates"][0]
 
 
@@ -622,7 +642,7 @@ RAGGED_ALT = "/jabs/segmentation/ragged"
 NOTES = np.frombuffer(b"an opaque payload", dtype=np.uint8)
 
 
-def _invalid_corpus(full: Path) -> list[tuple[str, Path, object]]:
+def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
     """``(fixture, source, mutate)`` for every error row the original six did not cover."""
     minimal = HERE / "valid-minimal.h5"
     sparse = HERE / "valid-sparse.h5"
@@ -960,23 +980,26 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path, object]]:
     ]
 
 
-def _with_offsets(path: Path, dataset: str, fn) -> None:
+def _with_offsets(path: Path, dataset: str, fn: ArrayEdit) -> None:
+    """Replace a dataset with ``fn`` of its contents, which may change its shape or dtype."""
     with h5py.File(path, "r+") as h5:
         _recreate(h5, dataset, fn(h5[dataset][()]))
 
 
 def _copy_dataset(path: Path, source: str, target: str) -> None:
+    """Copy one dataset's contents to a new path."""
     with h5py.File(path, "r+") as h5:
         h5.create_dataset(target, data=h5[source][()])
 
 
 def _delete(path: Path, dataset: str) -> None:
+    """Delete one dataset."""
     with h5py.File(path, "r+") as h5:
         del h5[dataset]
 
 
-def _swap_first_rise(offsets: np.ndarray) -> np.ndarray:
-    """Swap one rising pair of neighbours, so the array decreases once.
+def _swap_first_rise(offsets: npt.NDArray[np.generic]) -> npt.NDArray[np.generic]:
+    """Swap one rising pair of neighbors, so the array decreases once.
 
     The second rise, not the first: swapping at the first can move the leading
     0 and break a different rule.
@@ -988,6 +1011,7 @@ def _swap_first_rise(offsets: np.ndarray) -> np.ndarray:
 
 
 def _write_invalid_corpus(full: Path) -> None:
+    """Write every fixture in the invalid corpus beside this script."""
     for name, source, mutate in _invalid_corpus(full):
         target = HERE / name
         if source is not None:
