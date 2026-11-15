@@ -740,6 +740,17 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path, object]]:
             ),
         ),
         (
+            "invalid-length-exceeds-axis.h5",
+            alternate,
+            _arrays(
+                **{
+                    "/jabs/segmentation/contour_length": lambda a: np.where(
+                        np.arange(a.size).reshape(a.shape) == 0, 99, a
+                    ).astype(a.dtype)
+                }
+            ),
+        ),
+        (
             "invalid-duplicate-component-id.h5",
             full,
             _manifest(
@@ -790,6 +801,17 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path, object]]:
             "invalid-sparse-index-order.h5",
             sparse,
             _arrays(**{"/jabs/dynamic_objects/fecal_boli/frame_index": lambda a: a[::-1]}),
+        ),
+        (
+            "invalid-sparse-index-range.h5",
+            sparse,
+            _arrays(
+                **{
+                    "/jabs/dynamic_objects/fecal_boli/frame_index": lambda a: np.append(
+                        a[:-1], FRAMES
+                    )
+                }
+            ),
         ),
         (
             "invalid-sparse-index-dtype.h5",

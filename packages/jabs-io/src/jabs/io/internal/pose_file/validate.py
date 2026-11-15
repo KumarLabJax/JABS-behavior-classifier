@@ -34,6 +34,8 @@ from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE
 ERROR = "error"
 WARNING = "warning"
 
+_INTEGER_DTYPES = ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64")
+
 # The deep check reads the dense baseline a block of frames at a time, so a
 # full-size baseline (tens of gigabytes for the worst legacy segmentation) never
 # sits in memory at once. A block is at least one frame.
@@ -291,6 +293,7 @@ def _check_component(
         return
 
     _check_missing_reference(spec, by_id, findings)
+    _check_length_values(h5, spec, by_id, findings)
 
     if spec.get("provenance") is not None and spec["provenance"] not in provenance_records:
         findings.append(
@@ -429,6 +432,7 @@ def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[
             )
             continue
         _check_missing_reference(view, by_id, findings)
+        _check_length_values(h5, view, by_id, findings)
         if "coord" in alternate["axes"]:
             pair = _axis_length(view, "coord")
             if pair is not None and pair != 2:
@@ -604,6 +608,50 @@ def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[
         )
 
 
+def _check_length_values(
+    h5: h5py.File, spec: dict, by_id: dict[str, dict], findings: list[Finding]
+) -> None:
+    """Validate that a length reference's values fit the axis they bound.
+
+    ADR 0002: a length is "a non-negative integer no larger than the axis it
+    bounds". A contour_length of 99 over a 5-point axis passes every shape and
+    dtype check, and a reader that trusts it slices past the end of the data.
+    The bounded axis is the one after the reference's leading axes. References
+    that fail their shape or dtype checks are left to those checks.
+
+    Args:
+        h5: The open file.
+        spec: The component's (or alternate's) manifest entry.
+        by_id: Every component entry, keyed by id.
+        findings: Accumulator.
+    """
+    if spec["missing"].get("policy") != "length":
+        return
+    target = by_id.get(spec["missing"].get("length"))
+    if target is None or target["dtype"] not in _INTEGER_DTYPES:
+        return
+    own_axes, other_axes = list(spec["axes"]), list(target["axes"])
+    if len(other_axes) >= len(own_axes) or other_axes != own_axes[: len(other_axes)]:
+        return
+    node = h5.get(target["path"])
+    if not isinstance(node, h5py.Dataset) or list(node.shape) != list(target["shape"]):
+        return
+    if node.dtype.kind not in "iu":
+        return
+    bound = spec["shape"][len(other_axes)]
+    values = np.asarray(node[()])
+    if values.size and (values.min() < 0 or values.max() > bound):
+        findings.append(
+            Finding(
+                ERROR,
+                "mask_reference",
+                f"{spec['id']}: length reference {target['id']!r} holds values in "
+                f"[{values.min()}, {values.max()}], outside [0, {bound}], the length of the "
+                f"{own_axes[len(other_axes)]} axis it bounds",
+            )
+        )
+
+
 def _check_reference_dtype(
     spec: dict, target: dict, policy: str, own_shape: list, findings: list[Finding]
 ) -> None:
@@ -629,16 +677,7 @@ def _check_reference_dtype(
                 f"{target['dtype']!r}; a mask must be boolean",
             )
         )
-    if policy == "length" and target["dtype"] not in (
-        "int8",
-        "int16",
-        "int32",
-        "int64",
-        "uint8",
-        "uint16",
-        "uint32",
-        "uint64",
-    ):
+    if policy == "length" and target["dtype"] not in _INTEGER_DTYPES:
         findings.append(
             Finding(
                 ERROR,

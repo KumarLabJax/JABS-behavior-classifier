@@ -45,6 +45,7 @@ INVALID = {
     "invalid-frame-count.h5": "dimensions_match_video",
     "invalid-identity-exceeds-slot.h5": "identity_le_slot",
     "invalid-keypoint-axis.h5": "keypoint_axis_length",
+    "invalid-length-exceeds-axis.h5": "mask_reference",
     "invalid-keypoint-without-skeleton.h5": "manifest_schema",
     "invalid-manifest-root-mismatch.h5": "manifest_matches_root",
     "invalid-manifest-schema.h5": "manifest_schema",
@@ -76,6 +77,7 @@ INVALID = {
     "invalid-sparse-index-dtype.h5": "sparse_index_valid",
     "invalid-sparse-index-length.h5": "sparse_index_length",
     "invalid-sparse-index-order.h5": "sparse_index_valid",
+    "invalid-sparse-index-range.h5": "sparse_index_valid",
     "invalid-timestamp.h5": "timestamp_parseable",
 }
 
@@ -101,6 +103,32 @@ def test_invalid_fixtures_report_their_check(name, expected_check):
     """
     errors = {f.check for f in validate(DATA / name) if f.severity == "error"}
     assert errors == {expected_check}, f"{name} should report only {expected_check}; got {errors}"
+
+
+# Any schema violation reports manifest_schema, so these fixtures are pinned to
+# the rule each was built to break by the schema error's message.
+SCHEMA_MESSAGES = {
+    "invalid-manifest-schema.h5": "'video' is a required property",
+    "invalid-coord-declarations.h5": "'units' is a required property",
+    "invalid-nan-policy.h5": "dtype: 'bool' is not one of ['float32', 'float64']",
+    "invalid-keypoint-without-skeleton.h5": "'skeleton' is a required property",
+    "invalid-sample-without-sparse.h5": "'sparse' is a required property",
+    "invalid-rle-shape.h5": "axes: ['run'] was expected",
+}
+
+
+@pytest.mark.parametrize("name,message", sorted(SCHEMA_MESSAGES.items()))
+def test_schema_fixtures_break_the_rule_they_name(name, message):
+    """Each schema fixture fails for its own rule, not for some other schema error."""
+    assert INVALID[name] == "manifest_schema"
+    messages = [f.message for f in validate(DATA / name) if f.severity == "error"]
+    assert len(messages) == 1 and message in messages[0], messages
+
+
+def test_every_schema_fixture_is_pinned():
+    """A new manifest_schema fixture needs its message here too."""
+    schema_fixtures = {n for n, check in INVALID.items() if check == "manifest_schema"}
+    assert schema_fixtures == set(SCHEMA_MESSAGES)
 
 
 # Checks validate() cannot emit, because the manifest schema enforces the same
