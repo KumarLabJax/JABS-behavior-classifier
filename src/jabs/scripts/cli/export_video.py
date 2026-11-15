@@ -48,8 +48,8 @@ from jabs.pose_estimation import get_pose_path, open_pose_file
 @click.option(
     "--codec",
     default=None,
-    help="FourCC codec for the output video  [default: mp4v]. 'avc1' (H.264) gives "
-    "smaller files but is absent from some OpenCV builds.",
+    help="FourCC codec for the output video  [default: avc1 (H.264) if this OpenCV build "
+    "has it, otherwise mp4v].",
 )
 @click.option(
     "--force",
@@ -71,7 +71,7 @@ def export_video_command(
     # whole of jabs-cli require an importable Qt (libEGL and friends), breaking every
     # other subcommand on the headless machines this tool is mostly run on.
     try:
-        from jabs.video_export import DEFAULT_CODEC, VideoExportError, export_overlay_video
+        from jabs.video_export import VideoExportError, export_overlay_video
     except ImportError as e:
         # Rendering the skeleton uses Qt's painter. Qt is installed as a dependency but
         # needs system graphics libraries that headless machines often lack, so say what
@@ -81,9 +81,6 @@ def export_video_command(
             "machine this usually means the system graphics libraries are missing "
             f"(install libegl1 and libgl1).\n\nUnderlying error: {e}"
         ) from e
-
-    if codec is None:
-        codec = DEFAULT_CODEC
 
     if output_path is None:
         output_path = video_path.with_name(f"{video_path.stem}_overlay.mp4")
