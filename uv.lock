@@ -1968,7 +1968,6 @@ yaml = [
 [package.dev-dependencies]
 dev = [
     { name = "matplotlib" },
-    { name = "nwbinspector" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1981,8 +1980,10 @@ docs = [
 lint = [
     { name = "ruff" },
 ]
-test = [
+nwb-test = [
     { name = "nwbinspector" },
+]
+test = [
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -2023,7 +2024,6 @@ provides-extras = ["nwb", "yaml", "mlflow", "extra-classifiers"]
 [package.metadata.requires-dev]
 dev = [
     { name = "matplotlib", specifier = ">=3.9.3,<4.0.0" },
-    { name = "nwbinspector", specifier = ">=0.7.2" },
     { name = "pre-commit", specifier = ">=4.2.0,<5.0.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
@@ -2034,8 +2034,8 @@ docs = [
     { name = "zensical", specifier = ">=0.0.24" },
 ]
 lint = [{ name = "ruff", specifier = ">=0.11.5,<0.12.0" }]
+nwb-test = [{ name = "nwbinspector", specifier = ">=0.7.2" }]
 test = [
-    { name = "nwbinspector", specifier = ">=0.7.2" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
 ]

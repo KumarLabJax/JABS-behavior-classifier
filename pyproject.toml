@@ -101,9 +101,14 @@ dev = [
   "matplotlib>=3.9.3,<4.0.0",
 ]
 test = [
-  "nwbinspector>=0.7.2",
   "pytest>=9.0.3",
   "pytest-cov>=7.0.0",
+]
+# Kept out of `dev` (and so out of a plain `uv sync`): nwbinspector depends on pynwb,
+# which would otherwise be installed without the `nwb` extra and hide missing-extra
+# bugs. CI installs it with --all-groups; the tests that use it skip without it.
+nwb-test = [
+  "nwbinspector>=0.7.2",
 ]
 lint = [
   "ruff>=0.11.5,<0.12.0",
