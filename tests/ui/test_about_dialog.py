@@ -46,7 +46,7 @@ def test_extra_status_text(status: ExtraStatus, expected: str) -> None:
     assert extra_status_text(status) == expected
 
 
-def _label_text(dialog: AboutDialog) -> str:
+def _label_text(dialog: "AboutDialog") -> str:
     """All label text in the dialog, joined, for checking what it shows."""
     return "\n".join(label.text() for label in dialog.findChildren(QLabel))
 
