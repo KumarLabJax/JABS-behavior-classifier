@@ -279,6 +279,8 @@ def _connected_group_sizes(
 # expressed relative to each video's characteristic body length L (~50 px at standard
 # open-field resolution, ~200 px at 4K home-cage resolution):
 # - r_open = max(1.5 px, 0.075 * L) strips mouse tails while preserving torso blobs;
+# - simp_tol = max(1.0 px, 0.01 * L) collapses 1-px raster contour staircases (> 1/sqrt(2) px)
+#   before negative-buffer erosion on small-mouse videos without affecting 4K contours;
 # - min_area = max(9.0 px^2, 0.02 * L^2) retains bisected torso halves while dropping
 #   tiny tail-knot islands;
 # - solo_area_ref = 1.40 * L^2 approximates one opened torso's footprint for occluded/buried
@@ -286,7 +288,7 @@ def _connected_group_sizes(
 _TORSO_OPENING_BODY_SCALE = 0.075
 _TORSO_OPENING_MIN_PX = 1.5
 _TORSO_SIMPLIFY_BODY_SCALE = 0.01
-_TORSO_SIMPLIFY_MIN_PX = 0.5
+_TORSO_SIMPLIFY_MIN_PX = 1.0
 _TORSO_MIN_FRAG_AREA_SCALE = 0.02
 _TORSO_MIN_FRAG_AREA_MIN_PX2 = 9.0
 _TORSO_TOUCH_BODY_SCALE = 0.0125

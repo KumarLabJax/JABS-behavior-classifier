@@ -756,6 +756,7 @@ def test_torso_blob_standard_resolution_strips_tail_and_handles_sample_v6(
 
     # Verify the real 4-mouse standard-resolution sample_pose_est_v6.h5 file extracts valid
     # non-degenerate torso features with realistic group sizes (not falsely eroded/inflated).
+    assert social_distance._TORSO_SIMPLIFY_MIN_PX == 1.0
     group_sizes = []
     for identity in sample_pose_v6.identities:
         info = ClosestIdentityInfo(sample_pose_v6, identity, pixel_scale=1.0)
