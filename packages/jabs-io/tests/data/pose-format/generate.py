@@ -529,6 +529,450 @@ def _entry(manifest: dict, component_id: str) -> dict:
     return next(c for c in manifest["components"] if c["id"] == component_id)
 
 
+# --- One invalid fixture per error row -------------------------------------
+#
+# ADR 0002 promises "a set of deliberately invalid files, one per error check".
+# Each entry below breaks exactly one rule of its source file, which is a valid
+# fixture: a file that broke two would tell a porter less about which check
+# they got wrong. The conformance suite asserts that each reports its check and
+# no other error.
+
+
+def _recreate(h5: h5py.File, path: str, data: np.ndarray) -> None:
+    """Replace a dataset's contents, shape and dtype at the same path."""
+    del h5[path]
+    h5.create_dataset(path, data=data)
+
+
+def _declare(manifest: dict, component_id: str, data: np.ndarray, **fields) -> None:
+    """Make a component's declared shape and dtype match a recreated dataset."""
+    _entry(manifest, component_id).update(
+        shape=list(data.shape), dtype=np.dtype(data.dtype).name, **fields
+    )
+
+
+def _whisker(data: np.ndarray):
+    """Replace the foreign whisker_angle payload, declaration included."""
+
+    def mutate(path: Path) -> None:
+        with h5py.File(path, "r+") as h5:
+            _recreate(h5, "/org.example.lab/whisker_angle", data)
+        _rewrite_manifest(path, lambda m: _declare(m, "org.example.lab.whisker_angle", data))
+
+    return mutate
+
+
+def _arrays(**datasets):
+    """Mutate datasets in place: each value is ``fn(array) -> array``."""
+
+    def mutate(path: Path) -> None:
+        with h5py.File(path, "r+") as h5:
+            for dataset, fn in datasets.items():
+                h5[dataset][...] = fn(h5[dataset][()])
+
+    return mutate
+
+
+def _manifest(fn):
+    return lambda path: _rewrite_manifest(path, fn)
+
+
+def _set_root(name: str, value):
+    def mutate(path: Path) -> None:
+        with h5py.File(path, "r+") as h5:
+            if value is None:
+                del h5.attrs[name]
+            else:
+                h5.attrs[name] = value
+
+    return mutate
+
+
+def _in_order(*steps):
+    def mutate(path: Path) -> None:
+        for step in steps:
+            step(path)
+
+    return mutate
+
+
+def _add_dataset(path: str, data: np.ndarray):
+    def mutate(file: Path) -> None:
+        with h5py.File(file, "r+") as h5:
+            h5.create_dataset(path, data=data)
+
+    return mutate
+
+
+def _replace_dataset(path: str, data: np.ndarray):
+    def mutate(file: Path) -> None:
+        with h5py.File(file, "r+") as h5:
+            _recreate(h5, path, data)
+
+    return mutate
+
+
+def _first_alternate(manifest: dict, component_id: str) -> dict:
+    return _entry(manifest, component_id)["alternates"][0]
+
+
+SEG = "jabs.segmentation"
+RAGGED = "/jabs/segmentation"
+RAGGED_ALT = "/jabs/segmentation/ragged"
+NOTES = np.frombuffer(b"an opaque payload", dtype=np.uint8)
+
+
+def _invalid_corpus(full: Path) -> list[tuple[str, Path, object]]:
+    """``(fixture, source, mutate)`` for every error row the original six did not cover."""
+    minimal = HERE / "valid-minimal.h5"
+    sparse = HERE / "valid-sparse.h5"
+    ragged = HERE / "valid-ragged.h5"
+    alternate = HERE / "valid-ragged-alternate.h5"
+    rle = HERE / "valid-rle.h5"
+    index = "jabs.dynamic_objects.fecal_boli.frame_index"
+    counts = "jabs.dynamic_objects.fecal_boli.counts"
+    return [
+        # Root attributes and the two documents.
+        ("invalid-not-hdf5.h5", None, lambda path: path.write_bytes(b"not an HDF5 file\n")),
+        ("invalid-schema-revision-missing.h5", minimal, _set_root("schema_revision", None)),
+        (
+            "invalid-manifest-root-mismatch.h5",
+            minimal,
+            _set_root("schema_revision", np.int32(0)),
+        ),
+        ("invalid-manifest-schema.h5", minimal, _manifest(lambda m: m.pop("video"))),
+        (
+            "invalid-timestamp.h5",
+            minimal,
+            _manifest(lambda m: m.update(created="the fourth of September")),
+        ),
+        (
+            "invalid-provenance-schema.h5",
+            minimal,
+            lambda path: _rewrite_document(path, "provenance", lambda p: p.update(history={})),
+        ),
+        # Component structure.
+        (
+            "invalid-axes-arity.h5",
+            full,
+            _manifest(lambda m: _entry(m, "org.example.lab.whisker_angle").update(axes=["frame"])),
+        ),
+        (
+            "invalid-frame-axis-length.h5",
+            full,
+            _whisker(np.zeros((FRAMES + 1, SLOTS), dtype=np.float32)),
+        ),
+        (
+            "invalid-axis-length.h5",
+            full,
+            _whisker(np.zeros((FRAMES, SLOTS + 1), dtype=np.float32)),
+        ),
+        (
+            "invalid-provenance-reference.h5",
+            minimal,
+            _manifest(lambda m: _entry(m, "jabs.pose.points").update(provenance="jabs.nowhere")),
+        ),
+        (
+            "invalid-coord-declarations.h5",
+            minimal,
+            _manifest(lambda m: _entry(m, "jabs.pose.points").pop("units")),
+        ),
+        (
+            "invalid-coord-axis-length.h5",
+            minimal,
+            _in_order(
+                _replace_dataset(
+                    "/jabs/pose/points", np.zeros((FRAMES, SLOTS, 12, 3), np.float32)
+                ),
+                _manifest(
+                    lambda m: _entry(m, "jabs.pose.points").update(shape=[FRAMES, SLOTS, 12, 3])
+                ),
+            ),
+        ),
+        (
+            "invalid-nan-policy.h5",
+            full,
+            _manifest(
+                lambda m: _entry(m, "jabs.pose.point_valid").update(missing={"policy": "nan"})
+            ),
+        ),
+        (
+            "invalid-mask-axes.h5",
+            full,
+            _in_order(
+                _add_dataset("/org.example.lab/side", np.ones((FRAMES, SLOTS, 12), dtype=bool)),
+                _manifest(
+                    lambda m: (
+                        m["components"].append(
+                            {
+                                "id": "org.example.lab.side",
+                                "path": "/org.example.lab/side",
+                                "axes": ["frame", "slot", "whisker"],
+                                "dtype": "bool",
+                                "shape": [FRAMES, SLOTS, 12],
+                                "encoding": {"kind": "dense"},
+                                "missing": {"policy": "none"},
+                                "provenance": "jabs.pose",
+                            }
+                        ),
+                        _entry(m, "jabs.pose.confidence").update(
+                            missing={"policy": "mask", "mask": "org.example.lab.side"}
+                        ),
+                    )
+                ),
+            ),
+        ),
+        (
+            "invalid-mask-dtype.h5",
+            full,
+            _in_order(
+                _replace_dataset(
+                    "/jabs/pose/point_valid", np.ones((FRAMES, SLOTS, 12), dtype=np.uint8)
+                ),
+                _manifest(
+                    lambda m: (
+                        _entry(m, "jabs.pose.point_valid").update(dtype="uint8"),
+                        _entry(m, "jabs.pose.confidence").update(
+                            missing={"policy": "mask", "mask": "jabs.pose.point_valid"}
+                        ),
+                    )
+                ),
+            ),
+        ),
+        (
+            "invalid-duplicate-component-id.h5",
+            full,
+            _manifest(
+                lambda m: m["components"].append(dict(_entry(m, "org.example.lab.whisker_angle")))
+            ),
+        ),
+        (
+            "invalid-namespace.h5",
+            full,
+            _manifest(
+                lambda m: _entry(m, "org.example.lab.whisker_angle").update(id="lab.whisker_angle")
+            ),
+        ),
+        # Dimensions and video.
+        (
+            "invalid-identity-exceeds-slot.h5",
+            minimal,
+            _manifest(lambda m: m["dimensions"].update(identity=SLOTS + 1)),
+        ),
+        (
+            "invalid-frame-count.h5",
+            minimal,
+            _manifest(lambda m: m["video"].update(frame_count=FRAMES + 1)),
+        ),
+        # Skeletons.
+        (
+            "invalid-skeleton-reference.h5",
+            minimal,
+            _manifest(lambda m: _entry(m, "jabs.pose.points").update(skeleton="jabs.nowhere")),
+        ),
+        (
+            "invalid-keypoint-without-skeleton.h5",
+            minimal,
+            _manifest(lambda m: _entry(m, "jabs.pose.points").pop("skeleton")),
+        ),
+        (
+            "invalid-skeleton-edge.h5",
+            minimal,
+            _manifest(lambda m: m["skeletons"]["jabs.mouse12"]["edges"].append([0, 12])),
+        ),
+        # Sparse components.
+        (
+            "invalid-sample-without-sparse.h5",
+            sparse,
+            _manifest(lambda m: _entry(m, counts).pop("sparse")),
+        ),
+        (
+            "invalid-sparse-index-order.h5",
+            sparse,
+            _arrays(**{"/jabs/dynamic_objects/fecal_boli/frame_index": lambda a: a[::-1]}),
+        ),
+        (
+            "invalid-sparse-index-dtype.h5",
+            sparse,
+            _in_order(
+                _replace_dataset(
+                    "/jabs/dynamic_objects/fecal_boli/frame_index",
+                    np.array([1, 3, 6], dtype=np.float32),
+                ),
+                _manifest(lambda m: _entry(m, index).update(dtype="float32")),
+            ),
+        ),
+        (
+            "invalid-sparse-index-length.h5",
+            sparse,
+            _in_order(
+                _replace_dataset(
+                    "/jabs/dynamic_objects/fecal_boli/counts", np.array([1, 2], dtype=np.uint32)
+                ),
+                _manifest(lambda m: _entry(m, counts).update(shape=[2])),
+            ),
+        ),
+        # Ragged offsets.
+        (
+            "invalid-ragged-group-terminal.h5",
+            ragged,
+            _arrays(**{f"{RAGGED}/contour_offsets": lambda a: np.append(a[:-1], a[-1] + 1)}),
+        ),
+        (
+            "invalid-ragged-group-length.h5",
+            ragged,
+            _in_order(
+                _replace_dataset(f"{RAGGED}/external_flag", np.zeros(10, dtype=bool)),
+                _manifest(lambda m: _entry(m, f"{SEG}.external_flag").update(shape=[10])),
+            ),
+        ),
+        (
+            "invalid-ragged-instance-count.h5",
+            ragged,
+            lambda path: _with_offsets(
+                path, f"{RAGGED}/instance_offsets", lambda a: np.delete(a, 1)
+            ),
+        ),
+        (
+            "invalid-ragged-order.h5",
+            ragged,
+            lambda path: _with_offsets(path, f"{RAGGED}/instance_offsets", _swap_first_rise),
+        ),
+        (
+            "invalid-ragged-signed-offsets.h5",
+            ragged,
+            lambda path: _with_offsets(
+                path, f"{RAGGED}/instance_offsets", lambda a: a.astype(np.int64)
+            ),
+        ),
+        (
+            "invalid-ragged-pairing.h5",
+            ragged,
+            _in_order(
+                lambda path: _copy_dataset(
+                    path, f"{RAGGED}/contour_offsets", f"{RAGGED}/flag_offsets"
+                ),
+                _manifest(
+                    lambda m: _entry(m, f"{SEG}.external_flag")["encoding"].update(
+                        group_offsets=f"{RAGGED}/flag_offsets"
+                    )
+                ),
+            ),
+        ),
+        # Alternates.
+        (
+            "invalid-alternate-missing.h5",
+            alternate,
+            lambda path: _delete(path, f"{RAGGED_ALT}/external_flag"),
+        ),
+        (
+            "invalid-alternate-duplicate.h5",
+            alternate,
+            _manifest(
+                lambda m: _entry(m, f"{SEG}.contours")["alternates"].append(
+                    dict(_first_alternate(m, f"{SEG}.contours"))
+                )
+            ),
+        ),
+        # RLE.
+        (
+            "invalid-rle-dimensions.h5",
+            rle,
+            _manifest(lambda m: m["video"].update(width=None, height=None)),
+        ),
+        (
+            "invalid-rle-coverage.h5",
+            rle,
+            _arrays(**{"/org.example.lab/mask": lambda a: np.append(a[:-1], a[-1] + 1)}),
+        ),
+        (
+            "invalid-rle-offsets.h5",
+            rle,
+            lambda path: _with_offsets(
+                path, "/org.example.lab/mask_offsets", lambda a: a.astype(np.int64)
+            ),
+        ),
+        (
+            "invalid-rle-shape.h5",
+            rle,
+            _in_order(
+                lambda path: _with_offsets(
+                    path, "/org.example.lab/mask", lambda a: a.reshape(-1, 2)
+                ),
+                _manifest(
+                    lambda m: _entry(m, "org.example.lab.mask").update(
+                        axes=["run", "pair"], shape=[20, 2]
+                    )
+                ),
+            ),
+        ),
+        # Attachments.
+        (
+            "invalid-attachment-missing.h5",
+            minimal,
+            _manifest(lambda m: m.update(attachments=[{"path": "/attachments/notes"}])),
+        ),
+        (
+            "invalid-attachment-outside.h5",
+            minimal,
+            _in_order(
+                _add_dataset("/notes", NOTES),
+                _manifest(lambda m: m.update(attachments=[{"path": "/notes"}])),
+            ),
+        ),
+        (
+            "invalid-attachment-twice.h5",
+            minimal,
+            _in_order(
+                _add_dataset("/attachments/notes", NOTES),
+                _manifest(
+                    lambda m: m.update(
+                        attachments=[
+                            {"path": "/attachments/notes"},
+                            {"path": "/attachments/notes"},
+                        ]
+                    )
+                ),
+            ),
+        ),
+    ]
+
+
+def _with_offsets(path: Path, dataset: str, fn) -> None:
+    with h5py.File(path, "r+") as h5:
+        _recreate(h5, dataset, fn(h5[dataset][()]))
+
+
+def _copy_dataset(path: Path, source: str, target: str) -> None:
+    with h5py.File(path, "r+") as h5:
+        h5.create_dataset(target, data=h5[source][()])
+
+
+def _delete(path: Path, dataset: str) -> None:
+    with h5py.File(path, "r+") as h5:
+        del h5[dataset]
+
+
+def _swap_first_rise(offsets: np.ndarray) -> np.ndarray:
+    """Swap one rising pair of neighbours, so the array decreases once.
+
+    The second rise, not the first: swapping at the first can move the leading
+    0 and break a different rule.
+    """
+    out = offsets.copy()
+    i = int(np.flatnonzero(np.diff(out) > 0)[1])
+    out[i], out[i + 1] = out[i + 1], out[i]
+    return out
+
+
+def _write_invalid_corpus(full: Path) -> None:
+    for name, source, mutate in _invalid_corpus(full):
+        target = HERE / name
+        if source is not None:
+            shutil.copy(source, target)
+        mutate(target)
+
+
 def main() -> None:
     """Write every fixture."""
     write_pose_file(valid_minimal(), HERE / "valid-minimal.h5", created=CREATED)
@@ -560,10 +1004,12 @@ def main() -> None:
     base = HERE / ".base.h5"
     write_pose_file(valid_full(), base, created=CREATED)
 
+    # The embedding axis names no dimension, so a wrong length there breaks
+    # this rule and no other.
     shutil.copy(base, HERE / "invalid-shape-mismatch.h5")
     _rewrite_manifest(
         HERE / "invalid-shape-mismatch.h5",
-        lambda m: _entry(m, "jabs.pose.points").update(shape=[99, SLOTS, 12, 2]),
+        lambda m: _entry(m, "jabs.identity.centers").update(shape=[IDENTITIES, 5]),
     )
 
     shutil.copy(base, HERE / "invalid-missing-payload.h5")
@@ -585,6 +1031,8 @@ def main() -> None:
         manifest["skeletons"]["jabs.mouse12"]["edges"] = [[0, 1]]
 
     _rewrite_manifest(HERE / "invalid-keypoint-axis.h5", shrink_skeleton)
+
+    _write_invalid_corpus(base)
 
     # An attachment nobody declared, on the valid-full fixture only, so the
     # specified warning has coverage.
