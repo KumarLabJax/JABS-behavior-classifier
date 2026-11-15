@@ -78,9 +78,13 @@ def _pose_arrays():
     rng = np.random.default_rng(11)
     points = rng.uniform(0, 800, (FRAMES, SLOTS, 12, 2)).astype(np.float32)
     confidence = rng.uniform(0, 1, (FRAMES, SLOTS, 12)).astype(np.float32)
+    # ADR 0002: NaN means no coordinate, never low confidence. Points below 0.1
+    # get confidence 0 and NaN; points in (0.1, 0.3] keep their coordinates and
+    # are only marked invalid, so the fixture exercises both sides of the rule.
+    confidence[confidence < 0.1] = 0
     point_valid = confidence > 0.3
     slot_occupied = point_valid.any(axis=2)
-    points[~point_valid] = np.nan
+    points[confidence == 0] = np.nan
     return points, confidence, point_valid, slot_occupied
 
 

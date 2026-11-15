@@ -50,6 +50,29 @@ def test_invalid_fixtures_report_their_check(name, expected_check):
     )
 
 
+# The valid fixtures that carry both points and confidence.
+KEYPOINT_FIXTURES = ["valid-full.h5", "valid-sparse.h5", "valid-ragged-alternate.h5"]
+
+
+@pytest.mark.parametrize("name", KEYPOINT_FIXTURES)
+def test_nan_points_mean_no_coordinate_never_low_confidence(name):
+    """ADR 0002: NaN in points only where confidence is 0; a low-confidence point keeps its coordinates.
+
+    A fixture that blanks every point below the threshold teaches the very
+    thing the rule forbids, to whoever ports the reader next.
+    """
+    pose_file = read_pose_file(DATA / name)
+    points = pose_file.component("jabs.pose.points").data
+    confidence = pose_file.component("jabs.pose.confidence").data
+    point_valid = pose_file.component("jabs.pose.point_valid").data
+    no_coordinate = np.isnan(points).any(axis=-1)
+
+    assert not (no_coordinate & (confidence > 0)).any()
+    # The fixture must exercise both sides of the rule, or the assertion above is vacuous.
+    assert no_coordinate.any()
+    assert (~point_valid & (confidence > 0) & ~no_coordinate).any()
+
+
 def test_fixture_corpus_is_complete():
     """The corpus on disk covers everything the suite names."""
     present = {p.name for p in DATA.glob("*.h5")}
