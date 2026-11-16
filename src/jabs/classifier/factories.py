@@ -59,7 +59,6 @@ _LIGHTGBM_PARAMS: dict[str, int | float] = {
     "max_depth": 11,
     "num_leaves": 138,
     "min_child_samples": 16,
-    "subsample": 0.7475884550556351,
     "colsample_bytree": 0.5171942605576092,
     "reg_alpha": 1.527156759251193,
     "reg_lambda": 2.133142332373004e-06,
