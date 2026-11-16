@@ -161,6 +161,37 @@ def _error_checks_in_source() -> set[str]:
     return names | COMPUTED_CHECKS
 
 
+# The functions in validate.py that pass an error Finding a check name held in
+# a variable. The scan above cannot read those names, so COMPUTED_CHECKS lists
+# them by hand. Pinning the functions means a new one fails the guard until its
+# names are added there too.
+COMPUTED_CHECK_SITES = {"_check_monotonic", "_check_offsets", "_record_schema_errors"}
+
+
+def _computed_check_sites() -> set[str]:
+    """The functions that build an error check name rather than spell it out."""
+    tree = ast.parse(Path(validate_module.__file__).read_text())
+    sites = set()
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef):
+            continue
+        for node in ast.walk(function):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding"):
+                continue
+            if len(node.args) < 2 or ast.unparse(node.args[0]) != "ERROR":
+                continue
+            check = node.args[1]
+            branches = [check.body, check.orelse] if isinstance(check, ast.IfExp) else [check]
+            if not all(isinstance(b, ast.Constant) for b in branches):
+                sites.add(function.name)
+    return sites
+
+
+def test_every_computed_check_name_is_listed():
+    """A check name built at runtime is invisible to the scan, so its function is pinned."""
+    assert _computed_check_sites() == COMPUTED_CHECK_SITES
+
+
 def test_every_error_check_has_an_invalid_fixture():
     """ADR 0002: a set of deliberately invalid files, one per error check.
 

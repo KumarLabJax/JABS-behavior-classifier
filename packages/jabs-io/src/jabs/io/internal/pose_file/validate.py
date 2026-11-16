@@ -53,6 +53,8 @@ _CONTOURS = "jabs.segmentation.contours"
 _EXTERNAL_FLAG = "jabs.segmentation.external_flag"
 _CONTOUR_COUNT = "jabs.segmentation.contour_count"
 _CONTOUR_LENGTH = "jabs.segmentation.contour_length"
+# How many skipped frame ranges the deep check's warning names before summarizing.
+_SKIPPED_RANGES_SHOWN = 5
 
 
 @dataclass(frozen=True)
@@ -1390,6 +1392,12 @@ def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> 
         entry = by_id[component_id]
         if list(entry["axes"]) != want_axes or list(entry["shape"]) != want_shape:
             return f"{component_id} is not indexed by the contours' {tuple(want_axes)}"
+        # Counts and lengths are compared as integers and flags as booleans; a
+        # float count would be truncated and a string one raise.
+        is_flag = component_id == _EXTERNAL_FLAG
+        if not (entry["dtype"] == "bool" if is_flag else entry["dtype"] in _INTEGER_DTYPES):
+            wanted = "bool" if is_flag else "an integer dtype"
+            return f"{component_id} has dtype {entry['dtype']}, not {wanted}"
     # The length policy is what makes the length-bound check run on
     # contour_length, and the deep check only runs on a file with no errors,
     # so every length it decodes through fits the point axis.
@@ -1490,6 +1498,7 @@ def _compare_segmentation_alternate(
         )
 
     points_ok, flags_ok = True, flags is not None
+    skipped: list[list[int]] = []
     for first in range(0, frames, block):
         last = min(frames, first + block)
         count = np.asarray(count_node[first:last]).astype(np.int64)
@@ -1497,14 +1506,10 @@ def _compare_segmentation_alternate(
         if count.min(initial=0) < 0 or count.max(initial=0) > contour_axis:
             # The baseline itself cannot be decoded here. Skip this block only:
             # the offsets are absolute, so later blocks still compare.
-            findings.append(
-                Finding(
-                    WARNING,
-                    "alternate_deep_unchecked",
-                    f"{points_label}: {_CONTOUR_COUNT} is outside [0, {contour_axis}] in frames "
-                    f"[{first}, {last}), so those frames were not compared",
-                )
-            )
+            if skipped and skipped[-1][1] == first:
+                skipped[-1][1] = last
+            else:
+                skipped.append([first, last])
             continue
         valid_contour = np.arange(contour_axis) < count[..., None]
 
@@ -1520,7 +1525,7 @@ def _compare_segmentation_alternate(
                 f"it owns {owned[position - lo]} contours where the baseline has "
                 f"{expected_owned[position - lo]}",
             )
-            return
+            break
         g0, g1 = int(instance_offsets[lo]), int(instance_offsets[hi])
 
         # Each group's size.
@@ -1569,7 +1574,23 @@ def _compare_segmentation_alternate(
                 flags_ok = False
 
         if not (points_ok or flags_ok):
-            return
+            break
+
+    if skipped:
+        # One warning for the whole file: a count wrong everywhere would
+        # otherwise give one per block, thousands on a large file.
+        total = sum(last - first for first, last in skipped)
+        shown = ", ".join(f"[{first}, {last})" for first, last in skipped[:_SKIPPED_RANGES_SHOWN])
+        more = len(skipped) - _SKIPPED_RANGES_SHOWN
+        findings.append(
+            Finding(
+                WARNING,
+                "alternate_deep_unchecked",
+                f"{points_label}: {_CONTOUR_COUNT} is outside [0, {contour_axis}] in blocks "
+                f"covering {total} frames ({shown}{f' and {more} more ranges' if more > 0 else ''}), "
+                "so those frames were not compared",
+            )
+        )
 
 
 def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:

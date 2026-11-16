@@ -38,6 +38,7 @@ INSTANCE = "/jabs/segmentation/ragged/instance_offsets"
 
 
 def _copy(tmp_path: Path, source: Path = ALTERNATE) -> Path:
+    """Copy a fixture into the test's directory, so the test can change it."""
     target = tmp_path / source.name
     shutil.copy(source, target)
     return target
@@ -165,7 +166,7 @@ def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path):
     """Only the ragged segmentation alternate is defined; anything else is reported, not passed."""
     path = _copy(tmp_path)
 
-    def rename(manifest):
+    def rename(manifest: dict) -> None:
         for spec in manifest["components"]:
             for alternate in spec.get("alternates", []):
                 alternate["name"] = "tiled"
@@ -265,7 +266,7 @@ def test_contours_without_a_length_policy_are_not_decoded(tmp_path):
         group[1:] += extra
         h5[GROUP][...] = group
 
-    def drop_policy(manifest):
+    def drop_policy(manifest: dict) -> None:
         contours = _entry(manifest, "jabs.segmentation.contours")
         contours["missing"] = {"policy": "none"}
         contours["alternates"][0]["shape"] = [int(padded.shape[0]), 2]
@@ -284,7 +285,7 @@ def test_contours_of_the_wrong_rank_are_not_decoded(tmp_path):
     flat = np.zeros((frames, slots), dtype=np.int32)
     _replace(path, DENSE, flat)
 
-    def flatten(manifest):
+    def flatten(manifest: dict) -> None:
         contours = _entry(manifest, "jabs.segmentation.contours")
         contours.update(axes=["frame", "slot"], shape=[frames, slots], missing={"policy": "none"})
         for key in ("units", "coord_order"):
@@ -302,7 +303,7 @@ def test_an_alternate_whose_trailing_axes_differ_is_not_decoded(tmp_path):
         n = h5[POINTS].shape[0]
     _replace(path, POINTS, np.zeros(n, dtype=np.int32))
 
-    def flatten(manifest):
+    def flatten(manifest: dict) -> None:
         alternate = _entry(manifest, "jabs.segmentation.contours")["alternates"][0]
         alternate.update(axes=["point"], shape=[n])
         for key in ("units", "coord_order"):
@@ -328,7 +329,7 @@ def test_flags_paired_with_other_offsets_are_not_decoded_through_the_contours(tm
         h5.create_dataset("/org.example.lab/outline", data=h5[POINTS][()])
         n = h5[POINTS].shape[0]
 
-    def repoint(manifest):
+    def repoint(manifest: dict) -> None:
         manifest["components"].append(
             {
                 "id": "org.example.lab.outline",
@@ -384,7 +385,7 @@ def test_nan_in_a_float_baseline_matches_nan_in_the_alternate(tmp_path):
             del h5[name]
             h5.create_dataset(name, data=data)
 
-    def to_float(manifest):
+    def to_float(manifest: dict) -> None:
         contours = _entry(manifest, "jabs.segmentation.contours")
         contours["dtype"] = "float32"
         contours["alternates"][0]["dtype"] = "float32"
@@ -404,3 +405,79 @@ def test_length_values_are_checked_block_by_block(tmp_path, monkeypatch):
         h5[LENGTH][...] = lengths
     errors = [f for f in validate(path) if f.severity == "error"]
     assert [f.check for f in errors] == ["mask_reference"]
+
+
+# --- Second review ------------------------------------------------------------
+
+
+def _retype(path: Path, dataset: str, component_id: str, data: npt.NDArray[np.generic]) -> None:
+    """Replace a baseline dataset and declare its new dtype in the manifest."""
+    _replace(path, dataset, data)
+    dtype = "string" if data.dtype.kind == "O" else str(data.dtype)
+
+    def declare(manifest: dict) -> None:
+        _entry(manifest, component_id)["dtype"] = dtype
+
+    _rewrite_manifest(path, declare)
+
+
+@pytest.mark.parametrize(
+    ("dataset", "component_id", "convert"),
+    [
+        # A string count raised: comparing it with the contour axis is a TypeError.
+        (
+            COUNT,
+            "jabs.segmentation.contour_count",
+            lambda v: np.array([[str(x) for x in row] for row in v], dtype=h5py.string_dtype()),
+        ),
+        # A float count was truncated, so 1.5 contours read as one and passed.
+        (COUNT, "jabs.segmentation.contour_count", lambda v: v.astype(np.float32) + 0.5),
+        # Flags are compared as booleans; an integer flag is not the catalog's.
+        (
+            "/jabs/segmentation/external_flag",
+            "jabs.segmentation.external_flag",
+            lambda v: v.astype(np.uint8),
+        ),
+    ],
+    ids=["string-count", "float-count", "integer-flags"],
+)
+def test_a_baseline_of_the_wrong_dtype_is_not_decoded(tmp_path, dataset, component_id, convert):
+    """Review 2, findings 1 and 2: the decode needs integer counts and boolean flags."""
+    path = _copy(tmp_path)
+    with h5py.File(path, "r") as h5:
+        values = h5[dataset][()]
+    _retype(path, dataset, component_id, convert(values))
+    assert _checks(validate(path), "error") == []
+    unchecked = _unchecked_without_raising(path)
+    assert any(component_id in f.message for f in unchecked)
+
+
+def test_a_count_bad_in_every_block_is_one_warning(tmp_path, monkeypatch):
+    """Review 2, finding 4: one warning per block flooded large files."""
+    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 1)
+    monkeypatch.setattr(validate_module, "_SKIPPED_RANGES_SHOWN", 2)
+    path = _copy(tmp_path)
+    with h5py.File(path, "r+") as h5:
+        contour_axis = h5[DENSE].shape[2]
+        counts = h5[COUNT][()]
+        counts[::2, 0] = contour_axis + 1
+        h5[COUNT][...] = counts
+        frames = counts.shape[0]
+    unchecked = [f for f in validate(path, deep=True) if f.check == "alternate_deep_unchecked"]
+    assert len(unchecked) == 1
+    ranges = (frames + 1) // 2
+    assert f"covering {ranges} frames" in unchecked[0].message
+    assert f"and {ranges - 2} more ranges" in unchecked[0].message
+
+
+def test_adjacent_bad_blocks_are_reported_as_one_range(tmp_path, monkeypatch):
+    """Review 2, finding 4: contiguous blocks merge, so the warning names whole runs."""
+    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 1)
+    path = _copy(tmp_path)
+    with h5py.File(path, "r+") as h5:
+        contour_axis = h5[DENSE].shape[2]
+        counts = h5[COUNT][()]
+        counts[:3, 0] = contour_axis + 1
+        h5[COUNT][...] = counts
+    (unchecked,) = [f for f in validate(path, deep=True) if f.check == "alternate_deep_unchecked"]
+    assert "[0, 3)" in unchecked.message
