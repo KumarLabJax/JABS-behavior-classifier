@@ -1,5 +1,6 @@
 """Video file reading and frame extraction using OpenCV."""
 
+import logging
 import time
 import weakref
 from pathlib import Path
@@ -9,11 +10,30 @@ import cv2
 
 from .utilities import get_fps_and_nframes
 
+logger = logging.getLogger(__name__)
+
+# How many times seek() lands again after overshooting the requested frame before it
+# gives up and trusts OpenCV's position.
+_MAX_SEEK_ATTEMPTS = 4
+
+# How far, as a fraction, a frame duration measured from the file's timestamps may be
+# from the one implied by its reported frame rate before the measurement is distrusted
+# (for example because the frame count is an estimate). A difference of 1/(frames - 1)
+# is allowed on top of this: that is the discrepancy that throws OpenCV's seeking off,
+# and it is large for short videos.
+_TIMING_TOLERANCE = 0.01
+
 
 class VideoReader:
     """VideoReader.
 
     Uses OpenCV to open a video file and read frames.
+
+    Frames are numbered by their position in the file, counting from 0, which is how
+    pose files are indexed. OpenCV's own frame seeking does not always respect that:
+    it converts a frame number to a time using the file's reported frame rate, so in a
+    file whose reported rate is slightly off it lands a frame early or late. ``seek()``
+    corrects for this by checking each landing against the frame's timestamp.
     """
 
     _EOF: ClassVar[dict[str, object]] = {"data": None, "index": -1}
@@ -30,6 +50,13 @@ class VideoReader:
             raise OSError(f"unable to open {path}")
 
         self._frame_index = 0
+        # True when seek() has already decoded the next frame to return
+        self._frame_pending = False
+        # (first frame timestamp, frame duration) in milliseconds, measured on first seek
+        self._timing: tuple[float, float] | None = None
+        self._timing_measured = False
+        # warn about an inexact seek only once per file, since scrubbing seeks repeatedly
+        self._warned_inexact_seek = False
         self._num_frames = int(self.stream.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # get frame rate
@@ -110,7 +137,15 @@ class VideoReader:
     def seek(self, index: int) -> None:
         """Seek to a specific frame.
 
-        This will clear the buffer and insert the frame at the new position.
+        The next call to ``load_next_frame()`` returns frame ``index``.
+
+        OpenCV can land a frame or two away from the requested frame: it converts the
+        frame number to a time using the reported frame rate, and some files report a
+        rate that is slightly off. For example, a 30 fps recording whose duration
+        covers one frame interval fewer than its frame count reports 30.000278 fps,
+        and every seek past its midpoint lands one frame early. So this lands, works
+        out which frame it actually reached from that frame's timestamp, and steps
+        forward to the requested frame, or lands again further back if it overshot.
 
         Args:
             index: Frame index to seek to.
@@ -119,15 +154,102 @@ class VideoReader:
             OSError: If the video stream has been closed.
 
         Note:
-            some video formats might not be able to seek to an exact frame
-            position so this could be slow in those cases. Our avi files have
-            reasonable seek times.
+            The correction assumes frames are evenly spaced in time. For a file with
+            a variable frame rate it can still land a frame away from ``index``.
         """
         if self.stream is None:
             raise OSError("video stream is closed")
 
+        self._frame_pending = False
+        timing = self._frame_timing()
+        if timing is None:
+            # no reliable timing to check against, so trust OpenCV's position
+            if self.stream.set(cv2.CAP_PROP_POS_FRAMES, index):
+                self._frame_index = index
+            return
+
+        land_at = index
+        for _ in range(_MAX_SEEK_ATTEMPTS):
+            self.stream.set(cv2.CAP_PROP_POS_FRAMES, max(land_at, 0))
+            reached = self._grab_frame_number(timing)
+            while reached is not None and reached < index:
+                reached = self._grab_frame_number(timing)
+
+            if reached is None:
+                # past the last frame: the next load returns the end-of-file marker
+                self._frame_index = index
+                return
+            if reached == index:
+                self._frame_index = index
+                self._frame_pending = True
+                return
+
+            # overshot: land again far enough back to come up short of index
+            land_at -= reached - index + 1
+
+        if not self._warned_inexact_seek:
+            self._warned_inexact_seek = True
+            logger.warning(
+                "Unable to seek %s to frame %d exactly (variable frame rate?); frames may "
+                "be offset after seeking in this video",
+                self._filename,
+                index,
+            )
         if self.stream.set(cv2.CAP_PROP_POS_FRAMES, index):
             self._frame_index = index
+
+    def _grab_frame_number(self, timing: tuple[float, float]) -> int | None:
+        """Decode the next frame and return its frame number, or None at end of file."""
+        if not self.stream.grab():
+            return None
+        first_ms, frame_ms = timing
+        return round((self.stream.get(cv2.CAP_PROP_POS_MSEC) - first_ms) / frame_ms)
+
+    def _frame_timing(self) -> tuple[float, float] | None:
+        """Return ``(first frame timestamp, frame duration)`` in milliseconds.
+
+        Measured once, from the timestamps of the first and last frames, rather than
+        derived from the reported frame rate, which is what can be off. Returns None,
+        and stays None, if the file cannot be measured or the measurement disagrees
+        with the reported frame rate (for example because the frame count is only an
+        estimate). Moves the stream position, so callers must seek afterwards.
+        """
+        if self._timing_measured:
+            return self._timing
+        self._timing_measured = True
+
+        if self._num_frames < 2 or not self.stream.set(cv2.CAP_PROP_POS_FRAMES, 0):
+            return None
+        if not self.stream.grab():
+            return None
+        first_ms = self.stream.get(cv2.CAP_PROP_POS_MSEC)
+
+        # land near the end and read to the last frame; where exactly it lands does
+        # not matter, only the timestamp of the final frame
+        self.stream.set(cv2.CAP_PROP_POS_FRAMES, self._num_frames - 3)
+        last_ms = None
+        while self.stream.grab():
+            last_ms = self.stream.get(cv2.CAP_PROP_POS_MSEC)
+        if last_ms is None or last_ms <= first_ms:
+            logger.debug("Unable to measure frame timing of %s", self._filename)
+            return None
+
+        frame_ms = (last_ms - first_ms) / (self._num_frames - 1)
+        reported_ms = 1000.0 / self.stream.get(cv2.CAP_PROP_FPS)
+        tolerance = _TIMING_TOLERANCE + 1.0 / (self._num_frames - 1)
+        if abs(frame_ms - reported_ms) > tolerance * reported_ms:
+            logger.warning(
+                "Frame timing of %s (%.4f ms/frame) disagrees with its frame rate "
+                "(%.4f ms/frame); seeking may be off by a frame",
+                self._filename,
+                frame_ms,
+                reported_ms,
+            )
+            return None
+
+        self._timing = (first_ms, frame_ms)
+        logger.debug("Measured frame timing of %s: %.6f ms/frame", self._filename, frame_ms)
+        return self._timing
 
     def load_next_frame(self) -> dict[str, object]:
         """Grab the next frame from the file.
@@ -138,7 +260,12 @@ class VideoReader:
         if self.stream is None:
             raise OSError("video stream is closed")
 
-        (grabbed, frame) = self.stream.read()
+        if self._frame_pending:
+            # seek() already decoded this frame while checking where it landed
+            self._frame_pending = False
+            (grabbed, frame) = self.stream.retrieve()
+        else:
+            (grabbed, frame) = self.stream.read()
         if grabbed:
             data = {
                 "data": frame,
