@@ -1,6 +1,8 @@
 """Dialog showing application information: version, copyright, and installed extras."""
 
 import html
+import logging
+import typing
 from collections.abc import Sequence
 
 from PySide6.QtCore import Qt, Signal
@@ -8,6 +10,8 @@ from PySide6.QtWidgets import QDialog, QGroupBox, QLabel, QPushButton, QVBoxLayo
 
 from jabs.core.utils import ExtraStatus, extras_status
 from jabs.version import version_str
+
+logger = logging.getLogger(__name__)
 
 # Distribution whose optional extras are reported.
 _DISTRIBUTION = "jabs-behavior-classifier"
@@ -59,9 +63,9 @@ class AboutDialog(QDialog):
     def __init__(
         self,
         app_name: str,
-        *args,
+        *args: typing.Any,
         extras: Sequence[ExtraStatus] | None = None,
-        **kwargs,
+        **kwargs: typing.Any,
     ) -> None:
         """Initialize the About dialog.
 

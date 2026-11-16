@@ -1,8 +1,12 @@
 """Install advice for CLI commands that need an optional JABS extra."""
 
+import logging
+
 import click
 
 from jabs.core.exceptions import MissingOptionalDependencyError
+
+logger = logging.getLogger(__name__)
 
 
 def missing_extra_error(error: MissingOptionalDependencyError) -> click.ClickException:
