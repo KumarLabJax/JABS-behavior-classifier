@@ -94,11 +94,12 @@ def render_overlay_frame(
     if not segmentation and not draw_pose and not bounding_boxes and label_overlay is None:
         return img
 
-    # QImage wraps this buffer, so painting below writes straight into `rgb`.
-    rgb = np.ascontiguousarray(img[..., ::-1])
-    height, width, channels = rgb.shape
+    # QImage wraps this buffer, so painting below writes straight into `img`. Painting
+    # in BGR888 avoids two full-frame channel-swap copies, which dominated export time.
+    # `img` came from copy() or astype(), so it is C-contiguous as QImage requires.
+    height, width, channels = img.shape
     qimage = QtGui.QImage(
-        rgb.data, width, height, channels * width, QtGui.QImage.Format.Format_RGB888
+        img.data, width, height, channels * width, QtGui.QImage.Format.Format_BGR888
     )
 
     def to_native(x: float, y: float) -> tuple[int, int]:
@@ -151,7 +152,7 @@ def render_overlay_frame(
     finally:
         painter.end()
 
-    return np.ascontiguousarray(rgb[..., ::-1])
+    return img
 
 
 def _draw_label_markers(

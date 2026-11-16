@@ -21,9 +21,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# mp4v is the safe default: H.264 ("avc1") is frequently absent from
-# opencv-python-headless builds on Linux, where it fails at writer-open time.
-DEFAULT_CODEC = "mp4v"
+# Codecs tried in order when the caller names none. H.264 ("avc1") gives far smaller
+# files than MPEG-4 Part 2 ("mp4v") but is frequently absent from
+# opencv-python-headless builds on Linux, where it fails at writer-open time; mp4v is
+# the fallback that every build has.
+PREFERRED_CODECS: tuple[str, ...] = ("avc1", "mp4v")
 
 
 class VideoExportError(Exception):
@@ -58,6 +60,35 @@ def _reject_writing_over_source(video_path: Path, output_path: Path) -> None:
         )
 
 
+def _open_writer(
+    output_path: Path, codecs: tuple[str, ...], fps: float, size: tuple[int, int]
+) -> tuple[cv2.VideoWriter, str]:
+    """Open a writer with the first of ``codecs`` this OpenCV build supports.
+
+    Returns:
+        The opened writer and the codec it uses.
+
+    Raises:
+        VideoExportError: If none of the codecs can be opened.
+    """
+    for codec in codecs:
+        writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*codec), fps, size)
+        if writer.isOpened():
+            return writer, codec
+        writer.release()
+        logger.debug("Codec %r unavailable for %s", codec, output_path)
+
+    if len(codecs) == 1:
+        raise VideoExportError(
+            f"Could not open a video writer for {output_path} using codec {codecs[0]!r}. "
+            f"This codec may not be available in this OpenCV build."
+        )
+    raise VideoExportError(
+        f"Could not open a video writer for {output_path} using any of the codecs "
+        f"{', '.join(repr(c) for c in codecs)}."
+    )
+
+
 def export_overlay_video(
     video_path: Path,
     output_path: Path,
@@ -67,7 +98,7 @@ def export_overlay_video(
     draw_segmentation: bool = True,
     draw_bounding_boxes: bool = False,
     label_overlay: LabelMarkerOverlay | None = None,
-    codec: str = DEFAULT_CODEC,
+    codec: str | None = None,
     frames: BlankFrameReader | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     should_continue: Callable[[], bool] | None = None,
@@ -84,7 +115,8 @@ def export_overlay_video(
             pose files only).
         label_overlay: Labels and/or predictions to mark next to each identity,
             or ``None`` to draw no label markers.
-        codec: FourCC codec string passed to ``cv2.VideoWriter``.
+        codec: FourCC codec string passed to ``cv2.VideoWriter``, or ``None`` to use
+            the first of :data:`PREFERRED_CODECS` this OpenCV build supports.
         frames: Solid-color frames to draw over instead of reading ``video_path``,
             for pose data that has no video. ``video_path`` is then only used in
             messages and to refuse an output that would overwrite it, so pass the
@@ -102,11 +134,11 @@ def export_overlay_video(
     Raises:
         VideoExportError: If the output would overwrite the source, the source
             cannot be read, or the writer cannot be opened with the requested
-            codec.
+            codec (or, with ``codec=None``, with any preferred codec).
     """
     _reject_writing_over_source(video_path, output_path)
 
-    if len(codec) != 4:
+    if codec is not None and len(codec) != 4:
         # cv2.VideoWriter_fourcc() takes exactly four characters and raises
         # TypeError otherwise, which would escape as something other than the
         # VideoExportError this function documents.
@@ -165,14 +197,13 @@ def export_overlay_video(
         except OSError as e:
             raise VideoExportError(f"Could not create {output_path.parent}: {e}") from e
 
-        writer = cv2.VideoWriter(
-            str(output_path), cv2.VideoWriter_fourcc(*codec), fps, (width, height)
+        writer, used_codec = _open_writer(
+            output_path,
+            PREFERRED_CODECS if codec is None else (codec,),
+            fps,
+            (width, height),
         )
-        if not writer.isOpened():
-            raise VideoExportError(
-                f"Could not open a video writer for {output_path} using codec {codec!r}. "
-                f"This codec may not be available in this OpenCV build."
-            )
+        logger.info("Writing %s with codec %r", output_path, used_codec)
 
         frames_written = 0
         cancelled = False
