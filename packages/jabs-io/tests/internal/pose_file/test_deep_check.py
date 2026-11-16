@@ -73,14 +73,14 @@ def _rewrite_manifest(path: Path, mutate: Callable[[dict], object]) -> None:
         )
 
 
-def test_a_faithful_alternate_passes_the_deep_check():
+def test_a_faithful_alternate_passes_the_deep_check() -> None:
     """The fixture's alternate is the baseline, re-encoded."""
     findings = validate(ALTERNATE, deep=True)
     assert _checks(findings, "error") == []
     assert not any(f.check == "alternate_deep_unchecked" for f in findings)
 
 
-def test_the_deep_check_is_opt_in(tmp_path):
+def test_the_deep_check_is_opt_in(tmp_path: Path) -> None:
     """Without deep=True a disagreeing alternate is not looked at."""
     path = _copy(tmp_path)
     _flip(path, POINTS, (0, 0))
@@ -88,7 +88,7 @@ def test_the_deep_check_is_opt_in(tmp_path):
     assert _deep_errors(path)
 
 
-def test_a_moved_point_disagrees(tmp_path):
+def test_a_moved_point_disagrees(tmp_path: Path) -> None:
     """One coordinate of the last point, off by one."""
     path = _copy(tmp_path)
     with h5py.File(path, "r") as h5:
@@ -99,7 +99,7 @@ def test_a_moved_point_disagrees(tmp_path):
     assert "jabs.segmentation.contours:alternate:ragged" in errors[0].message
 
 
-def test_a_flipped_flag_disagrees(tmp_path):
+def test_a_flipped_flag_disagrees(tmp_path: Path) -> None:
     """A hole reported as an outline, or the reverse."""
     path = _copy(tmp_path)
     _flip(path, FLAGS, 0)
@@ -108,7 +108,7 @@ def test_a_flipped_flag_disagrees(tmp_path):
     assert "jabs.segmentation.external_flag:alternate:ragged" in errors[0].message
 
 
-def test_a_contour_handed_to_the_next_slot_disagrees(tmp_path):
+def test_a_contour_handed_to_the_next_slot_disagrees(tmp_path: Path) -> None:
     """Offsets still well formed and every point in place, but one instance owns one group fewer.
 
     No structural check can see this: the offsets start at 0, never
@@ -132,7 +132,7 @@ def test_a_contour_handed_to_the_next_slot_disagrees(tmp_path):
     assert "frame" in errors[0].message and "slot" in errors[0].message
 
 
-def test_a_regrouped_contour_disagrees(tmp_path):
+def test_a_regrouped_contour_disagrees(tmp_path: Path) -> None:
     """The same points split differently between two contours of one instance."""
     path = _copy(tmp_path)
     with h5py.File(path, "r+") as h5:
@@ -148,7 +148,9 @@ def test_a_regrouped_contour_disagrees(tmp_path):
     assert _deep_errors(path)
 
 
-def test_a_disagreement_in_a_later_frame_block_is_found(tmp_path, monkeypatch):
+def test_a_disagreement_in_a_later_frame_block_is_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The decode reads frame blocks so a full-size baseline never sits in memory at once.
 
     One frame per block makes every boundary a block boundary.
@@ -162,7 +164,7 @@ def test_a_disagreement_in_a_later_frame_block_is_found(tmp_path, monkeypatch):
     assert _deep_errors(path)
 
 
-def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path):
+def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path: Path) -> None:
     """Only the ragged segmentation alternate is defined; anything else is reported, not passed."""
     path = _copy(tmp_path)
 
@@ -179,7 +181,7 @@ def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path):
     assert all(f.severity == "warning" for f in unchecked)
 
 
-def test_a_file_with_errors_is_not_decoded(tmp_path):
+def test_a_file_with_errors_is_not_decoded(tmp_path: Path) -> None:
     """Decoding trusts offsets and shapes the structural checks have already passed."""
     path = _copy(tmp_path)
     with h5py.File(path, "r+") as h5:
@@ -193,17 +195,17 @@ def test_a_file_with_errors_is_not_decoded(tmp_path):
 
 
 @pytest.mark.parametrize("name", sorted(p.name for p in DATA.glob("*.h5")))
-def test_the_deep_check_never_raises(name):
+def test_the_deep_check_never_raises(name: str) -> None:
     """Every fixture, valid or not, comes back as findings."""
     validate(DATA / name, deep=True)
 
 
-def test_files_without_alternates_report_nothing_extra():
+def test_files_without_alternates_report_nothing_extra() -> None:
     """No alternates, nothing to decode, nothing to say."""
     assert validate(DATA / "valid-full.h5", deep=True) == validate(DATA / "valid-full.h5")
 
 
-def test_the_baseline_wins_so_the_finding_names_the_alternate(tmp_path):
+def test_the_baseline_wins_so_the_finding_names_the_alternate(tmp_path: Path) -> None:
     """ADR 0002: a reader finding them disagreeing trusts the baseline."""
     path = _copy(tmp_path)
     _flip(path, POINTS, (0, 0))
@@ -241,8 +243,8 @@ def _unchecked_without_raising(path: Path) -> list[Finding]:
     return [f for f in findings if f.check == "alternate_deep_unchecked"]
 
 
-def test_contours_without_a_length_policy_are_not_decoded(tmp_path):
-    """Review finding 1: a contour_length past the point axis, unchecked because no policy names it.
+def test_contours_without_a_length_policy_are_not_decoded(tmp_path: Path) -> None:
+    """A contour_length past the point axis, unchecked because no policy names it.
 
     The alternate is rebuilt to agree with the oversized length, so the group
     sizes match and only the points comparison could see the problem - by
@@ -277,8 +279,8 @@ def test_contours_without_a_length_policy_are_not_decoded(tmp_path):
     assert any("contour_length" in f.message for f in unchecked)
 
 
-def test_contours_of_the_wrong_rank_are_not_decoded(tmp_path):
-    """Review finding 2: a (frame, slot) contours array has no contour or point axis."""
+def test_contours_of_the_wrong_rank_are_not_decoded(tmp_path: Path) -> None:
+    """A (frame, slot) contours array has no contour or point axis."""
     path = _copy(tmp_path)
     with h5py.File(path, "r") as h5:
         frames, slots = h5[COUNT].shape
@@ -296,8 +298,8 @@ def test_contours_of_the_wrong_rank_are_not_decoded(tmp_path):
     assert _unchecked_without_raising(path)
 
 
-def test_an_alternate_whose_trailing_axes_differ_is_not_decoded(tmp_path):
-    """Review finding 3: a one-dimensional alternate cannot hold (x, y) points."""
+def test_an_alternate_whose_trailing_axes_differ_is_not_decoded(tmp_path: Path) -> None:
+    """A one-dimensional alternate cannot hold (x, y) points."""
     path = _copy(tmp_path)
     with h5py.File(path, "r") as h5:
         n = h5[POINTS].shape[0]
@@ -314,8 +316,10 @@ def test_an_alternate_whose_trailing_axes_differ_is_not_decoded(tmp_path):
     assert _unchecked_without_raising(path)
 
 
-def test_flags_paired_with_other_offsets_are_not_decoded_through_the_contours(tmp_path):
-    """Review finding 4: the flags alternate's offsets belong to a different leaf payload.
+def test_flags_paired_with_other_offsets_are_not_decoded_through_the_contours(
+    tmp_path: Path,
+) -> None:
+    """The flags alternate's offsets belong to a different leaf payload.
 
     Pairing only requires *some* leaf-level partner, so this is structurally
     valid, but decoding the flags through the contours' offsets compares the
@@ -357,24 +361,8 @@ def test_flags_paired_with_other_offsets_are_not_decoded_through_the_contours(tm
     assert any("external_flag" in f.message for f in unchecked)
 
 
-def test_a_bad_contour_count_skips_only_its_own_block(tmp_path, monkeypatch):
-    """Review finding 5: one undecodable block must not hide a disagreement in a later one."""
-    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 1)
-    path = _copy(tmp_path)
-    with h5py.File(path, "r+") as h5:
-        contour_axis = h5[DENSE].shape[2]
-        counts = h5[COUNT][()]
-        counts[0, 0] = contour_axis + 1
-        h5[COUNT][...] = counts
-        last = h5[POINTS].shape[0] - 1
-    _flip(path, POINTS, (last, 0))
-    findings = validate(path, deep=True)
-    assert any(f.check == "alternate_deep_unchecked" and "[0, 1)" in f.message for f in findings)
-    assert any(f.check == "alternate_decodes" for f in findings)
-
-
-def test_nan_in_a_float_baseline_matches_nan_in_the_alternate(tmp_path):
-    """Review finding 6: NaN != NaN must not read as a disagreement."""
+def test_nan_in_a_float_baseline_matches_nan_in_the_alternate(tmp_path: Path) -> None:
+    """NaN != NaN must not read as a disagreement."""
     path = _copy(tmp_path)
     with h5py.File(path, "r+") as h5:
         dense = h5[DENSE][()].astype(np.float32)
@@ -394,8 +382,10 @@ def test_nan_in_a_float_baseline_matches_nan_in_the_alternate(tmp_path):
     assert _checks(validate(path, deep=True), "error") == []
 
 
-def test_length_values_are_checked_block_by_block(tmp_path, monkeypatch):
-    """Review finding 7: the length bound is read in blocks, and a late block still counts."""
+def test_length_values_are_checked_block_by_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The length bound is read in blocks, and a late block still counts."""
     monkeypatch.setattr(validate_module, "VALUE_CHECK_BLOCK_BYTES", 1)
     path = _copy(tmp_path)
     with h5py.File(path, "r+") as h5:
@@ -404,10 +394,14 @@ def test_length_values_are_checked_block_by_block(tmp_path, monkeypatch):
         lengths[-1, -1, -1] = point_axis + 1
         h5[LENGTH][...] = lengths
     errors = [f for f in validate(path) if f.severity == "error"]
-    assert [f.check for f in errors] == ["mask_reference"]
+    assert [f.check for f in errors] == ["length_bound"]
 
 
-# --- Second review ------------------------------------------------------------
+# --- The bounds the decode relies on ------------------------------------------
+#
+# The decode slices through contour_count and contour_length. The structural
+# pass bounds both, and the deep check only runs on a file with no errors, so
+# a bad count or length is an error before anything is decoded.
 
 
 def _retype(path: Path, dataset: str, component_id: str, data: npt.NDArray[np.generic]) -> None:
@@ -421,63 +415,91 @@ def _retype(path: Path, dataset: str, component_id: str, data: npt.NDArray[np.ge
     _rewrite_manifest(path, declare)
 
 
+def _errors(findings: list[Finding]) -> list[str]:
+    """The check names of the error findings."""
+    return [f.check for f in findings if f.severity == "error"]
+
+
 @pytest.mark.parametrize(
-    ("dataset", "component_id", "convert"),
-    [
-        # A string count raised: comparing it with the contour axis is a TypeError.
-        (
-            COUNT,
-            "jabs.segmentation.contour_count",
-            lambda v: np.array([[str(x) for x in row] for row in v], dtype=h5py.string_dtype()),
-        ),
-        # A float count was truncated, so 1.5 contours read as one and passed.
-        (COUNT, "jabs.segmentation.contour_count", lambda v: v.astype(np.float32) + 0.5),
-        # Flags are compared as booleans; an integer flag is not the catalog's.
-        (
-            "/jabs/segmentation/external_flag",
-            "jabs.segmentation.external_flag",
-            lambda v: v.astype(np.uint8),
-        ),
-    ],
-    ids=["string-count", "float-count", "integer-flags"],
+    ("index", "value"),
+    [((-1, -1), "past"), ((0, 0), "negative")],
+    ids=["past-the-axis-in-the-last-block", "negative"],
 )
-def test_a_baseline_of_the_wrong_dtype_is_not_decoded(tmp_path, dataset, component_id, convert):
-    """Review 2, findings 1 and 2: the decode needs integer counts and boolean flags."""
+def test_a_contour_count_outside_the_contour_axis_is_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, index: tuple[int, int], value: str
+) -> None:
+    """A count past the contour axis, or below zero, makes a reader slice past the data.
+
+    One frame per block, so a count in the last frame is only seen if every
+    block is read.
+    """
+    monkeypatch.setattr(validate_module, "VALUE_CHECK_BLOCK_BYTES", 1)
     path = _copy(tmp_path)
     with h5py.File(path, "r") as h5:
-        values = h5[dataset][()]
-    _retype(path, dataset, component_id, convert(values))
-    assert _checks(validate(path), "error") == []
+        contour_axis = h5[DENSE].shape[2]
+        counts = h5[COUNT][()].astype(np.int32)
+    counts[index] = contour_axis + 1 if value == "past" else -1
+    _retype(path, COUNT, "jabs.segmentation.contour_count", counts)
+    assert _errors(validate(path)) == ["contour_count_bound"]
+    assert _errors(validate(path, deep=True)) == ["contour_count_bound"]
+
+
+@pytest.mark.parametrize(
+    "convert",
+    [
+        lambda v: np.array([[str(x) for x in row] for row in v], dtype=h5py.string_dtype()),
+        lambda v: v.astype(np.float32) + 0.5,
+    ],
+    ids=["string", "float"],
+)
+def test_a_contour_count_that_is_not_an_integer_is_an_error(
+    tmp_path: Path, convert: Callable[[npt.NDArray[np.generic]], npt.NDArray[np.generic]]
+) -> None:
+    """A float count of 1.5 would be truncated to one contour; a string one cannot be compared."""
+    path = _copy(tmp_path)
+    with h5py.File(path, "r") as h5:
+        values = h5[COUNT][()]
+    _retype(path, COUNT, "jabs.segmentation.contour_count", convert(values))
+    assert _errors(validate(path)) == ["contour_count_bound"]
+    assert not any(f.check == "alternate_decodes" for f in validate(path, deep=True))
+
+
+def test_integer_baseline_flags_are_not_decoded(tmp_path: Path) -> None:
+    """Flags are compared as booleans, and nothing structural requires the baseline's to be."""
+    path = _copy(tmp_path)
+    with h5py.File(path, "r") as h5:
+        values = h5["/jabs/segmentation/external_flag"][()]
+    _retype(
+        path,
+        "/jabs/segmentation/external_flag",
+        "jabs.segmentation.external_flag",
+        values.astype(np.uint8),
+    )
+    assert _errors(validate(path)) == []
     unchecked = _unchecked_without_raising(path)
-    assert any(component_id in f.message for f in unchecked)
+    assert any("jabs.segmentation.external_flag has dtype uint8" in f.message for f in unchecked)
 
 
-def test_a_count_bad_in_every_block_is_one_warning(tmp_path, monkeypatch):
-    """Review 2, finding 4: one warning per block flooded large files."""
-    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 1)
-    monkeypatch.setattr(validate_module, "_SKIPPED_RANGES_SHOWN", 2)
+def test_an_integer_flag_alternate_is_not_decoded(tmp_path: Path) -> None:
+    """A uint8 flag alternate holding 2 is neither True nor False, so it is not compared."""
     path = _copy(tmp_path)
-    with h5py.File(path, "r+") as h5:
-        contour_axis = h5[DENSE].shape[2]
-        counts = h5[COUNT][()]
-        counts[::2, 0] = contour_axis + 1
-        h5[COUNT][...] = counts
-        frames = counts.shape[0]
-    unchecked = [f for f in validate(path, deep=True) if f.check == "alternate_deep_unchecked"]
-    assert len(unchecked) == 1
-    ranges = (frames + 1) // 2
-    assert f"covering {ranges} frames" in unchecked[0].message
-    assert f"and {ranges - 2} more ranges" in unchecked[0].message
+    with h5py.File(path, "r") as h5:
+        flags = h5[FLAGS][()].astype(np.uint8)
+    flags[0] = 2
+    _replace(path, FLAGS, flags)
+
+    def declare(manifest: dict) -> None:
+        _entry(manifest, "jabs.segmentation.external_flag")["alternates"][0]["dtype"] = "uint8"
+
+    _rewrite_manifest(path, declare)
+    assert _errors(validate(path)) == []
+    unchecked = _unchecked_without_raising(path)
+    assert any("must be bool, not uint8" in f.message for f in unchecked)
 
 
-def test_adjacent_bad_blocks_are_reported_as_one_range(tmp_path, monkeypatch):
-    """Review 2, finding 4: contiguous blocks merge, so the warning names whole runs."""
-    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 1)
+def test_a_flag_disagreement_names_both_values(tmp_path: Path) -> None:
+    """The message gives the alternate's value and the baseline's, which differ."""
     path = _copy(tmp_path)
-    with h5py.File(path, "r+") as h5:
-        contour_axis = h5[DENSE].shape[2]
-        counts = h5[COUNT][()]
-        counts[:3, 0] = contour_axis + 1
-        h5[COUNT][...] = counts
-    (unchecked,) = [f for f in validate(path, deep=True) if f.check == "alternate_deep_unchecked"]
-    assert "[0, 3)" in unchecked.message
+    _flip(path, FLAGS, 0)
+    (error,) = _deep_errors(path)
+    assert "True" in error.message and "False" in error.message

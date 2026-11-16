@@ -37,8 +37,11 @@ WARNING = "warning"
 
 _INTEGER_DTYPES = ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64")
 
-# The length-bound check reads a length reference this many bytes at a time,
-# for the same reason: legacy contour_length arrays run to a gigabyte.
+# The value checks (length references, contour_count) read an array this many
+# bytes at a time, so memory stays flat however long the recording. The arrays
+# are small beside the payload -- legacy contour_length is F x S x C uint32,
+# about 2.6 MB per mouse-hour against 1.18 GB of contour points -- but they grow
+# with the recording, and nothing bounds a recording's length.
 VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
 
 # The deep check reads the dense baseline a block of frames at a time, so a
@@ -53,8 +56,6 @@ _CONTOURS = "jabs.segmentation.contours"
 _EXTERNAL_FLAG = "jabs.segmentation.external_flag"
 _CONTOUR_COUNT = "jabs.segmentation.contour_count"
 _CONTOUR_LENGTH = "jabs.segmentation.contour_length"
-# How many skipped frame ranges the deep check's warning names before summarizing.
-_SKIPPED_RANGES_SHOWN = 5
 
 
 @dataclass(frozen=True)
@@ -631,9 +632,8 @@ def _check_length_bound(
     ADR 0002: a length is "a non-negative integer no larger than the axis it
     bounds". A contour_length of 99 over a 5-point axis passes every shape and
     dtype check, and a reader that trusts it slices past the end of the data.
-    The values are read in blocks along the first axis, so a gigabyte-sized
-    legacy length array never sits in memory at once. A reference whose dataset
-    is missing or misdeclared is left to the checks that report that.
+    A reference whose dataset is missing or misdeclared is left to the checks
+    that report that.
 
     Args:
         h5: The open file.
@@ -646,25 +646,91 @@ def _check_length_bound(
     node = h5.get(target["path"])
     if not isinstance(node, h5py.Dataset) or list(node.shape) != list(target["shape"]):
         return
-    if node.dtype.kind not in "iu" or node.size == 0:
+    if node.dtype.kind not in "iu":
         return
     bound = spec["shape"][bounded]
+    value_range = _integer_range(node)
+    if value_range is None:
+        return
+    low, high = value_range
+    if low < 0 or high > bound:
+        findings.append(
+            Finding(
+                ERROR,
+                "length_bound",
+                f"{spec['id']}: length reference {target['id']!r} holds values in "
+                f"[{low}, {high}], outside [0, {bound}], the length of the "
+                f"{spec['axes'][bounded]} axis it bounds",
+            )
+        )
+
+
+def _integer_range(node: h5py.Dataset) -> tuple[int, int] | None:
+    """The minimum and maximum of an integer dataset, read in blocks; None when empty."""
     row_bytes = max(1, int(np.prod(node.shape[1:])) * node.dtype.itemsize)
     block = max(1, VALUE_CHECK_BLOCK_BYTES // row_bytes)
-    low, high = None, None
+    low = high = None
     for first in range(0, node.shape[0], block):
         values = np.asarray(node[first : first + block])
         if values.size:
             low = int(values.min()) if low is None else min(low, int(values.min()))
             high = int(values.max()) if high is None else max(high, int(values.max()))
-    if low is not None and (low < 0 or high > bound):
+    return None if low is None else (low, high)
+
+
+def _check_contour_count(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """Validate that each contour_count fits the contour axis it counts along.
+
+    ADR 0002: dense segmentation's validity comes from contour_count and
+    contour_length. contour_length is a length reference, bounded by the
+    generic rule; contour_count is not one, so without this a count of 99 over
+    a 2-wide contour axis passes, and a reader that trusts it slices past the
+    data. Applies to the catalog's dense layout; a foreign layout, or a
+    missing or misdeclared dataset, is left to the checks that report that.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    count, contours = by_id.get(_CONTOUR_COUNT), by_id.get(_CONTOURS)
+    if count is None or contours is None:
+        return
+    if contours["encoding"].get("kind") != "dense" or count["encoding"].get("kind") != "dense":
+        return
+    if list(count["axes"]) != ["frame", "slot"] or list(contours["axes"][:3]) != [
+        "frame",
+        "slot",
+        "contour",
+    ]:
+        return
+    if count["dtype"] not in _INTEGER_DTYPES:
         findings.append(
             Finding(
                 ERROR,
-                "mask_reference",
-                f"{spec['id']}: length reference {target['id']!r} holds values in "
-                f"[{low}, {high}], outside [0, {bound}], the length of the "
-                f"{spec['axes'][bounded]} axis it bounds",
+                "contour_count_bound",
+                f"{_CONTOUR_COUNT} has dtype {count['dtype']}; a count must be an integer",
+            )
+        )
+        return
+    node = h5.get(count["path"])
+    if not isinstance(node, h5py.Dataset) or list(node.shape) != list(count["shape"]):
+        return
+    if node.dtype.kind not in "iu":
+        return
+    value_range = _integer_range(node)
+    if value_range is None:
+        return
+    low, high = value_range
+    bound = contours["shape"][2]
+    if low < 0 or high > bound:
+        findings.append(
+            Finding(
+                ERROR,
+                "contour_count_bound",
+                f"{_CONTOUR_COUNT} holds values in [{low}, {high}], outside [0, {bound}], the "
+                f"length of {_CONTOURS}'s contour axis",
             )
         )
 
@@ -1392,12 +1458,11 @@ def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> 
         entry = by_id[component_id]
         if list(entry["axes"]) != want_axes or list(entry["shape"]) != want_shape:
             return f"{component_id} is not indexed by the contours' {tuple(want_axes)}"
-        # Counts and lengths are compared as integers and flags as booleans; a
-        # float count would be truncated and a string one raise.
-        is_flag = component_id == _EXTERNAL_FLAG
-        if not (entry["dtype"] == "bool" if is_flag else entry["dtype"] in _INTEGER_DTYPES):
-            wanted = "bool" if is_flag else "an integer dtype"
-            return f"{component_id} has dtype {entry['dtype']}, not {wanted}"
+        # Flags are compared as booleans. Counts and lengths need no check
+        # here: the structural pass requires both to be integers, and the deep
+        # check only runs on a file with no errors.
+        if component_id == _EXTERNAL_FLAG and entry["dtype"] != "bool":
+            return f"{component_id} has dtype {entry['dtype']}, not bool"
     # The length policy is what makes the length-bound check run on
     # contour_length, and the deep check only runs on a file with no errors,
     # so every length it decodes through fits the point axis.
@@ -1418,6 +1483,8 @@ def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> 
             )
     elif list(alternate["axes"]) != ["contour"]:
         return f"a group-level flag alternate has the single axis contour, not {alternate['axes']}"
+    elif alternate["dtype"] != "bool":
+        return f"a flag alternate is compared as booleans, so it must be bool, not {alternate['dtype']}"
     return None
 
 
@@ -1497,20 +1564,14 @@ def _compare_segmentation_alternate(
             )
         )
 
+    # Every count is within [0, contour_axis] and every length within
+    # [0, point_axis]: the structural pass checks both, and this only runs on a
+    # file with no errors.
     points_ok, flags_ok = True, flags is not None
-    skipped: list[list[int]] = []
     for first in range(0, frames, block):
         last = min(frames, first + block)
         count = np.asarray(count_node[first:last]).astype(np.int64)
         length = np.asarray(length_node[first:last]).astype(np.int64)
-        if count.min(initial=0) < 0 or count.max(initial=0) > contour_axis:
-            # The baseline itself cannot be decoded here. Skip this block only:
-            # the offsets are absolute, so later blocks still compare.
-            if skipped and skipped[-1][1] == first:
-                skipped[-1][1] = last
-            else:
-                skipped.append([first, last])
-            continue
         valid_contour = np.arange(contour_axis) < count[..., None]
 
         # Which groups each instance owns.
@@ -1525,7 +1586,7 @@ def _compare_segmentation_alternate(
                 f"it owns {owned[position - lo]} contours where the baseline has "
                 f"{expected_owned[position - lo]}",
             )
-            break
+            return
         g0, g1 = int(instance_offsets[lo]), int(instance_offsets[hi])
 
         # Each group's size.
@@ -1568,29 +1629,13 @@ def _compare_segmentation_alternate(
                 disagree(
                     flags_label,
                     instance_of(group),
-                    f"contour {group}'s flag is {bool(actual_flags[mismatch[0]])} where the "
-                    f"baseline has {bool(expected_flags[mismatch[0]])}",
+                    f"contour {group}'s flag is {actual_flags[mismatch[0]].item()!r} where the "
+                    f"baseline has {expected_flags[mismatch[0]].item()!r}",
                 )
                 flags_ok = False
 
         if not (points_ok or flags_ok):
-            break
-
-    if skipped:
-        # One warning for the whole file: a count wrong everywhere would
-        # otherwise give one per block, thousands on a large file.
-        total = sum(last - first for first, last in skipped)
-        shown = ", ".join(f"[{first}, {last})" for first, last in skipped[:_SKIPPED_RANGES_SHOWN])
-        more = len(skipped) - _SKIPPED_RANGES_SHOWN
-        findings.append(
-            Finding(
-                WARNING,
-                "alternate_deep_unchecked",
-                f"{points_label}: {_CONTOUR_COUNT} is outside [0, {contour_axis}] in blocks "
-                f"covering {total} frames ({shown}{f' and {more} more ranges' if more > 0 else ''}), "
-                "so those frames were not compared",
-            )
-        )
+            return
 
 
 def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
@@ -1633,6 +1678,7 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)
+        _check_contour_count(h5, manifest, findings)
         if deep:
             _check_alternates_decode(h5, manifest, findings)
 

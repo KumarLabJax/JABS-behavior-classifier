@@ -771,6 +771,17 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
             ),
         ),
         (
+            "invalid-contour-count-exceeds-axis.h5",
+            alternate,
+            _arrays(
+                **{
+                    "/jabs/segmentation/contour_count": lambda a: np.where(
+                        np.arange(a.size).reshape(a.shape) == 0, 99, a
+                    ).astype(a.dtype)
+                }
+            ),
+        ),
+        (
             "invalid-duplicate-component-id.h5",
             full,
             _manifest(

@@ -45,7 +45,8 @@ INVALID = {
     "invalid-frame-count.h5": "dimensions_match_video",
     "invalid-identity-exceeds-slot.h5": "identity_le_slot",
     "invalid-keypoint-axis.h5": "keypoint_axis_length",
-    "invalid-length-exceeds-axis.h5": "mask_reference",
+    "invalid-length-exceeds-axis.h5": "length_bound",
+    "invalid-contour-count-exceeds-axis.h5": "contour_count_bound",
     "invalid-keypoint-without-skeleton.h5": "manifest_schema",
     "invalid-manifest-root-mismatch.h5": "manifest_matches_root",
     "invalid-manifest-schema.h5": "manifest_schema",
@@ -118,14 +119,14 @@ SCHEMA_MESSAGES = {
 
 
 @pytest.mark.parametrize("name,message", sorted(SCHEMA_MESSAGES.items()))
-def test_schema_fixtures_break_the_rule_they_name(name, message):
+def test_schema_fixtures_break_the_rule_they_name(name: str, message: str) -> None:
     """Each schema fixture fails for its own rule, not for some other schema error."""
     assert INVALID[name] == "manifest_schema"
     messages = [f.message for f in validate(DATA / name) if f.severity == "error"]
     assert len(messages) == 1 and message in messages[0], messages
 
 
-def test_every_schema_fixture_is_pinned():
+def test_every_schema_fixture_is_pinned() -> None:
     """A new manifest_schema fixture needs its message here too."""
     schema_fixtures = {n for n, check in INVALID.items() if check == "manifest_schema"}
     assert schema_fixtures == set(SCHEMA_MESSAGES)
@@ -187,12 +188,12 @@ def _computed_check_sites() -> set[str]:
     return sites
 
 
-def test_every_computed_check_name_is_listed():
+def test_every_computed_check_name_is_listed() -> None:
     """A check name built at runtime is invisible to the scan, so its function is pinned."""
     assert _computed_check_sites() == COMPUTED_CHECK_SITES
 
 
-def test_every_error_check_has_an_invalid_fixture():
+def test_every_error_check_has_an_invalid_fixture() -> None:
     """ADR 0002: a set of deliberately invalid files, one per error check.
 
     A new check cannot ship without a fixture that fails it.
@@ -202,7 +203,7 @@ def test_every_error_check_has_an_invalid_fixture():
     assert missing == set(), f"error checks with no invalid fixture: {sorted(missing)}"
 
 
-def test_the_schema_shadowed_checks_really_are_shadowed():
+def test_the_schema_shadowed_checks_really_are_shadowed() -> None:
     """If one becomes reachable it needs a fixture, and this list must shrink."""
     assert _error_checks_in_source() >= SHADOWED_BY_SCHEMA
     reported = {f.check for name in INVALID for f in validate(DATA / name)}
@@ -233,14 +234,14 @@ def test_nan_points_mean_no_coordinate_never_low_confidence(name):
 
 
 @pytest.mark.parametrize("name", VALID)
-def test_valid_fixtures_pass_the_deep_check(name):
+def test_valid_fixtures_pass_the_deep_check(name: str) -> None:
     """Every alternate in a valid fixture decodes to its baseline."""
     errors = [f for f in validate(DATA / name, deep=True) if f.severity == "error"]
     assert errors == [], f"{name} should pass the deep check, got {[f.message for f in errors]}"
 
 
 @pytest.mark.parametrize("name,expected_check", sorted(DEEP_INVALID.items()))
-def test_deep_invalid_fixtures_fail_only_when_asked(name, expected_check):
+def test_deep_invalid_fixtures_fail_only_when_asked(name: str, expected_check: str) -> None:
     """Structurally valid; the deep check alone finds what is wrong."""
     assert [f for f in validate(DATA / name) if f.severity == "error"] == []
     findings = validate(DATA / name, deep=True)
