@@ -9,9 +9,13 @@ try:
     from PySide6 import QtGui
 
     from jabs.overlay_drawing import (
+        BEHAVIOR_COLOR,
+        NOT_BEHAVIOR_COLOR,
+        SEGMENTATION_NO_PREDICTION_COLOR,
         draw_identity_segmentation,
         identity_contours,
         native_segmentation_line_width,
+        segmentation_prediction_color,
     )
 
     SKIP_UI_TESTS = False
@@ -95,7 +99,7 @@ def test_line_width_grows_with_the_frame() -> None:
     assert native_segmentation_line_width(4000, 4000) > 1
 
 
-def _draw(pose, *, active: bool = True, to_output=None) -> QtGui.QImage:
+def _draw(pose, *, active: bool = True, to_output=None, color=None) -> QtGui.QImage:
     """Draw one identity's contours onto a black frame."""
     image = QtGui.QImage(80, 80, QtGui.QImage.Format.Format_RGB888)
     image.fill(QtGui.QColor(0, 0, 0))
@@ -107,7 +111,7 @@ def _draw(pose, *, active: bool = True, to_output=None) -> QtGui.QImage:
     painter = QtGui.QPainter(image)
     try:
         draw_identity_segmentation(
-            painter, pose, 0, 0, to_output=to_output, line_width=1, active=active
+            painter, pose, 0, 0, to_output=to_output, line_width=1, active=active, color=color
         )
     finally:
         painter.end()
@@ -130,6 +134,38 @@ def test_contour_color_tracks_the_active_identity(active: bool, channel: int) ->
 
     rgb = QtGui.QColor(image.pixel(30, 10)).getRgb()[:3]
     assert rgb[channel] == max(rgb), f"expected channel {channel} to dominate, got {rgb}"
+
+
+def test_an_explicit_color_overrides_the_active_identity_color() -> None:
+    """A color passed in is used in place of the active/inactive colors."""
+    image = _draw(StubPose(_padded(_SQUARE)), active=True, color=QtGui.QColor(0, 255, 0))
+
+    assert QtGui.QColor(image.pixel(30, 10)).getRgb()[:3] == (0, 255, 0)
+
+
+@pytest.mark.parametrize(
+    ("prediction", "expected"),
+    [(1, "behavior"), (0, "not_behavior"), (-1, "none")],
+    ids=["behavior-is-orange", "not-behavior-is-blue", "no-prediction-is-white"],
+)
+def test_binary_prediction_colors(prediction: int, expected: str) -> None:
+    """Binary predictions map to the label marker colors, or white for no prediction."""
+    colors = {
+        "behavior": BEHAVIOR_COLOR,
+        "not_behavior": NOT_BEHAVIOR_COLOR,
+        "none": SEGMENTATION_NO_PREDICTION_COLOR,
+    }
+    assert segmentation_prediction_color(prediction) == colors[expected]
+
+
+def test_multiclass_prediction_colors_come_from_the_lut() -> None:
+    """With a LUT, index 0 is no prediction and other indices are opaque LUT colors."""
+    lut = np.array([[128, 128, 128, 255], [10, 20, 30, 100], [40, 50, 60, 255]], dtype=np.uint8)
+
+    assert segmentation_prediction_color(0, lut) == SEGMENTATION_NO_PREDICTION_COLOR
+    assert segmentation_prediction_color(1, lut) == QtGui.QColor(10, 20, 30)
+    # an index past the end of the table is clamped to its last entry
+    assert segmentation_prediction_color(9, lut) == QtGui.QColor(40, 50, 60)
 
 
 def test_a_fully_visible_contour_is_closed() -> None:

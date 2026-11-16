@@ -83,9 +83,11 @@ from .scaling import native_overlay_scale
 from .segmentation import (
     SEGMENTATION_ACTIVE_COLOR,
     SEGMENTATION_INACTIVE_COLOR,
+    SEGMENTATION_NO_PREDICTION_COLOR,
     draw_identity_segmentation,
     identity_contours,
     native_segmentation_line_width,
+    segmentation_prediction_color,
 )
 from .skeleton import (
     KEYPOINT_SIZE,
@@ -122,6 +124,7 @@ __all__ = [
     "NOT_BEHAVIOR_COLOR",
     "SEGMENTATION_ACTIVE_COLOR",
     "SEGMENTATION_INACTIVE_COLOR",
+    "SEGMENTATION_NO_PREDICTION_COLOR",
     "TRACK_FUTURE_COLOR",
     "TRACK_LINE_WIDTH",
     "TRACK_PAST_COLOR",
@@ -141,4 +144,5 @@ __all__ = [
     "native_pose_sizes",
     "native_segmentation_line_width",
     "pose_has_bounding_boxes",
+    "segmentation_prediction_color",
 ]
