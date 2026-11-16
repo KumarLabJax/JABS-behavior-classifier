@@ -98,11 +98,14 @@ def _extra_requirements(
         requirement = _parse(line)
         if requirement is None or not _enabled_by_extra(requirement, extra):
             continue
-        result[requirement.name] = _is_satisfied(requirement)
-        # a requirement such as ``jabs-io[nwb]`` also needs that package's extra
-        if result[requirement.name]:
+        satisfied = _is_satisfied(requirement)
+        # a requirement such as ``jabs-io[nwb]`` stands for that package's extra, so
+        # report the extra's packages rather than the (possibly core) package itself
+        if satisfied and requirement.extras:
             for nested in sorted(requirement.extras):
                 result.update(_extra_requirements(requirement.name, nested, seen))
+        else:
+            result[requirement.name] = satisfied
     return result
 
 

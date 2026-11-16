@@ -43,6 +43,7 @@ def fake_environment(monkeypatch):
 
 
 def _by_name(statuses: list[ExtraStatus]) -> dict[str, ExtraStatus]:
+    """Index extra statuses by extra name."""
     return {status.name: status for status in statuses}
 
 
@@ -125,7 +126,11 @@ def test_wrong_version_counts_as_missing(fake_environment) -> None:
 
 
 def test_nested_extras_are_followed(fake_environment) -> None:
-    """An extra that needs another package's extra also needs that extra's packages."""
+    """An extra that needs another package's extra reports that extra's packages.
+
+    The package carrying the nested extra is itself installed (here a core dependency),
+    so it is not listed, and an extra with none of its packages is not "partial".
+    """
     fake_environment(
         {
             "app": ("1.0", ["nwb"], ["lib[nwb] ; extra == 'nwb'"]),
@@ -136,8 +141,31 @@ def test_nested_extras_are_followed(fake_environment) -> None:
 
     status = extras_status("app")[0]
 
-    assert status.required == ("lib", "pynwb", "ndx-pose")
+    assert status.required == ("pynwb", "ndx-pose")
     assert status.missing == ("pynwb",)
+    assert status.partially_installed
+
+
+def test_nested_extra_with_none_of_its_packages_is_not_installed(fake_environment) -> None:
+    """A nested extra whose packages are all missing is not partially installed."""
+    fake_environment(
+        {
+            "app": ("1.0", ["nwb"], ["lib[nwb] ; extra == 'nwb'"]),
+            "lib": ("1.0", ["nwb"], ["pynwb ; extra == 'nwb'"]),
+        }
+    )
+
+    status = extras_status("app")[0]
+
+    assert status.missing == ("pynwb",)
+    assert not status.installed and not status.partially_installed
+
+
+def test_nested_extra_on_a_missing_package_reports_that_package(fake_environment) -> None:
+    """When the package carrying the nested extra is missing, it is what is reported."""
+    fake_environment({"app": ("1.0", ["nwb"], ["lib[nwb] ; extra == 'nwb'"])})
+
+    assert extras_status("app")[0].missing == ("lib",)
 
 
 def test_extras_that_refer_to_each_other_do_not_recurse_forever(fake_environment) -> None:
