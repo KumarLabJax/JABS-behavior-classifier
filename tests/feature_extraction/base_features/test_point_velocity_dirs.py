@@ -6,8 +6,9 @@ from typing import Protocol
 import numpy as np
 import numpy.typing as npt
 import pytest
+import shapely
 
-from jabs.feature_extraction.base_features import PointVelocityDirs
+from jabs.feature_extraction.base_features import CentroidVelocityDir, PointVelocityDirs
 from jabs.pose_estimation import PoseEstimation
 
 
@@ -109,6 +110,14 @@ class _PoseLike(Protocol):
         """Return the per-frame bearing of one identity, in degrees."""
         ...
 
+    def get_identity_convex_hulls(self, identity: int) -> list[shapely.Polygon]:
+        """Return the per-frame body hull of one identity (used by CentroidVelocityDir)."""
+        ...
+
+    def identity_mask(self, identity: int) -> npt.NDArray[np.uint8]:
+        """Return 1 for frames the identity is present (used by CentroidVelocityDir)."""
+        ...
+
 
 def _pose_with_constant_motion(
     pose_est_v5: PoseEstimation,
@@ -140,6 +149,11 @@ def _pose_with_constant_motion(
     poses[:, :, 1] = frame_numbers * delta[1]
     point_masks: npt.NDArray[np.uint8] = np.ones((num_frames, num_keypoints), dtype=np.uint8)
     bearings: npt.NDArray[np.float32] = np.full(num_frames, bearing, dtype=np.float32)
+    # a unit square that moves with the keypoints, so its centroid has the same motion
+    hulls = [
+        shapely.box(x, y, x + 1, y + 1)
+        for x, y in zip(poses[:, 0, 0], poses[:, 0, 1], strict=True)
+    ]
 
     class _PoseWithConstantMotion:
         """Delegates to the real pose object, but reports synthetic poses/bearings."""
@@ -156,6 +170,14 @@ def _pose_with_constant_motion(
         def compute_all_bearings(self, identity: int) -> npt.NDArray[np.float32]:
             """Return the constant bearing, for any identity."""
             return bearings
+
+        def get_identity_convex_hulls(self, identity: int) -> list[shapely.Polygon]:
+            """Return a unit square moving with the keypoints, for any identity."""
+            return hulls
+
+        def identity_mask(self, identity: int) -> npt.NDArray[np.uint8]:
+            """Report the identity present in every frame."""
+            return np.ones(num_frames, dtype=np.uint8)
 
     return typing.cast("_PoseLike", _PoseWithConstantMotion())
 
@@ -217,6 +239,34 @@ def test_point_velocity_dirs_bearing_relative_convention(pose_est_v5, delta, bea
         )
         assert values[f"{keypoint.name} velocity direction cosine"] == pytest.approx(
             np.cos(np.deg2rad(expected)), abs=1e-6
+        )
+
+
+@pytest.mark.parametrize(
+    ("delta", "bearing", "expected"),
+    _BEARING_RELATIVE_CASES,
+    ids=_BEARING_RELATIVE_IDS,
+)
+def test_point_velocity_dirs_matches_centroid_velocity_dir(
+    pose_est_v5, delta, bearing, expected
+) -> None:
+    """Keypoint and centroid velocity directions use the same bearing convention.
+
+    When every keypoint and the body hull move together, each keypoint's direction must
+    equal the centroid's. This keeps the two features from drifting apart again, which
+    is how the pre-``FEATURE_VERSION`` 19 offset arose.
+    """
+    poses = _pose_with_constant_motion(pose_est_v5, delta, bearing)
+    point_values = PointVelocityDirs(poses, 1.0).per_frame(0)
+    centroid = CentroidVelocityDir(poses, 1.0).per_frame(0)["centroid_velocity_dir"]
+
+    assert centroid == pytest.approx(expected)
+    for keypoint in PoseEstimation.KeypointIndex:
+        np.testing.assert_allclose(
+            point_values[f"{keypoint.name} velocity direction"],
+            centroid,
+            atol=1e-4,
+            err_msg=keypoint.name,
         )
 
 
