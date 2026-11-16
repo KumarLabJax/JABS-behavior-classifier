@@ -13,6 +13,26 @@ import numpy as np
 import numpy.typing as npt
 
 
+def wrap_degrees(
+    angle: npt.ArrayLike,
+) -> np.floating | npt.NDArray[np.floating]:
+    """Wrap angles in degrees into the half-open range ``[-180, 180)``.
+
+    ``((angle + 180) % 360) - 180`` alone can return ``+180``: when ``angle + 180`` is
+    a tiny negative number (float noise around ``-180``), the modulo rounds up to
+    exactly ``360``. Those values are folded back to ``-180`` here.
+
+    Args:
+        angle: Angle in degrees, or an array of angles.
+
+    Returns:
+        The wrapped angle(s). Scalar for scalar input, otherwise an array of the same
+        shape. The input dtype is preserved.
+    """
+    wrapped = ((np.asarray(angle) + 180) % 360) - 180
+    return np.where(wrapped >= 180, wrapped - 360, wrapped)[()]
+
+
 def signed_angle_degrees(
     a: npt.ArrayLike, vertex: npt.ArrayLike, c: npt.ArrayLike
 ) -> np.floating | npt.NDArray[np.floating]:
@@ -42,4 +62,4 @@ def signed_angle_degrees(
         np.arctan2(c_xy[..., 1] - vertex_xy[..., 1], c_xy[..., 0] - vertex_xy[..., 0])
         - np.arctan2(a_xy[..., 1] - vertex_xy[..., 1], a_xy[..., 0] - vertex_xy[..., 0])
     )
-    return ((angle + 180) % 360) - 180
+    return wrap_degrees(angle)

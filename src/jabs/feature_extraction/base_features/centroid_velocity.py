@@ -1,5 +1,6 @@
 import numpy as np
 
+from jabs.core.utils import wrap_degrees
 from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
@@ -32,7 +33,7 @@ class CentroidVelocityDir(Feature):
 
         # subtract animal bearing from orientation
         # convert angle to range -180 to 180
-        values = (((d - bearings) + 180) % 360) - 180
+        values = wrap_degrees(d - bearings)
 
         return {
             "centroid_velocity_dir": values,
