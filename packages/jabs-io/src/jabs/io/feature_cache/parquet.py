@@ -38,13 +38,6 @@ _METADATA_FILENAME = "metadata.json"
 _PER_FRAME_FILENAME = "per_frame.parquet"
 _WINDOW_FILENAME_TEMPLATE = "window_{size}.parquet"
 
-# Options for every feature cache write. Dictionary encoding is off: pyarrow tries it on
-# every column by default, but feature values are continuous floats that almost never
-# repeat, so it only adds work and size. Turning it off makes window-feature writes
-# about 2.7x faster and the files about 16% smaller, with no change to read time or to
-# the values read back.
-_WRITE_OPTIONS: dict[str, str | bool] = {"compression": "lz4", "use_dictionary": False}
-
 
 def _metadata_to_dict(metadata: FeatureCacheMetadata) -> dict[str, object]:
     """Serialize ``FeatureCacheMetadata`` to a JSON-compatible dict.
@@ -178,7 +171,10 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
             columns[feature_key] = data.features[feature_key]
 
         table = pa.table({k: pa.array(v) for k, v in columns.items()})
-        pq.write_table(table, parquet_path, **_WRITE_OPTIONS)
+        # Dictionary encoding is off: pyarrow tries it on every column by default, but
+        # feature values are continuous floats that almost never repeat, so it only adds
+        # work and size without changing the values read back.
+        pq.write_table(table, parquet_path, compression="lz4", use_dictionary=False)
         logger.debug("Wrote %d per-frame feature columns to %s", len(data.features), parquet_path)
 
         # metadata.json is written last; its presence is the sentinel for a valid cache.
@@ -214,7 +210,7 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
         logger.info("Writing Parquet window-%d feature cache to %s", window_size, parquet_path)
 
         table = pa.table({k: pa.array(data[k]) for k in sorted(data)})
-        pq.write_table(table, parquet_path, **_WRITE_OPTIONS)
+        pq.write_table(table, parquet_path, compression="lz4", use_dictionary=False)
         logger.debug(
             "Wrote %d window-%d feature columns to %s",
             len(data),
