@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from jabs.core.utils import signed_angle_degrees
+from jabs.core.utils import signed_angle_degrees, wrap_degrees
 
 
 @pytest.mark.parametrize(
@@ -78,3 +78,41 @@ def test_signed_angle_degrees_nan_coordinates() -> None:
 
     assert np.isnan(angles[0])
     assert angles[1] == pytest.approx(90.0)
+
+
+@pytest.mark.parametrize(
+    ("angle", "expected"),
+    [
+        (0.0, 0.0),
+        (179.0, 179.0),
+        (180.0, -180.0),
+        (-180.0, -180.0),
+        (270.0, -90.0),
+        (-190.0, 170.0),
+        (720.0, 0.0),
+    ],
+    ids=["zero", "inside", "plus-180", "minus-180", "above-range", "below-range", "multi-turn"],
+)
+def test_wrap_degrees(angle: float, expected: float) -> None:
+    """Angles are wrapped into [-180, 180), with +180 mapped to -180."""
+    assert wrap_degrees(angle) == pytest.approx(expected)
+
+
+def test_wrap_degrees_float_noise_below_minus_180_stays_in_range() -> None:
+    """Float noise just below -180 wraps to -180, not +180.
+
+    ``(angle + 180) % 360`` rounds a tiny negative number up to exactly 360, which the
+    plain modulo formula would report as +180.
+    """
+    angles = np.array([-180.0 - 1e-14, -180.0 - 1e-15])
+
+    wrapped = wrap_degrees(angles)
+
+    assert (wrapped >= -180).all() and (wrapped < 180).all()
+    np.testing.assert_allclose(wrapped, -180.0)
+
+
+def test_wrap_degrees_preserves_scalar_and_dtype() -> None:
+    """Scalar input gives a scalar, and float32 input stays float32."""
+    assert np.ndim(wrap_degrees(190.0)) == 0
+    assert wrap_degrees(np.array([190.0], dtype=np.float32)).dtype == np.float32

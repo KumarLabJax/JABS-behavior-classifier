@@ -1,22 +1,36 @@
 """Geometry helpers shared by feature extraction and the GUI.
 
-Note: two angle features wrap their own output rather than calling
-:func:`signed_angle_degrees`, because their values are stored in the feature cache and
-rewrapping them would change computed feature values (and so require a
-``FEATURE_VERSION`` bump):
-
-- ``Angles._compute_angles`` wraps to an unsigned ``[0, 360)`` range instead. This is
-  deliberate; the feature's own docstring documents that range.
-- ``PointVelocityDirs.per_frame`` wraps with ``((x + 360) % 360) - 180``, which lands in
-  ``[-180, 180)`` but is rotated 180 degrees from this module's convention. That one is
-  a known defect rather than a choice - the sibling ``CentroidVelocityDir`` computes the
-  same bearing-relative angle correctly - and is documented where it occurs.
+Note: ``Angles._compute_angles`` wraps its own output to an unsigned ``[0, 360)``
+range rather than calling :func:`signed_angle_degrees`. This is deliberate; the
+feature's own docstring documents that range, and its values are stored in the feature
+cache, so rewrapping them would change computed feature values (and so require a
+``FEATURE_VERSION`` bump).
 """
 
 from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
+
+
+def wrap_degrees(
+    angle: npt.ArrayLike,
+) -> np.floating | npt.NDArray[np.floating]:
+    """Wrap angles in degrees into the half-open range ``[-180, 180)``.
+
+    ``((angle + 180) % 360) - 180`` alone can return ``+180``: when ``angle + 180`` is
+    a tiny negative number (float noise around ``-180``), the modulo rounds up to
+    exactly ``360``. Those values are folded back to ``-180`` here.
+
+    Args:
+        angle: Angle in degrees, or an array of angles.
+
+    Returns:
+        The wrapped angle(s). Scalar for scalar input, otherwise an array of the same
+        shape. The input dtype is preserved.
+    """
+    wrapped = ((np.asarray(angle) + 180) % 360) - 180
+    return np.where(wrapped >= 180, wrapped - 360, wrapped)[()]
 
 
 def signed_angle_degrees(
@@ -48,4 +62,4 @@ def signed_angle_degrees(
         np.arctan2(c_xy[..., 1] - vertex_xy[..., 1], c_xy[..., 0] - vertex_xy[..., 0])
         - np.arctan2(a_xy[..., 1] - vertex_xy[..., 1], a_xy[..., 0] - vertex_xy[..., 0])
     )
-    return ((angle + 180) % 360) - 180
+    return wrap_degrees(angle)

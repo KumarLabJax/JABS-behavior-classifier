@@ -36,7 +36,7 @@ FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.generic]]
 PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.generic]]]
 WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.generic]]]]
 
-FEATURE_VERSION = 18
+FEATURE_VERSION = 19
 
 _FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGroup]
 
