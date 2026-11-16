@@ -127,8 +127,8 @@ class IdentityFeatures:
         pose_est:
           PoseEstimation object corresponding to this video
         force:
-          force regeneration of per frame features even if the
-          per frame feature .h5 file exists for this video/identity
+          force regeneration of per frame features even if they are
+          already cached for this video/identity
         fps:
           frames per second. Used for converting angular velocity
           from degrees per frame to degrees per second
@@ -332,7 +332,10 @@ class IdentityFeatures:
                 raise NotImplementedError(f"Unsupported cache format: {fmt}")
 
     def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
-        """Initialize from a PoseEstimation object and save them in an h5 file
+        """Compute per-frame features from a PoseEstimation object and cache them
+
+        The features are written to the feature cache only when this instance was
+        given a project directory; with ``directory=None`` they are kept in memory.
 
         Args:
             pose_est: PoseEstimation object used to initialize self
@@ -464,25 +467,26 @@ class IdentityFeatures:
     def get_window_features(
         self, window_size: int, labels: np.ndarray | None = None, force: bool = False
     ) -> WindowFeatureMap:
-        """get window features for a given window size, computing if not previously computed and saved as h5 file
+        """get window features for a given window size, computing them if they are not already cached
 
         Args:
             window_size: number of frames on each side of the current
                 frame to include in the window
             labels: optional frame labels, if present then only features
                 for labeled frames will be returned
-            force: force regeneration of the window features even if the
-               features are filtered by self.op_settings
+            force: recompute the window features even if they are already
+                cached for this window size
 
         Note:
             if labels is None, this will also include values for frames where
             the identity does not exist. These get filtered out when filtering out
             unlabeled frames, since those frames are always unlabeled.
-            h5 file already exists
 
         Returns:
             window features for given window size. the format is
-            documented in the docstring for _compute_window_features
+            documented in the docstring for __compute_window_features
+
+            features are filtered by self.op_settings
         """
         if force or self._identity_feature_dir is None:
             features = self.__compute_window_features(window_size)
@@ -491,7 +495,7 @@ class IdentityFeatures:
 
         else:
             try:
-                # h5 file exists for this window size, load it
+                # cached window features exist for this window size, load them
                 features = self.__load_window_features(window_size)
                 logger.debug(
                     "Loaded window-%d features from cache for identity %d",
@@ -505,8 +509,8 @@ class IdentityFeatures:
                 DistanceScaleException,
                 PoseHashException,
             ) as e:
-                # h5 file does not exist for this window size, the version
-                # is not compatible, or the pose file changes.
+                # no cached window features for this window size, the cached
+                # feature version is not compatible, or the pose file changed.
                 # compute the features and return after saving
                 logger.info(
                     "Cache miss for identity %d window-%d features (%s); recomputing",
