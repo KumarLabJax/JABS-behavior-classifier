@@ -459,20 +459,22 @@ def test_sample_num_frames_total_result_is_sorted() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_cv2_mock(grabbed: bool = True, imwrite_ok: bool = True) -> MagicMock:
-    """Return a mock cv2 module with a VideoCapture that yields one frame."""
+def _make_cv2_mock(imwrite_ok: bool = True) -> MagicMock:
+    """Return a mock cv2 module whose imwrite reports ``imwrite_ok``."""
     mock_cv2 = MagicMock()
-    mock_cv2.CAP_PROP_POS_FRAMES = 1  # arbitrary constant value
-
-    mock_cap = MagicMock()
-    mock_cap.isOpened.return_value = True
-    mock_cap.read.return_value = (
-        grabbed,
-        np.zeros((4, 4, 3), dtype=np.uint8) if grabbed else None,
-    )
-    mock_cv2.VideoCapture.return_value = mock_cap
     mock_cv2.imwrite.return_value = imwrite_ok
     return mock_cv2
+
+
+def _make_reader_mock(grabbed: bool = True) -> MagicMock:
+    """Return a mock VideoReader class whose readers yield one frame per seek."""
+    mock_reader_cls = MagicMock()
+    reader = mock_reader_cls.return_value
+    reader.__enter__.return_value = reader
+    reader.load_next_frame.return_value = {
+        "data": np.zeros((4, 4, 3), dtype=np.uint8) if grabbed else None
+    }
+    return mock_reader_cls
 
 
 def test_write_frames_output_filename_convention(tmp_path: Path) -> None:
@@ -481,7 +483,10 @@ def test_write_frames_output_filename_convention(tmp_path: Path) -> None:
     out_dir.mkdir()
     mock_cv2 = _make_cv2_mock()
 
-    with patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2):
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", _make_reader_mock()),
+    ):
         write_frames(tmp_path, [("session_2024.mp4", 1234)], out_dir)
 
     written_path = Path(mock_cv2.imwrite.call_args.args[0])
@@ -493,7 +498,10 @@ def test_write_frames_zero_pads_frame_index(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
-    with patch("jabs.scripts.cli.sample_frames.cv2", _make_cv2_mock()) as mock_cv2:
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", _make_cv2_mock()) as mock_cv2,
+        patch("jabs.scripts.cli.sample_frames.VideoReader", _make_reader_mock()),
+    ):
         write_frames(tmp_path, [("v.mp4", 0), ("v.mp4", 999999)], out_dir)
         written_paths = [Path(c.args[0]).name for c in mock_cv2.imwrite.call_args_list]
 
@@ -502,24 +510,32 @@ def test_write_frames_zero_pads_frame_index(tmp_path: Path) -> None:
 
 
 def test_write_frames_groups_by_video(tmp_path: Path) -> None:
-    """Multiple frames from the same video open VideoCapture only once."""
+    """Multiple frames from the same video open the video only once, seeking to each."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    mock_reader_cls = _make_reader_mock()
+
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", _make_cv2_mock()),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", mock_reader_cls),
+    ):
+        write_frames(tmp_path, [("v.mp4", 1), ("v.mp4", 2), ("v.mp4", 3)], out_dir)
+
+    assert mock_reader_cls.call_count == 1
+    seeks = [c.args[0] for c in mock_reader_cls.return_value.seek.call_args_list]
+    assert seeks == [1, 2, 3]
+
+
+def test_write_frames_unreadable_frame_is_skipped(tmp_path: Path) -> None:
+    """A frame that cannot be read is skipped without raising."""
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     mock_cv2 = _make_cv2_mock()
 
-    with patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2):
-        write_frames(tmp_path, [("v.mp4", 1), ("v.mp4", 2), ("v.mp4", 3)], out_dir)
-
-    assert mock_cv2.VideoCapture.call_count == 1
-
-
-def test_write_frames_unreadable_frame_is_skipped(tmp_path: Path) -> None:
-    """A frame that cannot be read (grabbed=False) is skipped without raising."""
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-    mock_cv2 = _make_cv2_mock(grabbed=False)
-
-    with patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2):
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", _make_reader_mock(grabbed=False)),
+    ):
         write_frames(tmp_path, [("v.mp4", 5)], out_dir)  # must not raise
 
     mock_cv2.imwrite.assert_not_called()
@@ -529,13 +545,8 @@ def test_write_frames_unopenable_video_raises(tmp_path: Path) -> None:
     """An unopenable video file raises OSError."""
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    mock_cv2 = _make_cv2_mock()
-    mock_cv2.VideoCapture.return_value.isOpened.return_value = False
 
-    with (
-        patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2),
-        pytest.raises(OSError, match="Unable to open video"),
-    ):
+    with pytest.raises(OSError, match="unable to open"):
         write_frames(tmp_path, [("missing.mp4", 0)], out_dir)
 
 
@@ -543,10 +554,10 @@ def test_write_frames_imwrite_failure_raises(tmp_path: Path) -> None:
     """A failed cv2.imwrite raises RuntimeError."""
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    mock_cv2 = _make_cv2_mock(imwrite_ok=False)
 
     with (
-        patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2),
+        patch("jabs.scripts.cli.sample_frames.cv2", _make_cv2_mock(imwrite_ok=False)),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", _make_reader_mock()),
         pytest.raises(RuntimeError, match="Failed to write PNG"),
     ):
         write_frames(tmp_path, [("v.mp4", 0)], out_dir)
