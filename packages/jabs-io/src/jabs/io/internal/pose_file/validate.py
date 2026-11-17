@@ -20,6 +20,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
@@ -33,6 +34,28 @@ from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE
 
 ERROR = "error"
 WARNING = "warning"
+
+_INTEGER_DTYPES = ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64")
+
+# The value checks (length references, contour_count) read an array this many
+# bytes at a time, so memory stays flat however long the recording. The arrays
+# are small beside the payload -- legacy contour_length is F x S x C uint32,
+# about 2.6 MB per mouse-hour against 1.18 GB of contour points -- but they grow
+# with the recording, and nothing bounds a recording's length.
+VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
+
+# The deep check reads the dense baseline a block of frames at a time, so a
+# full-size baseline (tens of gigabytes for the worst legacy segmentation) never
+# sits in memory at once. A block is at least one frame.
+DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
+
+# The alternates this revision defines, by name and component, with the level
+# each must declare. The deep check can decode exactly these.
+_SEGMENTATION_ALTERNATE = "ragged"
+_CONTOURS = "jabs.segmentation.contours"
+_EXTERNAL_FLAG = "jabs.segmentation.external_flag"
+_CONTOUR_COUNT = "jabs.segmentation.contour_count"
+_CONTOUR_LENGTH = "jabs.segmentation.contour_length"
 
 
 @dataclass(frozen=True)
@@ -277,7 +300,7 @@ def _check_component(
         )
         return
 
-    _check_missing_reference(spec, by_id, findings)
+    _check_missing_reference(h5, spec, by_id, findings)
 
     if spec.get("provenance") is not None and spec["provenance"] not in provenance_records:
         findings.append(
@@ -372,7 +395,7 @@ def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[
     An alternate is a derived copy of the component's data in another
     encoding. It shares the component's id, skeleton and provenance, so only
     the checks that concern its own payload apply. Decoding it against the
-    baseline is the ADR's opt-in deep check, which this does not perform.
+    baseline is the ADR's opt-in deep check, ``_check_alternates_decode``.
 
     Args:
         h5: The open file.
@@ -415,7 +438,7 @@ def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[
                 )
             )
             continue
-        _check_missing_reference(view, by_id, findings)
+        _check_missing_reference(h5, view, by_id, findings)
         if "coord" in alternate["axes"]:
             pair = _axis_length(view, "coord")
             if pair is not None and pair != 2:
@@ -540,15 +563,19 @@ def _dtype_matches(node: h5py.Dataset, declared: str) -> bool:
     return node.dtype.name == declared
 
 
-def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[Finding]) -> None:
-    """Validate a mask or length reference, including its shape.
+def _check_missing_reference(
+    h5: h5py.File, spec: dict, by_id: dict[str, dict], findings: list[Finding]
+) -> None:
+    """Validate a mask or length reference, including its shape and a length's values.
 
     The ADR requires the reference to resolve "to an existing component with a
     compatible shape". Compatible means aligning with the leading axes of what
     it describes: a per-slot mask over per-keypoint data is meaningful, a mask
-    of higher rank than its target is not.
+    of higher rank than its target is not. A length that aligns must also fit
+    the axis it bounds.
 
     Args:
+        h5: The open file.
         spec: The component's manifest entry.
         by_id: Every component entry, keyed by id.
         findings: Accumulator.
@@ -589,6 +616,123 @@ def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[
                 f"{tuple(own_axes)}{tuple(own_shape)}",
             )
         )
+    elif (
+        policy == "length"
+        and len(other_axes) < len(own_axes)
+        and target["dtype"] in _INTEGER_DTYPES
+    ):
+        _check_length_bound(h5, spec, target, len(other_axes), findings)
+
+
+def _check_length_bound(
+    h5: h5py.File, spec: dict, target: dict, bounded: int, findings: list[Finding]
+) -> None:
+    """Validate that an aligned length reference's values fit the axis they bound.
+
+    ADR 0002: a length is "a non-negative integer no larger than the axis it
+    bounds". A contour_length of 99 over a 5-point axis passes every shape and
+    dtype check, and a reader that trusts it slices past the end of the data.
+    A reference whose dataset is missing or misdeclared is left to the checks
+    that report that.
+
+    Args:
+        h5: The open file.
+        spec: The component's (or alternate's) manifest entry.
+        target: The length reference's manifest entry, already aligned with
+            ``spec``'s leading axes.
+        bounded: Index of the axis the lengths bound, in ``spec``'s axes.
+        findings: Accumulator.
+    """
+    node = h5.get(target["path"])
+    if not isinstance(node, h5py.Dataset) or list(node.shape) != list(target["shape"]):
+        return
+    if node.dtype.kind not in "iu":
+        return
+    bound = spec["shape"][bounded]
+    value_range = _integer_range(node)
+    if value_range is None:
+        return
+    low, high = value_range
+    if low < 0 or high > bound:
+        findings.append(
+            Finding(
+                ERROR,
+                "length_bound",
+                f"{spec['id']}: length reference {target['id']!r} holds values in "
+                f"[{low}, {high}], outside [0, {bound}], the length of the "
+                f"{spec['axes'][bounded]} axis it bounds",
+            )
+        )
+
+
+def _integer_range(node: h5py.Dataset) -> tuple[int, int] | None:
+    """The minimum and maximum of an integer dataset, read in blocks; None when empty."""
+    row_bytes = max(1, int(np.prod(node.shape[1:])) * node.dtype.itemsize)
+    block = max(1, VALUE_CHECK_BLOCK_BYTES // row_bytes)
+    low = high = None
+    for first in range(0, node.shape[0], block):
+        values = np.asarray(node[first : first + block])
+        if values.size:
+            low = int(values.min()) if low is None else min(low, int(values.min()))
+            high = int(values.max()) if high is None else max(high, int(values.max()))
+    return None if low is None else (low, high)
+
+
+def _check_contour_count(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """Validate that each contour_count fits the contour axis it counts along.
+
+    ADR 0002: dense segmentation's validity comes from contour_count and
+    contour_length. contour_length is a length reference, bounded by the
+    generic rule; contour_count is not one, so without this a count of 99 over
+    a 2-wide contour axis passes, and a reader that trusts it slices past the
+    data. Applies to the catalog's dense layout; a foreign layout, or a
+    missing or misdeclared dataset, is left to the checks that report that.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    count, contours = by_id.get(_CONTOUR_COUNT), by_id.get(_CONTOURS)
+    if count is None or contours is None:
+        return
+    if contours["encoding"].get("kind") != "dense" or count["encoding"].get("kind") != "dense":
+        return
+    if list(count["axes"]) != ["frame", "slot"] or list(contours["axes"][:3]) != [
+        "frame",
+        "slot",
+        "contour",
+    ]:
+        return
+    if count["dtype"] not in _INTEGER_DTYPES:
+        findings.append(
+            Finding(
+                ERROR,
+                "contour_count_bound",
+                f"{_CONTOUR_COUNT} has dtype {count['dtype']}; a count must be an integer",
+            )
+        )
+        return
+    node = h5.get(count["path"])
+    if not isinstance(node, h5py.Dataset) or list(node.shape) != list(count["shape"]):
+        return
+    if node.dtype.kind not in "iu":
+        return
+    value_range = _integer_range(node)
+    if value_range is None:
+        return
+    low, high = value_range
+    bound = contours["shape"][2]
+    if low < 0 or high > bound:
+        findings.append(
+            Finding(
+                ERROR,
+                "contour_count_bound",
+                f"{_CONTOUR_COUNT} holds values in [{low}, {high}], outside [0, {bound}], the "
+                f"length of {_CONTOURS}'s contour axis",
+            )
+        )
 
 
 def _check_reference_dtype(
@@ -616,16 +760,7 @@ def _check_reference_dtype(
                 f"{target['dtype']!r}; a mask must be boolean",
             )
         )
-    if policy == "length" and target["dtype"] not in (
-        "int8",
-        "int16",
-        "int32",
-        "int64",
-        "uint8",
-        "uint16",
-        "uint32",
-        "uint64",
-    ):
+    if policy == "length" and target["dtype"] not in _INTEGER_DTYPES:
         findings.append(
             Finding(
                 ERROR,
@@ -1192,13 +1327,328 @@ def _check_attachments(h5: h5py.File, manifest: dict, findings: list[Finding]) -
     root.visititems(note_undeclared)
 
 
-def validate(path: str | Path) -> list[Finding]:
+def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """The opt-in deep check: each alternate decodes to its baseline.
+
+    Every structural check can pass while an alternate says something its
+    baseline does not -- a moved point, a flipped flag, a contour handed to the
+    neighboring slot -- because those checks read offsets and shapes, not
+    values. This decodes both and compares them.
+
+    Decoding trusts the offsets and shapes the structural checks vouch for, so
+    a file that already has errors is not decoded. This revision defines one
+    alternate, ``ragged`` on ``jabs.segmentation``; any other is reported as
+    unchecked rather than passed, because a dense baseline does not say
+    generically how many groups an instance has.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    alternates = [
+        (spec, alternate)
+        for spec in manifest["components"]
+        for alternate in spec.get("alternates", [])
+    ]
+    if not alternates:
+        return
+    if any(f.severity == ERROR for f in findings):
+        findings.append(
+            Finding(
+                WARNING,
+                "alternate_deep_unchecked",
+                "alternates were not decoded: the file has errors, and decoding trusts the "
+                "offsets and shapes those checks cover",
+            )
+        )
+        return
+
+    by_id = {c["id"]: c for c in manifest["components"]}
+    contours = flags = None
+    for spec, alternate in alternates:
+        label = _alternate_label(spec["id"], alternate["name"])
+        reason = _undecodable_reason(spec, alternate, by_id)
+        if reason is not None:
+            findings.append(Finding(WARNING, "alternate_deep_unchecked", f"{label}: {reason}"))
+        elif spec["id"] == _CONTOURS:
+            contours = alternate
+        else:
+            flags = alternate
+    if (
+        contours is not None
+        and flags is not None
+        and (
+            flags["encoding"]["group_offsets"],
+            flags["encoding"]["instance_offsets"],
+        )
+        != (contours["encoding"]["group_offsets"], contours["encoding"]["instance_offsets"])
+    ):
+        # Pairing only requires some leaf-level partner. Decoding these flags
+        # through the contours' offsets would compare the wrong groups.
+        findings.append(
+            Finding(
+                WARNING,
+                "alternate_deep_unchecked",
+                f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
+                "the contours alternate's, so it cannot be decoded through them",
+            )
+        )
+        flags = None
+    if contours is None:
+        # A group-level flag alternate is decoded through the contours' offsets.
+        if flags is not None:
+            findings.append(
+                Finding(
+                    WARNING,
+                    "alternate_deep_unchecked",
+                    f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
+                    "contours alternate's offsets, and that alternate is not decodable here",
+                )
+            )
+        return
+    _compare_segmentation_alternate(h5, manifest, by_id, contours, flags, findings)
+
+
+def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> str | None:
+    """Why the deep check cannot decode this alternate, or None when it can.
+
+    The decode assumes the catalog's segmentation layout, and no structural
+    check requires a file to follow it: a foreign producer may lay segmentation
+    out differently and still conform. Every assumption the decode makes is
+    therefore checked here, so a different layout is reported as unchecked
+    rather than raising mid-comparison.
+
+    Args:
+        spec: The component carrying the alternate.
+        alternate: The alternate's manifest entry.
+        by_id: Components by id.
+
+    Returns:
+        A sentence for the finding, or None.
+    """
+    expected_level = {_CONTOURS: "leaf", _EXTERNAL_FLAG: "group"}.get(spec["id"])
+    encoding = alternate["encoding"]
+    if alternate["name"] != _SEGMENTATION_ALTERNATE or expected_level is None:
+        return (
+            "this revision defines only the ragged alternate of jabs.segmentation, so this "
+            "alternate cannot be decoded against its baseline"
+        )
+    if encoding.get("kind") != "ragged" or encoding.get("level", "leaf") != expected_level:
+        return f"the ragged alternate must be a {expected_level}-level ragged encoding"
+    needed = (_CONTOURS, _CONTOUR_COUNT, _CONTOUR_LENGTH) + (
+        (_EXTERNAL_FLAG,) if spec["id"] == _EXTERNAL_FLAG else ()
+    )
+    for component_id in needed:
+        baseline = by_id.get(component_id)
+        if baseline is None or baseline["encoding"].get("kind") != "dense":
+            return f"its dense baseline needs a dense {component_id}"
+
+    contours = by_id[_CONTOURS]
+    axes, shape = list(contours["axes"]), list(contours["shape"])
+    if axes[:4] != ["frame", "slot", "contour", "point"]:
+        return f"{_CONTOURS} must have axes (frame, slot, contour, point, ...) to be decoded"
+    layout = {
+        _CONTOUR_COUNT: (["frame", "slot"], shape[:2]),
+        _CONTOUR_LENGTH: (["frame", "slot", "contour"], shape[:3]),
+        _EXTERNAL_FLAG: (["frame", "slot", "contour"], shape[:3]),
+    }
+    for component_id in needed[1:]:
+        want_axes, want_shape = layout[component_id]
+        entry = by_id[component_id]
+        if list(entry["axes"]) != want_axes or list(entry["shape"]) != want_shape:
+            return f"{component_id} is not indexed by the contours' {tuple(want_axes)}"
+        # Flags are compared as booleans. Counts and lengths need no check
+        # here: the structural pass requires both to be integers, and the deep
+        # check only runs on a file with no errors.
+        if component_id == _EXTERNAL_FLAG and entry["dtype"] != "bool":
+            return f"{component_id} has dtype {entry['dtype']}, not bool"
+    # The length policy is what makes the length-bound check run on
+    # contour_length, and the deep check only runs on a file with no errors,
+    # so every length it decodes through fits the point axis.
+    missing = contours["missing"]
+    if missing.get("policy") != "length" or missing.get("length") != _CONTOUR_LENGTH:
+        return (
+            f"{_CONTOURS} must declare a length policy naming {_CONTOUR_LENGTH}, which is what "
+            "bounds each contour's points"
+        )
+    if spec["id"] == _CONTOURS:
+        if list(alternate["axes"]) != ["point", *axes[4:]] or (
+            list(alternate["shape"][1:]) != shape[4:]
+        ):
+            return (
+                f"its axes {tuple(alternate['axes'])}{tuple(alternate['shape'])} do not hold "
+                f"the baseline's points, whose trailing axes are "
+                f"{tuple(axes[4:])}{tuple(shape[4:])}"
+            )
+    elif list(alternate["axes"]) != ["contour"]:
+        return f"a group-level flag alternate has the single axis contour, not {alternate['axes']}"
+    elif alternate["dtype"] != "bool":
+        return f"a flag alternate is compared as booleans, so it must be bool, not {alternate['dtype']}"
+    return None
+
+
+def _rows_differ(
+    actual: npt.NDArray[np.generic], expected: npt.NDArray[np.generic]
+) -> npt.NDArray[np.bool_]:
+    """Which leading-axis rows of two equal-shape arrays differ, with NaN equal to NaN.
+
+    Args:
+        actual: The alternate's values.
+        expected: The baseline's values.
+
+    Returns:
+        One boolean per row of the first axis.
+    """
+    differ = actual != expected
+    if actual.dtype.kind == "f" and expected.dtype.kind == "f":
+        differ &= ~(np.isnan(actual) & np.isnan(expected))
+    # Reduce over the trailing axes; reshape(0, -1) is undefined for a block
+    # whose instances own no points.
+    return differ.any(axis=tuple(range(1, differ.ndim))) if differ.ndim > 1 else differ
+
+
+def _compare_segmentation_alternate(
+    h5: h5py.File,
+    manifest: dict,
+    by_id: dict[str, dict],
+    contours: dict,
+    flags: dict | None,
+    findings: list[Finding],
+) -> None:
+    """Compare the ragged segmentation alternate with its dense baseline.
+
+    Vectorized per block of frames. For each block, the dense baseline implies
+    the alternate exactly: each instance owns ``contour_count`` groups, group
+    sizes are the valid ``contour_length`` entries in ``(frame, slot, contour)``
+    order, the payload is the valid points in the same order, and the
+    group-level flags are the valid ``external_flag`` entries. The first
+    difference in each of the four is reported, against the instance it
+    belongs to.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        by_id: Components by id.
+        contours: The contours' ragged alternate (leaf level).
+        flags: The flags' ragged alternate (group level), or None.
+        findings: Accumulator.
+    """
+    frames, slots = manifest["dimensions"]["frame"], manifest["dimensions"]["slot"]
+    dense = h5[by_id[_CONTOURS]["path"]]
+    count_node = h5[by_id[_CONTOUR_COUNT]["path"]]
+    length_node = h5[by_id[_CONTOUR_LENGTH]["path"]]
+    flag_node = h5[by_id[_EXTERNAL_FLAG]["path"]] if flags is not None else None
+    payload = h5[contours["path"]]
+    flag_payload = h5[flags["path"]] if flags is not None else None
+    group_offsets = _offsets(h5, contours["encoding"]["group_offsets"])
+    instance_offsets = _offsets(h5, contours["encoding"]["instance_offsets"])
+    contour_axis, point_axis = dense.shape[2], dense.shape[3]
+
+    points_label = _alternate_label(_CONTOURS, contours["name"])
+    flags_label = _alternate_label(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
+    frame_bytes = max(1, int(np.prod(dense.shape[1:])) * dense.dtype.itemsize)
+    block = max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes)
+
+    def instance_of(group: int) -> str:
+        position = int(np.searchsorted(instance_offsets, group, side="right")) - 1
+        return f"frame {position // slots}, slot {position % slots}"
+
+    def disagree(label: str, where: str, what: str) -> None:
+        findings.append(
+            Finding(
+                ERROR,
+                "alternate_decodes",
+                f"{label} disagrees with its baseline at {where}: {what}. The baseline wins; "
+                "the alternate must be dropped or regenerated",
+            )
+        )
+
+    # Every count is within [0, contour_axis] and every length within
+    # [0, point_axis]: the structural pass checks both, and this only runs on a
+    # file with no errors.
+    points_ok, flags_ok = True, flags is not None
+    for first in range(0, frames, block):
+        last = min(frames, first + block)
+        count = np.asarray(count_node[first:last]).astype(np.int64)
+        length = np.asarray(length_node[first:last]).astype(np.int64)
+        valid_contour = np.arange(contour_axis) < count[..., None]
+
+        # Which groups each instance owns.
+        lo, hi = first * slots, last * slots
+        owned = np.diff(instance_offsets[lo : hi + 1])
+        expected_owned = count.ravel()
+        if not np.array_equal(owned, expected_owned):
+            position = lo + int(np.flatnonzero(owned != expected_owned)[0])
+            disagree(
+                points_label,
+                f"frame {position // slots}, slot {position % slots}",
+                f"it owns {owned[position - lo]} contours where the baseline has "
+                f"{expected_owned[position - lo]}",
+            )
+            return
+        g0, g1 = int(instance_offsets[lo]), int(instance_offsets[hi])
+
+        # Each group's size.
+        sizes = np.diff(group_offsets[g0 : g1 + 1])
+        expected_sizes = length[valid_contour]
+        if points_ok and not np.array_equal(sizes, expected_sizes):
+            group = g0 + int(np.flatnonzero(sizes != expected_sizes)[0])
+            disagree(
+                points_label,
+                instance_of(group),
+                f"contour {group} has {sizes[group - g0]} points where the baseline has "
+                f"{expected_sizes[group - g0]}",
+            )
+            points_ok = False
+
+        # The points themselves.
+        if points_ok:
+            valid_point = valid_contour[..., None] & (np.arange(point_axis) < length[..., None])
+            expected_points = np.asarray(dense[first:last])[valid_point]
+            actual = np.asarray(payload[int(group_offsets[g0]) : int(group_offsets[g1])])
+            mismatch = np.flatnonzero(_rows_differ(actual, expected_points))
+            if mismatch.size:
+                point = int(group_offsets[g0]) + int(mismatch[0])
+                group = int(np.searchsorted(group_offsets, point, side="right")) - 1
+                disagree(
+                    points_label,
+                    instance_of(group),
+                    f"point {point} is {actual[mismatch[0]].tolist()} where the baseline has "
+                    f"{expected_points[mismatch[0]].tolist()}",
+                )
+                points_ok = False
+
+        # The group-level flags.
+        if flags_ok and flag_node is not None:
+            expected_flags = np.asarray(flag_node[first:last])[valid_contour]
+            actual_flags = np.asarray(flag_payload[g0:g1])
+            mismatch = np.flatnonzero(actual_flags != expected_flags)
+            if mismatch.size:
+                group = g0 + int(mismatch[0])
+                disagree(
+                    flags_label,
+                    instance_of(group),
+                    f"contour {group}'s flag is {actual_flags[mismatch[0]].item()!r} where the "
+                    f"baseline has {expected_flags[mismatch[0]].item()!r}",
+                )
+                flags_ok = False
+
+        if not (points_ok or flags_ok):
+            return
+
+
+def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
     """Validate a pose file.
 
     Never raises for a malformed file: every problem comes back as a Finding.
 
     Args:
         path: The file to validate.
+        deep: Also run ADR 0002's opt-in deep check: decode every alternate
+            and compare it with its baseline, per ``(frame, slot)``. It reads
+            the baseline in full, so it costs as much as reading the payload.
+            A tool that writes or ingests alternates runs it; a reader need not.
 
     Returns:
         Findings, errors first. An empty list means the file conforms.
@@ -1228,5 +1678,8 @@ def validate(path: str | Path) -> list[Finding]:
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)
+        _check_contour_count(h5, manifest, findings)
+        if deep:
+            _check_alternates_decode(h5, manifest, findings)
 
     return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))
