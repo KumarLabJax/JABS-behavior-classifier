@@ -380,8 +380,8 @@ def test_parquet_lz4_compression(tmp_path, writer: ParquetFeatureCacheWriter) ->
 def test_parquet_no_dictionary_encoding(tmp_path, writer: ParquetFeatureCacheWriter) -> None:
     """Feature caches are written without dictionary encoding.
 
-    Feature values are continuous floats, so dictionary encoding only slows the write
-    and enlarges the file.
+    Most feature columns are continuous floats, so dictionary encoding slows the write
+    and enlarges the file overall.
     """
     rng = np.random.default_rng(13)
     identity_dir = tmp_path / "identity_0"

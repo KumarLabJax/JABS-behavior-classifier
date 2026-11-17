@@ -172,8 +172,9 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
 
         table = pa.table({k: pa.array(v) for k, v in columns.items()})
         # Dictionary encoding is off: pyarrow tries it on every column by default, but
-        # feature values are continuous floats that almost never repeat, so it only adds
-        # work and size without changing the values read back.
+        # most feature columns are continuous floats, so it costs more than it saves
+        # overall. A few low-cardinality columns grow, but the cache shrinks and writes
+        # faster. It doesn't change the values read back.
         pq.write_table(table, parquet_path, compression="lz4", use_dictionary=False)
         logger.debug("Wrote %d per-frame feature columns to %s", len(data.features), parquet_path)
 
