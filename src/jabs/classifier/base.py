@@ -80,14 +80,21 @@ def unpickle_classifier(path: Path) -> typing.Any:
                 raise
             raise UnsupportedClassifierError(package) from e
         except ValueError as e:
+            # an optional classifier package that is installed but can't be imported,
+            # e.g. xgboost raises XGBoostError when its native library fails to load
+            package = type(e).__module__.partition(".")[0]
+            if package in _OPTIONAL_CLASSIFIER_PACKAGES:
+                raise UnsupportedClassifierError(package) from e
             # the pickled ClassifierType value is not defined in this JABS version
             if ClassifierType.__name__ not in str(e):
                 raise
             raise UnsupportedClassifierError(_unknown_enum_value(e)) from e
-        for warning in caught_warnings:
-            if issubclass(warning.category, InconsistentVersionWarning):
-                raise ValueError("Classifier trained with different version of sklearn.")
-            warnings.warn(warning.message, warning.category, stacklevel=3)
+    # re-emit outside the recording block, otherwise each re-emitted warning is
+    # recorded into the list being iterated instead of reaching the caller
+    for warning in caught_warnings:
+        if issubclass(warning.category, InconsistentVersionWarning):
+            raise ValueError("Classifier trained with different version of sklearn.")
+        warnings.warn(warning.message, warning.category, stacklevel=3)
     return c
 
 

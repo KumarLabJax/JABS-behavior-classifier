@@ -1,11 +1,13 @@
 """Tests for loading saved classifiers whose algorithm is unavailable."""
 
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from jabs.classifier import Classifier, MultiClassClassifier, UnsupportedClassifierError
+from jabs.classifier.base import unpickle_classifier
 from jabs.core.enums import ClassifierType
 from jabs.scripts.classify import load_classifier_from_pickle
 
@@ -106,3 +108,40 @@ def test_cli_load_unknown_classifier_type_raises_unsupported(unknown_type_pickle
     """The jabs-classify loader also raises UnsupportedClassifierError."""
     with pytest.raises(UnsupportedClassifierError):
         load_classifier_from_pickle(unknown_type_pickle)
+
+
+def test_unpickle_warnings_reach_the_caller(tmp_path: Path) -> None:
+    """Warnings raised while unpickling are passed on to the caller."""
+
+    def load_with_warning(_path: Path) -> object:
+        warnings.warn("from unpickling", UserWarning, stacklevel=1)
+        return object()
+
+    with (
+        patch("jabs.classifier.base.joblib.load", load_with_warning),
+        warnings.catch_warnings(record=True) as caught,
+    ):
+        warnings.simplefilter("default")
+        unpickle_classifier(tmp_path / "classifier.pickle")
+
+    assert [str(w.message) for w in caught] == ["from unpickling"]
+
+
+class XGBoostError(ValueError):
+    """Stand-in for xgboost.core.XGBoostError, which subclasses ValueError."""
+
+    __module__ = "xgboost.core"
+
+
+def test_unloadable_xgboost_library_raises_unsupported(tmp_path: Path) -> None:
+    """xgboost failing to load its native library is reported as unsupported.
+
+    On macOS without libomp, importing xgboost while unpickling raises XGBoostError.
+    """
+    error = XGBoostError("XGBoost Library (libxgboost.dylib) could not be loaded.")
+    with (
+        patch("jabs.classifier.base.joblib.load", side_effect=error),
+        pytest.raises(UnsupportedClassifierError) as exc_info,
+    ):
+        unpickle_classifier(tmp_path / "classifier.pickle")
+    assert exc_info.value.classifier_name == "xgboost"
