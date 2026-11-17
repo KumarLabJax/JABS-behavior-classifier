@@ -14,7 +14,12 @@ from shapely.geometry import Point
 
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
-from jabs.classifier import Classifier, MultiClassClassifier, UnsupportedClassifierError
+from jabs.classifier import (
+    Classifier,
+    MultiClassClassifier,
+    UnsupportedClassifierError,
+    factories,
+)
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import (
     ClassifierMode,
@@ -2317,13 +2322,28 @@ class CentralWidget(QtWidgets.QWidget):
         self._unsupported_classifier_warned.add(key)
 
         saved_type = f" ({html.escape(error.classifier_name)})" if error.classifier_name else ""
+        # the error names an optional type by its package or by its display name
+        extra_classifier_names = {
+            *factories.OPTIONAL_CLASSIFIER_PACKAGES.values(),
+            *(t.value for t in factories.OPTIONAL_CLASSIFIER_PACKAGES),
+        }
+        if error.classifier_name in extra_classifier_names:
+            advice = (
+                "To use the saved classifier, install JABS with the <b>extra-classifiers</b> "
+                "extra (see Optional Extras in the user guide). If it is already installed, "
+                "its package could not be loaded; the log has the details."
+            )
+        else:
+            advice = (
+                "To use the saved classifier, open the project with a JABS installation "
+                "that supports it."
+            )
         message = (
             f"{subject} uses a classifier type{saved_type} that is not available in "
             f"this JABS installation, so it could not be loaded."
             f"<br><br><b>{html.escape(self._classifier.classifier_name)}</b> has been selected "
             f"instead. You will need to train a new classifier before you can classify."
-            f"<br><br>To use the saved classifier, open the project with a JABS "
-            f"installation that supports it."
+            f"<br><br>{advice}"
         )
         QtCore.QTimer.singleShot(
             0, self, lambda: MessageDialog.warning(self, "Unsupported Classifier", message)

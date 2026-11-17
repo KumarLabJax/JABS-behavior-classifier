@@ -8,7 +8,7 @@ platform. These features are grouped into *extras* that you can choose to instal
 
 | Extra               | Adds                                                                                     | Installs                                                      |
 |---------------------|------------------------------------------------------------------------------------------|---------------------------------------------------------------|
-| `extra-classifiers` | The CatBoost and LightGBM classifier types. See [Choosing a Classifier](classifier-types.md). | `catboost` (Python 3.10-3.14 only), `lightgbm`                |
+| `extra-classifiers` | The CatBoost and LightGBM classifier types. See [Choosing a Classifier](classifier-types.md). | `catboost`, `lightgbm`                                        |
 | `nwb`               | Exporting pose data to NWB with `jabs-cli convert-to-nwb`. See [NWB Export](nwb-export.md). | `pynwb`, `ndx-pose`, `ndx-jabs`, `ndx-multisubjects`          |
 | `mlflow`            | Logging `jabs-cli cross-validation` runs to an MLflow tracking server. See [Command Line Tools](cli-tools.md#mlflow-logging). | `mlflow`                                                      |
 | `yaml`              | YAML config files for `jabs-cli postprocess` (JSON works without it). See [Command Line Tools](cli-tools.md#jabs-cli-postprocess). | `pyyaml`                                                      |
@@ -17,9 +17,6 @@ Without an extra, JABS still runs: the features that need it are unavailable. Fo
 example, classifier types whose packages are not installed are left out of the
 classifier choices, and `jabs-cli convert-to-nwb` stops with an error saying the NWB
 packages are not installed.
-
-CatBoost does not yet publish packages for Python 3.15, so on Python 3.15 the
-`extra-classifiers` extra installs LightGBM only.
 
 ## Installing Extras
 

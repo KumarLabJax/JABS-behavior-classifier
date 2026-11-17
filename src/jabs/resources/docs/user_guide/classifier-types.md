@@ -6,7 +6,7 @@ JABS supports four machine learning classifier types: **Random Forest**, **XGBoo
 pip install "jabs-behavior-classifier[extra-classifiers]"
 ```
 
-See [Optional Extras](optional-extras.md) for how to add an extra to an existing installation, including with uv or pipx. An optional classifier that is not installed, or cannot be loaded, is left out of the classifier choices in JABS. CatBoost does not yet publish packages for Python 3.15, so on Python 3.15 the extra installs LightGBM only.
+See [Optional Extras](optional-extras.md) for how to add an extra to an existing installation, including with uv or pipx. An optional classifier that is not installed, or cannot be loaded, is left out of the classifier choices in JABS.
 
 Each has different characteristics that may make it more suitable for your specific use case.
 
@@ -47,7 +47,7 @@ CatBoost is a gradient boosting algorithm that can achieve excellent performance
 - ⚠️ **Slower training** - Takes significantly longer to train than Random Forest
 - ⚠️ **Higher memory usage** - May require more RAM during training
 - ⚠️ **Longer to classify** - Prediction can be slower on very large datasets
-- ⚠️ **Optional install** - Requires installing the `extra-classifiers` extra, and is not yet available on Python 3.15
+- ⚠️ **Optional install** - Requires installing the `extra-classifiers` extra
 
 **Best for:** Final production classifiers where accuracy is paramount, complex behaviors with subtle patterns, or when you have time for longer training sessions.
 
