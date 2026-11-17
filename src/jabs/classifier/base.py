@@ -33,9 +33,10 @@ from . import classifier_utils, factories
 class UnsupportedClassifierError(ValueError):
     """Raised when a saved classifier uses an algorithm unavailable in this environment.
 
-    This happens when a project is opened with a JABS install that lacks the
-    optional dependency (or the enum value) the classifier was trained with,
-    for example a LightGBM classifier opened without the ``lightgbm`` package.
+    This happens when a project is opened with a JABS install that doesn't
+    support the algorithm the classifier was trained with: the classifier type
+    isn't defined in this JABS version, or the package providing it isn't
+    installed or importable.
 
     Attributes:
         classifier_name: Name of the unsupported algorithm, if it could be
@@ -48,7 +49,8 @@ class UnsupportedClassifierError(ValueError):
         super().__init__(f"Classifier type '{name}' is not supported by this JABS installation")
 
 
-# packages providing optional classifier algorithms, which may be absent from an install
+# packages providing classifier algorithms that may be missing from an environment: xgboost
+# can be unimportable on some platforms, and other JABS versions or extras may add others
 _OPTIONAL_CLASSIFIER_PACKAGES = frozenset({"xgboost", "catboost", "lightgbm"})
 
 

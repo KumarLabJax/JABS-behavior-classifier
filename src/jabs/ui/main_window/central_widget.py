@@ -2275,16 +2275,27 @@ class CentralWidget(QtWidgets.QWidget):
             logger.warning(
                 "saved classifier is not supported, it will need to be retrained: %s", e
             )
+            self._reset_classifier()
             self._warn_unsupported_classifier(e)
         except Exception as e:
             logger.error(
                 "failed to load classifier, it will need to be retrained: %s", e, exc_info=True
             )
+            self._reset_classifier()
 
         if classifier_loaded:
             self._update_classifier_controls()
         else:
             self._set_classify_enabled(False)
+
+    def _reset_classifier(self) -> None:
+        """Replace the active classifier with an untrained one of the selected type.
+
+        Used after a failed load so a previous behavior's trained model can't be
+        used to classify the current behavior.
+        """
+        self._classifier = Classifier(self._controls.classifier_type, n_jobs=-1)
+        self._ensure_classifier_for_mode()
 
     def _warn_unsupported_classifier(self, error: UnsupportedClassifierError) -> None:
         """Tell the user the saved classifier can't be used and must be retrained.
@@ -2311,11 +2322,11 @@ class CentralWidget(QtWidgets.QWidget):
             f"this JABS installation, so it could not be loaded."
             f"<br><br><b>{html.escape(self._classifier.classifier_name)}</b> has been selected "
             f"instead. You will need to train a new classifier before you can classify."
-            f"<br><br>To use the saved classifier, install JABS with the optional "
-            f"dependency that provides it."
+            f"<br><br>To use the saved classifier, open the project with a JABS "
+            f"installation that supports it."
         )
         QtCore.QTimer.singleShot(
-            0, lambda: MessageDialog.warning(self, "Unsupported Classifier", message)
+            0, self, lambda: MessageDialog.warning(self, "Unsupported Classifier", message)
         )
 
     def _on_search_hit_changed_later(self, _: SearchHit | None) -> None:
