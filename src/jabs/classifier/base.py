@@ -29,10 +29,6 @@ from jabs.core.utils import hash_file
 
 from . import classifier_utils, factories
 
-# Optional classifier packages, installed with the ``extra-classifiers`` extra.
-# Unpickling a classifier trained with one of these fails if it is not installed.
-_OPTIONAL_CLASSIFIER_PACKAGES: frozenset[str] = frozenset({"catboost", "lightgbm"})
-
 
 def _load_pickle(path: Path) -> typing.Any:
     """Unpickle a saved classifier, explaining a missing optional classifier package.
@@ -44,17 +40,29 @@ def _load_pickle(path: Path) -> typing.Any:
         The unpickled object.
 
     Raises:
-        ValueError: If the classifier needs an optional package that is not installed.
+        ValueError: If the classifier needs an optional package that is not installed,
+            or that is installed but whose native library cannot be loaded.
     """
+    optional_packages = factories.OPTIONAL_CLASSIFIER_PACKAGES.values()
     try:
         return joblib.load(path)
     except ModuleNotFoundError as e:
         package = (e.name or "").split(".")[0]
-        if package not in _OPTIONAL_CLASSIFIER_PACKAGES:
+        if package not in optional_packages:
             raise
         raise ValueError(
             f"Classifier {path} requires the '{package}' package, which is not installed. "
             "Install JABS with the 'extra-classifiers' extra to use it."
+        ) from e
+    except OSError as e:
+        # an installed package whose native library cannot load (e.g. macOS without
+        # libomp) raises OSError on import; a file error carries the file name instead
+        package = next((p for p in optional_packages if p in str(e)), None)
+        if e.filename is not None or package is None:
+            raise
+        raise ValueError(
+            f"Classifier {path} requires the '{package}' package, which is installed "
+            f"but could not be loaded: {e}"
         ) from e
 
 
@@ -91,6 +99,13 @@ class BaseClassifier:
 
         self._supported_classifiers = self._supported_classifier_choices()
         if classifier_type not in self._supported_classifiers:
+            if classifier_type in factories.OPTIONAL_CLASSIFIER_PACKAGES:
+                raise ValueError(
+                    f"{classifier_type.value} classifier requires the "
+                    f"'{factories.OPTIONAL_CLASSIFIER_PACKAGES[classifier_type]}' package, "
+                    "which is not available. Install JABS with the 'extra-classifiers' "
+                    "extra to use it."
+                )
             raise ValueError("Invalid classifier type")
 
     @property
@@ -195,10 +210,9 @@ class BaseClassifier:
         if self._classifier_type == ClassifierType.XGBOOST:
             classifier_columns = self._classifier.get_booster().feature_names
         elif self._classifier_type == ClassifierType.LIGHTGBM:
-            # LightGBM replaces whitespace in feature names with underscores when it is
-            # trained, and records only the replaced names, so match them the same way.
-            features = features.rename(columns=lambda name: name.replace(" ", "_"))
-            classifier_columns = list(self._classifier.feature_name_)
+            # LightGBM records only its own sanitized copies of the feature names, so
+            # select the columns by the names recorded at training, in training order.
+            classifier_columns = self._feature_names
         elif hasattr(self._classifier, "feature_names_in_"):
             classifier_columns = list(self._classifier.feature_names_in_)
         elif hasattr(self._classifier, "feature_names_"):
@@ -248,7 +262,12 @@ class BaseClassifier:
             return []
         if not hasattr(self._classifier, "feature_importances_"):
             return []
-        importances = list(np.asarray(self._classifier.feature_importances_).reshape(-1))
+        importances = np.asarray(self._classifier.feature_importances_, dtype=float).reshape(-1)
+        # scale to fractions of the total so importances compare across classifier types
+        total = importances.sum()
+        if total > 0:
+            importances = importances / total
+        importances = importances.tolist()
         feature_importance = [
             (feature, round(importance, 2))
             for feature, importance in zip(self._feature_names, importances, strict=True)

@@ -4,7 +4,6 @@ Both are installed with the ``extra-classifiers`` extra. Tests that train a mode
 skip without the package; the rest cover how JABS behaves when one is missing.
 """
 
-import builtins
 import sys
 from unittest.mock import MagicMock
 
@@ -63,15 +62,7 @@ def test_clean_features_keeps_nan_for_lightgbm() -> None:
 
 def _block_import(monkeypatch, package: str) -> None:
     """Make ``import <package>`` fail for the rest of the test."""
-    real_import = builtins.__import__
-
-    def fail_import(name, *args, **kwargs):
-        if name == package:
-            raise ImportError(f"No module named '{package}'")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.delitem(sys.modules, package, raising=False)
-    monkeypatch.setattr(builtins, "__import__", fail_import)
+    monkeypatch.setitem(sys.modules, package, None)
 
 
 @pytest.mark.parametrize(
@@ -126,6 +117,40 @@ def test_loading_a_classifier_missing_another_module_is_not_masked(monkeypatch, 
         base._load_pickle(tmp_path / "classifier.pickle")
 
 
+def test_loading_a_classifier_whose_package_cannot_load_explains_the_fix(
+    monkeypatch, tmp_path
+) -> None:
+    """A native-library failure while unpickling names the package that could not load."""
+    broken = OSError("dlopen(.../lightgbm/lib/lib_lightgbm.dylib): Library not loaded")
+    monkeypatch.setattr(joblib, "load", MagicMock(side_effect=broken))
+
+    with pytest.raises(ValueError, match="'lightgbm'.*could not be loaded"):
+        Classifier.from_pickle(tmp_path / "classifier.pickle")
+
+
+def test_loading_a_missing_classifier_file_is_not_masked(tmp_path) -> None:
+    """A file error is reported as it is, even if the path names an optional package."""
+    with pytest.raises(FileNotFoundError):
+        base._load_pickle(tmp_path / "lightgbm" / "classifier.pickle")
+
+
+@pytest.mark.parametrize(
+    "classifier_type",
+    [ClassifierType.LIGHTGBM, ClassifierType.CATBOOST],
+    ids=["lightgbm", "catboost"],
+)
+def test_creating_a_classifier_whose_package_is_missing_explains_the_fix(
+    monkeypatch, classifier_type
+) -> None:
+    """A training file naming an unavailable optional classifier names the extra."""
+    monkeypatch.setattr(
+        Classifier, "_supported_classifier_choices", classmethod(lambda cls: set())
+    )
+
+    with pytest.raises(ValueError, match="extra-classifiers"):
+        Classifier(classifier=classifier_type)
+
+
 @requires_lightgbm
 def test_binary_train_predict_and_reload(features, mock_project, tmp_path) -> None:
     """A binary LightGBM classifier trains, predicts, and survives a save and load."""
@@ -142,8 +167,10 @@ def test_binary_train_predict_and_reload(features, mock_project, tmp_path) -> No
     assert probabilities.shape == (len(features), 2)
     np.testing.assert_allclose(probabilities.sum(axis=1), 1.0, rtol=1e-6)
     assert set(np.unique(predictions)) <= {0, 1}
-    # importances are reported under the original feature names
-    assert {name for name, _ in clf.get_feature_importance()} <= set(_FEATURE_NAMES)
+    # importances are reported under the original feature names, as fractions of the total
+    importances = clf.get_feature_importance()
+    assert {name for name, _ in importances} <= set(_FEATURE_NAMES)
+    assert sum(value for _, value in importances) == pytest.approx(1.0, abs=0.02)
 
     path = tmp_path / "lightgbm.pickle"
     clf.save(path)

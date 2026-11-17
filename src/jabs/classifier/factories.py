@@ -8,6 +8,7 @@ constructor for both binary and multi-class modes; mode-specific lookup is
 exposed via :func:`get_factory` and :func:`supported_classifier_types`.
 """
 
+import importlib
 import logging
 import typing
 
@@ -51,6 +52,13 @@ except (ImportError, OSError):
     LIGHTGBM_AVAILABLE = False
     logger.debug("lightgbm is not available. LightGBM support will be unavailable.")
 
+# Optional classifier types and the packages that provide them, installed with the
+# ``extra-classifiers`` extra.
+OPTIONAL_CLASSIFIER_PACKAGES: dict[ClassifierType, str] = {
+    ClassifierType.CATBOOST: "catboost",
+    ClassifierType.LIGHTGBM: "lightgbm",
+}
+
 # Hyperparameters for LightGBM, from an optimization run on a single dataset. They may
 # not generalize to every behavior, and JABS does not yet expose them for tuning.
 _LIGHTGBM_PARAMS: dict[str, int | float] = {
@@ -81,20 +89,24 @@ def make_random_forest(n_jobs: int, random_seed: int | None) -> RandomForestClas
     return RandomForestClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
-def _import_catboost() -> typing.Any:
-    """Import and return the optional ``catboost`` module.
+def _import_optional(classifier_type: ClassifierType) -> typing.Any:
+    """Import and return the optional package that provides a classifier type.
+
+    Args:
+        classifier_type: An optional classifier type, a key of
+            ``OPTIONAL_CLASSIFIER_PACKAGES``.
 
     Raises:
-        RuntimeError: If CatBoost is not available in the current environment.
+        RuntimeError: If the package is not available in the current environment.
     """
+    package = OPTIONAL_CLASSIFIER_PACKAGES[classifier_type]
     try:
-        import catboost
+        return importlib.import_module(package)
     except (ImportError, OSError) as e:
         raise RuntimeError(
-            "CatBoost classifier requested but 'catboost' is not available in this "
-            "environment. Install it with the 'extra-classifiers' extra."
+            f"{classifier_type.value} classifier requested but '{package}' is not available "
+            "in this environment. Install it with the 'extra-classifiers' extra."
         ) from e
-    return catboost
 
 
 def make_catboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
@@ -113,7 +125,7 @@ def make_catboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     Raises:
         RuntimeError: If CatBoost is not available in the current environment.
     """
-    return _import_catboost().CatBoostClassifier(
+    return _import_optional(ClassifierType.CATBOOST).CatBoostClassifier(
         thread_count=n_jobs,
         random_state=random_seed,
         verbose=False,
@@ -138,7 +150,7 @@ def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> Classifier
     Raises:
         RuntimeError: If CatBoost is not available in the current environment.
     """
-    return _import_catboost().CatBoostClassifier(
+    return _import_optional(ClassifierType.CATBOOST).CatBoostClassifier(
         loss_function="MultiClass",
         thread_count=n_jobs,
         random_state=random_seed,
@@ -191,15 +203,14 @@ def make_lightgbm(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     Raises:
         RuntimeError: If LightGBM is not available in the current environment.
     """
-    try:
-        import lightgbm
-    except (ImportError, OSError) as e:
-        raise RuntimeError(
-            "LightGBM classifier requested but 'lightgbm' is not available in this "
-            "environment. Install it with the 'extra-classifiers' extra."
-        ) from e
-    return lightgbm.LGBMClassifier(
-        n_jobs=n_jobs, random_state=random_seed, verbose=-1, **_LIGHTGBM_PARAMS
+    # gain importances, unlike the default split counts, measure each feature's
+    # contribution to the model, as the other classifiers' importances do
+    return _import_optional(ClassifierType.LIGHTGBM).LGBMClassifier(
+        n_jobs=n_jobs,
+        random_state=random_seed,
+        verbose=-1,
+        importance_type="gain",
+        **_LIGHTGBM_PARAMS,
     )
 
 

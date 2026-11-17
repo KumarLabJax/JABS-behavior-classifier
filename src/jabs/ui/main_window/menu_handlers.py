@@ -529,7 +529,7 @@ class MenuHandlers:
             f"{self.window._app_name_long} ({self.window._app_name})",
             self.window,
         )
-        about_dialog.user_guide_page_requested.connect(self.open_user_guide_page)
+        about_dialog.user_guide_page_requested.connect(self.open_user_guide)
         about_dialog.exec()
 
     def open_project_settings_dialog(self) -> None:
@@ -549,28 +549,22 @@ class MenuHandlers:
         settings_dialog.settings_changed.connect(self.window.on_app_settings_changed)
         settings_dialog.exec()
 
-    def open_user_guide(self) -> None:
-        """Show the user guide document in a separate window."""
-        if self.window._user_guide_window is None:
-            self.window._user_guide_window = UserGuideDialog(
-                f"{self.window._app_name_long} ({self.window._app_name})", parent=None
-            )
-        self.window._user_guide_window.show()
-
-    def open_user_guide_page(self, page: str) -> None:
-        """Show the user guide window open at a specific page.
+    def open_user_guide(self, page: str | None = None) -> None:
+        """Show the user guide document in a separate window.
 
         Args:
-            page: Path of the page within the user guide, e.g. ``"optional-extras.md"``.
+            page: Path of a page within the user guide to show, e.g.
+                ``"optional-extras.md"``. If None, a new window opens at the overview
+                and an existing window keeps its current page.
         """
         if self.window._user_guide_window is None:
             # a new window loads its first page once shown, so it must be told which
             self.window._user_guide_window = UserGuideDialog(
                 f"{self.window._app_name_long} ({self.window._app_name})",
                 parent=None,
-                initial_page=page,
+                initial_page=page or "overview.md",
             )
-        else:
+        elif page is not None:
             self.window._user_guide_window.show_page(page)
         self.window._user_guide_window.show()
         self.window._user_guide_window.raise_()
