@@ -26,3 +26,20 @@ class DistanceScaleException(Exception):
     """exception raised when the distance scale factor in the h5 file don't match what the classifier expects"""
 
     pass
+
+
+class MissingOptionalDependencyError(ImportError):
+    """Exception raised when a feature needs an optional dependency that is not installed.
+
+    Subclasses ``ImportError``, so existing ``except ImportError`` handlers still catch it.
+    The message is written for whoever installed the raising package; an application
+    that bundles that package can catch this and use ``extra`` to give install advice
+    that fits how the application itself was installed.
+
+    Attributes:
+        extra: Name of the optional extra that provides the missing dependency.
+    """
+
+    def __init__(self, message: str, *, extra: str) -> None:
+        super().__init__(message)
+        self.extra = extra

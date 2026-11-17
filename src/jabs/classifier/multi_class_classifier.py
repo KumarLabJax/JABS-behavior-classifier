@@ -320,18 +320,22 @@ class MultiClassClassifier(BaseClassifier):
             A freshly trained ``MultiClassClassifier`` instance.
 
         Raises:
-            ValueError: If the file is not a valid multi-class training export or
-                the effective classifier type is unsupported in the current environment.
+            ValueError: If the file is not a valid multi-class training export.
         """
         loaded, _ = load_multiclass_training_data(path)
 
         effective_type = (
             classifier_type if classifier_type is not None else loaded["classifier_type"]
         )
-        classifier = cls(
-            behavior_names=loaded["behavior_names"],
-            classifier_type=effective_type,
-        )
+        classifier = cls(behavior_names=loaded["behavior_names"])
+        if effective_type in classifier._supported_classifiers:
+            classifier.set_classifier(effective_type)
+        else:
+            logger.warning(
+                "Specified classifier type %s is unavailable, using default: %s",
+                effective_type.name,
+                classifier.classifier_type.name,
+            )
         classifier.set_dict_settings(loaded["settings"])
         classifier.train(
             {

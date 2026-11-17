@@ -297,3 +297,28 @@ def test_cli_multiclass_does_not_require_behavior(
     assert result.exit_code == 0, result.output
     assert "Exported training data" in result.output
     export.assert_called_once_with(project, 6, ClassifierType.RANDOM_FOREST, out_file=out_path)
+
+
+def test_multiclass_from_training_file_falls_back_when_type_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unavailable stored classifier type falls back, as binary files do.
+
+    Mimics a file exported with CatBoost, retrained on an install without the
+    extra-classifiers extra.
+    """
+    from jabs.classifier import factories
+    from jabs.classifier.multi_class_classifier import MultiClassClassifier
+
+    project = _make_multiclass_project(tmp_path, ["Walk", "Run"])
+    out = export_training_data_multiclass(
+        project, pose_version=6, classifier_type=ClassifierType.CATBOOST
+    )
+    available = factories.supported_classifier_types(multiclass=True) - {ClassifierType.CATBOOST}
+    monkeypatch.setattr(
+        factories, "supported_classifier_types", lambda *, multiclass: set(available)
+    )
+
+    clf = MultiClassClassifier.from_training_file(out)
+
+    assert clf.classifier_type in available

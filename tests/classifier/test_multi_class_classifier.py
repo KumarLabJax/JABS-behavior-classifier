@@ -8,6 +8,7 @@ import pytest
 from sklearn.ensemble import RandomForestClassifier
 
 from jabs.classifier import classifier_utils
+from jabs.classifier.factories import CATBOOST_AVAILABLE
 from jabs.classifier.multi_class_classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
@@ -308,6 +309,7 @@ class TestClassifierCompatibility:
         assert clf.project_settings["window_size"] == 9
         assert clf.project_settings["balance_labels"] is True
 
+    @pytest.mark.skipif(not CATBOOST_AVAILABLE, reason="catboost not installed")
     def test_set_classifier(self):
         """set_classifier updates classifier_type for supported values."""
         clf = MultiClassClassifier(BEHAVIOR_NAMES)
@@ -440,7 +442,10 @@ class TestTrain:
     @pytest.mark.parametrize(
         "classifier_type",
         [
-            ClassifierType.CATBOOST,
+            pytest.param(
+                ClassifierType.CATBOOST,
+                marks=pytest.mark.skipif(not CATBOOST_AVAILABLE, reason="catboost not installed"),
+            ),
             pytest.param(
                 ClassifierType.XGBOOST,
                 marks=pytest.mark.skipif(not _XGBOOST_AVAILABLE, reason="xgboost not installed"),

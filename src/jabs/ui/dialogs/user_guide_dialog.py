@@ -80,7 +80,7 @@ class UserGuidePage(QWebEnginePage):
 
                 # Load through our custom rendering, deferred to avoid reentrancy
                 # Use QTimer.singleShot to defer the call until after navigation handling completes
-                QtCore.QTimer.singleShot(0, lambda: self._dialog._load_content_from_path(filename))
+                QtCore.QTimer.singleShot(0, lambda: self._dialog.show_page(filename))
 
                 # Prevent default navigation
                 return False
@@ -96,11 +96,14 @@ class UserGuideDialog(QDialog):
     with a hierarchical tree navigation panel for browsing different topics.
     """
 
-    def __init__(self, app_name: str, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self, app_name: str, *args: Any, initial_page: str = "overview.md", **kwargs: Any
+    ) -> None:
         """Initialize the user guide dialog.
 
         Args:
             app_name: The application name to display in the window title.
+            initial_page: Page shown when the dialog opens. May include an anchor.
             *args: Variable length argument list passed to QDialog.
             **kwargs: Arbitrary keyword arguments passed to QDialog.
         """
@@ -156,7 +159,7 @@ class UserGuideDialog(QDialog):
 
         # Defer initial content loading to avoid compositor texture errors (compositor needs window shown first).
         self._build_tree()
-        QtCore.QTimer.singleShot(0, lambda: self._load_content_from_path("overview.md"))
+        QtCore.QTimer.singleShot(0, lambda: self.show_page(initial_page))
 
     def _build_tree(self) -> None:
         """Build the hierarchical tree structure for documentation navigation.
@@ -215,6 +218,7 @@ class UserGuideDialog(QDialog):
                 "Feature File": "file-formats.md#feature-file",
             },
             "Choosing a Classifier": "classifier-types.md",
+            "Optional Extras": "optional-extras.md",
             "Multi-Class Classification (Preview)": "multi-class.md",
             "Post-Processing": "postprocessing.md",
             "Features Reference": "features.md",
@@ -260,7 +264,7 @@ class UserGuideDialog(QDialog):
         """
         file_path = item.data(0, Qt.ItemDataRole.UserRole)
         if file_path:
-            self._load_content_from_path(file_path)
+            self.show_page(file_path)
 
     def _go_back(self) -> None:
         """Navigate back to the previous page in history."""
@@ -268,7 +272,7 @@ class UserGuideDialog(QDialog):
             self._history_position -= 1
             self._navigating_from_history = True
             path = self._history[self._history_position]
-            self._load_content_from_path(path)
+            self.show_page(path)
             self._select_tree_item_by_path(path)
 
     def _select_tree_item_by_path(self, path_str: str) -> None:
@@ -339,7 +343,7 @@ class UserGuideDialog(QDialog):
         """Update the back button enabled state based on history."""
         self._back_button.setEnabled(self._history_position > 0)
 
-    def _load_content_from_path(self, path_str: str) -> None:
+    def show_page(self, path_str: str) -> None:
         """Load and render markdown content from a documentation file.
 
         Converts the markdown file to HTML with styling and displays it in the web view.

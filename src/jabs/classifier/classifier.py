@@ -28,7 +28,7 @@ class Classifier(BaseClassifier):
     """A binary behavior classifier (behavior vs. not-behavior).
 
     Supports training, evaluating, saving, and loading classifiers for
-    behavioral data using Random Forest, CatBoost, or XGBoost algorithms.
+    behavioral data using Random Forest, CatBoost, XGBoost, or LightGBM algorithms.
     Persistence and identity machinery are inherited from
     :class:`BaseClassifier`.
 
@@ -222,7 +222,8 @@ class Classifier(BaseClassifier):
         else:
             self._feature_names = data["training_data"].columns.to_list()
 
-        features = data["training_data"]
+        # fit in feature_names order: prediction selects the columns in that order
+        features = data["training_data"][self._feature_names]
         labels = data["training_labels"]
         # Symmetric augmentation should occur before balancing so that the
         # class with more labels can sample from the whole set.

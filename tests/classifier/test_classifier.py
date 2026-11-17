@@ -8,8 +8,12 @@ import pytest
 from sklearn.ensemble import RandomForestClassifier
 
 from jabs.classifier.classifier import Classifier
+from jabs.classifier.factories import CATBOOST_AVAILABLE
 from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import TrackLabels
+
+# CatBoost is an optional extra; tests that train or select it skip without it.
+requires_catboost = pytest.mark.skipif(not CATBOOST_AVAILABLE, reason="catboost not installed")
 
 
 @pytest.fixture
@@ -295,6 +299,7 @@ class TestClassifierTraining:
         assert len(fit_features) == 2 * len(sample_features)
         assert len(fit_labels) == 2 * len(sample_labels)
 
+    @requires_catboost
     def test_train_catboost(self, sample_features, sample_labels, mock_project):
         """Test training a CatBoost classifier."""
         clf = Classifier(classifier=ClassifierType.CATBOOST)
@@ -312,6 +317,7 @@ class TestClassifierTraining:
         assert clf._classifier is not None
         assert clf.feature_names == sample_features.columns.to_list()
 
+    @requires_catboost
     def test_train_catboost_with_nan_values(self, sample_features, sample_labels, mock_project):
         """Test training CatBoost with NaN values in features.
 
@@ -403,6 +409,7 @@ class TestClassifierPrediction:
         predictions = clf.predict(test_features)
         assert len(predictions) == len(test_features)
 
+    @requires_catboost
     def test_predict_catboost(self, sample_features, sample_labels, mock_project):
         """Test predict method with CatBoost classifier."""
         clf = Classifier(classifier=ClassifierType.CATBOOST)
@@ -422,6 +429,7 @@ class TestClassifierPrediction:
             p in [TrackLabels.Label.BEHAVIOR, TrackLabels.Label.NOT_BEHAVIOR] for p in predictions
         )
 
+    @requires_catboost
     def test_predict_proba_catboost(self, sample_features, sample_labels, mock_project):
         """Test predict_proba method with CatBoost classifier."""
         clf = Classifier(classifier=ClassifierType.CATBOOST)
@@ -442,6 +450,7 @@ class TestClassifierPrediction:
             probabilities.sum(axis=1), np.ones(len(sample_features))
         )
 
+    @requires_catboost
     def test_catboost_handles_nan_in_prediction(
         self, sample_features, sample_labels, mock_project
     ):
@@ -590,9 +599,10 @@ class TestClassifierChoices:
 
         assert isinstance(choices, dict)
         assert ClassifierType.RANDOM_FOREST in choices
-        assert ClassifierType.CATBOOST in choices
+        assert (ClassifierType.CATBOOST in choices) == CATBOOST_AVAILABLE
         assert all(isinstance(v, str) for v in choices.values())
 
+    @requires_catboost
     def test_set_classifier_to_catboost(self):
         """Test switching to CatBoost classifier type."""
         clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)

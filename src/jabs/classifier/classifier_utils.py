@@ -38,7 +38,11 @@ def clean_features(features: pd.DataFrame, classifier_type: ClassifierType) -> p
     Returns:
         Cleaned DataFrame with missing and infinite values handled.
     """
-    if classifier_type in (ClassifierType.XGBOOST, ClassifierType.CATBOOST):
+    if classifier_type in (
+        ClassifierType.XGBOOST,
+        ClassifierType.CATBOOST,
+        ClassifierType.LIGHTGBM,
+    ):
         # these classifiers can handle NaN, just replace infinities
         return features.replace([np.inf, -np.inf], np.nan)
     else:

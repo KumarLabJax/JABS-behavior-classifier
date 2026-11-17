@@ -83,8 +83,9 @@ pass in CI:
 
 | suite | plain `uv sync` | needs |
 |---|---|---|
-| `packages/jabs-io/tests` | 238 pass, 1 skipped | `--extra nwb` for the remaining 61 |
-| `packages/jabs-vision/tests` | 0 collected, 17 errors | `--all-packages` (installs `jabs.vision` + torch) |
+| `packages/jabs-io/tests` | the NWB test modules skip; the rest pass | `--extra nwb` for the NWB tests |
+| `packages/jabs-vision/tests` | every test module errors at collection | `--all-packages` (installs `jabs.vision` + torch) |
+| `tests/scripts/test_convert_to_nwb_dandi_validation.py` | skipped | `--extra nwb --group nwb-test` (nwbinspector) |
 
 **Guard optional imports in tests.** A module-scope import of an optional dependency
 raises during collection, and a collection error aborts the *entire* directory run -

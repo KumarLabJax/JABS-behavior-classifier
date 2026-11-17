@@ -180,7 +180,7 @@ class MenuBuilder:
         user_guide_action = QtGui.QAction(" &User Guide", self.main_window)
         user_guide_action.setStatusTip("Open User Guide")
         user_guide_action.setShortcut(QtGui.QKeySequence("Ctrl+U"))
-        user_guide_action.triggered.connect(self.handlers.open_user_guide)
+        user_guide_action.triggered.connect(lambda: self.handlers.open_user_guide())
         menu.addAction(user_guide_action)
 
         # Check for updates action

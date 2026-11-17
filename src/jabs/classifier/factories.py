@@ -1,7 +1,9 @@
 """Factory functions and registry for behavior classifiers.
 
-``XGBOOST_AVAILABLE`` is set at import time by probing for the ``xgboost``
-package. The factory registry below maps each ``ClassifierType`` to its
+``XGBOOST_AVAILABLE``, ``CATBOOST_AVAILABLE`` and ``LIGHTGBM_AVAILABLE`` are set
+at import time by probing for the ``xgboost``, ``catboost`` and ``lightgbm``
+packages. CatBoost and LightGBM are optional dependencies, installed with the
+``extra-classifiers`` extra. The factory registry below maps each ``ClassifierType`` to its
 constructor for both binary and multi-class modes; mode-specific lookup is
 exposed via :func:`get_factory` and :func:`supported_classifier_types`.
 """
@@ -9,7 +11,6 @@ exposed via :func:`get_factory` and :func:`supported_classifier_types`.
 import logging
 import typing
 
-from catboost import CatBoostClassifier
 from sklearn.base import ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 
@@ -29,6 +30,54 @@ except ImportError:
     )
 
 
+_catboost: typing.Any = None
+_lightgbm: typing.Any = None
+
+try:
+    import catboost as _catboost
+
+    CATBOOST_AVAILABLE: bool = True
+except (ImportError, OSError):
+    # catboost is optional, and the extra skips it on Python versions it has no wheels
+    # for, so a missing package is expected and not worth a warning.
+    CATBOOST_AVAILABLE = False
+    logger.debug("catboost is not available. CatBoost support will be unavailable.")
+
+try:
+    import lightgbm as _lightgbm
+
+    LIGHTGBM_AVAILABLE: bool = True
+except (ImportError, OSError):
+    # lightgbm is optional, so a missing package is expected and not worth a warning.
+    # OSError covers an installed package whose native library cannot load (e.g. macOS
+    # without libomp), which would otherwise only fail when a classifier is trained.
+    LIGHTGBM_AVAILABLE = False
+    logger.debug("lightgbm is not available. LightGBM support will be unavailable.")
+
+# Optional classifier types and the packages that provide them, installed with the
+# ``extra-classifiers`` extra.
+OPTIONAL_CLASSIFIER_PACKAGES: dict[ClassifierType, str] = {
+    ClassifierType.CATBOOST: "catboost",
+    ClassifierType.LIGHTGBM: "lightgbm",
+}
+
+# How to get an optional classifier package, for error messages.
+EXTRA_CLASSIFIERS_ADVICE = "Install JABS with the 'extra-classifiers' extra to use it."
+
+# Hyperparameters for LightGBM, from an optimization run on a single dataset. They may
+# not generalize to every behavior, and JABS does not yet expose them for tuning.
+_LIGHTGBM_PARAMS: dict[str, int | float] = {
+    "n_estimators": 187,
+    "learning_rate": 0.013940346079873234,
+    "max_depth": 11,
+    "num_leaves": 138,
+    "min_child_samples": 16,
+    "colsample_bytree": 0.5171942605576092,
+    "reg_alpha": 1.527156759251193,
+    "reg_lambda": 2.133142332373004e-06,
+}
+
+
 ClassifierFactory = typing.Callable[[int, int | None], typing.Any]
 
 
@@ -45,17 +94,44 @@ def make_random_forest(n_jobs: int, random_seed: int | None) -> RandomForestClas
     return RandomForestClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
-def make_catboost(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
+def _optional_module(classifier_type: ClassifierType, module: typing.Any) -> typing.Any:
+    """Return the optional package module imported for a classifier type at import time.
+
+    Args:
+        classifier_type: An optional classifier type, a key of
+            ``OPTIONAL_CLASSIFIER_PACKAGES``.
+        module: The module imported when this module loaded, or None if it could not be.
+
+    Raises:
+        RuntimeError: If the package is not available in the current environment.
+    """
+    if module is None:
+        raise RuntimeError(
+            f"{classifier_type.value} classifier requested but "
+            f"'{OPTIONAL_CLASSIFIER_PACKAGES[classifier_type]}' is not available in this "
+            f"environment. {EXTRA_CLASSIFIERS_ADVICE}"
+        )
+    return module
+
+
+def make_catboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """Construct a CatBoost classifier for binary classification.
+
+    CatBoost is an optional dependency, imported when this module loads (see
+    ``CATBOOST_AVAILABLE``).
 
     Args:
         n_jobs: Number of parallel jobs.
         random_seed: Random seed for reproducibility.
 
     Returns:
-        A configured ``CatBoostClassifier``.
+        A configured ``CatBoostClassifier``. Typed as ``ClassifierMixin`` to avoid a
+        hard dependency on catboost in type hints.
+
+    Raises:
+        RuntimeError: If CatBoost is not available in the current environment.
     """
-    return CatBoostClassifier(
+    return _optional_module(ClassifierType.CATBOOST, _catboost).CatBoostClassifier(
         thread_count=n_jobs,
         random_state=random_seed,
         verbose=False,
@@ -63,7 +139,7 @@ def make_catboost(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
     )
 
 
-def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
+def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """Construct a CatBoost classifier for multi-class classification.
 
     Uses ``loss_function="MultiClass"`` (softmax over all classes), required
@@ -74,9 +150,13 @@ def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> CatBoostCl
         random_seed: Random seed for reproducibility.
 
     Returns:
-        A configured ``CatBoostClassifier`` with multi-class loss.
+        A configured ``CatBoostClassifier`` with multi-class loss, typed as
+        ``ClassifierMixin`` to avoid a hard dependency on catboost in type hints.
+
+    Raises:
+        RuntimeError: If CatBoost is not available in the current environment.
     """
-    return CatBoostClassifier(
+    return _optional_module(ClassifierType.CATBOOST, _catboost).CatBoostClassifier(
         loss_function="MultiClass",
         thread_count=n_jobs,
         random_state=random_seed,
@@ -111,19 +191,54 @@ def make_xgboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     return xgboost.XGBClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
+def make_lightgbm(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
+    """Construct a LightGBM classifier.
+
+    LightGBM is an optional dependency, imported when this module loads (see
+    ``LIGHTGBM_AVAILABLE``). The same estimator serves binary and multi-class mode: LightGBM chooses its objective
+    from the number of classes in the training labels.
+
+    Args:
+        n_jobs: Number of parallel jobs.
+        random_seed: Random seed for reproducibility.
+
+    Returns:
+        A configured ``LGBMClassifier``. Typed as ``ClassifierMixin`` to avoid a
+        hard dependency on lightgbm in type hints.
+
+    Raises:
+        RuntimeError: If LightGBM is not available in the current environment.
+    """
+    # gain importances, unlike the default split counts, measure each feature's
+    # contribution to the model, as the other classifiers' importances do
+    return _optional_module(ClassifierType.LIGHTGBM, _lightgbm).LGBMClassifier(
+        n_jobs=n_jobs,
+        random_state=random_seed,
+        verbose=-1,
+        importance_type="gain",
+        **_LIGHTGBM_PARAMS,
+    )
+
+
 _BINARY_FACTORIES: dict[ClassifierType, ClassifierFactory] = {
     ClassifierType.RANDOM_FOREST: make_random_forest,
-    ClassifierType.CATBOOST: make_catboost,
 }
 
 _MULTICLASS_FACTORIES: dict[ClassifierType, ClassifierFactory] = {
     ClassifierType.RANDOM_FOREST: make_random_forest,
-    ClassifierType.CATBOOST: make_catboost_multiclass,
 }
+
+if CATBOOST_AVAILABLE:
+    _BINARY_FACTORIES[ClassifierType.CATBOOST] = make_catboost
+    _MULTICLASS_FACTORIES[ClassifierType.CATBOOST] = make_catboost_multiclass
 
 if XGBOOST_AVAILABLE:
     _BINARY_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
     _MULTICLASS_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
+
+if LIGHTGBM_AVAILABLE:
+    _BINARY_FACTORIES[ClassifierType.LIGHTGBM] = make_lightgbm
+    _MULTICLASS_FACTORIES[ClassifierType.LIGHTGBM] = make_lightgbm
 
 
 def get_factory(classifier_type: ClassifierType, *, multiclass: bool) -> ClassifierFactory:

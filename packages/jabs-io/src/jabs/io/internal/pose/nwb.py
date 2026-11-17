@@ -40,6 +40,7 @@ except ImportError:
 
 from jabs.core.abstract.pose_est import PoseEstimation as _JABSPoseEstimation
 from jabs.core.enums import StorageFormat
+from jabs.core.exceptions import MissingOptionalDependencyError
 from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
 from jabs.io.base import Adapter
 from jabs.io.registry import register_adapter
@@ -367,18 +368,20 @@ class PoseNWBAdapter(Adapter):
     def _require_nwb() -> None:
         """Raise a clear ImportError if pynwb / ndx-pose / ndx-jabs are not installed."""
         if not _NWB_AVAILABLE:
-            raise ImportError(
+            raise MissingOptionalDependencyError(
                 "pynwb, ndx-pose and ndx-jabs are required for NWB format support. "
-                "Install with: pip install 'jabs-io[nwb]'"
+                "Install with: pip install 'jabs-io[nwb]'",
+                extra="nwb",
             )
 
     @staticmethod
     def _require_multisubjects() -> None:
         """Raise a clear ImportError if the ndx-multisubjects extension is missing."""
         if not _MULTISUBJECTS_AVAILABLE:
-            raise ImportError(
+            raise MissingOptionalDependencyError(
                 "The ndx-multisubjects extension is required for multisubject NWB "
-                "output. Install with: pip install 'jabs-io[nwb]'"
+                "output. Install with: pip install 'jabs-io[nwb]'",
+                extra="nwb",
             )
 
     @classmethod
