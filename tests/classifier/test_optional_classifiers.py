@@ -4,7 +4,6 @@ Both are installed with the ``extra-classifiers`` extra. Tests that train a mode
 skip without the package; the rest cover how JABS behaves when one is missing.
 """
 
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -72,23 +71,21 @@ def _raiser_in_module(module: str, message: str) -> Callable[[Path], None]:
     return namespace["load"]  # type: ignore[return-value]
 
 
-def _block_import(monkeypatch, package: str) -> None:
-    """Make ``import <package>`` fail for the rest of the test."""
-    monkeypatch.setitem(sys.modules, package, None)
-
-
 @pytest.mark.parametrize(
-    ("package", "factory"),
+    ("module_attr", "factory"),
     [
-        ("lightgbm", factories.make_lightgbm),
-        ("catboost", factories.make_catboost),
-        ("catboost", factories.make_catboost_multiclass),
+        ("_lightgbm", factories.make_lightgbm),
+        ("_catboost", factories.make_catboost),
+        ("_catboost", factories.make_catboost_multiclass),
     ],
     ids=["lightgbm", "catboost", "catboost-multiclass"],
 )
-def test_factory_raises_when_package_is_missing(monkeypatch, package, factory) -> None:
+def test_factory_raises_when_package_is_missing(
+    monkeypatch: pytest.MonkeyPatch, module_attr: str, factory: factories.ClassifierFactory
+) -> None:
     """Asking for an optional classifier without its package gives a clear error."""
-    _block_import(monkeypatch, package)
+    # as when the package failed to import when factories was loaded
+    monkeypatch.setattr(factories, module_attr, None)
 
     with pytest.raises(RuntimeError, match="extra-classifiers"):
         factory(n_jobs=1, random_seed=0)
@@ -102,7 +99,9 @@ def test_factory_raises_when_package_is_missing(monkeypatch, package, factory) -
     ],
     ids=["lightgbm", "catboost"],
 )
-def test_optional_classifier_is_offered_only_when_available(classifier_type, available) -> None:
+def test_optional_classifier_is_offered_only_when_available(
+    classifier_type: ClassifierType, available: bool
+) -> None:
     """An optional classifier is a choice in both modes exactly when it can be imported."""
     for multiclass in (False, True):
         supported = factories.supported_classifier_types(multiclass=multiclass)
@@ -110,7 +109,7 @@ def test_optional_classifier_is_offered_only_when_available(classifier_type, ava
 
 
 def test_loading_a_classifier_whose_package_is_missing_explains_the_fix(
-    monkeypatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Unpickling a classifier that needs a missing optional package names the extra."""
     missing = ModuleNotFoundError("No module named 'catboost'", name="catboost")
@@ -120,7 +119,9 @@ def test_loading_a_classifier_whose_package_is_missing_explains_the_fix(
         Classifier.from_pickle(tmp_path / "classifier.pickle")
 
 
-def test_loading_a_classifier_missing_another_module_is_not_masked(monkeypatch, tmp_path) -> None:
+def test_loading_a_classifier_missing_another_module_is_not_masked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A missing module that is not an optional classifier is reported as it is."""
     missing = ModuleNotFoundError("No module named 'nonexistent'", name="nonexistent")
     monkeypatch.setattr(joblib, "load", MagicMock(side_effect=missing))
@@ -130,7 +131,7 @@ def test_loading_a_classifier_missing_another_module_is_not_masked(monkeypatch, 
 
 
 def test_loading_a_classifier_whose_package_cannot_load_explains_the_fix(
-    monkeypatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A native-library failure while unpickling names the package that could not load."""
     monkeypatch.setattr(joblib, "load", _raiser_in_module("lightgbm.basic", _LIBRARY_ERROR))
@@ -153,7 +154,7 @@ def test_loading_an_unrelated_os_error_naming_a_package_is_not_masked(
         base.unpickle_classifier(tmp_path / "classifier.pickle")
 
 
-def test_loading_a_missing_classifier_file_is_not_masked(tmp_path) -> None:
+def test_loading_a_missing_classifier_file_is_not_masked(tmp_path: Path) -> None:
     """A file error is reported as it is, even if the path names an optional package."""
     with pytest.raises(FileNotFoundError):
         base.unpickle_classifier(tmp_path / "lightgbm" / "classifier.pickle")
@@ -165,7 +166,7 @@ def test_loading_a_missing_classifier_file_is_not_masked(tmp_path) -> None:
     ids=["lightgbm", "catboost"],
 )
 def test_creating_a_classifier_whose_package_is_missing_explains_the_fix(
-    monkeypatch, classifier_type
+    monkeypatch: pytest.MonkeyPatch, classifier_type: ClassifierType
 ) -> None:
     """A training file naming an unavailable optional classifier names the extra."""
     monkeypatch.setattr(
@@ -177,7 +178,9 @@ def test_creating_a_classifier_whose_package_is_missing_explains_the_fix(
 
 
 @requires_lightgbm
-def test_binary_train_predict_and_reload(features, mock_project, tmp_path) -> None:
+def test_binary_train_predict_and_reload(
+    features: pd.DataFrame, mock_project: MagicMock, tmp_path: Path
+) -> None:
     """A binary LightGBM classifier trains, predicts, and survives a save and load."""
     labels = np.array([TrackLabels.Label.BEHAVIOR, TrackLabels.Label.NOT_BEHAVIOR] * 100)
     clf = Classifier(classifier=ClassifierType.LIGHTGBM)
@@ -204,7 +207,7 @@ def test_binary_train_predict_and_reload(features, mock_project, tmp_path) -> No
 
 
 @requires_lightgbm
-def test_multiclass_train_and_predict(features) -> None:
+def test_multiclass_train_and_predict(features: pd.DataFrame) -> None:
     """A multi-class LightGBM classifier predicts one probability per class."""
     behaviors = ["running", "grooming"]
     n = len(features)
@@ -250,7 +253,9 @@ def test_feature_importance_ranks_before_rounding() -> None:
 
 
 @requires_lightgbm
-def test_binary_lightgbm_feature_names_in_a_different_order(features, mock_project) -> None:
+def test_binary_lightgbm_feature_names_in_a_different_order(
+    features: pd.DataFrame, mock_project: MagicMock
+) -> None:
     """Binary LightGBM training fits in feature_names order, not column order.
 
     LightGBM selects prediction columns by feature_names, so binary training must fit

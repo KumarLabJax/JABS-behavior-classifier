@@ -8,7 +8,6 @@ constructor for both binary and multi-class modes; mode-specific lookup is
 exposed via :func:`get_factory` and :func:`supported_classifier_types`.
 """
 
-import importlib
 import logging
 import typing
 
@@ -31,8 +30,11 @@ except ImportError:
     )
 
 
+_catboost: typing.Any = None
+_lightgbm: typing.Any = None
+
 try:
-    import catboost as _catboost  # noqa: F401
+    import catboost as _catboost
 
     CATBOOST_AVAILABLE: bool = True
 except (ImportError, OSError):
@@ -42,7 +44,7 @@ except (ImportError, OSError):
     logger.debug("catboost is not available. CatBoost support will be unavailable.")
 
 try:
-    import lightgbm as _lightgbm  # noqa: F401
+    import lightgbm as _lightgbm
 
     LIGHTGBM_AVAILABLE: bool = True
 except (ImportError, OSError):
@@ -92,30 +94,31 @@ def make_random_forest(n_jobs: int, random_seed: int | None) -> RandomForestClas
     return RandomForestClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
-def _import_optional(classifier_type: ClassifierType) -> typing.Any:
-    """Import and return the optional package that provides a classifier type.
+def _optional_module(classifier_type: ClassifierType, module: typing.Any) -> typing.Any:
+    """Return the optional package module imported for a classifier type at import time.
 
     Args:
         classifier_type: An optional classifier type, a key of
             ``OPTIONAL_CLASSIFIER_PACKAGES``.
+        module: The module imported when this module loaded, or None if it could not be.
 
     Raises:
         RuntimeError: If the package is not available in the current environment.
     """
-    package = OPTIONAL_CLASSIFIER_PACKAGES[classifier_type]
-    try:
-        return importlib.import_module(package)
-    except (ImportError, OSError) as e:
+    if module is None:
         raise RuntimeError(
-            f"{classifier_type.value} classifier requested but '{package}' is not available "
-            f"in this environment. {EXTRA_CLASSIFIERS_ADVICE}"
-        ) from e
+            f"{classifier_type.value} classifier requested but "
+            f"'{OPTIONAL_CLASSIFIER_PACKAGES[classifier_type]}' is not available in this "
+            f"environment. {EXTRA_CLASSIFIERS_ADVICE}"
+        )
+    return module
 
 
 def make_catboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """Construct a CatBoost classifier for binary classification.
 
-    CatBoost is an optional dependency, so the import is deferred to call time.
+    CatBoost is an optional dependency, imported when this module loads (see
+    ``CATBOOST_AVAILABLE``).
 
     Args:
         n_jobs: Number of parallel jobs.
@@ -128,7 +131,7 @@ def make_catboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     Raises:
         RuntimeError: If CatBoost is not available in the current environment.
     """
-    return _import_optional(ClassifierType.CATBOOST).CatBoostClassifier(
+    return _optional_module(ClassifierType.CATBOOST, _catboost).CatBoostClassifier(
         thread_count=n_jobs,
         random_state=random_seed,
         verbose=False,
@@ -153,7 +156,7 @@ def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> Classifier
     Raises:
         RuntimeError: If CatBoost is not available in the current environment.
     """
-    return _import_optional(ClassifierType.CATBOOST).CatBoostClassifier(
+    return _optional_module(ClassifierType.CATBOOST, _catboost).CatBoostClassifier(
         loss_function="MultiClass",
         thread_count=n_jobs,
         random_state=random_seed,
@@ -191,8 +194,8 @@ def make_xgboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
 def make_lightgbm(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """Construct a LightGBM classifier.
 
-    LightGBM is an optional dependency, so the import is deferred to call time. The
-    same estimator serves binary and multi-class mode: LightGBM chooses its objective
+    LightGBM is an optional dependency, imported when this module loads (see
+    ``LIGHTGBM_AVAILABLE``). The same estimator serves binary and multi-class mode: LightGBM chooses its objective
     from the number of classes in the training labels.
 
     Args:
@@ -208,7 +211,7 @@ def make_lightgbm(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """
     # gain importances, unlike the default split counts, measure each feature's
     # contribution to the model, as the other classifiers' importances do
-    return _import_optional(ClassifierType.LIGHTGBM).LGBMClassifier(
+    return _optional_module(ClassifierType.LIGHTGBM, _lightgbm).LGBMClassifier(
         n_jobs=n_jobs,
         random_state=random_seed,
         verbose=-1,

@@ -1,7 +1,9 @@
 """Tests for the install advice CLI commands give when an optional extra is missing."""
 
+from pathlib import Path
 from unittest import mock
 
+import pytest
 from click.testing import CliRunner
 
 from jabs.core.exceptions import MissingOptionalDependencyError
@@ -27,7 +29,9 @@ def test_missing_extra_error_names_the_jabs_extra() -> None:
     assert "jabs-io" not in message
 
 
-def test_convert_to_nwb_gives_jabs_install_advice(monkeypatch, tmp_path) -> None:
+def test_convert_to_nwb_gives_jabs_install_advice(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """convert-to-nwb replaces the library's advice with the JABS extra."""
     monkeypatch.setattr(
         "jabs.scripts.cli.cli.run_conversion", mock.Mock(side_effect=_missing_nwb())
@@ -44,7 +48,9 @@ def test_convert_to_nwb_gives_jabs_install_advice(monkeypatch, tmp_path) -> None
     assert "jabs-io" not in result.output
 
 
-def test_link_nwb_video_gives_jabs_install_advice(monkeypatch, tmp_path) -> None:
+def test_link_nwb_video_gives_jabs_install_advice(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """link-nwb-video replaces the library's advice with the JABS extra."""
     monkeypatch.setattr(
         link_nwb_video, "require_video_link_support", mock.Mock(side_effect=_missing_nwb())
@@ -58,7 +64,9 @@ def test_link_nwb_video_gives_jabs_install_advice(monkeypatch, tmp_path) -> None
     assert "jabs-io" not in result.output
 
 
-def test_link_nwb_video_passes_other_import_errors_through(monkeypatch, tmp_path) -> None:
+def test_link_nwb_video_passes_other_import_errors_through(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """An ImportError that is not a missing extra (e.g. pynwb too old) is shown as-is."""
     monkeypatch.setattr(
         link_nwb_video,

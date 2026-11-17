@@ -11,7 +11,7 @@ from jabs.core.exceptions import MissingOptionalDependencyError
 from jabs.io.internal.pose import PoseNWBAdapter, nwb, nwb_video, require_video_link_support
 
 
-def test_adapter_reports_missing_nwb_packages(monkeypatch) -> None:
+def test_adapter_reports_missing_nwb_packages(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without pynwb and friends, the adapter names the extra that provides them."""
     monkeypatch.setattr(nwb, "_NWB_AVAILABLE", False)
 
@@ -21,7 +21,7 @@ def test_adapter_reports_missing_nwb_packages(monkeypatch) -> None:
     assert raised.value.extra == "nwb"
 
 
-def test_multisubject_output_reports_missing_extension(monkeypatch) -> None:
+def test_multisubject_output_reports_missing_extension(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without ndx-multisubjects, multisubject output names the extra that provides it."""
     monkeypatch.setattr(nwb, "_MULTISUBJECTS_AVAILABLE", False)
 
@@ -31,7 +31,7 @@ def test_multisubject_output_reports_missing_extension(monkeypatch) -> None:
     assert raised.value.extra == "nwb"
 
 
-def test_video_linking_reports_missing_pynwb(monkeypatch) -> None:
+def test_video_linking_reports_missing_pynwb(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without pynwb, video linking names the extra that provides it."""
     monkeypatch.setattr(nwb_video, "_PYNWB_AVAILABLE", False)
 
@@ -41,7 +41,9 @@ def test_video_linking_reports_missing_pynwb(monkeypatch) -> None:
     assert raised.value.extra == "nwb"
 
 
-def test_video_linking_with_old_pynwb_is_not_a_missing_dependency(monkeypatch) -> None:
+def test_video_linking_with_old_pynwb_is_not_a_missing_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An installed but too-old pynwb is a plain ImportError, not a missing extra.
 
     Installing the extra would not necessarily fix it, so callers must not be steered

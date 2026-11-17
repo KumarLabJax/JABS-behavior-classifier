@@ -1,6 +1,7 @@
 """Tests for reporting which optional extras of a distribution are installed."""
 
 import importlib.metadata
+from collections.abc import Callable
 
 import pytest
 
@@ -20,14 +21,16 @@ class FakeMetadata:
 
 
 @pytest.fixture
-def fake_environment(monkeypatch):
+def fake_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[dict[str, tuple[str, list[str], list[str]]]], None]:
     """Install a fake set of distributions, returning a function that defines them.
 
     The function takes ``{name: (version, provides_extra, requires_dist)}``.
     """
 
     def install(distributions: dict[str, tuple[str, list[str], list[str]]]) -> None:
-        def lookup(name: str):
+        def lookup(name: str) -> tuple[str, list[str], list[str]]:
             for dist, info in distributions.items():
                 if dist.replace("_", "-").lower() == name.replace("_", "-").lower():
                     return info

@@ -183,13 +183,13 @@ class TestExceptionDistinctness:
         assert str(exc) == ""
 
 
-def test_missing_optional_dependency_error_is_an_import_error():
+def test_missing_optional_dependency_error_is_an_import_error() -> None:
     """Existing ``except ImportError`` handlers still catch it."""
     with pytest.raises(ImportError):
         raise MissingOptionalDependencyError("pynwb is required", extra="nwb")
 
 
-def test_missing_optional_dependency_error_keeps_message_and_extra():
+def test_missing_optional_dependency_error_keeps_message_and_extra() -> None:
     """The message and the name of the extra are both kept."""
     exc = MissingOptionalDependencyError("pynwb is required", extra="nwb")
 

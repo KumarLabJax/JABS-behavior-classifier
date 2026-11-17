@@ -45,7 +45,8 @@ nwb = ["jabs-io[nwb]"]
 yaml = ["pyyaml>=6.0.0"]
 mlflow = ["mlflow>=3.8.1"]
 # Optional classifier algorithms. CatBoost publishes a wheel per CPython version and
-# has none for 3.15 yet, so it is skipped there; drop the marker once it does.
+# has none for 3.15 yet. requires-python excludes 3.15 for now, so the marker has no
+# effect until that is widened; drop it once CatBoost publishes 3.15 wheels.
 extra-classifiers = [
     "catboost>=1.2.8; python_version < '3.15'",
     "lightgbm>=4.5.0,<5.0.0",

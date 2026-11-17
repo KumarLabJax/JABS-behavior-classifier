@@ -1,5 +1,7 @@
 """Tests for the About dialog's optional extras section."""
 
+from collections.abc import Iterator
+
 import pytest
 
 from jabs.core.utils import ExtraStatus
@@ -23,7 +25,7 @@ pytestmark = pytest.mark.skipif(SKIP_UI_TESTS, reason=SKIP_REASON)
 
 
 @pytest.fixture(scope="module", autouse=True)
-def qapp():
+def qapp() -> Iterator["QApplication"]:
     """Ensure a QApplication exists for widget tests."""
     app = QApplication.instance() or QApplication([])
     yield app
