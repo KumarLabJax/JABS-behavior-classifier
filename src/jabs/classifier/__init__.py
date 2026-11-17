@@ -5,6 +5,7 @@ It includes the `Classifier` class, which supports multiple classification algor
 Gradient Boosting, and XGBoost), utilities for feature management, data splitting, model evaluation, and serialization.`
 """
 
+from .base import UnsupportedClassifierError
 from .classifier import Classifier
 from .cross_validation import (
     NO_VALID_SPLITS_WARNING,
@@ -49,6 +50,7 @@ __all__ = [
     "MultiClassClassifier",
     "PostprocessedMetrics",
     "TrainingReportData",
+    "UnsupportedClassifierError",
     "enabled_stage_configs",
     "evaluate_group_with_postprocessing",
     "generate_markdown_report",

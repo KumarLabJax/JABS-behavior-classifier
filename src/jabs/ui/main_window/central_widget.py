@@ -1,3 +1,4 @@
+import html
 import logging
 import traceback
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from shapely.geometry import Point
 
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
-from jabs.classifier import Classifier, MultiClassClassifier
+from jabs.classifier import Classifier, MultiClassClassifier, UnsupportedClassifierError
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import (
     ClassifierMode,
@@ -265,6 +266,9 @@ class CentralWidget(QtWidgets.QWidget):
         # project-wide counts for the reserved "None" background track, used to
         # source the negative-class row of the label summary in multi-class mode
         self._none_counts = None
+        # behaviors whose saved classifier was already reported as unsupported, so
+        # the warning is shown once per project rather than on every behavior change
+        self._unsupported_classifier_warned: set[str] = set()
         self._bouts_behavior = 0
         self._bouts_not_behavior = 0
 
@@ -428,6 +432,7 @@ class CentralWidget(QtWidgets.QWidget):
         # cached across behavior changes and only invalidated when the project
         # changes (they belong to the previous project here).
         self._none_counts = None
+        self._unsupported_classifier_warned = set()
 
         self._controls.update_project_settings(project.settings)
         self._controls.set_classifier_mode(project.settings_manager.classifier_mode)
@@ -2266,15 +2271,63 @@ class CentralWidget(QtWidgets.QWidget):
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(self._classifier, self.behavior)
+        except UnsupportedClassifierError as e:
+            logger.warning(
+                "saved classifier is not supported, it will need to be retrained: %s", e
+            )
+            self._reset_classifier()
+            self._warn_unsupported_classifier(e)
         except Exception as e:
             logger.error(
                 "failed to load classifier, it will need to be retrained: %s", e, exc_info=True
             )
+            self._reset_classifier()
 
         if classifier_loaded:
             self._update_classifier_controls()
         else:
             self._set_classify_enabled(False)
+
+    def _reset_classifier(self) -> None:
+        """Replace the active classifier with an untrained one of the selected type.
+
+        Used after a failed load so a previous behavior's trained model can't be
+        used to classify the current behavior.
+        """
+        self._classifier = Classifier(self._controls.classifier_type, n_jobs=-1)
+        self._ensure_classifier_for_mode()
+
+    def _warn_unsupported_classifier(self, error: UnsupportedClassifierError) -> None:
+        """Tell the user the saved classifier can't be used and must be retrained.
+
+        Shown at most once per behavior per project. The dialog is deferred to the
+        next event-loop turn so it doesn't interrupt project or behavior loading.
+
+        Args:
+            error: The error raised while loading the saved classifier.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            key = "multi-class classifier"
+            subject = "The saved multi-class classifier"
+        else:
+            key = self.behavior
+            subject = f"The saved classifier for <b>{html.escape(self.behavior)}</b>"
+        if key in self._unsupported_classifier_warned:
+            return
+        self._unsupported_classifier_warned.add(key)
+
+        saved_type = f" ({html.escape(error.classifier_name)})" if error.classifier_name else ""
+        message = (
+            f"{subject} uses a classifier type{saved_type} that is not available in "
+            f"this JABS installation, so it could not be loaded."
+            f"<br><br><b>{html.escape(self._classifier.classifier_name)}</b> has been selected "
+            f"instead. You will need to train a new classifier before you can classify."
+            f"<br><br>To use the saved classifier, open the project with a JABS "
+            f"installation that supports it."
+        )
+        QtCore.QTimer.singleShot(
+            0, self, lambda: MessageDialog.warning(self, "Unsupported Classifier", message)
+        )
 
     def _on_search_hit_changed_later(self, _: SearchHit | None) -> None:
         """Update the search hit after a short delay to allow UI updates to complete."""
