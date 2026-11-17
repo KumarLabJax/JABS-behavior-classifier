@@ -48,8 +48,18 @@ class UnsupportedClassifierError(ValueError):
         super().__init__(f"Classifier type '{name}' is not supported by this JABS installation")
 
 
-def _unpickle_classifier(path: Path) -> typing.Any:
+# packages providing optional classifier algorithms, which may be absent from an install
+_OPTIONAL_CLASSIFIER_PACKAGES = frozenset({"xgboost", "catboost", "lightgbm"})
+
+
+def unpickle_classifier(path: Path) -> typing.Any:
     """Load a pickled classifier, translating unsupported-algorithm failures.
+
+    Args:
+        path: Path to the saved classifier pickle file.
+
+    Returns:
+        The unpickled object.
 
     Raises:
         UnsupportedClassifierError: If the pickle references a classifier type
@@ -61,8 +71,12 @@ def _unpickle_classifier(path: Path) -> typing.Any:
         try:
             c = joblib.load(path)
         except ModuleNotFoundError as e:
-            # the pickled estimator belongs to a package that is not installed
-            raise UnsupportedClassifierError(e.name) from e
+            # only a missing optional classifier package means an unsupported algorithm;
+            # other missing modules (e.g. sklearn/numpy internals) are version mismatches
+            package = (e.name or "").partition(".")[0]
+            if package not in _OPTIONAL_CLASSIFIER_PACKAGES:
+                raise
+            raise UnsupportedClassifierError(package) from e
         except ValueError as e:
             # the pickled ClassifierType value is not defined in this JABS version
             if ClassifierType.__name__ not in str(e):
@@ -324,7 +338,7 @@ class BaseClassifier:
             ValueError: If the file is not an instance of ``cls`` or was trained
                 with an incompatible sklearn or JABS version.
         """
-        c = _unpickle_classifier(path)
+        c = unpickle_classifier(path)
 
         if not isinstance(c, cls):
             raise ValueError(f"{path} is not an instance of {cls.__name__}")
@@ -357,7 +371,7 @@ class BaseClassifier:
             ValueError: If the file is not an instance of this class or was saved
                 with a different version.
         """
-        c = _unpickle_classifier(path)
+        c = unpickle_classifier(path)
 
         if not isinstance(c, type(self)):
             raise ValueError(f"{path} is not an instance of {type(self).__name__}")

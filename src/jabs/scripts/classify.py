@@ -9,18 +9,16 @@ Todo:
 import argparse
 import re
 import sys
-import warnings
 from pathlib import Path
 
 import h5py
-import joblib
 import numpy as np
 import pandas as pd
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn
-from sklearn.exceptions import InconsistentVersionWarning
 
 from jabs.classifier import Classifier, MultiClassClassifier
+from jabs.classifier.base import unpickle_classifier
 from jabs.core.constants import APP_NAME, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierType
 from jabs.core.utils import pose_file_stem
@@ -61,21 +59,16 @@ def load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifier
         Loaded ``Classifier`` or ``MultiClassClassifier`` instance.
 
     Raises:
+        UnsupportedClassifierError: If the classifier uses an algorithm that is
+            not available in this environment.
         ValueError: If the file was trained with an incompatible sklearn or JABS
-            version, uses an unsupported classifier type, or contains an
-            unrecognized object type.
+            version or contains an unrecognized object type.
         FileNotFoundError: If ``path`` does not exist.
         PermissionError: If the file cannot be read.
         Exception: Other exceptions raised by joblib/pickle during deserialization
             (e.g. corrupt file).
     """
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always", InconsistentVersionWarning)
-        obj = joblib.load(path)
-        for w in caught_warnings:
-            if issubclass(w.category, InconsistentVersionWarning):
-                raise ValueError("Classifier trained with a different version of sklearn.")
-            warnings.warn(w.message, w.category, stacklevel=2)
+    obj = unpickle_classifier(path)
 
     if isinstance(obj, MultiClassClassifier):
         return MultiClassClassifier.from_pickle(path)

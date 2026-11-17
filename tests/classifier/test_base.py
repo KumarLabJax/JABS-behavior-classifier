@@ -7,6 +7,7 @@ import pytest
 
 from jabs.classifier import Classifier, MultiClassClassifier, UnsupportedClassifierError
 from jabs.core.enums import ClassifierType
+from jabs.scripts.classify import load_classifier_from_pickle
 
 
 @pytest.fixture
@@ -84,3 +85,24 @@ def test_load_unrelated_value_error_propagates(tmp_path: Path) -> None:
     ):
         Classifier().load(path)
     assert not isinstance(exc_info.value, UnsupportedClassifierError)
+
+
+def test_load_missing_unrelated_module_propagates(tmp_path: Path) -> None:
+    """A missing module that isn't an optional classifier package is not reclassified."""
+    path = tmp_path / "classifier.pickle"
+    Classifier().save(path)
+    missing = ModuleNotFoundError(
+        "No module named 'sklearn.ensemble._gb_losses'", name="sklearn.ensemble._gb_losses"
+    )
+    with (
+        patch("jabs.classifier.base.joblib.load", side_effect=missing),
+        pytest.raises(ModuleNotFoundError) as exc_info,
+    ):
+        Classifier().load(path)
+    assert not isinstance(exc_info.value, UnsupportedClassifierError)
+
+
+def test_cli_load_unknown_classifier_type_raises_unsupported(unknown_type_pickle: Path) -> None:
+    """The jabs-classify loader also raises UnsupportedClassifierError."""
+    with pytest.raises(UnsupportedClassifierError):
+        load_classifier_from_pickle(unknown_type_pickle)

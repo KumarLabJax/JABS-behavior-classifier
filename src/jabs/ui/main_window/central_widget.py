@@ -1,3 +1,4 @@
+import html
 import logging
 import traceback
 from dataclasses import dataclass
@@ -2299,16 +2300,16 @@ class CentralWidget(QtWidgets.QWidget):
             subject = "The saved multi-class classifier"
         else:
             key = self.behavior
-            subject = f"The saved classifier for <b>{self.behavior}</b>"
+            subject = f"The saved classifier for <b>{html.escape(self.behavior)}</b>"
         if key in self._unsupported_classifier_warned:
             return
         self._unsupported_classifier_warned.add(key)
 
-        saved_type = f" ({error.classifier_name})" if error.classifier_name else ""
+        saved_type = f" ({html.escape(error.classifier_name)})" if error.classifier_name else ""
         message = (
             f"{subject} uses a classifier type{saved_type} that is not available in "
             f"this JABS installation, so it could not be loaded."
-            f"<br><br><b>{self._classifier.classifier_name}</b> has been selected "
+            f"<br><br><b>{html.escape(self._classifier.classifier_name)}</b> has been selected "
             f"instead. You will need to train a new classifier before you can classify."
             f"<br><br>To use the saved classifier, install JABS with the optional "
             f"dependency that provides it."
