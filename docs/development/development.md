@@ -840,9 +840,9 @@ Classifiers wrap scikit-learn, XGBoost or CatBoost models:
 
 The GUI uses Qt's signal/slot mechanism for communication between components.
 
-##### MessageDialog - Custom Error/Warning/Info Dialogs
+##### MessageDialog - Custom Error/Warning/Info/Confirm Dialogs
 
-JABS provides a custom `MessageDialog` class for displaying errors, warnings, and informational messages throughout the application. This dialog should be **preferred over PySide6's default dialogs** (`QMessageBox`) for consistency and enhanced functionality.
+JABS provides a custom `MessageDialog` class for displaying errors, warnings, informational messages and Yes/No confirmations throughout the application. This dialog should be **preferred over PySide6's default dialogs** (`QMessageBox`) for consistency and enhanced functionality.
 
 **Location:** `src/jabs/ui/dialogs/message_dialog.py`
 
@@ -858,7 +858,7 @@ JABS provides a custom `MessageDialog` class for displaying errors, warnings, an
 The MessageDialog follows Qt's classmethod pattern (like `QMessageBox.critical()`):
 
 ```python
-from jabs.ui import MessageDialog
+from jabs.ui.dialogs import MessageDialog
 
 # Error dialog
 MessageDialog.error(
@@ -892,6 +892,14 @@ MessageDialog.information(
     title="Success",
     message="Project loaded successfully!",
 )
+
+# Yes/No confirmation - returns True when the user clicks Yes
+if MessageDialog.confirm(
+    self,
+    title="Delete Behavior",
+    message="Remove this behavior and its predictions from the project?",
+):
+    delete_behavior()
 ```
 
 **When to use each type:**
@@ -899,10 +907,11 @@ MessageDialog.information(
 - **`MessageDialog.error()`**: Critical errors that prevent operation (file not found, invalid data, exceptions)
 - **`MessageDialog.warning()`**: Non-critical issues that the user should be aware of (performance impacts, missing optional data)
 - **`MessageDialog.information()`**: Successful operations, status updates, helpful tips
+- **`MessageDialog.confirm()`**: Yes/No questions before a destructive or irreversible action. Unlike the other three, this returns a `bool` rather than a dialog result code
 
 **Features:**
 
-1. **Automatic title defaults**: If no title is provided, defaults based on message type ("Error", "Warning", "Information")
+1. **Automatic title defaults**: If no title is provided, defaults based on message type ("Error", "Warning", "Information", "Confirm")
 
 2. **Expandable details section**: 
    - Initially collapsed to keep dialog compact
@@ -920,7 +929,10 @@ MessageDialog.information(
 
 4. **Custom icons with tooltips**:
    - Icons can display tooltips on hover
-   - Configured in `_get_icon_path()` method
+   - Configured in the `_get_icon_data()` method, which maps a message type to an
+     image and an optional tooltip
+   - Only `ERROR` has an image today; the other types fall back to the emoji in
+     `_get_fallback_icon()`
 
 **Migration from QMessageBox:**
 
@@ -929,6 +941,7 @@ MessageDialog.information(
 QMessageBox.critical(self, "Error", "Something went wrong")
 QMessageBox.warning(self, "Warning", "Be careful")
 QMessageBox.information(self, "Info", "Success!")
+QMessageBox.question(self, "Confirm", "Are you sure?")
 ```
 
 **After:**
@@ -936,6 +949,7 @@ QMessageBox.information(self, "Info", "Success!")
 MessageDialog.error(self, title="Error", message="Something went wrong")
 MessageDialog.warning(self, title="Warning", message="Be careful")
 MessageDialog.information(self, title="Info", message="Success!")
+MessageDialog.confirm(self, title="Confirm", message="Are you sure?")  # -> bool
 ```
 
 **Best Practices:**
@@ -955,10 +969,11 @@ MessageDialog.information(self, title="Info", message="Success!")
 A test/demo script is available:
 
 ```bash
-python -m jabs.ui.message_dialog
+python -m jabs.ui.dialogs.message_dialog
 ```
 
-This opens a window with buttons to demonstrate all dialog types.
+This opens a window with buttons demonstrating the error, error-with-details,
+warning and information dialogs.
 
 ### Data Flow
 
