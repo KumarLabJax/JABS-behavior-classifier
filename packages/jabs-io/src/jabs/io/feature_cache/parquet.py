@@ -171,7 +171,11 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
             columns[feature_key] = data.features[feature_key]
 
         table = pa.table({k: pa.array(v) for k, v in columns.items()})
-        pq.write_table(table, parquet_path, compression="lz4")
+        # Dictionary encoding is off: pyarrow tries it on every column by default, but
+        # most feature columns are continuous floats, so it costs more than it saves
+        # overall. A few low-cardinality columns grow, but the cache shrinks and writes
+        # faster. It doesn't change the values read back.
+        pq.write_table(table, parquet_path, compression="lz4", use_dictionary=False)
         logger.debug("Wrote %d per-frame feature columns to %s", len(data.features), parquet_path)
 
         # metadata.json is written last; its presence is the sentinel for a valid cache.
@@ -207,7 +211,7 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
         logger.info("Writing Parquet window-%d feature cache to %s", window_size, parquet_path)
 
         table = pa.table({k: pa.array(data[k]) for k in sorted(data)})
-        pq.write_table(table, parquet_path, compression="lz4")
+        pq.write_table(table, parquet_path, compression="lz4", use_dictionary=False)
         logger.debug(
             "Wrote %d window-%d feature columns to %s",
             len(data),
