@@ -188,7 +188,9 @@ def _sample_one(
             return
 
         # VideoReader.seek() lands on the exact frame, which cv2 seeking may not
-        reader.seek(out_start_frame_index)
+        if not reader.seek(out_start_frame_index):
+            click.echo(f"WARNING: failed to seek to start frame in {vid_filename}", err=True)
+            return
 
         writer = cv2.VideoWriter(
             str(vid_out_path),

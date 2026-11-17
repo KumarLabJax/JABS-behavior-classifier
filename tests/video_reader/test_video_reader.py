@@ -28,6 +28,8 @@ class FakeCapture:
     Seeking to frame 0 always lands on the first frame, as OpenCV's does.
     ``reported_count`` stands in for a container whose frame count is only an estimate.
     ``timestamp_step_ms`` rounds timestamps to that step, like a coarse container time base.
+    ``broken_frame`` fails to decode, like a corrupt packet. ``set_ok`` False makes
+    every seek fail without moving.
 
     Each frame's pixels hold its true frame number, so a test can tell which frame it
     actually received.
@@ -39,11 +41,14 @@ class FakeCapture:
         landing_shift: int = 0,
         reported_count: int | None = None,
         timestamp_step_ms: float | None = None,
+        broken_frame: int | None = None,
     ) -> None:
         self.num_frames = num_frames
         self.landing_shift = landing_shift
         self.reported_count = reported_count or num_frames
         self.timestamp_step_ms = timestamp_step_ms
+        self.broken_frame = broken_frame
+        self.set_ok = True
         self.reported_fps = _FPS * num_frames / (num_frames - 1)
         self._next = 0  # frame the next grab() decodes
         self._grabbed: int | None = None  # frame the last grab() decoded
@@ -60,6 +65,8 @@ class FakeCapture:
             return self.reported_fps
         if prop in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT):
             return 4.0
+        if prop == cv2.CAP_PROP_POS_FRAMES:
+            return float(self._next)
         if prop == cv2.CAP_PROP_POS_MSEC:
             # like OpenCV, the timestamp of the last decoded frame
             if self._grabbed is None:
@@ -73,6 +80,8 @@ class FakeCapture:
     def set(self, prop: int, value: float) -> bool:
         """Seek the way OpenCV does: by time, using the reported frame rate."""
         assert prop == cv2.CAP_PROP_POS_FRAMES
+        if not self.set_ok:
+            return False
         landing = 0 if value == 0 else round(value * _FPS / self.reported_fps) + self.landing_shift
         self._next = min(max(landing, 0), self.num_frames)
         self._grabbed = None
@@ -80,7 +89,7 @@ class FakeCapture:
 
     def grab(self) -> bool:
         """Decode the next frame."""
-        if self._next >= self.num_frames:
+        if self._next >= self.num_frames or self._next == self.broken_frame:
             return False
         self._grabbed = self._next
         self._next += 1
@@ -103,13 +112,13 @@ class FakeCapture:
 def _frame_holding(number: int) -> npt.NDArray[np.uint8]:
     """A tiny frame whose pixels encode ``number`` (base 256, little endian)."""
     frame = np.zeros((4, 4, 3), dtype=np.uint8)
-    frame[0, 0] = (number % 256, number // 256, 0)
+    frame[0, 0] = (number % 256, number // 256 % 256, number // 65536)
     return frame
 
 
 def _number_in(frame: npt.NDArray[np.uint8]) -> int:
     """Read back the number encoded by ``_frame_holding``."""
-    return int(frame[0, 0, 0]) + 256 * int(frame[0, 0, 1])
+    return int(frame[0, 0, 0]) + 256 * int(frame[0, 0, 1]) + 65536 * int(frame[0, 0, 2])
 
 
 def _open_fake(
@@ -185,15 +194,30 @@ def test_seek_is_exact_when_frame_count_is_an_estimate(
         _assert_plays_in_sync(reader, target)
 
 
+def test_seek_corrects_a_long_video_with_millisecond_timestamps(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Millisecond timestamps number every frame of an hour-long video, in stages."""
+    capture = FakeCapture(num_frames=108_000, timestamp_step_ms=1.0)
+    reader = _open_fake(monkeypatch, tmp_path, capture)
+
+    with caplog.at_level(logging.WARNING, logger=video_reader_module.__name__):
+        for target in (10, 54_000, 100_000, 107_990):
+            reader.seek(target)
+            _assert_plays_in_sync(reader, target)
+
+    assert caplog.text == ""
+
+
 def test_seek_trusts_opencv_when_timestamps_are_too_coarse(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Without precise enough timing, seek() falls back to OpenCV's position and says so.
 
-    Millisecond timestamps on a 30 fps video can't pin down the frame duration well
-    enough to number every frame of a long video.
+    Timestamps rounded to 20 ms can't pin down a 33 ms frame duration closely enough to
+    number frames far from the start.
     """
-    capture = FakeCapture(num_frames=100_000, timestamp_step_ms=1.0)
+    capture = FakeCapture(num_frames=100_000, timestamp_step_ms=20.0)
     reader = _open_fake(monkeypatch, tmp_path, capture)
 
     with caplog.at_level(logging.WARNING, logger=video_reader_module.__name__):
@@ -321,7 +345,6 @@ def test_seek_to_a_negative_index_starts_at_the_first_frame(
         reader.seek(-1)
 
     _assert_plays_in_sync(reader, 0)
-    assert not reader._warned_inexact_seek
     assert caplog.text == ""
 
 
@@ -340,3 +363,45 @@ def test_seek_does_not_decode_through_a_landing_far_short(
 
     assert capture.grabs <= 2 * video_reader_module._MAX_CATCH_UP_FRAMES
     assert "Unable to seek" in caplog.text
+
+    # the correction is off for this file now, so the next seek doesn't retry it
+    capture.grabs = 0
+    reader.seek(6_000)
+    assert capture.grabs == 0
+
+
+def test_seek_past_the_last_frame_of_an_overcounted_video(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Seeking between the real last frame and the reported count is end of file."""
+    reader = _open_fake(monkeypatch, tmp_path, FakeCapture(num_frames=1000, reported_count=1005))
+
+    with caplog.at_level(logging.WARNING, logger=video_reader_module.__name__):
+        assert reader.seek(1002)
+        assert reader.load_next_frame()["data"] is None
+        assert reader.seek(999)
+        _assert_plays_in_sync(reader, 999, frames=1)
+
+    assert caplog.text == ""
+
+
+def test_failed_seek_keeps_frame_numbers_in_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When OpenCV can't seek, seek() says so and frames keep their true numbers."""
+    capture = FakeCapture(num_frames=100)
+    reader = _open_fake(monkeypatch, tmp_path, capture)
+    capture.set_ok = False
+
+    assert not reader.seek(50)
+    frame = reader.load_next_frame()
+    assert frame["index"] == _number_in(frame["data"])
+
+
+def test_decode_error_in_first_frames_is_not_taken_for_the_end(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A frame that fails to decode early on doesn't stand in for the end of the video."""
+    reader = _open_fake(monkeypatch, tmp_path, FakeCapture(num_frames=1000, broken_frame=10))
+
+    assert reader._frame_timing() is None

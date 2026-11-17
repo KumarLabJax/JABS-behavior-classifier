@@ -20,15 +20,32 @@ _MAX_SEEK_ATTEMPTS = 4
 # duration. More frames average out the rounding of coarse timestamps.
 _TIMING_HEAD_FRAMES = 30
 
-# How far, in frames, the measured position of the last frame may be from a whole
-# frame number, counting the rounding of the timestamps it is measured from, before
-# the measurement is distrusted (variable frame rate, or timestamps too coarse to
-# number every frame of a long video).
+# How far, in frames, the measured position of a frame may be from its true position,
+# given the rounding of the timestamps it is measured from, for it to be numbered.
 _MAX_TIMING_UNCERTAINTY_FRAMES = 0.25
 
-# How many frames _frame_timing() decodes after landing near the end before deciding
-# the frame count is an underestimate, rather than decoding the rest of the video.
+# How much further, in frames, a measured position may be from a whole frame number
+# than that rounding explains before the frames are taken to be unevenly spaced.
+_TIMING_SLACK_FRAMES = 0.05
+
+# How far, in frames, the frame duration measured so far may have drifted by the frame
+# _frame_timing() numbers next. Coarse timestamps (e.g. whole milliseconds) leave too
+# much error to number the last frame of a long video straight from the first frames,
+# so it numbers frames in stages, each as far out as this allows, refining the
+# duration from each one.
+_TIMING_STAGE_DRIFT_FRAMES = 0.2
+
+# How many stages _frame_timing() takes to reach the last frame before giving up.
+_MAX_TIMING_STAGES = 12
+
+# How many frames past the reported end _frame_timing() decodes after landing near it
+# before deciding the frame count is an underestimate, rather than decoding the rest
+# of the video.
 _MAX_TIMING_TAIL_FRAMES = 10
+
+# How many frames before the reported end _frame_timing() lands to find the last
+# frame, trying each in turn while landings decode nothing (a count that is too high).
+_TIMING_TAIL_BACKOFF = (3, 10, 30, 100)
 
 # How many frames seek() decodes to step forward from where OpenCV landed. OpenCV
 # normally lands within a frame or two; a landing further short is treated as a failed
@@ -64,11 +81,13 @@ class VideoReader:
         self._frame_index = 0
         # True when seek() has already decoded the next frame to return
         self._frame_pending = False
+        # True when seek() went past the last frame, so the next load is end of file
+        self._at_end = False
         # (first frame timestamp, frame duration) in milliseconds, measured on first seek
         self._timing: tuple[float, float] | None = None
         self._timing_measured = False
-        # warn about an inexact seek only once per file, since scrubbing seeks repeatedly
-        self._warned_inexact_seek = False
+        # number of the last frame, measured with the timing
+        self._last_frame_index: int | None = None
         self._num_frames = int(self.stream.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # get frame rate
@@ -146,7 +165,7 @@ class VideoReader:
         """
         return time.strftime("%H:%M:%S", time.gmtime(frame_number * self._duration))
 
-    def seek(self, index: int) -> None:
+    def seek(self, index: int) -> bool:
         """Seek to a specific frame.
 
         The next call to ``load_next_frame()`` returns frame ``index``.
@@ -160,7 +179,13 @@ class VideoReader:
         forward to the requested frame, or lands again further back if it overshot.
 
         Args:
-            index: Frame index to seek to.
+            index: Frame index to seek to. A negative index seeks to frame 0.
+
+        Returns:
+            True if the next ``load_next_frame()`` returns frame ``index``, or the
+            end-of-file marker for an index past the last frame. False if the video
+            could not be positioned; the next load then returns the frame the stream
+            is at, numbered by OpenCV.
 
         Raises:
             OSError: If the video stream has been closed.
@@ -174,19 +199,23 @@ class VideoReader:
 
         index = max(index, 0)
         self._frame_pending = False
+        self._at_end = False
         timing = self._frame_timing()
         if timing is None:
             # no reliable timing to check against, so trust OpenCV's position
-            if self.stream.set(cv2.CAP_PROP_POS_FRAMES, index):
-                self._frame_index = index
-            return
+            return self._plain_seek(index)
+        if self._last_frame_index is not None and index > self._last_frame_index:
+            # past the last frame: the next load returns the end-of-file marker
+            self._frame_index = index
+            self._at_end = True
+            return True
 
         land_at = index
         for _ in range(_MAX_SEEK_ATTEMPTS):
             if not self.stream.set(cv2.CAP_PROP_POS_FRAMES, max(land_at, 0)):
-                break
+                return self._plain_seek(index)
             reached = self._grab_frame_number(timing)
-            if reached is None and index < self._num_frames:
+            if reached is None:
                 # landed past the end of the file, overshooting a frame that exists
                 land_at -= 1
                 continue
@@ -194,32 +223,36 @@ class VideoReader:
                 if reached is None or reached >= index:
                     break
                 reached = self._grab_frame_number(timing)
-            if reached is not None and reached < index:
+            if reached is None or reached < index:
                 # landed too far short to step forward to index
                 break
-
-            if reached is None:
-                # past the last frame: the next load returns the end-of-file marker
-                self._frame_index = index
-                return
             if reached == index:
                 self._frame_index = index
                 self._frame_pending = True
-                return
+                return True
 
             # overshot: land again far enough back to come up short of index
             land_at -= reached - index + 1
 
-        if not self._warned_inexact_seek:
-            self._warned_inexact_seek = True
-            logger.warning(
-                "Unable to seek %s to frame %d exactly (variable frame rate?); frames may "
-                "be offset after seeking in this video",
-                self._filename,
-                index,
-            )
+        # the correction doesn't work for this file, so stop paying for it on every seek
+        self._timing = None
+        logger.warning(
+            "Unable to seek %s to frame %d exactly (variable frame rate?); seeking in this "
+            "video may be off by a frame",
+            self._filename,
+            index,
+        )
+        return self._plain_seek(index)
+
+    def _plain_seek(self, index: int) -> bool:
+        """Seek with OpenCV alone, keeping the frame number in step if it fails."""
         if self.stream.set(cv2.CAP_PROP_POS_FRAMES, index):
             self._frame_index = index
+            return True
+        # the stream is wherever the failed seek, or measuring the timing, left it
+        self._frame_index = int(self.stream.get(cv2.CAP_PROP_POS_FRAMES))
+        logger.warning("Unable to seek %s to frame %d", self._filename, index)
+        return False
 
     def _grab_frame_number(self, timing: tuple[float, float]) -> int | None:
         """Decode the next frame and return its frame number, or None at end of file."""
@@ -232,16 +265,37 @@ class VideoReader:
         """Return ``(first frame timestamp, frame duration)`` in milliseconds.
 
         Measured once, from frame timestamps rather than the reported frame rate or
-        frame count, either of which can be off by a frame. The duration of the first
-        frames gives the number of the last frame, and the last frame's timestamp
-        then gives a duration precise enough to number every frame. Returns None, and
-        stays None, if the file cannot be measured that precisely. Moves the stream
-        position, so callers must seek afterwards.
+        frame count, either of which can be off by a frame. Also records the number of
+        the last frame. Returns None, and stays None, if the file cannot be measured
+        precisely enough to number every frame. Moves the stream position, so callers
+        must seek afterwards.
         """
         if self._timing_measured:
             return self._timing
         self._timing_measured = True
 
+        measured = self._measure_timing()
+        if measured is None:
+            return None
+        first_ms, frame_ms, self._last_frame_index = measured
+        if self._last_frame_index != self._num_frames - 1:
+            logger.debug(
+                "%s reports %d frames but its last frame is frame %d",
+                self._filename,
+                self._num_frames,
+                self._last_frame_index,
+            )
+        self._timing = (first_ms, frame_ms)
+        logger.debug("Measured frame timing of %s: %.6f ms/frame", self._filename, frame_ms)
+        return self._timing
+
+    def _measure_timing(self) -> tuple[float, float, int] | None:
+        """Measure ``(first frame timestamp, frame duration, last frame number)``.
+
+        The first frames give a rough frame duration. That numbers a frame further
+        on, whose timestamp gives a more precise duration, and so on until the last
+        frame is numbered; with precise timestamps that takes one stage.
+        """
         if self._num_frames < 2 or not self.stream.set(cv2.CAP_PROP_POS_FRAMES, 0):
             return None
         head_ms = []
@@ -252,63 +306,92 @@ class VideoReader:
         if len(head_ms) < 2:
             return None
         first_ms = head_ms[0]
-        head_frame_ms = (head_ms[-1] - first_ms) / (len(head_ms) - 1)
-        if head_frame_ms <= 0:
+        numbered = len(head_ms) - 1
+        frame_ms = (head_ms[-1] - first_ms) / numbered
+        if frame_ms <= 0:
             logger.debug("Unable to measure frame timing of %s", self._filename)
             return None
-
         if len(head_ms) <= _TIMING_HEAD_FRAMES:
-            # decoded the whole video, so the head is exact
-            last_ms, last_index, uncertainty = head_ms[-1], len(head_ms) - 1, 0.0
-        else:
-            last_ms = self._last_frame_ms()
-            if last_ms is None:
+            if len(head_ms) < self._num_frames - 1:
+                # decoding stopped well before the reported end: an error, not the end
+                logger.debug("Unable to decode the first frames of %s", self._filename)
                 return None
-            position = (last_ms - first_ms) / head_frame_ms
-            last_index = round(position)
-            # each end of the head may be rounded by as much as the head's largest
-            # departure from even spacing, which scales up over the whole video
-            rounding = max(abs(t - first_ms - i * head_frame_ms) for i, t in enumerate(head_ms))
-            uncertainty = abs(position - last_index) + position * 2 * rounding / (
-                (len(head_ms) - 1) * head_frame_ms
-            )
-        if last_index < 1 or uncertainty > _MAX_TIMING_UNCERTAINTY_FRAMES:
-            logger.warning(
-                "Unable to measure frame timing of %s precisely; seeking may be off by a frame",
-                self._filename,
-            )
-            return None
+            # decoded the whole video, so the head is exact
+            return first_ms, frame_ms, numbered
 
-        if last_index != self._num_frames - 1:
-            logger.debug(
-                "%s reports %d frames but its last frame is frame %d",
-                self._filename,
-                self._num_frames,
-                last_index,
+        # how far a timestamp may be from even spacing, e.g. from a coarse time base
+        rounding = max(abs(t - first_ms - i * frame_ms) for i, t in enumerate(head_ms))
+        last_ms = self._last_frame_ms()
+        if last_ms is None:
+            return None
+        for _ in range(_MAX_TIMING_STAGES):
+            # frame_ms is off by at most error_ms, so frame n is off by n * error_ms
+            error_ms = 2 * rounding / numbered
+            reach = (
+                _TIMING_STAGE_DRIFT_FRAMES * frame_ms / error_ms if error_ms > 0 else float("inf")
             )
-        self._timing = (first_ms, (last_ms - first_ms) / last_index)
-        logger.debug("Measured frame timing of %s: %.6f ms/frame", self._filename, self._timing[1])
-        return self._timing
+            final = last_ms - first_ms <= reach * frame_ms
+            if final:
+                stage_ms = last_ms
+            elif reach < 1.5 * numbered:
+                break  # timestamps too coarse to make progress
+            else:
+                stage_ms = self._frame_ms_near(int(reach))
+                if stage_ms is None:
+                    return None
+            position = (stage_ms - first_ms) / frame_ms
+            index = round(position)
+            # drift of the duration so far, plus the rounding of this timestamp
+            uncertainty = (position * error_ms + rounding) / frame_ms
+            if (
+                index <= numbered
+                or uncertainty > _MAX_TIMING_UNCERTAINTY_FRAMES
+                or abs(position - index) > uncertainty + _TIMING_SLACK_FRAMES
+            ):
+                break
+            frame_ms = (stage_ms - first_ms) / index
+            numbered = index
+            if final:
+                return first_ms, frame_ms, index
+        logger.warning(
+            "Unable to measure frame timing of %s precisely; seeking may be off by a frame",
+            self._filename,
+        )
+        return None
+
+    def _frame_ms_near(self, index: int) -> float | None:
+        """Return the timestamp of a frame at or near ``index``, or None on failure."""
+        if not self.stream.set(cv2.CAP_PROP_POS_FRAMES, index) or not self.stream.grab():
+            logger.debug("Unable to read frame %d of %s", index, self._filename)
+            return None
+        return self.stream.get(cv2.CAP_PROP_POS_MSEC)
 
     def _last_frame_ms(self) -> float | None:
         """Return the timestamp of the last frame, or None if it can't be reached."""
         # land near the end and read to the last frame; where exactly it lands does
-        # not matter, only the timestamp of the final frame
-        if not self.stream.set(cv2.CAP_PROP_POS_FRAMES, max(self._num_frames - 3, 0)):
-            logger.debug("Unable to seek to the end of %s", self._filename)
-            return None
-        last_ms = None
-        for _ in range(_MAX_TIMING_TAIL_FRAMES):
-            if not self.stream.grab():
+        # not matter, only the timestamp of the final frame. A count that is too high
+        # can land past the end, so back up further until a frame decodes.
+        for back in _TIMING_TAIL_BACKOFF:
+            if not self.stream.set(cv2.CAP_PROP_POS_FRAMES, max(self._num_frames - back, 0)):
+                logger.debug("Unable to seek to the end of %s", self._filename)
+                return None
+            last_ms = None
+            for _ in range(back + _MAX_TIMING_TAIL_FRAMES):
+                if not self.stream.grab():
+                    break
+                last_ms = self.stream.get(cv2.CAP_PROP_POS_MSEC)
+            else:
+                # still decoding well past the reported last frame: the count is an
+                # underestimate, or the seek failed, so don't decode the rest
+                logger.warning(
+                    "Unable to find the last frame of %s to measure frame timing; seeking "
+                    "may be off by a frame",
+                    self._filename,
+                )
+                return None
+            if last_ms is not None:
                 return last_ms
-            last_ms = self.stream.get(cv2.CAP_PROP_POS_MSEC)
-        # still decoding well past the reported last frame: the count is an
-        # underestimate, or the seek failed, so don't decode the rest of the video
-        logger.warning(
-            "Unable to find the last frame of %s to measure frame timing; seeking may be "
-            "off by a frame",
-            self._filename,
-        )
+        logger.debug("No frames decode near the end of %s", self._filename)
         return None
 
     def load_next_frame(self) -> dict[str, object]:
@@ -320,6 +403,8 @@ class VideoReader:
         if self.stream is None:
             raise OSError("video stream is closed")
 
+        if self._at_end:
+            return self._EOF
         if self._frame_pending:
             # seek() already decoded this frame while checking where it landed
             self._frame_pending = False

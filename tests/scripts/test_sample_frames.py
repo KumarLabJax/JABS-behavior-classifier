@@ -471,6 +471,7 @@ def _make_reader_mock(grabbed: bool = True) -> MagicMock:
     mock_reader_cls = MagicMock()
     reader = mock_reader_cls.return_value
     reader.__enter__.return_value = reader
+    reader.seek.return_value = True
     reader.load_next_frame.return_value = {
         "data": np.zeros((4, 4, 3), dtype=np.uint8) if grabbed else None
     }
@@ -548,6 +549,42 @@ def test_write_frames_unopenable_video_raises(tmp_path: Path) -> None:
 
     with pytest.raises(OSError, match="unable to open"):
         write_frames(tmp_path, [("missing.mp4", 0)], out_dir)
+
+
+def test_write_frames_skips_video_it_cannot_read(tmp_path: Path) -> None:
+    """A video VideoReader rejects (e.g. a frame rate of 0) is skipped, not fatal."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    mock_reader_cls = _make_reader_mock()
+    good_reader = mock_reader_cls.return_value
+    mock_reader_cls.side_effect = [ValueError("invalid frame rate"), good_reader]
+    mock_cv2 = _make_cv2_mock()
+
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", mock_reader_cls),
+    ):
+        write_frames(tmp_path, [("bad.mp4", 1), ("good.mp4", 2)], out_dir)
+
+    written = [Path(c.args[0]).name for c in mock_cv2.imwrite.call_args_list]
+    assert written == ["good_frame000002.png"]
+
+
+def test_write_frames_skips_frame_it_cannot_seek_to(tmp_path: Path) -> None:
+    """A frame the reader can't seek to is skipped rather than written mislabeled."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    mock_reader_cls = _make_reader_mock()
+    mock_reader_cls.return_value.seek.return_value = False
+    mock_cv2 = _make_cv2_mock()
+
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", mock_cv2),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", mock_reader_cls),
+    ):
+        write_frames(tmp_path, [("v.mp4", 5)], out_dir)
+
+    mock_cv2.imwrite.assert_not_called()
 
 
 def test_write_frames_imwrite_failure_raises(tmp_path: Path) -> None:

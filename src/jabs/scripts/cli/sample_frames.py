@@ -186,11 +186,17 @@ def write_frames(
             logger.info("Opening %s to extract %d frame(s)", video_path.name, len(frame_indices))
             progress.console.print(f"[dim]{video_path.name}[/dim]")
 
+            try:
+                reader = VideoReader(video_path)
+            except ValueError:
+                logger.warning("Unable to read %s; skipping its frames", video_name, exc_info=True)
+                progress.advance(task, len(frame_indices))
+                continue
+
             # VideoReader.seek() lands on the exact frame, which cv2 seeking may not
-            with VideoReader(video_path) as reader:
+            with reader:
                 for frame_index in sorted(frame_indices):
-                    reader.seek(frame_index)
-                    frame = reader.load_next_frame()["data"]
+                    frame = reader.load_next_frame()["data"] if reader.seek(frame_index) else None
                     if frame is None:
                         logger.warning(
                             "Could not read frame %d from %s; skipping",
