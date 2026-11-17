@@ -150,3 +150,74 @@ def test_reset_stops_the_player_thread_and_closes_the_stream():
     stream.close.assert_called_once()
     assert widget._player_thread is None
     assert widget._video_stream is None
+
+
+def _widget_with_mock_thread(num_frames: int = 1000) -> tuple["PlayerWidget", mock.Mock]:
+    """A player whose slider is enabled and whose player thread is a mock."""
+    widget = PlayerWidget()
+    thread = mock.Mock()
+    widget._player_thread = thread
+    widget._video_stream = mock.Mock(num_frames=num_frames)
+    widget._video_stream.get_frame_time.return_value = "00:00:00"
+    widget._position_slider.setMaximum(num_frames - 1)
+    widget._position_slider.setEnabled(True)
+    return widget, thread
+
+
+def test_fast_slider_changes_seek_only_to_the_latest_position(qapp) -> None:
+    """A burst of slider values, as from a fast drag, decodes one frame, not one per value."""
+    widget, thread = _widget_with_mock_thread()
+
+    for value in range(10, 500, 7):
+        widget._position_slider.setValue(value)
+    thread.seek.assert_not_called()
+
+    qapp.processEvents()
+
+    assert [c.args[0] for c in thread.seek.call_args_list] == [last := max(range(10, 500, 7))]
+    assert widget.current_frame == last
+
+
+def test_dragging_while_playing_seeks(qapp) -> None:
+    """A drag pauses playback until release, and seeks as it goes."""
+    widget, thread = _widget_with_mock_thread()
+    widget._playing = True
+    widget._position_slider.setSliderDown(True)
+
+    widget._position_slider.setValue(300)
+    qapp.processEvents()
+
+    # pressing seeks to where the slider was, then the drag seeks to where it went
+    assert [c.args[0] for c in thread.seek.call_args_list] == [0, 300]
+
+
+def test_playback_moving_the_slider_does_not_seek(qapp) -> None:
+    """During playback the player thread moves the slider, which must not seek back."""
+    widget, thread = _widget_with_mock_thread()
+    widget._playing = True
+
+    widget._set_position(120)
+    qapp.processEvents()
+
+    thread.seek.assert_not_called()
+
+
+def test_slider_release_seeks_immediately_and_drops_pending_seek(qapp) -> None:
+    """Releasing the slider shows its final frame at once, without a stale seek after it."""
+    widget, thread = _widget_with_mock_thread()
+    widget._position_slider.setValue(200)
+
+    widget._position_slider_release()
+    qapp.processEvents()
+
+    assert [c.args[0] for c in thread.seek.call_args_list] == [200]
+
+
+def test_step_to_frame_seeks_once(qapp) -> None:
+    """Stepping to a frame seeks once, not once for the step and again for the slider."""
+    widget, thread = _widget_with_mock_thread()
+
+    widget.seek_to_frame(42)
+    qapp.processEvents()
+
+    thread.seek.assert_called_once_with(42)
