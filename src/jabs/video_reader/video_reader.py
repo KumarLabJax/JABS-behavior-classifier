@@ -21,7 +21,18 @@ _MAX_SEEK_ATTEMPTS = 4
 # (for example because the frame count is an estimate). A difference of 1/(frames - 1)
 # is allowed on top of this: that is the discrepancy that throws OpenCV's seeking off,
 # and it is large for short videos.
+#
+# Known gap: a container whose frame count is one higher than the frames that decode
+# skews the measured duration by the same 1/(frames - 1) and passes this check. Frames
+# past the midpoint are then numbered one too high, so seeks there land a frame early
+# without a warning, as they did before seek() corrected landings. The check cannot
+# tell that file apart from the reported-rate error it corrects, whose discrepancy is
+# the same size with the opposite sign.
 _TIMING_TOLERANCE = 0.01
+
+# How many frames _frame_timing() decodes after landing near the end before deciding
+# the frame count is an underestimate, rather than decoding the rest of the video.
+_MAX_TIMING_TAIL_FRAMES = 10
 
 
 class VideoReader:
@@ -172,6 +183,10 @@ class VideoReader:
         for _ in range(_MAX_SEEK_ATTEMPTS):
             self.stream.set(cv2.CAP_PROP_POS_FRAMES, max(land_at, 0))
             reached = self._grab_frame_number(timing)
+            if reached is None and index < self._num_frames:
+                # landed past the end of the file, overshooting a frame that exists
+                land_at -= 1
+                continue
             while reached is not None and reached < index:
                 reached = self._grab_frame_number(timing)
 
@@ -228,8 +243,19 @@ class VideoReader:
         # not matter, only the timestamp of the final frame
         self.stream.set(cv2.CAP_PROP_POS_FRAMES, self._num_frames - 3)
         last_ms = None
-        while self.stream.grab():
+        for _ in range(_MAX_TIMING_TAIL_FRAMES):
+            if not self.stream.grab():
+                break
             last_ms = self.stream.get(cv2.CAP_PROP_POS_MSEC)
+        else:
+            # still decoding well past the reported last frame: the count is an
+            # underestimate, so don't decode the rest of the video to measure
+            logger.warning(
+                "Frame count of %s is too low to measure frame timing; seeking may be "
+                "off by a frame",
+                self._filename,
+            )
+            return None
         if last_ms is None or last_ms <= first_ms:
             logger.debug("Unable to measure frame timing of %s", self._filename)
             return None

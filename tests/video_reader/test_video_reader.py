@@ -8,6 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import numpy.typing as npt
+import pytest
 
 from jabs.video_reader import VideoReader
 from jabs.video_reader import video_reader as video_reader_module
@@ -159,10 +160,10 @@ def test_seek_trusts_opencv_when_timing_disagrees_with_frame_rate(
 ) -> None:
     """Without trustworthy timing, seek() falls back to OpenCV's position and says so.
 
-    Here the container's frame count is only an estimate (90 for a 100-frame video), so
+    Here the container's frame count is only an estimate (95 for a 100-frame video), so
     the measured frame duration disagrees with the frame rate and can't be trusted.
     """
-    reader = _open_fake(monkeypatch, tmp_path, FakeCapture(num_frames=100, reported_count=90))
+    reader = _open_fake(monkeypatch, tmp_path, FakeCapture(num_frames=100, reported_count=95))
 
     with caplog.at_level(logging.WARNING, logger=video_reader_module.__name__):
         reader.seek(10)
@@ -211,3 +212,54 @@ def test_seek_is_exact_on_a_real_video(tmp_path) -> None:
             assert _decode_number(frame["data"]) == expected
 
     reader.close()
+
+
+class CountingCapture(FakeCapture):
+    """FakeCapture that counts how many frames are decoded."""
+
+    def __init__(self, num_frames: int, reported_count: int | None = None) -> None:
+        super().__init__(num_frames, reported_count=reported_count)
+        self.grabs = 0
+
+    def grab(self) -> bool:
+        """Decode the next frame, counting the call."""
+        self.grabs += 1
+        return super().grab()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="known gap: the timing check can't detect a frame count one too high",
+)
+def test_seek_with_frame_count_one_too_high(monkeypatch, tmp_path) -> None:
+    """A count one higher than the decodable frames skews the measured timing.
+
+    The measured frame duration is short by 1/(count - 1), which passes the timing
+    check, so frames past the midpoint are numbered one too high and a seek there
+    lands a frame early. See the note on _TIMING_TOLERANCE.
+    """
+    reader = _open_fake(monkeypatch, tmp_path, FakeCapture(num_frames=1000, reported_count=1001))
+
+    reader.seek(800)
+    _assert_plays_in_sync(reader, 800)
+
+
+def test_seek_to_last_frame_when_landing_overshoots_the_end(monkeypatch, tmp_path) -> None:
+    """A landing past the end of the file is retried further back."""
+    reader = _open_fake(monkeypatch, tmp_path, FakeCapture(num_frames=100, landing_shift=2))
+
+    reader.seek(99)
+    _assert_plays_in_sync(reader, 99, frames=1)
+
+
+def test_timing_measurement_does_not_decode_rest_of_video(monkeypatch, tmp_path, caplog) -> None:
+    """An underestimated frame count doesn't make the first seek decode to the end."""
+    capture = CountingCapture(num_frames=10_000, reported_count=100)
+    reader = _open_fake(monkeypatch, tmp_path, capture)
+
+    with caplog.at_level(logging.WARNING, logger=video_reader_module.__name__):
+        reader.seek(10)
+
+    assert capture.grabs < 50
+    assert reader.load_next_frame()["index"] == 10
+    assert "too low to measure frame timing" in caplog.text
