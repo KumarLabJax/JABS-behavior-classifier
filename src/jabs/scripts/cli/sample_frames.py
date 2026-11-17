@@ -20,6 +20,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, T
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
 from jabs.project import Project
+from jabs.video_reader import VideoReader
 
 logger = logging.getLogger(__name__)
 
@@ -185,15 +186,18 @@ def write_frames(
             logger.info("Opening %s to extract %d frame(s)", video_path.name, len(frame_indices))
             progress.console.print(f"[dim]{video_path.name}[/dim]")
 
-            cap = cv2.VideoCapture(str(video_path))
-            if not cap.isOpened():
-                raise OSError(f"Unable to open video file: {video_path}")
-
             try:
+                reader = VideoReader(video_path)
+            except ValueError:
+                logger.warning("Unable to read %s; skipping its frames", video_name, exc_info=True)
+                progress.advance(task, len(frame_indices))
+                continue
+
+            # VideoReader.seek() lands on the exact frame, which cv2 seeking may not
+            with reader:
                 for frame_index in sorted(frame_indices):
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-                    grabbed, frame = cap.read()
-                    if not grabbed or frame is None:
+                    frame = reader.load_next_frame()["data"] if reader.seek(frame_index) else None
+                    if frame is None:
                         logger.warning(
                             "Could not read frame %d from %s; skipping",
                             frame_index,
@@ -209,8 +213,6 @@ def write_frames(
                         raise RuntimeError(f"Failed to write PNG: {out_path}")
                     logger.info("Wrote %s", out_path.name)
                     progress.advance(task)
-            finally:
-                cap.release()
 
 
 @click.command(name="sample-frames")

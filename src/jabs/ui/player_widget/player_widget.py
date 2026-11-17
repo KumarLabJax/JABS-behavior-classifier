@@ -73,6 +73,15 @@ class PlayerWidget(QtWidgets.QWidget):
         # keep track of the current state
         self._playing = False
         self._resume_playing = False
+
+        # Seeks requested by the slider are coalesced: a seek can take a large fraction of
+        # a second on a long-GOP video, and a fast drag changes the value far more often
+        # than that. Only the latest position is decoded, once the event loop is free.
+        self._pending_seek: int | None = None
+        self._seek_timer = QtCore.QTimer(self)
+        self._seek_timer.setSingleShot(True)
+        self._seek_timer.setInterval(0)
+        self._seek_timer.timeout.connect(self._run_pending_seek)
         self._video_stream = None
         self._video_path: Path | None = None
         self._pose_est = None
@@ -154,9 +163,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # position slider
         self._position_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self._position_slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self._position_slider.sliderMoved.connect(
-            self._position_slider_moved, QtCore.Qt.ConnectionType.QueuedConnection
-        )
+        # dragging is handled by valueChanged, which the slider emits as it tracks the mouse
         self._position_slider.sliderPressed.connect(self._position_slider_clicked)
         self._position_slider.sliderReleased.connect(self._position_slider_release)
         self._position_slider.valueChanged.connect(self._on_slider_value_changed)
@@ -248,6 +255,9 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""
+        # a seek still pending belongs to the video being closed
+        self._seek_timer.stop()
+        self._pending_seek = None
         if self._player_thread is not None:
             self._player_thread.stop_playback()
             self._player_thread.wait()
@@ -592,12 +602,17 @@ class PlayerWidget(QtWidgets.QWidget):
             self._player_thread.stop_playback()
         self._seek(self._position_slider.value())
 
-    def _position_slider_moved(self) -> None:
-        """position slider move event.
+    def _request_seek(self, position: int) -> None:
+        """Seek to ``position`` once the event loop is free, replacing any earlier request."""
+        self._pending_seek = position
+        if not self._seek_timer.isActive():
+            self._seek_timer.start()
 
-        seeks the video to the new frame and displays it
-        """
-        self._seek(self._position_slider.value())
+    def _run_pending_seek(self) -> None:
+        """Perform the most recently requested seek, if it is still wanted."""
+        position, self._pending_seek = self._pending_seek, None
+        if position is not None and self._player_thread is not None:
+            self._seek(position)
 
     def _position_slider_release(self) -> None:
         """release event for the position slider.
@@ -605,15 +620,23 @@ class PlayerWidget(QtWidgets.QWidget):
         The new position gets updated for the final time. If we were playing
         when we clicked the slider then we resume playing after releasing.
         """
+        self._seek_timer.stop()
+        self._pending_seek = None
         self._seek(self._position_slider.value())
         if self._resume_playing:
             self._start_player_thread()
             self._resume_playing = False
 
-    def _on_slider_value_changed(self, value):
-        """handle slider value change event, this lets us seek by scrolling or dragging the slider"""
-        if self._player_thread is not None and not self._playing:
-            self._seek(value)
+    def _on_slider_value_changed(self, value: int) -> None:
+        """Seek when the slider value changes by dragging, scrolling, or stepping.
+
+        While playing, the player thread moves the slider itself, so only a drag (which
+        pauses playback until release) seeks.
+        """
+        if self._player_thread is not None and (
+            not self._playing or self._position_slider.isSliderDown()
+        ):
+            self._request_seek(value)
 
     def toggle_play(self) -> None:
         """handle clicking on the play/pause button
@@ -669,8 +692,8 @@ class PlayerWidget(QtWidgets.QWidget):
         new_frame = max(0, min(frame_number, num_frames - 1))
 
         if new_frame != self._position_slider.value():
+            # the slider's valueChanged handler seeks to the new frame
             self._position_slider.setValue(new_frame)
-            self._player_thread.seek(new_frame)
 
     def set_active_identity(self, identity: int) -> None:
         """set an active identity, which will be labeled in the video"""

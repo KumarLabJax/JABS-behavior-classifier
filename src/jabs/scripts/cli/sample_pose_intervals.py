@@ -26,6 +26,7 @@ import h5py
 import numpy as np
 
 from jabs.pose_estimation import get_pose_path
+from jabs.video_reader import VideoReader
 
 
 def _sample_one(
@@ -177,15 +178,17 @@ def _sample_one(
     if only_pose:
         return
 
-    cap = None
+    reader = None
     writer = None
     try:
-        cap = cv2.VideoCapture(str(vid_path))
-        if not cap.isOpened():
+        try:
+            reader = VideoReader(vid_path)
+        except (OSError, ValueError):
             click.echo(f"WARNING: failed to open {vid_filename}", err=True)
             return
 
-        if not cap.set(cv2.CAP_PROP_POS_FRAMES, out_start_frame_index):
+        # VideoReader.seek() lands on the exact frame, which cv2 seeking may not
+        if not reader.seek(out_start_frame_index):
             click.echo(f"WARNING: failed to seek to start frame in {vid_filename}", err=True)
             return
 
@@ -193,21 +196,21 @@ def _sample_one(
             str(vid_out_path),
             cv2.VideoWriter_fourcc(*"MJPG"),
             30,
-            (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))),
+            reader.dimensions,
         )
         if not writer.isOpened():
             click.echo(f"WARNING: failed to open video writer for {vid_filename}", err=True)
             return
         for _ in range(out_frame_count):
-            ret, frame = cap.read()
-            if ret:
+            frame = reader.load_next_frame()["data"]
+            if frame is not None:
                 writer.write(frame)
             else:
                 click.echo(f"WARNING: {vid_filename} ended prematurely", err=True)
                 break
     finally:
-        if cap is not None:
-            cap.release()
+        if reader is not None:
+            reader.close()
         if writer is not None:
             writer.release()
 
