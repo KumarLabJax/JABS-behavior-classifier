@@ -60,6 +60,12 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         FLOATING = enum.auto()
         BBOX = enum.auto()
 
+    class SegmentationColorMode(enum.IntEnum):
+        """Enum for how segmentation contours are colored."""
+
+        IDENTITY = enum.auto()  # active identity red, every other identity blue
+        PREDICTION = enum.auto()  # each identity colored by its prediction on the frame
+
     pixmap_clicked = QtCore.Signal(dict)
     playback_speed_changed = QtCore.Signal(float)
     id_label_clicked = QtCore.Signal(int)
@@ -92,6 +98,9 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._id_overlay_mode = self.IdentityOverlayMode.BBOX
         self._label_color_lut: npt.NDArray[np.uint8] | None = None
         self._emphasize_active_identity = True
+        self._segmentation_color_mode = self.SegmentationColorMode.IDENTITY
+        self._segmentation_predictions: list[np.ndarray] | None = None
+        self._segmentation_color_lut: npt.NDArray[np.uint8] | None = None
 
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
@@ -186,6 +195,48 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         if self._segmentation_overlay.enabled != enabled:
             self._segmentation_overlay.enabled = enabled
             self.update()
+
+    @property
+    def segmentation_color_mode(self) -> "FrameWithOverlaysWidget.SegmentationColorMode":
+        """Get how segmentation contours are colored."""
+        return self._segmentation_color_mode
+
+    @segmentation_color_mode.setter
+    def segmentation_color_mode(
+        self, mode: "FrameWithOverlaysWidget.SegmentationColorMode"
+    ) -> None:
+        """Set how segmentation contours are colored."""
+        if self._segmentation_color_mode != mode:
+            self._segmentation_color_mode = mode
+            self.update()
+
+    @property
+    def segmentation_predictions(self) -> list[np.ndarray] | None:
+        """Per-identity prediction arrays used to color segmentation contours, or None."""
+        return self._segmentation_predictions
+
+    @property
+    def segmentation_color_lut(self) -> npt.NDArray[np.uint8] | None:
+        """RGBA color LUT for multi-class segmentation prediction colors, or None (binary)."""
+        return self._segmentation_color_lut
+
+    def set_segmentation_predictions(
+        self,
+        predictions: list[np.ndarray] | None,
+        color_lut: npt.NDArray[np.uint8] | None = None,
+    ) -> None:
+        """Set the predictions used when segmentation contours are colored by prediction.
+
+        Args:
+            predictions: One array per identity, in sorted identity order, or None when
+                there is nothing to color by (every contour is then drawn as having no
+                prediction).
+            color_lut: RGBA table of shape ``(N, 4)`` when the values are multi-class LUT
+                indices, or None when they are binary prediction values.
+        """
+        self._segmentation_predictions = predictions
+        self._segmentation_color_lut = color_lut
+        self.update()
 
     @property
     def bounding_box_overlay_enabled(self) -> bool:

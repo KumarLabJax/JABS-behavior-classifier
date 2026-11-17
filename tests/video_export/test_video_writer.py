@@ -11,7 +11,7 @@ try:
     from PySide6.QtWidgets import QApplication  # noqa: F401
 
     from jabs.video_export import (
-        DEFAULT_CODEC,
+        PREFERRED_CODECS,
         LabelMarkerOverlay,
         VideoExportError,
         export_overlay_video,
@@ -130,14 +130,65 @@ def test_export_overlay_video_warns_on_frame_count_mismatch(
     assert "Frame count mismatch" in caplog.text
 
 
-def test_default_codec_is_openable(tmp_path: Path) -> None:
-    """The default codec must work in this OpenCV build, or every export fails."""
+def test_fallback_codec_is_openable(tmp_path: Path) -> None:
+    """The last-resort codec must work in this OpenCV build, or every export fails."""
     path = tmp_path / "probe.mp4"
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*DEFAULT_CODEC), 30, (64, 64))
+    writer = cv2.VideoWriter(
+        str(path), cv2.VideoWriter_fourcc(*PREFERRED_CODECS[-1]), 30, (64, 64)
+    )
     try:
         assert writer.isOpened()
     finally:
         writer.release()
+
+
+def test_default_codec_falls_back_when_the_preferred_one_is_unavailable(
+    source_video: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """With no codec named, an unopenable first choice falls through to the next."""
+    monkeypatch.setattr(video_writer_module, "PREFERRED_CODECS", ("ZZZZ", "mp4v"))
+    output = tmp_path / "out.mp4"
+
+    written = export_overlay_video(source_video, output, StubPose(), draw_segmentation=False)
+
+    assert written == FRAMES
+    capture = cv2.VideoCapture(str(output))
+    try:
+        assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == FRAMES
+    finally:
+        capture.release()
+
+
+def test_default_codec_reports_every_codec_tried(
+    source_video: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """When no preferred codec opens, the error names all of them."""
+    monkeypatch.setattr(video_writer_module, "PREFERRED_CODECS", ("ZZZZ", "YYYY"))
+
+    with pytest.raises(VideoExportError, match="'ZZZZ', 'YYYY'"):
+        export_overlay_video(
+            source_video, tmp_path / "out.mp4", StubPose(), draw_segmentation=False
+        )
+
+
+def test_explicit_codec_does_not_fall_back(
+    source_video: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """A named codec is used alone: failing to open it is an error, not a fallback."""
+    opened: list[str] = []
+    real_fourcc = cv2.VideoWriter_fourcc
+
+    def spy(*chars: str) -> int:
+        opened.append("".join(chars))
+        return real_fourcc(*chars)
+
+    monkeypatch.setattr(video_writer_module.cv2, "VideoWriter_fourcc", spy)
+
+    with pytest.raises(VideoExportError, match="'ZZZZ'"):
+        export_overlay_video(
+            source_video, tmp_path / "out.mp4", StubPose(), draw_segmentation=False, codec="ZZZZ"
+        )
+    assert opened == ["ZZZZ"]
 
 
 def test_refuses_to_overwrite_the_source_video(source_video: Path) -> None:

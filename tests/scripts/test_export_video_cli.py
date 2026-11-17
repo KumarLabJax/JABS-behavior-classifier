@@ -117,11 +117,11 @@ def test_segmentation_defaults_on(video: Path, export_spy: mock.Mock) -> None:
     assert export_spy.call_args.kwargs["draw_segmentation"] is True
 
 
-def test_codec_defaults_to_the_modules_default(video: Path, export_spy: mock.Mock) -> None:
-    """Omitting --codec resolves to DEFAULT_CODEC rather than passing None through."""
+def test_codec_defaults_to_the_exporters_choice(video: Path, export_spy: mock.Mock) -> None:
+    """Omitting --codec passes None, so the exporter picks the best available codec."""
     _invoke(str(video))
 
-    assert export_spy.call_args.kwargs["codec"] == "mp4v"
+    assert export_spy.call_args.kwargs["codec"] is None
 
 
 def test_codec_option_is_forwarded(video: Path, export_spy: mock.Mock) -> None:

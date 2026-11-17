@@ -7,10 +7,10 @@ in :func:`export_overlay_video`.
 
 from .frame_renderer import render_overlay_frame
 from .label_marker_overlay import LabelMarkerOverlay
-from .video_writer import DEFAULT_CODEC, VideoExportError, export_overlay_video
+from .video_writer import PREFERRED_CODECS, VideoExportError, export_overlay_video
 
 __all__ = [
-    "DEFAULT_CODEC",
+    "PREFERRED_CODECS",
     "LabelMarkerOverlay",
     "VideoExportError",
     "export_overlay_video",

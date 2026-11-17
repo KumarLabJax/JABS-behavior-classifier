@@ -65,4 +65,17 @@ class HuddleFeatures(Feature):
             "second closest neighbor speed": (
                 self._social_distance_info.second_closest_neighbor_speeds.copy()
             ),
+            "torso blob distance": self._social_distance_info.torso_blob_distances.copy(),
+            "torso blob centroid distance": (
+                self._social_distance_info.torso_blob_centroid_distances.copy()
+            ),
+            "torso connected group size": (
+                self._social_distance_info.torso_connected_group_sizes.copy()
+            ),
+            "torso group blob hull area": (
+                self._social_distance_info.torso_group_blob_hull_areas.copy()
+            ),
+            "torso group blob solidity": (
+                self._social_distance_info.torso_group_blob_solidities.copy()
+            ),
         }

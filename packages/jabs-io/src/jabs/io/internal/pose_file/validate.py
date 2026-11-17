@@ -1,0 +1,1685 @@
+"""Validation of a pose file against the specification (ADR 0002).
+
+A valid file is a well-formed manifest: every component is optional, and
+consumers declare their own requirements on top. This module implements the
+ADR's validation table, and nothing more opinionated than it.
+
+Two properties matter as much as the checks themselves. **This function
+reports, it never raises** — it is the tool aimed at untrusted and damaged
+files, so every malformed input must come back as a Finding. And **one problem
+does not hide the rest**: only a manifest that fails its schema stops the pass,
+because every structural check below assumes a well-formed manifest.
+
+Findings carry a stable ``check`` name so callers and tests can assert on a
+specific rule rather than on message text.
+"""
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import h5py
+import numpy as np
+import numpy.typing as npt
+
+from jabs.io.internal.pose_file.reader import attr_text
+from jabs.io.internal.pose_file.schema import (
+    FORMAT_ID,
+    MANIFEST_SCHEMA,
+    PROVENANCE_SCHEMA,
+    SCHEMA_REVISION,
+    iter_errors,
+)
+from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE
+
+ERROR = "error"
+WARNING = "warning"
+
+_INTEGER_DTYPES = ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64")
+
+# The value checks (length references, contour_count) read an array this many
+# bytes at a time, so memory stays flat however long the recording. The arrays
+# are small beside the payload -- legacy contour_length is F x S x C uint32,
+# about 2.6 MB per mouse-hour against 1.18 GB of contour points -- but they grow
+# with the recording, and nothing bounds a recording's length.
+VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
+
+# The deep check reads the dense baseline a block of frames at a time, so a
+# full-size baseline (tens of gigabytes for the worst legacy segmentation) never
+# sits in memory at once. A block is at least one frame.
+DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
+
+# The alternates this revision defines, by name and component, with the level
+# each must declare. The deep check can decode exactly these.
+_SEGMENTATION_ALTERNATE = "ragged"
+_CONTOURS = "jabs.segmentation.contours"
+_EXTERNAL_FLAG = "jabs.segmentation.external_flag"
+_CONTOUR_COUNT = "jabs.segmentation.contour_count"
+_CONTOUR_LENGTH = "jabs.segmentation.contour_length"
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One validation result.
+
+    Attributes:
+        severity: ``"error"`` or ``"warning"``.
+        check: Stable name of the rule that produced this finding.
+        message: Human-readable explanation.
+    """
+
+    severity: str
+    check: str
+    message: str
+
+
+def _check_root(h5: h5py.File, findings: list[Finding]) -> bool:
+    """Validate the root attributes.
+
+    A missing or unreadable ``schema_revision`` is recorded and the pass
+    continues: it tells us nothing about whether the payloads are sound, and
+    stopping here would skip every check that does.
+
+    Args:
+        h5: The open file.
+        findings: Accumulator.
+
+    Returns:
+        True when the file identifies as a pose file and can be checked further.
+    """
+    declared = attr_text(h5.attrs.get("jabs_format"))
+    if declared != FORMAT_ID:
+        findings.append(
+            Finding(
+                ERROR,
+                "root_attrs",
+                f"jabs_format is {declared!r}, expected {FORMAT_ID!r}",
+            )
+        )
+        return False
+
+    if "schema_revision" not in h5.attrs:
+        findings.append(Finding(ERROR, "root_attrs", "schema_revision attribute is missing"))
+        return True
+
+    revision = _int_attr(h5.attrs["schema_revision"])
+    if revision is None:
+        findings.append(
+            Finding(
+                ERROR,
+                "root_attrs",
+                f"schema_revision is not an integer: {h5.attrs['schema_revision']!r}",
+            )
+        )
+    elif revision > SCHEMA_REVISION:
+        # Recorded, never acted on: the format is additive-only, so a newer
+        # revision is readable. This is provenance, not a branch.
+        findings.append(
+            Finding(
+                WARNING,
+                "root_attrs",
+                f"file declares schema_revision {revision}, this build knows {SCHEMA_REVISION}",
+            )
+        )
+    return True
+
+
+def _int_attr(value: object) -> int | None:
+    """Coerce an HDF5 attribute to ``int`` without raising.
+
+    A shape-``(1,)`` integer attribute is what legacy JABS writes, and ``int()``
+    on one raises in numpy 2.
+
+    Args:
+        value: The raw attribute value.
+
+    Returns:
+        The integer, or None when the value is not one.
+    """
+    try:
+        flat = np.atleast_1d(np.asarray(value)).ravel()
+        if flat.size != 1:
+            return None
+        return int(flat[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_json(h5: h5py.File, name: str) -> tuple[object | None, str | None]:
+    """Read and parse one of the file's JSON documents.
+
+    Args:
+        h5: The open file.
+        name: Dataset name.
+
+    Returns:
+        A ``(document, error)`` pair; exactly one is None.
+    """
+    try:
+        raw = h5[name][()]
+    except (KeyError, TypeError) as error:
+        return None, f"/{name} is missing or unreadable: {error}"
+    try:
+        return json.loads(raw), None
+    except (TypeError, ValueError) as error:
+        return None, f"/{name} is not valid JSON: {error}"
+
+
+def _record_schema_errors(
+    schema: dict, instance: object, document: str, findings: list[Finding]
+) -> None:
+    """Record one document's schema errors, separating format failures.
+
+    A malformed timestamp is worth reporting, but it says nothing about whether
+    the payloads are sound -- and a ``*_schema`` finding aborts the structural
+    pass. Format failures therefore get their own check name so one bad
+    timestamp does not hide every other problem in the file.
+
+    Args:
+        schema: The schema to validate against.
+        instance: The document.
+        document: ``"manifest"`` or ``"provenance"``, for the check name.
+        findings: Accumulator.
+    """
+    for error in iter_errors(schema, instance):
+        where = "/".join(str(part) for part in error.path) or "<root>"
+        check = "timestamp_parseable" if error.validator == "format" else f"{document}_schema"
+        findings.append(Finding(ERROR, check, f"{document}.{where}: {error.message}"))
+
+
+def _check_documents(h5: h5py.File, findings: list[Finding]) -> tuple[dict | None, dict]:
+    """Validate the manifest and provenance documents.
+
+    Args:
+        h5: The open file.
+        findings: Accumulator.
+
+    Returns:
+        A ``(manifest, provenance)`` pair. The manifest is None when it is
+        unusable for further checks; the provenance is ``{}`` when unusable, so
+        that later reference checks degrade rather than crash.
+    """
+    manifest, error = _read_json(h5, "manifest")
+    if error is not None:
+        findings.append(Finding(ERROR, "manifest_schema", error))
+        manifest = None
+    elif not isinstance(manifest, dict):
+        findings.append(Finding(ERROR, "manifest_schema", "/manifest is not a JSON object"))
+        manifest = None
+    else:
+        _record_schema_errors(MANIFEST_SCHEMA, manifest, "manifest", findings)
+
+    provenance, error = _read_json(h5, "provenance")
+    if error is not None:
+        findings.append(Finding(ERROR, "provenance_schema", error))
+        provenance = {}
+    elif not isinstance(provenance, dict):
+        findings.append(Finding(ERROR, "provenance_schema", "/provenance is not a JSON object"))
+        provenance = {}
+    else:
+        _record_schema_errors(PROVENANCE_SCHEMA, provenance, "provenance", findings)
+
+    if manifest is None or any(f.check == "manifest_schema" for f in findings):
+        return None, provenance if isinstance(provenance, dict) else {}
+    return manifest, provenance
+
+
+def _axis_length(spec: dict, axis: str) -> int | None:
+    """The declared length of one named axis, if the entry is self-consistent.
+
+    Args:
+        spec: A component's manifest entry.
+        axis: The axis name.
+
+    Returns:
+        The length, or None when the axis is absent or the entry's axes and
+        shape disagree in arity.
+    """
+    if axis not in spec["axes"] or len(spec["axes"]) != len(spec["shape"]):
+        return None
+    return spec["shape"][spec["axes"].index(axis)]
+
+
+def _check_component(
+    h5: h5py.File,
+    spec: dict,
+    manifest: dict,
+    provenance_records: set[str],
+    findings: list[Finding],
+) -> None:
+    """Validate one component entry against the file.
+
+    Args:
+        h5: The open file.
+        spec: The component's manifest entry.
+        manifest: The whole manifest, for cross-references.
+        provenance_records: Keys present in the provenance document.
+        findings: Accumulator.
+    """
+    component_id = spec["id"]
+    by_id = {c["id"]: c for c in manifest["components"]}
+
+    node = h5.get(spec["path"])
+    if node is None:
+        findings.append(
+            Finding(
+                ERROR, "component_path_exists", f"{component_id}: no dataset at {spec['path']}"
+            )
+        )
+        return
+    if not isinstance(node, h5py.Dataset):
+        findings.append(
+            Finding(
+                ERROR,
+                "component_path_exists",
+                f"{component_id}: {spec['path']} is a {type(node).__name__}, not a dataset",
+            )
+        )
+        return
+
+    if list(node.shape) != list(spec["shape"]) or not _dtype_matches(node, spec["dtype"]):
+        findings.append(
+            Finding(
+                ERROR,
+                "dtype_shape_match",
+                f"{component_id}: declares {spec['dtype']}{tuple(spec['shape'])} but the "
+                f"dataset is {node.dtype.name}{node.shape}",
+            )
+        )
+
+    # Every check below indexes shape by a position taken from axes, so an
+    # arity mismatch must stop this component rather than raise an IndexError
+    # out of the function that exists to diagnose it.
+    if len(spec["axes"]) != len(spec["shape"]):
+        findings.append(
+            Finding(
+                ERROR,
+                "axes_arity",
+                f"{component_id}: {len(spec['axes'])} axes for {len(spec['shape'])} dimensions",
+            )
+        )
+        return
+
+    _check_missing_reference(h5, spec, by_id, findings)
+
+    if spec.get("provenance") is not None and spec["provenance"] not in provenance_records:
+        findings.append(
+            Finding(
+                ERROR,
+                "provenance_reference",
+                f"{component_id}: references undeclared provenance record {spec['provenance']!r}",
+            )
+        )
+
+    has_sample = "sample" in spec["axes"]
+    if has_sample != ("sparse" in spec):
+        findings.append(
+            Finding(
+                ERROR,
+                "sample_sparse_pairing",
+                f"{component_id}: a sample axis and a sparse declaration must accompany "
+                "each other",
+            )
+        )
+    elif has_sample:
+        _check_sparse_reference(component_id, spec, by_id, findings)
+
+    if "coord" in spec["axes"]:
+        if "units" not in spec or "coord_order" not in spec:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "coord_declarations",
+                    f"{component_id}: a coord axis requires units and coord_order",
+                )
+            )
+        pair = _axis_length(spec, "coord")
+        if pair is not None and pair != 2:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "coord_axis_length",
+                    f"{component_id}: coord axis is {pair} wide; coord_order describes two "
+                    "values and nothing else",
+                )
+            )
+
+    # Every axis the file gives a size, not only frame: the invariant is the
+    # same for slot and identity, and PoseFile enforces all of them, so
+    # checking one here left the two out of step for externally produced files.
+    for axis, length in zip(spec["axes"], spec["shape"], strict=True):
+        declared = manifest["dimensions"].get(axis)
+        if declared is not None and length != declared:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "frame_axis_length" if axis == "frame" else "axis_length",
+                    f"{component_id}: {axis} axis is {length} but dimensions.{axis} is {declared}",
+                )
+            )
+
+    _check_component_skeleton(component_id, spec, manifest, findings)
+
+    if spec.get("encoding", {}).get("kind") == "rle":
+        video = manifest["video"]
+        if video.get("width") is None or video.get("height") is None:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "rle_needs_dimensions",
+                    f"{component_id}: an RLE mask needs video.width and video.height",
+                )
+            )
+    _check_offsets(h5, spec, manifest, node, findings)
+
+    _check_layout(component_id, spec, node, findings)
+
+
+def _alternate_label(component_id: str, name: str) -> str:
+    """The name an alternate goes by in findings and in history entries.
+
+    Args:
+        component_id: The component that carries the alternate.
+        name: The alternate's name.
+
+    Returns:
+        ``<component id>:alternate:<name>``, the form ADR 0002 uses in an
+        ``encode`` entry's ``synthesized``.
+    """
+    return f"{component_id}:alternate:{name}"
+
+
+def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[Finding]) -> None:
+    """Validate a component's alternates the way a component is validated.
+
+    An alternate is a derived copy of the component's data in another
+    encoding. It shares the component's id, skeleton and provenance, so only
+    the checks that concern its own payload apply. Decoding it against the
+    baseline is the ADR's opt-in deep check, ``_check_alternates_decode``.
+
+    Args:
+        h5: The open file.
+        spec: The component's manifest entry.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    for alternate in spec.get("alternates", []):
+        label = _alternate_label(spec["id"], alternate["name"])
+        view = {**alternate, "id": label}
+        node = h5.get(alternate["path"])
+        if not isinstance(node, h5py.Dataset):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "alternate_path_exists",
+                    f"{label}: no dataset at {alternate['path']}",
+                )
+            )
+            continue
+        if list(node.shape) != list(alternate["shape"]) or not _dtype_matches(
+            node, alternate["dtype"]
+        ):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "dtype_shape_match",
+                    f"{label}: declares {alternate['dtype']}{tuple(alternate['shape'])} but the "
+                    f"dataset is {node.dtype.name}{node.shape}",
+                )
+            )
+        if len(alternate["axes"]) != len(alternate["shape"]):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "axes_arity",
+                    f"{label}: {len(alternate['axes'])} axes for "
+                    f"{len(alternate['shape'])} dimensions",
+                )
+            )
+            continue
+        _check_missing_reference(h5, view, by_id, findings)
+        if "coord" in alternate["axes"]:
+            pair = _axis_length(view, "coord")
+            if pair is not None and pair != 2:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "coord_axis_length",
+                        f"{label}: coord axis is {pair} wide; coord_order describes two "
+                        "values and nothing else",
+                    )
+                )
+        for axis, length in zip(alternate["axes"], alternate["shape"], strict=True):
+            declared = manifest["dimensions"].get(axis)
+            if declared is not None and length != declared:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "frame_axis_length" if axis == "frame" else "axis_length",
+                        f"{label}: {axis} axis is {length} but dimensions.{axis} is {declared}",
+                    )
+                )
+        if alternate["encoding"].get("kind") == "rle":
+            video = manifest["video"]
+            if video.get("width") is None or video.get("height") is None:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "rle_needs_dimensions",
+                        f"{label}: an RLE mask needs video.width and video.height",
+                    )
+                )
+        _check_offsets(h5, view, manifest, node, findings)
+        _check_layout(label, view, node, findings)
+
+
+def _check_alternate_names_and_paths(manifest: dict, findings: list[Finding]) -> None:
+    """Alternate names are unique per component, and every payload path is distinct.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    owners: dict[str, str] = {c["path"]: c["id"] for c in manifest["components"]}
+    for spec in manifest["components"]:
+        seen: set[str] = set()
+        for alternate in spec.get("alternates", []):
+            label = _alternate_label(spec["id"], alternate["name"])
+            if alternate["name"] in seen:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "alternate_unique",
+                        f"{spec['id']}: alternate {alternate['name']!r} is declared twice",
+                    )
+                )
+            seen.add(alternate["name"])
+            other = owners.get(alternate["path"])
+            if other is not None:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "alternate_unique",
+                        f"{label}: path {alternate['path']} is already {other}'s payload",
+                    )
+                )
+            owners[alternate["path"]] = label
+
+
+def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
+    """A group-level ragged payload shares its offsets with a leaf-level one.
+
+    The pair of offset datasets is what associates a per-group payload (one
+    value per contour) with the leaf payload it describes (the contour points),
+    and it is also where the group-level payload's group_offsets terminal is
+    checked. A group-level payload with no leaf-level partner has neither.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    declared: list[tuple[str, dict]] = []
+    for spec in manifest["components"]:
+        declared.append((spec["id"], spec["encoding"]))
+        for alternate in spec.get("alternates", []):
+            declared.append(
+                (_alternate_label(spec["id"], alternate["name"]), alternate["encoding"])
+            )
+    ragged = [(label, e) for label, e in declared if e.get("kind") == "ragged"]
+    leaf_pairs = {
+        (e["group_offsets"], e["instance_offsets"])
+        for _, e in ragged
+        if e.get("level", "leaf") == "leaf"
+    }
+    for label, encoding in ragged:
+        if encoding.get("level", "leaf") != "group":
+            continue
+        if (encoding["group_offsets"], encoding["instance_offsets"]) not in leaf_pairs:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "ragged_group_pairing",
+                    f"{label}: a group-level ragged payload must name the same two offset "
+                    "datasets as a leaf-level one in this file",
+                )
+            )
+
+
+def _dtype_matches(node: h5py.Dataset, declared: str) -> bool:
+    """Whether a dataset's dtype matches a declared one.
+
+    Args:
+        node: The payload dataset.
+        declared: The manifest's dtype name.
+
+    Returns:
+        True when they agree. ``"string"`` matches h5py's variable-length and
+        fixed-length string representations, which report as object, bytes or
+        unicode dtypes rather than "string".
+    """
+    if declared == "string":
+        return node.dtype.kind in "OSU"
+    return node.dtype.name == declared
+
+
+def _check_missing_reference(
+    h5: h5py.File, spec: dict, by_id: dict[str, dict], findings: list[Finding]
+) -> None:
+    """Validate a mask or length reference, including its shape and a length's values.
+
+    The ADR requires the reference to resolve "to an existing component with a
+    compatible shape". Compatible means aligning with the leading axes of what
+    it describes: a per-slot mask over per-keypoint data is meaningful, a mask
+    of higher rank than its target is not. A length that aligns must also fit
+    the axis it bounds.
+
+    Args:
+        h5: The open file.
+        spec: The component's manifest entry.
+        by_id: Every component entry, keyed by id.
+        findings: Accumulator.
+    """
+    policy = spec["missing"].get("policy")
+    if policy not in ("mask", "length"):
+        return
+    reference = spec["missing"].get(policy)
+    target = by_id.get(reference)
+    if target is None:
+        findings.append(
+            Finding(
+                ERROR,
+                "mask_reference",
+                f"{spec['id']}: missing policy references undeclared {reference!r}",
+            )
+        )
+        return
+    own_shape = list(spec["shape"])
+    other_shape = list(target["shape"])
+    own_axes = list(spec["axes"])
+    other_axes = list(target["axes"])
+    # Matching lengths are not alignment: a (frame,) payload and an (identity,)
+    # mask of the same size cannot align semantically, so the axis *names* have
+    # to be the target's leading axes too.
+    _check_reference_dtype(spec, target, policy, own_shape, findings)
+    if (
+        len(other_axes) > len(own_axes)
+        or other_axes != own_axes[: len(other_axes)]
+        or other_shape != own_shape[: len(other_shape)]
+    ):
+        findings.append(
+            Finding(
+                ERROR,
+                "mask_reference",
+                f"{spec['id']}: {policy} reference {reference!r} has axes "
+                f"{tuple(other_axes)}{tuple(other_shape)}, which are not the leading axes of "
+                f"{tuple(own_axes)}{tuple(own_shape)}",
+            )
+        )
+    elif (
+        policy == "length"
+        and len(other_axes) < len(own_axes)
+        and target["dtype"] in _INTEGER_DTYPES
+    ):
+        _check_length_bound(h5, spec, target, len(other_axes), findings)
+
+
+def _check_length_bound(
+    h5: h5py.File, spec: dict, target: dict, bounded: int, findings: list[Finding]
+) -> None:
+    """Validate that an aligned length reference's values fit the axis they bound.
+
+    ADR 0002: a length is "a non-negative integer no larger than the axis it
+    bounds". A contour_length of 99 over a 5-point axis passes every shape and
+    dtype check, and a reader that trusts it slices past the end of the data.
+    A reference whose dataset is missing or misdeclared is left to the checks
+    that report that.
+
+    Args:
+        h5: The open file.
+        spec: The component's (or alternate's) manifest entry.
+        target: The length reference's manifest entry, already aligned with
+            ``spec``'s leading axes.
+        bounded: Index of the axis the lengths bound, in ``spec``'s axes.
+        findings: Accumulator.
+    """
+    node = h5.get(target["path"])
+    if not isinstance(node, h5py.Dataset) or list(node.shape) != list(target["shape"]):
+        return
+    if node.dtype.kind not in "iu":
+        return
+    bound = spec["shape"][bounded]
+    value_range = _integer_range(node)
+    if value_range is None:
+        return
+    low, high = value_range
+    if low < 0 or high > bound:
+        findings.append(
+            Finding(
+                ERROR,
+                "length_bound",
+                f"{spec['id']}: length reference {target['id']!r} holds values in "
+                f"[{low}, {high}], outside [0, {bound}], the length of the "
+                f"{spec['axes'][bounded]} axis it bounds",
+            )
+        )
+
+
+def _integer_range(node: h5py.Dataset) -> tuple[int, int] | None:
+    """The minimum and maximum of an integer dataset, read in blocks; None when empty."""
+    row_bytes = max(1, int(np.prod(node.shape[1:])) * node.dtype.itemsize)
+    block = max(1, VALUE_CHECK_BLOCK_BYTES // row_bytes)
+    low = high = None
+    for first in range(0, node.shape[0], block):
+        values = np.asarray(node[first : first + block])
+        if values.size:
+            low = int(values.min()) if low is None else min(low, int(values.min()))
+            high = int(values.max()) if high is None else max(high, int(values.max()))
+    return None if low is None else (low, high)
+
+
+def _check_contour_count(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """Validate that each contour_count fits the contour axis it counts along.
+
+    ADR 0002: dense segmentation's validity comes from contour_count and
+    contour_length. contour_length is a length reference, bounded by the
+    generic rule; contour_count is not one, so without this a count of 99 over
+    a 2-wide contour axis passes, and a reader that trusts it slices past the
+    data. Applies to the catalog's dense layout; a foreign layout, or a
+    missing or misdeclared dataset, is left to the checks that report that.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    count, contours = by_id.get(_CONTOUR_COUNT), by_id.get(_CONTOURS)
+    if count is None or contours is None:
+        return
+    if contours["encoding"].get("kind") != "dense" or count["encoding"].get("kind") != "dense":
+        return
+    if list(count["axes"]) != ["frame", "slot"] or list(contours["axes"][:3]) != [
+        "frame",
+        "slot",
+        "contour",
+    ]:
+        return
+    if count["dtype"] not in _INTEGER_DTYPES:
+        findings.append(
+            Finding(
+                ERROR,
+                "contour_count_bound",
+                f"{_CONTOUR_COUNT} has dtype {count['dtype']}; a count must be an integer",
+            )
+        )
+        return
+    node = h5.get(count["path"])
+    if not isinstance(node, h5py.Dataset) or list(node.shape) != list(count["shape"]):
+        return
+    if node.dtype.kind not in "iu":
+        return
+    value_range = _integer_range(node)
+    if value_range is None:
+        return
+    low, high = value_range
+    bound = contours["shape"][2]
+    if low < 0 or high > bound:
+        findings.append(
+            Finding(
+                ERROR,
+                "contour_count_bound",
+                f"{_CONTOUR_COUNT} holds values in [{low}, {high}], outside [0, {bound}], the "
+                f"length of {_CONTOURS}'s contour axis",
+            )
+        )
+
+
+def _check_reference_dtype(
+    spec: dict, target: dict, policy: str, own_shape: list, findings: list[Finding]
+) -> None:
+    """Validate that a mask or length reference can actually be applied.
+
+    Alignment is not interpretability: a boolean mask says present or absent
+    and a length says how many, so a float mask or a signed length cannot be
+    applied however well its shape lines up.
+
+    Args:
+        spec: The component whose policy is checked.
+        target: The referenced component's entry.
+        policy: ``"mask"`` or ``"length"``.
+        own_shape: The referencing component's shape.
+        findings: Accumulator.
+    """
+    if policy == "mask" and target["dtype"] != "bool":
+        findings.append(
+            Finding(
+                ERROR,
+                "mask_reference",
+                f"{spec['id']}: mask reference {target['id']!r} has dtype "
+                f"{target['dtype']!r}; a mask must be boolean",
+            )
+        )
+    if policy == "length" and target["dtype"] not in _INTEGER_DTYPES:
+        findings.append(
+            Finding(
+                ERROR,
+                "mask_reference",
+                f"{spec['id']}: length reference {target['id']!r} has dtype "
+                f"{target['dtype']!r}; a length must be an integer",
+            )
+        )
+
+
+def _check_sparse_reference(
+    component_id: str, spec: dict, by_id: dict[str, dict], findings: list[Finding]
+) -> None:
+    """Validate that a sparse index reference is usable.
+
+    Args:
+        component_id: The referencing component.
+        spec: Its manifest entry.
+        by_id: Every component entry, keyed by id.
+        findings: Accumulator.
+    """
+    index_id = spec["sparse"]["index"]
+    index_spec = by_id.get(index_id)
+    if index_spec is None:
+        findings.append(
+            Finding(
+                ERROR,
+                "sparse_index_valid",
+                f"{component_id}: sparse index {index_id!r} is not declared",
+            )
+        )
+        return
+    if index_spec["axes"] != ["sample"]:
+        findings.append(
+            Finding(
+                ERROR,
+                "sparse_index_valid",
+                f"{component_id}: sparse index {index_id!r} has axes "
+                f"{index_spec['axes']}, expected a one-dimensional sample axis",
+            )
+        )
+        return
+    sample_length = _axis_length(spec, "sample")
+    if sample_length is not None and sample_length != index_spec["shape"][0]:
+        findings.append(
+            Finding(
+                ERROR,
+                "sparse_index_length",
+                f"{component_id}: sample axis is {sample_length} but index {index_id!r} has "
+                f"{index_spec['shape'][0]} entries",
+            )
+        )
+
+
+def _check_sparse_index_values(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """Validate each sparse index's values, once per index.
+
+    Checked once per index rather than once per referencing component, so a
+    shared index does not produce duplicate findings.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    index_ids = {c["sparse"]["index"] for c in manifest["components"] if "sparse" in c}
+    frame_count = manifest["video"]["frame_count"]
+    for index_id in sorted(index_ids):
+        spec = by_id.get(index_id)
+        if spec is None or spec["axes"] != ["sample"]:
+            continue
+        node = h5.get(spec["path"])
+        if not isinstance(node, h5py.Dataset):
+            continue
+        # int64 before differencing: np.diff wraps on unsigned dtypes, so a
+        # decreasing uint32 index would otherwise validate clean -- and uint32
+        # is exactly what the specification prescribes for a frame index.
+        raw = np.asarray(node[()])
+        if raw.ndim != 1:
+            findings.append(
+                Finding(ERROR, "sparse_index_valid", f"{index_id}: index must be one-dimensional")
+            )
+            continue
+        # Checked before casting: astype on a string index raises, and a float
+        # index would truncate to apparently valid frame numbers.
+        if raw.dtype.kind not in "iu":
+            findings.append(
+                Finding(
+                    ERROR,
+                    "sparse_index_valid",
+                    f"{index_id}: index dtype is {raw.dtype.name!r}; a frame index must be an "
+                    "integer",
+                )
+            )
+            continue
+        values = raw.astype(np.int64, copy=False)
+        if values.size and not np.all(np.diff(values) > 0):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "sparse_index_valid",
+                    f"{index_id}: index must be strictly increasing",
+                )
+            )
+        if values.size and (values.min() < 0 or values.max() >= frame_count):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "sparse_index_valid",
+                    f"{index_id}: index values fall outside [0, {frame_count})",
+                )
+            )
+
+
+def _check_component_skeleton(
+    component_id: str, spec: dict, manifest: dict, findings: list[Finding]
+) -> None:
+    """Validate a component's skeleton reference and keypoint axis.
+
+    Args:
+        component_id: The component.
+        spec: Its manifest entry.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    skeleton_id = spec.get("skeleton")
+    if skeleton_id is None:
+        return
+    skeleton = manifest.get("skeletons", {}).get(skeleton_id)
+    if skeleton is None:
+        findings.append(
+            Finding(
+                ERROR,
+                "skeleton_reference",
+                f"{component_id}: references undeclared skeleton {skeleton_id!r}",
+            )
+        )
+        return
+    axis = _axis_length(spec, "keypoint")
+    if axis is not None and axis != len(skeleton["body_parts"]):
+        findings.append(
+            Finding(
+                ERROR,
+                "keypoint_axis_length",
+                f"{component_id}: keypoint axis is {axis} but skeleton {skeleton_id!r} has "
+                f"{len(skeleton['body_parts'])} body parts",
+            )
+        )
+
+
+def _check_skeletons(manifest: dict, findings: list[Finding]) -> None:
+    """Validate every skeleton's edges.
+
+    The ADR's row reads "skeleton references resolve; every edge index <
+    len(body_parts)" -- one row, two clauses. The schema cannot express the
+    bound, so it has to be checked here or not at all.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    for skeleton_id, skeleton in manifest.get("skeletons", {}).items():
+        limit = len(skeleton["body_parts"])
+        bad = [
+            edge
+            for edge in skeleton.get("edges", [])
+            if any(index >= limit or index < 0 for index in edge)
+        ]
+        if bad:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "skeleton_edge_range",
+                    f"skeleton {skeleton_id!r}: edges {bad} name keypoints outside [0, {limit})",
+                )
+            )
+
+
+def _offsets(h5: h5py.File, path: str) -> np.ndarray | None:
+    """Read an offsets dataset as int64.
+
+    int64 because np.diff wraps on unsigned dtypes, and offsets are uint64 by
+    specification -- the same trap that made a decreasing frame index validate
+    clean.
+
+    Args:
+        h5: The open file.
+        path: The dataset's path.
+
+    Returns:
+        The offsets, or None when the path is not a one-dimensional dataset.
+    """
+    node = h5.get(path)
+    if not isinstance(node, h5py.Dataset):
+        return None
+    values = np.asarray(node[()])
+    # Unsigned by specification. A float offset cannot index an array, and a
+    # signed one admits negatives, so neither is usable even when its values
+    # happen to look right.
+    if values.ndim != 1 or values.dtype.kind != "u":
+        return None
+    return values.astype(np.int64, copy=False)
+
+
+def _check_offsets(
+    h5: h5py.File, spec: dict, manifest: dict, node: h5py.Dataset, findings: list[Finding]
+) -> None:
+    """Validate a non-dense component's offset indexes.
+
+    The ADR carries two error rows for these, and they are checkable whether or
+    not this build can decode the encoding: a conforming file is a conforming
+    file.
+
+    Args:
+        h5: The open file.
+        spec: The component's manifest entry.
+        manifest: The validated manifest.
+        node: The payload dataset.
+        findings: Accumulator.
+    """
+    encoding = spec.get("encoding", {})
+    kind = encoding.get("kind")
+    if kind not in ("ragged", "rle"):
+        return
+    component_id = spec["id"]
+    check = f"{kind}_offsets"
+    dimensions = manifest["dimensions"]
+    expected_instances = dimensions["frame"] * dimensions["slot"] + 1
+
+    group_offsets = None
+    if kind == "ragged":
+        group_offsets = _offsets(h5, encoding["group_offsets"])
+        if group_offsets is None:
+            findings.append(
+                Finding(
+                    ERROR,
+                    check,
+                    f"{component_id}: group_offsets at {encoding['group_offsets']} is missing, "
+                    "not one-dimensional, or not an unsigned integer",
+                )
+            )
+        elif encoding.get("level", "leaf") == "leaf":
+            # A leaf-level payload holds the leaf items, which group_offsets indexes.
+            _check_monotonic(
+                component_id, "group_offsets", group_offsets, node.shape[0], check, findings
+            )
+        else:
+            # A group-level payload holds one value per group, so group_offsets
+            # ends at the leaf count of a sibling, not at this payload's length:
+            # check its ordering here, its terminal on the leaf-level component,
+            # and this payload's length against the group count.
+            _check_monotonic(component_id, "group_offsets", group_offsets, None, check, findings)
+            if node.shape[0] != len(group_offsets) - 1:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        check,
+                        f"{component_id}: a group-level payload has {node.shape[0]} values for "
+                        f"{len(group_offsets) - 1} groups",
+                    )
+                )
+
+    instance_offsets = _offsets(h5, encoding["instance_offsets"])
+    if instance_offsets is None:
+        findings.append(
+            Finding(
+                ERROR,
+                check,
+                f"{component_id}: instance_offsets at {encoding['instance_offsets']} is "
+                "missing, not one-dimensional, or not an unsigned integer",
+            )
+        )
+        return
+    # Ragged instance offsets index into group_offsets; RLE ones index the
+    # payload directly.
+    terminal = (
+        len(group_offsets) - 1 if kind == "ragged" and group_offsets is not None else node.shape[0]
+    )
+    _check_monotonic(component_id, "instance_offsets", instance_offsets, terminal, check, findings)
+    if kind == "rle":
+        _check_rle_coverage(component_id, node, instance_offsets, manifest, findings)
+    if instance_offsets.size != expected_instances:
+        findings.append(
+            Finding(
+                ERROR,
+                check,
+                f"{component_id}: instance_offsets has {instance_offsets.size} entries, "
+                f"expected frame*slot+1 = {expected_instances}",
+            )
+        )
+
+
+def _check_rle_coverage(
+    component_id: str,
+    node: h5py.Dataset,
+    instance_offsets: np.ndarray,
+    manifest: dict,
+    findings: list[Finding],
+) -> None:
+    """Validate that each RLE instance's runs cover exactly one mask.
+
+    A short or long run list decodes to a mask of the wrong size, and no shape
+    check catches it because the payload is a flat buffer. This is the one
+    validation rule whose cost scales with the payload rather than the
+    manifest.
+
+    Args:
+        component_id: The component being checked.
+        node: The run-length payload.
+        instance_offsets: The CSR index into it.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    video = manifest["video"]
+    width, height = video.get("width"), video.get("height")
+    if width is None or height is None:
+        return
+    expected = int(width) * int(height)
+    runs = np.asarray(node[()]).astype(np.int64, copy=False)
+    for position in range(len(instance_offsets) - 1):
+        start, stop = int(instance_offsets[position]), int(instance_offsets[position + 1])
+        if start > stop or stop > runs.size:
+            return
+        total = int(runs[start:stop].sum())
+        if total != expected:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "rle_coverage",
+                    f"{component_id}: instance {position}'s runs sum to {total}, expected "
+                    f"width*height = {expected}",
+                )
+            )
+            return
+
+
+def _check_monotonic(
+    component_id: str,
+    name: str,
+    values: np.ndarray,
+    terminal: int | None,
+    check: str,
+    findings: list[Finding],
+) -> None:
+    """Validate one CSR offsets array's shape and ordering.
+
+    Args:
+        component_id: The component being checked.
+        name: The offsets array's role, for the message.
+        values: The offsets, as int64.
+        terminal: The value the array must end at, or None when another
+            component's check owns it.
+        check: The finding's check name.
+        findings: Accumulator.
+    """
+    if values.size == 0:
+        findings.append(Finding(ERROR, check, f"{component_id}: {name} is empty"))
+        return
+    if values[0] != 0:
+        findings.append(
+            Finding(ERROR, check, f"{component_id}: {name} starts at {values[0]}, expected 0")
+        )
+    if np.any(np.diff(values) < 0):
+        findings.append(Finding(ERROR, check, f"{component_id}: {name} is not non-decreasing"))
+    if terminal is not None and values[-1] != terminal:
+        findings.append(
+            Finding(
+                ERROR,
+                check,
+                f"{component_id}: {name} ends at {values[-1]}, expected {terminal}",
+            )
+        )
+
+
+def _check_layout(
+    component_id: str, spec: dict, node: h5py.Dataset, findings: list[Finding]
+) -> None:
+    """Compare a declared layout against the dataset's actual storage.
+
+    Args:
+        component_id: The component.
+        spec: Its manifest entry.
+        node: The payload dataset.
+        findings: Accumulator.
+    """
+    declared = spec.get("layout")
+    if declared is None:
+        return
+    actual = {
+        "storage": "contiguous" if node.chunks is None else "chunked",
+        "compression": node.compression or "none",
+    }
+    if node.chunks is not None:
+        actual["chunks"] = list(node.chunks)
+    if node.compression_opts is not None:
+        actual["compression_opts"] = node.compression_opts
+    disagreements = [
+        f"{key}: declared {declared[key]!r}, actual {actual.get(key)!r}"
+        for key in declared
+        if declared[key] != actual.get(key)
+    ]
+    if disagreements:
+        findings.append(
+            Finding(
+                WARNING,
+                "layout_matches_file",
+                f"{component_id}: declared layout disagrees with the dataset -- "
+                + "; ".join(disagreements),
+            )
+        )
+
+
+def _check_manifest_wide(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """Validate rules that span the whole manifest.
+
+    Args:
+        h5: The open file.
+        manifest: The parsed manifest.
+        findings: Accumulator.
+    """
+    declared_format = manifest.get("format")
+    declared_revision = manifest.get("schema_revision")
+    root_revision = _int_attr(h5.attrs.get("schema_revision"))
+    if declared_format != attr_text(h5.attrs.get("jabs_format")) or (
+        root_revision is not None and declared_revision != root_revision
+    ):
+        findings.append(
+            Finding(
+                ERROR,
+                "manifest_matches_root",
+                f"manifest declares {declared_format!r}/{declared_revision} but the root "
+                f"attributes say {attr_text(h5.attrs.get('jabs_format'))!r}/{root_revision}",
+            )
+        )
+
+    dimensions = manifest["dimensions"]
+    if dimensions["identity"] > dimensions["slot"]:
+        findings.append(
+            Finding(
+                ERROR,
+                "identity_le_slot",
+                f"dimensions.identity ({dimensions['identity']}) exceeds dimensions.slot "
+                f"({dimensions['slot']})",
+            )
+        )
+
+    frame_count = manifest["video"]["frame_count"]
+    if dimensions["frame"] != frame_count:
+        findings.append(
+            Finding(
+                ERROR,
+                "dimensions_match_video",
+                f"dimensions.frame ({dimensions['frame']}) disagrees with video.frame_count "
+                f"({frame_count})",
+            )
+        )
+
+    ids = [c["id"] for c in manifest["components"]]
+    duplicates = sorted({i for i in ids if ids.count(i) > 1})
+    if duplicates:
+        findings.append(
+            Finding(ERROR, "component_id_unique", f"duplicate component ids: {duplicates}")
+        )
+
+    for component_id in ids:
+        segments = component_id.split(".")
+        if segments[0] != RESERVED_NAMESPACE and len(segments) < 3:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "namespace_well_formed",
+                    f"{component_id}: a non-jabs namespace needs a reverse-DNS root of at "
+                    "least two segments",
+                )
+            )
+
+    undeclared = sorted(c["id"] for c in manifest["components"] if c.get("provenance") is None)
+    if undeclared:
+        # A warning, not an error: design goal 15 says where provenance
+        # attaches, and design goal 16 says a valid file is a well-formed
+        # manifest. Requiring it would invalidate a third party's file for
+        # omitting a field only JABS cares about.
+        findings.append(
+            Finding(
+                WARNING,
+                "provenance_declared",
+                f"components with no provenance record: {undeclared}",
+            )
+        )
+
+    video = manifest["video"]
+    if video.get("width") is None or video.get("height") is None:
+        findings.append(
+            Finding(
+                WARNING,
+                "video_dimensions_null",
+                "video.width or video.height is unknown, so the coordinate space is not "
+                "recorded in the file",
+            )
+        )
+
+    _check_attachments(h5, manifest, findings)
+
+
+def _check_attachments(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """Report payloads under /attachments that the manifest never declared.
+
+    Args:
+        h5: The open file.
+        manifest: The parsed manifest.
+        findings: Accumulator.
+    """
+    declared_paths = {c["path"] for c in manifest["components"]}
+    declared_attachments = {a["path"] for a in manifest.get("attachments", [])}
+    seen: set[str] = set()
+    for spec in manifest.get("attachments", []):
+        path = spec["path"]
+        if not isinstance(h5.get(path), h5py.Dataset):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "attachment_path_exists",
+                    f"declared attachment {path} is missing or is not a dataset",
+                )
+            )
+        if not path.startswith("/attachments/"):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "attachment_namespace",
+                    f"declared attachment {path} is outside /attachments/",
+                )
+            )
+        if path in seen:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "attachment_unique",
+                    f"attachment {path} is declared more than once",
+                )
+            )
+        seen.add(path)
+
+    root = h5.get("attachments")
+    if not isinstance(root, h5py.Group):
+        # A name test would treat a dataset called "attachments" as a group and
+        # then fail inside visititems.
+        return
+
+    def note_undeclared(name: str, obj: object) -> None:
+        if not isinstance(obj, h5py.Dataset):
+            return
+        path = f"/attachments/{name}"
+        if path not in declared_attachments and path not in declared_paths:
+            findings.append(
+                Finding(
+                    WARNING,
+                    "attachment_undeclared",
+                    f"{path} is present but not listed in the manifest's attachments",
+                )
+            )
+
+    root.visititems(note_undeclared)
+
+
+def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """The opt-in deep check: each alternate decodes to its baseline.
+
+    Every structural check can pass while an alternate says something its
+    baseline does not -- a moved point, a flipped flag, a contour handed to the
+    neighboring slot -- because those checks read offsets and shapes, not
+    values. This decodes both and compares them.
+
+    Decoding trusts the offsets and shapes the structural checks vouch for, so
+    a file that already has errors is not decoded. This revision defines one
+    alternate, ``ragged`` on ``jabs.segmentation``; any other is reported as
+    unchecked rather than passed, because a dense baseline does not say
+    generically how many groups an instance has.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    alternates = [
+        (spec, alternate)
+        for spec in manifest["components"]
+        for alternate in spec.get("alternates", [])
+    ]
+    if not alternates:
+        return
+    if any(f.severity == ERROR for f in findings):
+        findings.append(
+            Finding(
+                WARNING,
+                "alternate_deep_unchecked",
+                "alternates were not decoded: the file has errors, and decoding trusts the "
+                "offsets and shapes those checks cover",
+            )
+        )
+        return
+
+    by_id = {c["id"]: c for c in manifest["components"]}
+    contours = flags = None
+    for spec, alternate in alternates:
+        label = _alternate_label(spec["id"], alternate["name"])
+        reason = _undecodable_reason(spec, alternate, by_id)
+        if reason is not None:
+            findings.append(Finding(WARNING, "alternate_deep_unchecked", f"{label}: {reason}"))
+        elif spec["id"] == _CONTOURS:
+            contours = alternate
+        else:
+            flags = alternate
+    if (
+        contours is not None
+        and flags is not None
+        and (
+            flags["encoding"]["group_offsets"],
+            flags["encoding"]["instance_offsets"],
+        )
+        != (contours["encoding"]["group_offsets"], contours["encoding"]["instance_offsets"])
+    ):
+        # Pairing only requires some leaf-level partner. Decoding these flags
+        # through the contours' offsets would compare the wrong groups.
+        findings.append(
+            Finding(
+                WARNING,
+                "alternate_deep_unchecked",
+                f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
+                "the contours alternate's, so it cannot be decoded through them",
+            )
+        )
+        flags = None
+    if contours is None:
+        # A group-level flag alternate is decoded through the contours' offsets.
+        if flags is not None:
+            findings.append(
+                Finding(
+                    WARNING,
+                    "alternate_deep_unchecked",
+                    f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
+                    "contours alternate's offsets, and that alternate is not decodable here",
+                )
+            )
+        return
+    _compare_segmentation_alternate(h5, manifest, by_id, contours, flags, findings)
+
+
+def _undecodable_reason(spec: dict, alternate: dict, by_id: dict[str, dict]) -> str | None:
+    """Why the deep check cannot decode this alternate, or None when it can.
+
+    The decode assumes the catalog's segmentation layout, and no structural
+    check requires a file to follow it: a foreign producer may lay segmentation
+    out differently and still conform. Every assumption the decode makes is
+    therefore checked here, so a different layout is reported as unchecked
+    rather than raising mid-comparison.
+
+    Args:
+        spec: The component carrying the alternate.
+        alternate: The alternate's manifest entry.
+        by_id: Components by id.
+
+    Returns:
+        A sentence for the finding, or None.
+    """
+    expected_level = {_CONTOURS: "leaf", _EXTERNAL_FLAG: "group"}.get(spec["id"])
+    encoding = alternate["encoding"]
+    if alternate["name"] != _SEGMENTATION_ALTERNATE or expected_level is None:
+        return (
+            "this revision defines only the ragged alternate of jabs.segmentation, so this "
+            "alternate cannot be decoded against its baseline"
+        )
+    if encoding.get("kind") != "ragged" or encoding.get("level", "leaf") != expected_level:
+        return f"the ragged alternate must be a {expected_level}-level ragged encoding"
+    needed = (_CONTOURS, _CONTOUR_COUNT, _CONTOUR_LENGTH) + (
+        (_EXTERNAL_FLAG,) if spec["id"] == _EXTERNAL_FLAG else ()
+    )
+    for component_id in needed:
+        baseline = by_id.get(component_id)
+        if baseline is None or baseline["encoding"].get("kind") != "dense":
+            return f"its dense baseline needs a dense {component_id}"
+
+    contours = by_id[_CONTOURS]
+    axes, shape = list(contours["axes"]), list(contours["shape"])
+    if axes[:4] != ["frame", "slot", "contour", "point"]:
+        return f"{_CONTOURS} must have axes (frame, slot, contour, point, ...) to be decoded"
+    layout = {
+        _CONTOUR_COUNT: (["frame", "slot"], shape[:2]),
+        _CONTOUR_LENGTH: (["frame", "slot", "contour"], shape[:3]),
+        _EXTERNAL_FLAG: (["frame", "slot", "contour"], shape[:3]),
+    }
+    for component_id in needed[1:]:
+        want_axes, want_shape = layout[component_id]
+        entry = by_id[component_id]
+        if list(entry["axes"]) != want_axes or list(entry["shape"]) != want_shape:
+            return f"{component_id} is not indexed by the contours' {tuple(want_axes)}"
+        # Flags are compared as booleans. Counts and lengths need no check
+        # here: the structural pass requires both to be integers, and the deep
+        # check only runs on a file with no errors.
+        if component_id == _EXTERNAL_FLAG and entry["dtype"] != "bool":
+            return f"{component_id} has dtype {entry['dtype']}, not bool"
+    # The length policy is what makes the length-bound check run on
+    # contour_length, and the deep check only runs on a file with no errors,
+    # so every length it decodes through fits the point axis.
+    missing = contours["missing"]
+    if missing.get("policy") != "length" or missing.get("length") != _CONTOUR_LENGTH:
+        return (
+            f"{_CONTOURS} must declare a length policy naming {_CONTOUR_LENGTH}, which is what "
+            "bounds each contour's points"
+        )
+    if spec["id"] == _CONTOURS:
+        if list(alternate["axes"]) != ["point", *axes[4:]] or (
+            list(alternate["shape"][1:]) != shape[4:]
+        ):
+            return (
+                f"its axes {tuple(alternate['axes'])}{tuple(alternate['shape'])} do not hold "
+                f"the baseline's points, whose trailing axes are "
+                f"{tuple(axes[4:])}{tuple(shape[4:])}"
+            )
+    elif list(alternate["axes"]) != ["contour"]:
+        return f"a group-level flag alternate has the single axis contour, not {alternate['axes']}"
+    elif alternate["dtype"] != "bool":
+        return f"a flag alternate is compared as booleans, so it must be bool, not {alternate['dtype']}"
+    return None
+
+
+def _rows_differ(
+    actual: npt.NDArray[np.generic], expected: npt.NDArray[np.generic]
+) -> npt.NDArray[np.bool_]:
+    """Which leading-axis rows of two equal-shape arrays differ, with NaN equal to NaN.
+
+    Args:
+        actual: The alternate's values.
+        expected: The baseline's values.
+
+    Returns:
+        One boolean per row of the first axis.
+    """
+    differ = actual != expected
+    if actual.dtype.kind == "f" and expected.dtype.kind == "f":
+        differ &= ~(np.isnan(actual) & np.isnan(expected))
+    # Reduce over the trailing axes; reshape(0, -1) is undefined for a block
+    # whose instances own no points.
+    return differ.any(axis=tuple(range(1, differ.ndim))) if differ.ndim > 1 else differ
+
+
+def _compare_segmentation_alternate(
+    h5: h5py.File,
+    manifest: dict,
+    by_id: dict[str, dict],
+    contours: dict,
+    flags: dict | None,
+    findings: list[Finding],
+) -> None:
+    """Compare the ragged segmentation alternate with its dense baseline.
+
+    Vectorized per block of frames. For each block, the dense baseline implies
+    the alternate exactly: each instance owns ``contour_count`` groups, group
+    sizes are the valid ``contour_length`` entries in ``(frame, slot, contour)``
+    order, the payload is the valid points in the same order, and the
+    group-level flags are the valid ``external_flag`` entries. The first
+    difference in each of the four is reported, against the instance it
+    belongs to.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        by_id: Components by id.
+        contours: The contours' ragged alternate (leaf level).
+        flags: The flags' ragged alternate (group level), or None.
+        findings: Accumulator.
+    """
+    frames, slots = manifest["dimensions"]["frame"], manifest["dimensions"]["slot"]
+    dense = h5[by_id[_CONTOURS]["path"]]
+    count_node = h5[by_id[_CONTOUR_COUNT]["path"]]
+    length_node = h5[by_id[_CONTOUR_LENGTH]["path"]]
+    flag_node = h5[by_id[_EXTERNAL_FLAG]["path"]] if flags is not None else None
+    payload = h5[contours["path"]]
+    flag_payload = h5[flags["path"]] if flags is not None else None
+    group_offsets = _offsets(h5, contours["encoding"]["group_offsets"])
+    instance_offsets = _offsets(h5, contours["encoding"]["instance_offsets"])
+    contour_axis, point_axis = dense.shape[2], dense.shape[3]
+
+    points_label = _alternate_label(_CONTOURS, contours["name"])
+    flags_label = _alternate_label(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
+    frame_bytes = max(1, int(np.prod(dense.shape[1:])) * dense.dtype.itemsize)
+    block = max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes)
+
+    def instance_of(group: int) -> str:
+        position = int(np.searchsorted(instance_offsets, group, side="right")) - 1
+        return f"frame {position // slots}, slot {position % slots}"
+
+    def disagree(label: str, where: str, what: str) -> None:
+        findings.append(
+            Finding(
+                ERROR,
+                "alternate_decodes",
+                f"{label} disagrees with its baseline at {where}: {what}. The baseline wins; "
+                "the alternate must be dropped or regenerated",
+            )
+        )
+
+    # Every count is within [0, contour_axis] and every length within
+    # [0, point_axis]: the structural pass checks both, and this only runs on a
+    # file with no errors.
+    points_ok, flags_ok = True, flags is not None
+    for first in range(0, frames, block):
+        last = min(frames, first + block)
+        count = np.asarray(count_node[first:last]).astype(np.int64)
+        length = np.asarray(length_node[first:last]).astype(np.int64)
+        valid_contour = np.arange(contour_axis) < count[..., None]
+
+        # Which groups each instance owns.
+        lo, hi = first * slots, last * slots
+        owned = np.diff(instance_offsets[lo : hi + 1])
+        expected_owned = count.ravel()
+        if not np.array_equal(owned, expected_owned):
+            position = lo + int(np.flatnonzero(owned != expected_owned)[0])
+            disagree(
+                points_label,
+                f"frame {position // slots}, slot {position % slots}",
+                f"it owns {owned[position - lo]} contours where the baseline has "
+                f"{expected_owned[position - lo]}",
+            )
+            return
+        g0, g1 = int(instance_offsets[lo]), int(instance_offsets[hi])
+
+        # Each group's size.
+        sizes = np.diff(group_offsets[g0 : g1 + 1])
+        expected_sizes = length[valid_contour]
+        if points_ok and not np.array_equal(sizes, expected_sizes):
+            group = g0 + int(np.flatnonzero(sizes != expected_sizes)[0])
+            disagree(
+                points_label,
+                instance_of(group),
+                f"contour {group} has {sizes[group - g0]} points where the baseline has "
+                f"{expected_sizes[group - g0]}",
+            )
+            points_ok = False
+
+        # The points themselves.
+        if points_ok:
+            valid_point = valid_contour[..., None] & (np.arange(point_axis) < length[..., None])
+            expected_points = np.asarray(dense[first:last])[valid_point]
+            actual = np.asarray(payload[int(group_offsets[g0]) : int(group_offsets[g1])])
+            mismatch = np.flatnonzero(_rows_differ(actual, expected_points))
+            if mismatch.size:
+                point = int(group_offsets[g0]) + int(mismatch[0])
+                group = int(np.searchsorted(group_offsets, point, side="right")) - 1
+                disagree(
+                    points_label,
+                    instance_of(group),
+                    f"point {point} is {actual[mismatch[0]].tolist()} where the baseline has "
+                    f"{expected_points[mismatch[0]].tolist()}",
+                )
+                points_ok = False
+
+        # The group-level flags.
+        if flags_ok and flag_node is not None:
+            expected_flags = np.asarray(flag_node[first:last])[valid_contour]
+            actual_flags = np.asarray(flag_payload[g0:g1])
+            mismatch = np.flatnonzero(actual_flags != expected_flags)
+            if mismatch.size:
+                group = g0 + int(mismatch[0])
+                disagree(
+                    flags_label,
+                    instance_of(group),
+                    f"contour {group}'s flag is {actual_flags[mismatch[0]].item()!r} where the "
+                    f"baseline has {expected_flags[mismatch[0]].item()!r}",
+                )
+                flags_ok = False
+
+        if not (points_ok or flags_ok):
+            return
+
+
+def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
+    """Validate a pose file.
+
+    Never raises for a malformed file: every problem comes back as a Finding.
+
+    Args:
+        path: The file to validate.
+        deep: Also run ADR 0002's opt-in deep check: decode every alternate
+            and compare it with its baseline, per ``(frame, slot)``. It reads
+            the baseline in full, so it costs as much as reading the payload.
+            A tool that writes or ingests alternates runs it; a reader need not.
+
+    Returns:
+        Findings, errors first. An empty list means the file conforms.
+    """
+    findings: list[Finding] = []
+    try:
+        handle = h5py.File(path, "r")
+    except OSError as error:
+        # A truncated, missing or non-HDF5 file is exactly the input this
+        # function exists to diagnose, so it cannot be the one input that
+        # raises.
+        return [Finding(ERROR, "file_readable", f"{path} cannot be opened as HDF5: {error}")]
+    with handle as h5:
+        if not _check_root(h5, findings):
+            return findings
+        manifest, provenance = _check_documents(h5, findings)
+        if manifest is None:
+            return findings
+
+        records = provenance.get("records")
+        provenance_records = set(records) if isinstance(records, dict) else set()
+        _check_manifest_wide(h5, manifest, findings)
+        _check_skeletons(manifest, findings)
+        _check_sparse_index_values(h5, manifest, findings)
+        _check_alternate_names_and_paths(manifest, findings)
+        _check_ragged_pairing(manifest, findings)
+        for spec in manifest["components"]:
+            _check_component(h5, spec, manifest, provenance_records, findings)
+            _check_alternates(h5, spec, manifest, findings)
+        _check_contour_count(h5, manifest, findings)
+        if deep:
+            _check_alternates_decode(h5, manifest, findings)
+
+    return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))

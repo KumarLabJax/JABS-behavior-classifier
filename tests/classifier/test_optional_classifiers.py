@@ -114,7 +114,7 @@ def test_loading_a_classifier_missing_another_module_is_not_masked(monkeypatch, 
     monkeypatch.setattr(joblib, "load", MagicMock(side_effect=missing))
 
     with pytest.raises(ModuleNotFoundError, match="nonexistent"):
-        base._load_pickle(tmp_path / "classifier.pickle")
+        base.unpickle_classifier(tmp_path / "classifier.pickle")
 
 
 def test_loading_a_classifier_whose_package_cannot_load_explains_the_fix(
@@ -131,7 +131,7 @@ def test_loading_a_classifier_whose_package_cannot_load_explains_the_fix(
 def test_loading_a_missing_classifier_file_is_not_masked(tmp_path) -> None:
     """A file error is reported as it is, even if the path names an optional package."""
     with pytest.raises(FileNotFoundError):
-        base._load_pickle(tmp_path / "lightgbm" / "classifier.pickle")
+        base.unpickle_classifier(tmp_path / "lightgbm" / "classifier.pickle")
 
 
 @pytest.mark.parametrize(

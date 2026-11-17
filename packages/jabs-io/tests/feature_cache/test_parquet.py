@@ -375,3 +375,66 @@ def test_parquet_lz4_compression(tmp_path, writer: ParquetFeatureCacheWriter) ->
                 assert compression.lower() == "lz4", (
                     f"{parquet_path.name} column {col_idx} uses {compression!r}, expected LZ4"
                 )
+
+
+def test_parquet_no_dictionary_encoding(tmp_path, writer: ParquetFeatureCacheWriter) -> None:
+    """Feature caches are written without dictionary encoding.
+
+    Most feature columns are continuous floats, so dictionary encoding slows the write
+    and enlarges the file overall.
+    """
+    rng = np.random.default_rng(13)
+    identity_dir = tmp_path / "identity_0"
+    window_data = {f"mod op feat_{i}": rng.standard_normal(_N_FRAMES) for i in range(3)}
+
+    writer.write_per_frame(
+        identity_dir, _metadata(avg_wall_length=42.5), _per_frame_data(rng, with_aux=True)
+    )
+    writer.write_window(identity_dir, _metadata(), 5, window_data)
+
+    for parquet_path in [identity_dir / "per_frame.parquet", identity_dir / "window_5.parquet"]:
+        file_metadata = pq.read_metadata(parquet_path)
+        for rg_idx in range(file_metadata.num_row_groups):
+            row_group = file_metadata.row_group(rg_idx)
+            for col_idx in range(row_group.num_columns):
+                column = row_group.column(col_idx)
+                assert not column.has_dictionary_page, (
+                    f"{parquet_path.name} column {column.path_in_schema} is dictionary encoded"
+                )
+
+
+def test_parquet_reads_dictionary_encoded_cache(
+    tmp_path, writer: ParquetFeatureCacheWriter, reader: ParquetFeatureCacheReader
+) -> None:
+    """Caches written with dictionary encoding, as earlier versions did, still read back."""
+    rng = np.random.default_rng(14)
+    identity_dir = tmp_path / "identity_0"
+    data = _per_frame_data(rng, with_aux=True)
+    window_data = {f"mod op feat_{i}": rng.standard_normal(_N_FRAMES) for i in range(3)}
+    writer.write_per_frame(identity_dir, _metadata(avg_wall_length=42.5), data)
+    writer.write_window(identity_dir, _metadata(), 5, window_data)
+
+    # rewrite both files the way earlier versions did, with pyarrow's default encoding
+    for parquet_path in [identity_dir / "per_frame.parquet", identity_dir / "window_5.parquet"]:
+        pq.write_table(pq.read_table(parquet_path), parquet_path, compression="lz4")
+        row_group = pq.read_metadata(parquet_path).row_group(0)
+        for col_idx in range(row_group.num_columns):
+            assert row_group.column(col_idx).has_dictionary_page
+
+    per_frame = reader.read_per_frame(identity_dir)
+    window = reader.read_window(identity_dir, 5)
+
+    np.testing.assert_array_equal(per_frame.frame_valid, data.frame_valid)
+    for key in data.features:
+        np.testing.assert_array_equal(per_frame.features[key], data.features[key], err_msg=key)
+    np.testing.assert_array_equal(per_frame.closest_identities, data.closest_identities)
+    np.testing.assert_array_equal(per_frame.closest_fov_identities, data.closest_fov_identities)
+    np.testing.assert_array_equal(per_frame.closest_corners, data.closest_corners)
+    np.testing.assert_array_equal(per_frame.closest_lixit, data.closest_lixit)
+    assert set(per_frame.wall_distances) == set(data.wall_distances)
+    for direction in data.wall_distances:
+        np.testing.assert_array_equal(
+            per_frame.wall_distances[direction], data.wall_distances[direction], err_msg=direction
+        )
+    for key in window_data:
+        np.testing.assert_array_equal(window[key], window_data[key], err_msg=key)

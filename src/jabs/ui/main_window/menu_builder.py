@@ -55,6 +55,8 @@ class MenuReferences:
     overlay_pose: QtGui.QAction
     overlay_landmark: QtGui.QAction
     overlay_segmentation: QtGui.QAction
+    segmentation_color_identity: QtGui.QAction
+    segmentation_color_prediction: QtGui.QAction
 
     # Timeline actions
     timeline_labels_preds: QtGui.QAction
@@ -374,18 +376,14 @@ class MenuBuilder:
         overlay_landmark.triggered.connect(self.handlers.set_landmark_overlay_visibility)
         menu.addAction(overlay_landmark)
 
-        # Overlay segmentation action
-        overlay_segmentation = QtGui.QAction("Overlay Segmentation", self.main_window)
-        overlay_segmentation.setCheckable(True)
-        overlay_segmentation.triggered.connect(self.handlers.set_segmentation_overlay_visibility)
-        menu.addAction(overlay_segmentation)
+        segmentation_actions = self._build_segmentation_submenu(menu)
 
         return {
             "view_playlist": view_playlist,
             "show_track": show_track,
             "overlay_pose": overlay_pose,
             "overlay_landmark": overlay_landmark,
-            "overlay_segmentation": overlay_segmentation,
+            **segmentation_actions,
             **timeline_actions,
             **label_overlay_actions,
             **identity_overlay_actions,
@@ -569,6 +567,73 @@ class MenuBuilder:
             "label_overlay_labels": label_overlay_labels,
             "label_overlay_preds": label_overlay_preds,
             "label_overlay_both": label_overlay_both,
+        }
+
+    def _build_segmentation_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:
+        """Build the Segmentation submenu.
+
+        Holds the toggle for the segmentation overlay and the choice of how its contours
+        are colored.
+
+        Args:
+            parent_menu: The parent menu to which the segmentation submenu will be added
+
+        Returns:
+            Dictionary of segmentation action references
+        """
+        segmentation_menu = QtWidgets.QMenu("Segmentation", self.main_window)
+        parent_menu.addMenu(segmentation_menu)
+
+        overlay_segmentation = QtGui.QAction("Show Segmentation", self.main_window)
+        overlay_segmentation.setCheckable(True)
+        overlay_segmentation.triggered.connect(self.handlers.set_segmentation_overlay_visibility)
+        segmentation_menu.addAction(overlay_segmentation)
+
+        segmentation_menu.addSeparator()
+
+        color_group = QtGui.QActionGroup(self.main_window)
+        color_group.setExclusive(True)
+
+        color_identity = QtGui.QAction("Color by Identity", self.main_window, checkable=True)
+        color_identity.setStatusTip("Draw the selected animal in red and all others in blue")
+        color_prediction = QtGui.QAction("Color by Prediction", self.main_window, checkable=True)
+        color_prediction.setStatusTip(
+            "Color each animal by its prediction: orange behavior, blue not behavior, "
+            "white no prediction"
+        )
+
+        color_group.addAction(color_identity)
+        color_group.addAction(color_prediction)
+        segmentation_menu.addAction(color_identity)
+        segmentation_menu.addAction(color_prediction)
+
+        if (
+            self._central_widget.segmentation_color_mode
+            == PlayerWidget.SegmentationColorMode.PREDICTION
+        ):
+            color_prediction.setChecked(True)
+        else:
+            color_identity.setChecked(True)
+
+        color_identity.triggered.connect(
+            lambda: setattr(
+                self._central_widget,
+                "segmentation_color_mode",
+                PlayerWidget.SegmentationColorMode.IDENTITY,
+            )
+        )
+        color_prediction.triggered.connect(
+            lambda: setattr(
+                self._central_widget,
+                "segmentation_color_mode",
+                PlayerWidget.SegmentationColorMode.PREDICTION,
+            )
+        )
+
+        return {
+            "overlay_segmentation": overlay_segmentation,
+            "segmentation_color_identity": color_identity,
+            "segmentation_color_prediction": color_prediction,
         }
 
     def _build_identity_overlay_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:
