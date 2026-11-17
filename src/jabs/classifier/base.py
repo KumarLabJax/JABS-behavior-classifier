@@ -50,9 +50,11 @@ class UnsupportedClassifierError(ValueError):
         super().__init__(f"{message}: {detail}" if detail else message)
 
 
-# packages providing classifier algorithms that may be missing from an environment: xgboost
-# can be unimportable on some platforms, and other JABS versions or extras may add others
-_OPTIONAL_CLASSIFIER_PACKAGES = frozenset({"xgboost", "catboost", "lightgbm"})
+# packages providing classifier algorithms that may be missing from an environment: the
+# extra-classifiers packages, plus xgboost, which can be unimportable on some platforms
+_OPTIONAL_CLASSIFIER_PACKAGES = frozenset(
+    {"xgboost", *factories.OPTIONAL_CLASSIFIER_PACKAGES.values()}
+)
 
 
 def unpickle_classifier(path: Path) -> typing.Any:
@@ -81,23 +83,22 @@ def unpickle_classifier(path: Path) -> typing.Any:
                 raise
             detail = f"the '{package}' package is not installed"
             if package in factories.OPTIONAL_CLASSIFIER_PACKAGES.values():
-                detail += "; install JABS with the 'extra-classifiers' extra to use it"
+                detail += f". {factories.EXTRA_CLASSIFIERS_ADVICE}"
             raise UnsupportedClassifierError(package, detail) from e
         except OSError as e:
             # an installed package whose native library cannot load (e.g. macOS without
-            # libomp) raises OSError on import; a file error carries the file name instead
-            package = next((p for p in _OPTIONAL_CLASSIFIER_PACKAGES if p in str(e)), None)
-            if e.filename is not None or package is None:
+            # libomp) raises OSError while importing it; any other OSError, such as a
+            # failure reading the file, is reported as it is
+            package = _optional_package_raising(e)
+            if package is None or e.filename is not None:
                 raise
-            raise UnsupportedClassifierError(
-                package, f"the '{package}' package is installed but could not be loaded: {e}"
-            ) from e
+            raise _unloadable_package_error(package, e) from e
         except ValueError as e:
             # an optional classifier package that is installed but can't be imported,
             # e.g. xgboost raises XGBoostError when its native library fails to load
             package = type(e).__module__.partition(".")[0]
             if package in _OPTIONAL_CLASSIFIER_PACKAGES:
-                raise UnsupportedClassifierError(package) from e
+                raise _unloadable_package_error(package, e) from e
             # the pickled ClassifierType value is not defined in this JABS version
             if ClassifierType.__name__ not in str(e):
                 raise
@@ -109,6 +110,25 @@ def unpickle_classifier(path: Path) -> typing.Any:
             raise ValueError("Classifier trained with different version of sklearn.")
         warnings.warn(warning.message, warning.category, stacklevel=3)
     return c
+
+
+def _optional_package_raising(error: BaseException) -> str | None:
+    """Return the optional classifier package whose code raised ``error``, if any."""
+    package = None
+    tb = error.__traceback__
+    while tb is not None:
+        top = tb.tb_frame.f_globals.get("__name__", "").partition(".")[0]
+        if top in _OPTIONAL_CLASSIFIER_PACKAGES:
+            package = top
+        tb = tb.tb_next
+    return package
+
+
+def _unloadable_package_error(package: str, error: Exception) -> UnsupportedClassifierError:
+    """Build the error for an optional package that is installed but fails to import."""
+    return UnsupportedClassifierError(
+        package, f"the '{package}' package is installed but could not be loaded: {error}"
+    )
 
 
 def _unknown_enum_value(error: ValueError) -> str | None:
@@ -156,8 +176,7 @@ class BaseClassifier:
                 raise ValueError(
                     f"{classifier_type.value} classifier requires the "
                     f"'{factories.OPTIONAL_CLASSIFIER_PACKAGES[classifier_type]}' package, "
-                    "which is not available. Install JABS with the 'extra-classifiers' "
-                    "extra to use it."
+                    f"which is not available. {factories.EXTRA_CLASSIFIERS_ADVICE}"
                 )
             raise ValueError("Invalid classifier type")
 
@@ -320,13 +339,13 @@ class BaseClassifier:
         total = importances.sum()
         if total > 0:
             importances = importances / total
-        importances = importances.tolist()
-        feature_importance = [
-            (feature, round(importance, 2))
-            for feature, importance in zip(self._feature_names, importances, strict=True)
-        ]
-        feature_importance.sort(key=lambda x: x[1], reverse=True)
-        return feature_importance[:limit]
+        ranked = sorted(
+            zip(self._feature_names, importances.tolist(), strict=True),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        # rank on the raw values; rounding first would tie small importances
+        return [(feature, round(importance, 2)) for feature, importance in ranked[:limit]]
 
     def reset_persistence_identity(self) -> None:
         """Clear the recorded file identity (path, hash, source).

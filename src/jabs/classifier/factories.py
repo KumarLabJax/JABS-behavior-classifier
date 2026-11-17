@@ -59,6 +59,9 @@ OPTIONAL_CLASSIFIER_PACKAGES: dict[ClassifierType, str] = {
     ClassifierType.LIGHTGBM: "lightgbm",
 }
 
+# How to get an optional classifier package, for error messages.
+EXTRA_CLASSIFIERS_ADVICE = "Install JABS with the 'extra-classifiers' extra to use it."
+
 # Hyperparameters for LightGBM, from an optimization run on a single dataset. They may
 # not generalize to every behavior, and JABS does not yet expose them for tuning.
 _LIGHTGBM_PARAMS: dict[str, int | float] = {
@@ -105,7 +108,7 @@ def _import_optional(classifier_type: ClassifierType) -> typing.Any:
     except (ImportError, OSError) as e:
         raise RuntimeError(
             f"{classifier_type.value} classifier requested but '{package}' is not available "
-            "in this environment. Install it with the 'extra-classifiers' extra."
+            f"in this environment. {EXTRA_CLASSIFIERS_ADVICE}"
         ) from e
 
 

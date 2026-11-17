@@ -145,3 +145,4 @@ def test_unloadable_xgboost_library_raises_unsupported(tmp_path: Path) -> None:
     ):
         unpickle_classifier(tmp_path / "classifier.pickle")
     assert exc_info.value.classifier_name == "xgboost"
+    assert "installed but could not be loaded" in str(exc_info.value)

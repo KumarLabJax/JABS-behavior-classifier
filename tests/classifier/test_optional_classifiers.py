@@ -5,6 +5,8 @@ skip without the package; the rest cover how JABS behaves when one is missing.
 """
 
 import sys
+from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import joblib
@@ -58,6 +60,16 @@ def test_clean_features_keeps_nan_for_lightgbm() -> None:
     cleaned = classifier_utils.clean_features(features, ClassifierType.LIGHTGBM)
 
     assert cleaned["a"].isna().tolist() == [False, True, True, True]
+
+
+_LIBRARY_ERROR = "dlopen(.../lightgbm/lib/lib_lightgbm.dylib): Library not loaded"
+
+
+def _raiser_in_module(module: str, message: str) -> Callable[[Path], None]:
+    """Return a function that raises ``OSError(message)`` from code in ``module``."""
+    namespace: dict[str, object] = {"__name__": module}
+    exec(f"def load(path):\n    raise OSError({message!r})\n", namespace)
+    return namespace["load"]  # type: ignore[return-value]
 
 
 def _block_import(monkeypatch, package: str) -> None:
@@ -121,11 +133,24 @@ def test_loading_a_classifier_whose_package_cannot_load_explains_the_fix(
     monkeypatch, tmp_path
 ) -> None:
     """A native-library failure while unpickling names the package that could not load."""
-    broken = OSError("dlopen(.../lightgbm/lib/lib_lightgbm.dylib): Library not loaded")
-    monkeypatch.setattr(joblib, "load", MagicMock(side_effect=broken))
+    monkeypatch.setattr(joblib, "load", _raiser_in_module("lightgbm.basic", _LIBRARY_ERROR))
 
     with pytest.raises(ValueError, match="'lightgbm'.*could not be loaded"):
         Classifier.from_pickle(tmp_path / "classifier.pickle")
+
+
+def test_loading_an_unrelated_os_error_naming_a_package_is_not_masked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An OSError not raised by an optional package is reported as it is.
+
+    The message names lightgbm, as an I/O error under a lightgbm_experiments
+    directory would, but the error does not come from lightgbm's code.
+    """
+    monkeypatch.setattr(joblib, "load", _raiser_in_module("joblib.numpy_pickle", _LIBRARY_ERROR))
+
+    with pytest.raises(OSError, match="lightgbm"):
+        base.unpickle_classifier(tmp_path / "classifier.pickle")
 
 
 def test_loading_a_missing_classifier_file_is_not_masked(tmp_path) -> None:
@@ -207,3 +232,44 @@ def test_multiclass_train_and_predict(features) -> None:
 
     assert probabilities.shape == (n, len(behaviors) + 1)
     assert set(np.unique(predictions)) <= {0, 1, 2}
+
+
+def test_feature_importance_ranks_before_rounding() -> None:
+    """The top-N ranking uses unrounded importances.
+
+    0.004 and 0.001 both round to 0.0, so ranking on rounded values keeps the
+    less important feature that happens to come first.
+    """
+    clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)
+    clf._classifier = MagicMock(feature_importances_=np.array([0.995, 0.001, 0.004]))
+    clf._feature_names = ["dominant", "minor", "more_important"]
+
+    names = [name for name, _ in clf.get_feature_importance(limit=2)]
+
+    assert names == ["dominant", "more_important"]
+
+
+@requires_lightgbm
+def test_binary_lightgbm_feature_names_in_a_different_order(features, mock_project) -> None:
+    """Binary LightGBM training fits in feature_names order, not column order.
+
+    LightGBM selects prediction columns by feature_names, so binary training must fit
+    in that order too, or the columns are silently swapped at prediction time.
+    """
+    labels = np.array([TrackLabels.Label.BEHAVIOR, TrackLabels.Label.NOT_BEHAVIOR] * 100)
+
+    clf = Classifier(classifier=ClassifierType.LIGHTGBM)
+    clf.behavior_name = "Test"
+    clf.set_project_settings(mock_project)
+    clf.train(
+        {
+            "training_data": features,
+            "training_labels": labels,
+            "feature_names": list(reversed(features.columns)),
+        },
+        random_seed=42,
+    )
+
+    # LightGBM records the columns it was fit on, in order, with spaces made underscores
+    fitted_order = [name.replace(" ", "_") for name in reversed(features.columns)]
+    assert clf._classifier.feature_name_ == fitted_order
