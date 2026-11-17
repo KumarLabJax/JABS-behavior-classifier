@@ -30,6 +30,59 @@ from jabs.core.utils import hash_file
 from . import classifier_utils, factories
 
 
+class UnsupportedClassifierError(ValueError):
+    """Raised when a saved classifier uses an algorithm unavailable in this environment.
+
+    This happens when a project is opened with a JABS install that lacks the
+    optional dependency (or the enum value) the classifier was trained with,
+    for example a LightGBM classifier opened without the ``lightgbm`` package.
+
+    Attributes:
+        classifier_name: Name of the unsupported algorithm, if it could be
+            determined from the saved file.
+    """
+
+    def __init__(self, classifier_name: str | None = None) -> None:
+        self.classifier_name = classifier_name
+        name = classifier_name if classifier_name else "unknown"
+        super().__init__(f"Classifier type '{name}' is not supported by this JABS installation")
+
+
+def _unpickle_classifier(path: Path) -> typing.Any:
+    """Load a pickled classifier, translating unsupported-algorithm failures.
+
+    Raises:
+        UnsupportedClassifierError: If the pickle references a classifier type
+            or algorithm package that is not available in this environment.
+        ValueError: If the classifier was trained with a different sklearn version.
+    """
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always", InconsistentVersionWarning)
+        try:
+            c = joblib.load(path)
+        except ModuleNotFoundError as e:
+            # the pickled estimator belongs to a package that is not installed
+            raise UnsupportedClassifierError(e.name) from e
+        except ValueError as e:
+            # the pickled ClassifierType value is not defined in this JABS version
+            if ClassifierType.__name__ not in str(e):
+                raise
+            raise UnsupportedClassifierError(_unknown_enum_value(e)) from e
+        for warning in caught_warnings:
+            if issubclass(warning.category, InconsistentVersionWarning):
+                raise ValueError("Classifier trained with different version of sklearn.")
+            warnings.warn(warning.message, warning.category, stacklevel=3)
+    return c
+
+
+def _unknown_enum_value(error: ValueError) -> str | None:
+    """Extract the rejected value from an enum ``'X' is not a valid Enum`` error."""
+    message = str(error)
+    if message.startswith("'") and "' is not a valid" in message:
+        return message[1 : message.index("' is not a valid")]
+    return None
+
+
 class BaseClassifier:
     """Shared persistence and identity machinery for JABS classifiers.
 
@@ -266,17 +319,12 @@ class BaseClassifier:
             Loaded and validated classifier instance of type ``cls``.
 
         Raises:
-            ValueError: If the file is not an instance of ``cls``, was trained
-                with an incompatible sklearn or JABS version, or uses an
-                unsupported classifier type.
+            UnsupportedClassifierError: If the classifier uses an algorithm
+                that is not available in this environment.
+            ValueError: If the file is not an instance of ``cls`` or was trained
+                with an incompatible sklearn or JABS version.
         """
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            warnings.simplefilter("always", InconsistentVersionWarning)
-            c = joblib.load(path)
-            for warning in caught_warnings:
-                if issubclass(warning.category, InconsistentVersionWarning):
-                    raise ValueError("Classifier trained with different version of sklearn.")
-                warnings.warn(warning.message, warning.category, stacklevel=2)
+        c = _unpickle_classifier(path)
 
         if not isinstance(c, cls):
             raise ValueError(f"{path} is not an instance of {cls.__name__}")
@@ -288,7 +336,7 @@ class BaseClassifier:
             )
 
         if c._classifier_type not in cls._supported_classifier_choices():
-            raise ValueError("Invalid classifier type")
+            raise UnsupportedClassifierError(c._classifier_type.value)
 
         if c._classifier_file is None:
             c._classifier_file = Path(path).name
@@ -304,16 +352,12 @@ class BaseClassifier:
             path: Source file path.
 
         Raises:
-            ValueError: If the file is not an instance of this class, was saved
-                with a different version, or uses an unsupported classifier type.
+            UnsupportedClassifierError: If the classifier uses an algorithm
+                that is not available in this environment.
+            ValueError: If the file is not an instance of this class or was saved
+                with a different version.
         """
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            warnings.simplefilter("always", InconsistentVersionWarning)
-            c = joblib.load(path)
-            for warning in caught_warnings:
-                if issubclass(warning.category, InconsistentVersionWarning):
-                    raise ValueError("Classifier trained with different version of sklearn.")
-                warnings.warn(warning.message, warning.category, stacklevel=2)
+        c = _unpickle_classifier(path)
 
         if not isinstance(c, type(self)):
             raise ValueError(f"{path} is not an instance of {type(self).__name__}")
@@ -325,7 +369,7 @@ class BaseClassifier:
             )
 
         if c._classifier_type not in self._supported_classifiers:
-            raise ValueError("Invalid classifier type")
+            raise UnsupportedClassifierError(c._classifier_type.value)
 
         for attr in self._PERSISTED_REQUIRED:
             setattr(self, attr, getattr(c, attr))
