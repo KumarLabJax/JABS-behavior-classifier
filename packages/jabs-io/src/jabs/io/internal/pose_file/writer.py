@@ -16,6 +16,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.manifest import build_manifest, build_provenance
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -159,6 +160,58 @@ def _as_text(value: object) -> str:
     return str(value)
 
 
+def _write_blocks(dataset: h5py.Dataset, source: BlockSource, label: str) -> None:
+    """Write a block source's rows into a dataset created at its shape and dtype.
+
+    The blocks must tile the first axis exactly, in order: anything else would
+    leave rows holding the dataset's fill value, indistinguishable from data.
+    A block's dtype must match the declaration exactly, because h5py would
+    otherwise cast it silently -- float64 into float32 loses precision, and
+    floats into integers truncate.
+
+    Args:
+        dataset: The dataset to fill, created at ``source.shape`` and
+            ``source.dtype``.
+        source: The rows to write.
+        label: Names the payload in error messages, such as a component id.
+
+    Raises:
+        ValueError: If a block has the wrong dtype or trailing shape, starts
+            anywhere but the end of the previous block, or runs past the
+            declared length, or if the blocks stop short of it.
+    """
+    expected_rows = source.shape[0]
+    trailing = source.shape[1:]
+    written = 0
+    for start, block in source.blocks():
+        if block.dtype != source.dtype:
+            raise ValueError(
+                f"{label}: a block has dtype {block.dtype.str!r}, but the source declares "
+                f"{source.dtype.str!r}; blocks are not cast"
+            )
+        if block.shape[1:] != trailing:
+            raise ValueError(
+                f"{label}: a block has trailing shape {block.shape[1:]}, but the source "
+                f"declares {trailing}"
+            )
+        if start != written:
+            raise ValueError(
+                f"{label}: a block starts at row {start}, but the next unwritten row is "
+                f"{written}; blocks must tile the first axis in order"
+            )
+        end = written + block.shape[0]
+        if end > expected_rows:
+            raise ValueError(
+                f"{label}: a block ends at row {end}, past the declared {expected_rows} rows"
+            )
+        dataset[written:end] = block
+        written = end
+    if written != expected_rows:
+        raise ValueError(
+            f"{label}: the blocks stopped at row {written} of the declared {expected_rows}"
+        )
+
+
 def _create_dataset(h5: h5py.File, component: Component) -> None:
     """Create one component's dataset with this writer's layout policy.
 
@@ -179,21 +232,28 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
         ).reshape(component.data.shape)
         options["dtype"] = h5py.string_dtype(encoding="utf-8")
 
-    if _is_keypoint_scale(component.id):
-        h5.create_dataset(component.path, data=data, chunks=None, **options)
-        return
-    chunks = _frame_major_chunks(component)
+    source = None
+    if isinstance(data, BlockSource):
+        # Create the dataset empty at the declared shape and fill it a block at
+        # a time, so the whole array is never in memory. The layout is the same
+        # as for an in-memory array: it depends only on the id and the shape.
+        source, data = data, None
+        options.update(shape=source.shape, dtype=source.dtype)
+
+    chunks = None if _is_keypoint_scale(component.id) else _frame_major_chunks(component)
     if chunks is None:
-        h5.create_dataset(component.path, data=data, chunks=None, **options)
-        return
-    h5.create_dataset(
-        component.path,
-        data=data,
-        chunks=chunks,
-        compression=_COMPRESSION,
-        compression_opts=_COMPRESSION_OPTS,
-        **options,
-    )
+        dataset = h5.create_dataset(component.path, data=data, chunks=None, **options)
+    else:
+        dataset = h5.create_dataset(
+            component.path,
+            data=data,
+            chunks=chunks,
+            compression=_COMPRESSION,
+            compression_opts=_COMPRESSION_OPTS,
+            **options,
+        )
+    if source is not None:
+        _write_blocks(dataset, source, component.id)
 
 
 def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None = None) -> None:
@@ -212,8 +272,9 @@ def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None =
             fixtures need.
 
     Raises:
-        ValueError: If the manifest or provenance document would be invalid, or
-            if two component paths collide.
+        ValueError: If the manifest or provenance document would be invalid, if
+            two component paths collide, or if a block source's blocks do not
+            match its declared shape and dtype.
         TypeError: If a value in the manifest or provenance cannot be
             serialized to JSON.
     """
