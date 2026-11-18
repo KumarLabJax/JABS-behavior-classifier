@@ -17,6 +17,7 @@ Two conventions this module enforces:
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from jabs.io.internal.pose_file.alternates import Alternate, alternate_key
 from jabs.io.internal.pose_file.schema import FORMAT_ID, SCHEMA_REVISION
 from jabs.io.internal.pose_file.types import (
     Component,
@@ -64,12 +65,53 @@ class ParsedManifest:
     extra: dict | None = None
 
 
-def _component_entry(component: Component, layout: dict | None) -> dict:
+def _alternate_entry(alternate: Alternate, layout: dict | None) -> dict:
+    """Build one alternate's manifest entry.
+
+    Args:
+        alternate: The alternate to describe.
+        layout: The storage layout the writer will actually use, or None.
+
+    Returns:
+        The entry, in the field order ADR 0002's example uses.
+    """
+    entry: dict = {
+        "name": alternate.name,
+        "path": alternate.path,
+        "axes": list(alternate.axes),
+        "dtype": alternate.dtype,
+        "shape": [int(n) for n in alternate.data.shape],
+    }
+    if alternate.units is not None:
+        entry["units"] = alternate.units
+    if alternate.coord_order is not None:
+        entry["coord_order"] = alternate.coord_order
+    # The level is always written: it is declared, not inferred, and a reader
+    # that defaults it must not be the one deciding.
+    entry["encoding"] = {
+        "kind": "ragged",
+        "level": alternate.level,
+        "group_offsets": alternate.index.group_offsets_path,
+        "instance_offsets": alternate.index.instance_offsets_path,
+    }
+    entry["missing"] = dict(alternate.missing)
+    if alternate.description is not None:
+        entry["description"] = alternate.description
+    if alternate.extra is not None:
+        entry["extra"] = dict(alternate.extra)
+    resolved_layout = layout if layout is not None else alternate.layout
+    if resolved_layout is not None:
+        entry["layout"] = dict(resolved_layout)
+    return entry
+
+
+def _component_entry(component: Component, layouts: dict[str, dict]) -> dict:
     """Build one component's manifest entry.
 
     Args:
         component: The component to describe.
-        layout: The storage layout the writer will actually use, or None.
+        layouts: The storage layouts the writer will actually use, keyed by
+            component id and by ``alternate_key`` for alternates.
 
     Returns:
         The manifest entry.
@@ -95,9 +137,17 @@ def _component_entry(component: Component, layout: dict | None) -> dict:
         entry["extra"] = dict(component.extra)
     if component.sparse_index is not None:
         entry["sparse"] = {"index": component.sparse_index}
+    layout = layouts.get(component.id)
     resolved_layout = layout if layout is not None else component.layout
     if resolved_layout is not None:
         entry["layout"] = dict(resolved_layout)
+    # Omitted when empty, so a file without alternates has the manifest it
+    # always had.
+    if component.alternates:
+        entry["alternates"] = [
+            _alternate_entry(alternate, layouts.get(alternate_key(component.id, alternate.name)))
+            for alternate in component.alternates
+        ]
     return entry
 
 
@@ -110,7 +160,8 @@ def build_manifest(
 
     Args:
         pose_file: The file's contents.
-        layouts: Storage layout per component id, as the writer will apply it.
+        layouts: Storage layout per component id, and per ``alternate_key`` for
+            alternates, as the writer will apply it.
             Supplied by the writer so the manifest reports what is actually on
             disk rather than an intention. This deliberately overrides any
             layout already on a component: layout describes the storage a file
@@ -143,10 +194,7 @@ def build_manifest(
         "created": created or datetime.now(timezone.utc).isoformat(),
         "dimensions": {k: int(v) for k, v in pose_file.dimensions.items()},
         "video": video,
-        "components": [
-            _component_entry(component, layouts.get(component.id))
-            for component in pose_file.components
-        ],
+        "components": [_component_entry(component, layouts) for component in pose_file.components],
     }
     if skeletons:
         manifest["skeletons"] = skeletons

@@ -16,10 +16,15 @@ at open time.
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from jabs.io.internal.pose_file.blocks import ComponentData
+
+if TYPE_CHECKING:
+    # Annotation only: alternates imports this module for its dtype rules.
+    from jabs.io.internal.pose_file.alternates import Alternate
 
 # A dot-separated lowercase path of at least two segments. The first segment is
 # the namespace root; `jabs` is reserved by the specification.
@@ -52,6 +57,20 @@ DTYPE_NAMES = frozenset(
 _STRING_KINDS = "OSU"
 
 RESERVED_NAMESPACE = "jabs"
+
+
+def dtype_name(data: ComponentData) -> str:
+    """Return a payload's dtype name, as the manifest records it.
+
+    Args:
+        data: An in-memory array or a block source.
+
+    Returns:
+        ``"string"`` for every string representation, else numpy's name.
+    """
+    if data.dtype.kind in _STRING_KINDS:
+        return "string"
+    return data.dtype.name
 
 
 @dataclass(frozen=True)
@@ -176,6 +195,8 @@ class Component:
         stored_path: Where the payload actually lives, when that differs from
             the path derived from the id. Preserved so a read-write cycle does
             not relocate a third party's data.
+        alternates: Derived copies of the data in another encoding, each under
+            a name that appears at most once per component.
     """
 
     id: str
@@ -192,9 +213,10 @@ class Component:
     encoding: dict = field(default_factory=lambda: {"kind": "dense"})
     extra: dict | None = None
     stored_path: str | None = None
+    alternates: "tuple[Alternate, ...]" = ()
 
     def __post_init__(self) -> None:
-        """Validate the id, the axis declarations and the payload dtype."""
+        """Validate the id, the axis declarations, the payload dtype and alternates."""
         if not COMPONENT_ID_RE.fullmatch(self.id):
             raise ValueError(
                 f"invalid component id {self.id!r}: expected lowercase, dot-separated, "
@@ -247,12 +269,20 @@ class Component:
             raise ValueError(f"{self.id}: sparse_index declared but there is no sample axis")
         if self.dtype not in DTYPE_NAMES:
             raise ValueError(f"{self.id}: unsupported dtype {self.dtype!r}")
+        names = [alternate.name for alternate in self.alternates]
+        repeated = sorted({n for n in names if names.count(n) > 1})
+        if repeated:
+            raise ValueError(
+                f"{self.id}: alternates {repeated} are declared more than once; a name "
+                "identifies one encoding"
+            )
         # Frozen only freezes the attribute bindings. Without this a caller
         # keeps a live reference to the dicts that were validated, and can
         # mutate them past every check above.
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(self, "missing", MappingProxyType(dict(self.missing)))
         object.__setattr__(self, "encoding", MappingProxyType(dict(self.encoding)))
+        object.__setattr__(self, "alternates", tuple(self.alternates))
 
     @property
     def path(self) -> str:
@@ -271,9 +301,7 @@ class Component:
     @property
     def dtype(self) -> str:
         """The payload's dtype name, as the manifest records it."""
-        if self.data.dtype.kind in _STRING_KINDS:
-            return "string"
-        return self.data.dtype.name
+        return dtype_name(self.data)
 
 
 @dataclass(frozen=True)
@@ -417,6 +445,7 @@ class PoseFile:
             self._check_skeleton_width(component)
             self._check_sparse_reference(component, by_id)
             self._check_missing_reference(component, by_id)
+        self._check_alternates()
 
         self._freeze()
 
@@ -542,6 +571,42 @@ class PoseFile:
                     f"{component.id}: length reference {other.id!r} has values outside "
                     f"[0, {bound}], the axis it bounds"
                 )
+
+    def _check_alternates(self) -> None:
+        """Validate alternates across components.
+
+        An alternate's payload path must differ from every component's and
+        every other alternate's, or one dataset would be claimed twice. And
+        alternates of one name are one encoding: those naming the same offset
+        paths must share one :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`,
+        or the writer would have two different arrays to write at one path.
+        Parent/child path collisions are the writer's check.
+
+        Raises:
+            ValueError: If a path is claimed twice or one name's offsets are
+                declared by two different indexes.
+        """
+        # Imported here: alternates imports this module at load time.
+        from jabs.io.internal.pose_file.alternates import alternate_key
+
+        owners = {component.path: component.id for component in self.components}
+        indexes: dict[tuple[str, str, str], object] = {}
+        for component in self.components:
+            for alternate in component.alternates:
+                label = alternate_key(component.id, alternate.name)
+                other = owners.get(alternate.path)
+                if other is not None:
+                    raise ValueError(f"{label}: path {alternate.path} is already {other}'s")
+                owners[alternate.path] = label
+                index = alternate.index
+                key = (alternate.name, index.group_offsets_path, index.instance_offsets_path)
+                shared = indexes.setdefault(key, index)
+                if shared is not index:
+                    raise ValueError(
+                        f"{label}: alternates named {alternate.name!r} declare offsets at "
+                        f"{key[1]} and {key[2]} through different RaggedIndex objects; "
+                        "they must share one"
+                    )
 
     def _freeze(self) -> None:
         """Replace the validated mappings with read-only views.

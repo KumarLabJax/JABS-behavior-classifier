@@ -1,6 +1,7 @@
 """Shared fixtures for pose file format tests."""
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from jabs.io.internal.pose_file.skeletons import jabs_mouse12
@@ -14,6 +15,68 @@ from jabs.io.internal.pose_file.types import (
 )
 
 MOUSE12 = jabs_mouse12()
+
+# The dense segmentation helper's padded widths: up to two contours per
+# instance, up to three points per contour.
+_SEGMENTATION_CONTOURS = 2
+_SEGMENTATION_POINTS = 3
+
+
+def ragged_segmentation(frames: int = 4, slots: int = 2) -> dict[str, npt.NDArray[np.generic]]:
+    """Build dense segmentation arrays and the ragged form that encodes them.
+
+    Instances hold zero, one or two contours, and contours hold one to three
+    points, so the offsets are not uniform and some instances own no groups.
+    The ragged form follows ADR 0002's decoding rule: ``instance_offsets``
+    holds group indices in row-major ``(frame, slot)`` order, and
+    ``contour_offsets`` holds payload indices.
+
+    Args:
+        frames: Number of frames.
+        slots: Number of slots.
+
+    Returns:
+        ``contours`` ``(F, S, 2, 3, 2)`` int32 (padding is -1),
+        ``contour_count`` ``(F, S)`` uint32, ``contour_length`` ``(F, S, 2)``
+        uint32, ``external_flag`` ``(F, S, 2)`` bool, and the ragged
+        ``points`` ``(N, 2)`` int32, ``flags`` ``(G,)`` bool,
+        ``contour_offsets`` ``(G + 1,)`` uint64 and ``instance_offsets``
+        ``(F * S + 1,)`` uint64.
+    """
+    shape = (frames, slots, _SEGMENTATION_CONTOURS)
+    contours = np.full((*shape, _SEGMENTATION_POINTS, 2), -1, dtype=np.int32)
+    contour_count = np.zeros((frames, slots), dtype=np.uint32)
+    contour_length = np.zeros(shape, dtype=np.uint32)
+    external_flag = np.zeros(shape, dtype=bool)
+    points: list[list[int]] = []
+    flags: list[bool] = []
+    contour_offsets = [0]
+    instance_offsets = [0]
+    for f in range(frames):
+        for s in range(slots):
+            count = (f + s) % (_SEGMENTATION_CONTOURS + 1)
+            contour_count[f, s] = count
+            for c in range(count):
+                length = 1 + (f + 2 * s + c) % _SEGMENTATION_POINTS
+                contour = [[10 * f + p, 100 * s + 10 * c + p] for p in range(length)]
+                contours[f, s, c, :length] = contour
+                contour_length[f, s, c] = length
+                # The first contour of an instance is its outer boundary.
+                external_flag[f, s, c] = c == 0
+                points.extend(contour)
+                flags.append(c == 0)
+                contour_offsets.append(len(points))
+            instance_offsets.append(len(contour_offsets) - 1)
+    return {
+        "contours": contours,
+        "contour_count": contour_count,
+        "contour_length": contour_length,
+        "external_flag": external_flag,
+        "points": np.array(points, dtype=np.int32).reshape(-1, 2),
+        "flags": np.array(flags, dtype=bool),
+        "contour_offsets": np.array(contour_offsets, dtype=np.uint64),
+        "instance_offsets": np.array(instance_offsets, dtype=np.uint64),
+    }
 
 
 def build_sample_pose_file(width: int | None = 800, height: int | None = 800) -> PoseFile:
