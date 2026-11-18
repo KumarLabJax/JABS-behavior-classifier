@@ -7,7 +7,6 @@ that open — an unserializable provenance value, a component path collision, a
 full disk — would otherwise cost the caller the file they already had.
 """
 
-import itertools
 import json
 import os
 import tempfile
@@ -16,7 +15,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.io.internal.pose_file.blocks import BlockSource
+from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex, alternate_key
+from jabs.io.internal.pose_file.blocks import BlockSource, ComponentData
 from jabs.io.internal.pose_file.manifest import build_manifest, build_provenance
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -49,6 +49,13 @@ _COMPRESSION_OPTS = 1
 # onto whole chunks. Left to h5py, `chunks=True` picks a shape that splits the
 # trailing axes and multiplies the reads a one-frame lookup costs.
 _FRAME_CHUNK = 300
+
+# A leaf-level ragged payload is chunked along its single item axis at this many
+# rows (spec 0029-A §2.6): large enough that a whole recording's points are a
+# few hundred chunks, small enough that one frame's points cost one chunk read.
+# Byte shuffling groups the coordinates' high bytes, which compress far better
+# than the interleaved values.
+_RAGGED_CHUNK = 65536
 
 
 def _is_keypoint_scale(component_id: str) -> bool:
@@ -102,32 +109,128 @@ def _layout_for(component: Component) -> dict:
     }
 
 
-def _check_path_collisions(pose_file: PoseFile) -> None:
-    """Refuse components whose HDF5 paths cannot coexist.
+def _ragged_chunks(alternate: Alternate) -> tuple[int, ...] | None:
+    """The chunk shape of an alternate's payload, or None when it is contiguous.
 
-    Two ids may be individually valid and still name paths where one is a
-    parent of the other, which HDF5 cannot represent.
+    A group-level payload is one small value per group, read with its offsets,
+    so it is contiguous like them. An empty leaf payload cannot be chunked.
+    """
+    shape = alternate.data.shape
+    if alternate.level != "leaf" or shape[0] == 0:
+        return None
+    return (min(_RAGGED_CHUNK, shape[0]), *shape[1:])
+
+
+def _alternate_layout(alternate: Alternate) -> dict:
+    """The storage layout this writer will apply to an alternate's payload.
+
+    Args:
+        alternate: The alternate about to be written.
+
+    Returns:
+        The layout to record in the manifest.
+    """
+    chunks = _ragged_chunks(alternate)
+    if chunks is None:
+        return {"storage": "contiguous", "compression": "none"}
+    return {
+        "storage": "chunked",
+        "chunks": list(chunks),
+        "compression": _COMPRESSION,
+        "compression_opts": _COMPRESSION_OPTS,
+    }
+
+
+def _file_paths(pose_file: PoseFile) -> list[tuple[str, str]]:
+    """Every dataset path the writer will create, with what owns it.
+
+    Two alternates sharing one :class:`RaggedIndex` share its two datasets, so
+    those paths are listed once; two different indexes at one path are two
+    claims on it.
+    """
+    paths = [(component.path, component.id) for component in pose_file.components]
+    listed: set[int] = set()
+    for component in pose_file.components:
+        for alternate in component.alternates:
+            label = alternate_key(component.id, alternate.name)
+            paths.append((alternate.path, label))
+            index = alternate.index
+            if id(index) not in listed:
+                listed.add(id(index))
+                paths.append((index.group_offsets_path, f"{label}'s group_offsets"))
+                paths.append((index.instance_offsets_path, f"{label}'s instance_offsets"))
+    return paths
+
+
+def _check_path_collisions(pose_file: PoseFile) -> None:
+    """Refuse datasets whose HDF5 paths cannot coexist.
+
+    Covers every dataset the writer creates -- component payloads, alternate
+    payloads and offsets. Two paths may be individually valid and still be
+    equal, or name paths where one is a parent of the other, which HDF5 cannot
+    represent.
 
     Args:
         pose_file: The file's contents.
 
     Raises:
-        ValueError: If two component paths collide.
+        ValueError: If two paths collide.
     """
-    paths = sorted((component.path, component.id) for component in pose_file.components)
-    for (earlier, earlier_id), (later, later_id) in itertools.pairwise(paths):
-        if later == earlier or later.startswith(earlier + "/"):
+    owners: dict[str, str] = {}
+    for path, owner in _file_paths(pose_file):
+        other = owners.get(path)
+        if other is not None:
             raise ValueError(
-                f"component paths collide: {earlier_id} at {earlier} is a parent of "
-                f"{later_id} at {later}; HDF5 cannot hold both"
+                f"paths collide: {owner} and {other} are both at {path}; HDF5 cannot hold both"
             )
+        owners[path] = owner
+    for path, owner in owners.items():
+        # Every proper ancestor, so "/a" is found above "/a/b" however the
+        # paths sort ("/a-c" sorts between them).
+        parts = path.split("/")
+        for depth in range(2, len(parts)):
+            parent = "/".join(parts[:depth])
+            if parent in owners:
+                raise ValueError(
+                    f"paths collide: {owners[parent]} at {parent} is a parent of {owner} at "
+                    f"{path}; HDF5 cannot hold both"
+                )
+
+
+def _check_alternate_names(pose_file: PoseFile) -> None:
+    """Refuse alternates of one name that name different offset datasets.
+
+    ADR 0002: a name is one encoding, so every alternate under it is decoded
+    through the same two offset arrays. Two pairs would make the name mean two
+    things, and the writer would have no single set to place together.
+
+    Args:
+        pose_file: The file's contents.
+
+    Raises:
+        ValueError: If two alternates of one name name different offsets.
+    """
+    first: dict[str, tuple[str, tuple[str, str]]] = {}
+    for component in pose_file.components:
+        for alternate in component.alternates:
+            label = alternate_key(component.id, alternate.name)
+            offsets = (alternate.index.group_offsets_path, alternate.index.instance_offsets_path)
+            other_label, other_offsets = first.setdefault(alternate.name, (label, offsets))
+            if offsets != other_offsets:
+                raise ValueError(
+                    f"{label}: names offsets {offsets}, but {other_label} names "
+                    f"{other_offsets}; alternates of one name are one encoding and share "
+                    "their offsets"
+                )
 
 
 def _check_encodings(pose_file: PoseFile) -> None:
-    """Refuse any encoding this writer cannot actually produce.
+    """Refuse any baseline encoding this writer cannot actually produce.
 
     Silently re-labeling a ragged or RLE payload as dense would corrupt it
-    beyond recovery while the bytes are still run values or offsets.
+    beyond recovery while the bytes are still run values or offsets. Only
+    baselines are checked: an alternate is always ``ragged``, and the writer
+    writes it as such.
 
     Args:
         pose_file: The file's contents.
@@ -256,7 +359,78 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
         _write_blocks(dataset, source, component.id)
 
 
-def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None = None) -> None:
+def _write_array(
+    h5: h5py.File, path: str, data: ComponentData, label: str, **options: object
+) -> None:
+    """Create one dataset from an in-memory array or a block source.
+
+    Args:
+        h5: The open destination file.
+        path: Where the dataset goes.
+        data: Its contents.
+        label: Names the payload in error messages.
+        **options: Storage options for ``create_dataset``.
+    """
+    if isinstance(data, BlockSource):
+        dataset = h5.create_dataset(path, shape=data.shape, dtype=data.dtype, **options)
+        _write_blocks(dataset, data, label)
+    else:
+        h5.create_dataset(path, data=data, **options)
+
+
+def _write_ragged_set(
+    h5: h5py.File, members: list[tuple[str, Alternate]], written_indexes: set[int]
+) -> None:
+    """Write one alternate name's offsets and payloads, back to back.
+
+    Written as one run, so the set occupies one byte range (spec 0029-A §2.6):
+    a reader fetching one frame's segmentation reads the offsets and then the
+    payload nearby, rather than seeking across the dense baseline. The order
+    is the order a reader needs them -- offsets, then group-level payloads,
+    then the leaf payloads they index.
+
+    Args:
+        h5: The open destination file.
+        members: Every ``(component id, alternate)`` of one name, in component
+            order. They share one :class:`RaggedIndex`.
+        written_indexes: Ids of the indexes whose offsets are already in the
+            file; updated here. Two names may share one index, and its offsets
+            are one pair of datasets.
+    """
+    index: RaggedIndex = members[0][1].index
+    name = members[0][1].name
+    if id(index) not in written_indexes:
+        written_indexes.add(id(index))
+        for offsets_name in ("group_offsets", "instance_offsets"):
+            _write_array(
+                h5,
+                getattr(index, f"{offsets_name}_path"),
+                getattr(index, offsets_name),
+                f"alternate {name!r} {offsets_name}",
+                chunks=None,
+            )
+    for level in ("group", "leaf"):
+        for component_id, alternate in members:
+            if alternate.level != level:
+                continue
+            chunks = _ragged_chunks(alternate)
+            options: dict = {"chunks": chunks}
+            if chunks is not None:
+                options.update(
+                    compression=_COMPRESSION, compression_opts=_COMPRESSION_OPTS, shuffle=True
+                )
+            _write_array(
+                h5,
+                alternate.path,
+                alternate.data,
+                alternate_key(component_id, alternate.name),
+                **options,
+            )
+
+
+def write_pose_file(
+    pose_file: PoseFile, path: str | Path, created: str | None = None, *, deep: bool = False
+) -> None:
     """Write a pose file, atomically.
 
     Both JSON documents are built, validated **and serialized** before any file
@@ -270,19 +444,33 @@ def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None =
         created: The manifest's creation timestamp. Defaults to now; pass a
             fixed value to make output byte-reproducible, as the conformance
             fixtures need.
+        deep: Also run the validator's deep check on the temporary file before
+            it replaces the destination: decode every alternate and compare it
+            with its baseline. It reads the baseline in full, so it costs as
+            much as reading the payload; a tool that writes alternates should
+            pass it.
 
     Raises:
         ValueError: If the manifest or provenance document would be invalid, if
-            two component paths collide, or if a block source's blocks do not
-            match its declared shape and dtype.
+            two dataset paths collide, if alternates of one name name different
+            offsets, if a block source's blocks do not match its declared shape
+            and dtype, or if the finished file fails validation (with ``deep``,
+            including an alternate that disagrees with its baseline).
         TypeError: If a value in the manifest or provenance cannot be
             serialized to JSON.
     """
     destination = Path(path)
     _check_encodings(pose_file)
     _check_path_collisions(pose_file)
+    _check_alternate_names(pose_file)
 
     layouts = {component.id: _layout_for(component) for component in pose_file.components}
+    # Every alternate of a name, in component order: the set written together.
+    ragged_sets: dict[str, list[tuple[str, Alternate]]] = {}
+    for component in pose_file.components:
+        for alternate in component.alternates:
+            layouts[alternate_key(component.id, alternate.name)] = _alternate_layout(alternate)
+            ragged_sets.setdefault(alternate.name, []).append((component.id, alternate))
     manifest = build_manifest(pose_file, layouts=layouts, created=created)
     provenance = build_provenance(pose_file.provenance)
     errors = validate_manifest(manifest) + validate_provenance(provenance)
@@ -306,7 +494,15 @@ def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None =
             h5.attrs["schema_revision"] = np.int32(SCHEMA_REVISION)
             h5.create_dataset("manifest", data=manifest_json, dtype=string_dtype)
             h5.create_dataset("provenance", data=provenance_json, dtype=string_dtype)
+            written_sets: set[str] = set()
+            written_indexes: set[int] = set()
             for component in pose_file.components:
+                # Each ragged set goes immediately before the first component
+                # that carries it, so it sits beside its baseline on disk.
+                for alternate in component.alternates:
+                    if alternate.name not in written_sets:
+                        _write_ragged_set(h5, ragged_sets[alternate.name], written_indexes)
+                        written_sets.add(alternate.name)
                 _create_dataset(h5, component)
             for attachment in pose_file.attachments:
                 # Carried verbatim: an attachment declares no axes, so no tool
@@ -318,10 +514,12 @@ def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None =
         # agreement -- can only be checked against the finished file. Checking
         # here is what makes "the writer never publishes a file its own
         # validator rejects" true rather than aspirational, and it is cheap:
-        # validate() reads indexes and offsets, never the payloads.
+        # validate() reads indexes and offsets, never the payloads -- unless
+        # the caller asks for the deep check, which decodes every alternate
+        # against its baseline and so reads both in full.
         from jabs.io.internal.pose_file.validate import validate
 
-        errors = [f for f in validate(temporary) if f.severity == "error"]
+        errors = [f for f in validate(temporary, deep=deep) if f.severity == "error"]
         if errors:
             raise ValueError(
                 "refusing to write an invalid pose file: "
