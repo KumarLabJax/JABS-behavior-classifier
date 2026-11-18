@@ -22,7 +22,9 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
+from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex, alternate_key
 from jabs.io.internal.pose_file.manifest import parse_manifest, parse_provenance
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -34,6 +36,11 @@ from jabs.io.internal.pose_file.types import Attachment, Component, PoseFile
 # Only the baseline encoding can be decoded. Handing back RLE run values or a
 # ragged point buffer as though it were a dense array is worse than failing.
 _SUPPORTED_ENCODINGS = frozenset({"dense"})
+
+# The only alternate encoding this build can model. An alternate it cannot
+# model is refused rather than skipped: dropping it would let a read-then-write
+# lose it without a word.
+_SUPPORTED_ALTERNATE_ENCODINGS = frozenset({"ragged"})
 
 
 class PoseFileError(Exception):
@@ -244,12 +251,117 @@ def _check_skeleton(manifest: dict, spec: dict) -> None:
         )
 
 
-def _component_from(spec: dict, data: np.ndarray) -> Component:
+def _check_alternate_decodable(label: str, alternate_spec: dict) -> None:
+    """Refuse an alternate whose encoding this build cannot model.
+
+    Args:
+        label: The alternate's ``<component id>:alternate:<name>`` key.
+        alternate_spec: The alternate's manifest entry.
+
+    Raises:
+        NotImplementedError: If the encoding is not ``ragged``.
+    """
+    kind = alternate_spec["encoding"].get("kind")
+    if kind not in _SUPPORTED_ALTERNATE_ENCODINGS:
+        raise NotImplementedError(
+            f"{label}: cannot read alternate encoding {kind!r}; only "
+            f"{sorted(_SUPPORTED_ALTERNATE_ENCODINGS)} is implemented, and skipping it would "
+            "drop it from any file written back"
+        )
+
+
+def _offsets_for(h5: h5py.File, path: str, label: str) -> npt.NDArray[np.generic]:
+    """Read one ragged offsets dataset, checking it is really a dataset.
+
+    Args:
+        h5: The open file.
+        path: The offsets' declared path.
+        label: The alternate that declared it, for the error message.
+
+    Returns:
+        The offsets, in their stored dtype.
+
+    Raises:
+        PoseFileError: If the path is absent or is not a dataset.
+    """
+    node = h5.get(path)
+    if not isinstance(node, h5py.Dataset):
+        raise PoseFileError(f"{label}: declared offsets {path} are missing or are not a dataset")
+    return node[()]
+
+
+def _alternates_for(
+    h5: h5py.File, spec: dict, indexes: dict[tuple[str, str], RaggedIndex]
+) -> tuple[Alternate, ...]:
+    """Read a component's alternates.
+
+    Args:
+        h5: The open file.
+        spec: The component's manifest entry.
+        indexes: The offsets already read, keyed by ``(group_offsets,
+            instance_offsets)`` path pair. Updated in place, so alternates
+            naming the same two paths share one :class:`RaggedIndex`: the
+            writer writes a shared index once, and two equal copies would be
+            two writes to one path.
+
+    Returns:
+        The alternates, in manifest order.
+
+    Raises:
+        NotImplementedError: If an alternate's encoding cannot be modeled.
+        PoseFileError: If an alternate disagrees with the file or with itself.
+    """
+    alternates = []
+    for alternate_spec in spec.get("alternates", []):
+        label = alternate_key(spec["id"], alternate_spec["name"])
+        _check_alternate_decodable(label, alternate_spec)
+        encoding = alternate_spec["encoding"]
+        pair = (encoding["group_offsets"], encoding["instance_offsets"])
+        # _dataset_for and _payload name what they read by "id"; the alternate
+        # shares its component's id, so its own key keeps the messages apart.
+        labeled = {**alternate_spec, "id": label}
+        payload = _payload(_dataset_for(h5, labeled), labeled)
+        try:
+            index = indexes.get(pair)
+            if index is None:
+                index = RaggedIndex(
+                    group_offsets_path=pair[0],
+                    instance_offsets_path=pair[1],
+                    group_offsets=_offsets_for(h5, pair[0], label),
+                    instance_offsets=_offsets_for(h5, pair[1], label),
+                )
+                indexes[pair] = index
+            alternates.append(
+                Alternate(
+                    name=alternate_spec["name"],
+                    path=alternate_spec["path"],
+                    axes=tuple(alternate_spec["axes"]),
+                    data=payload,
+                    missing=alternate_spec["missing"],
+                    index=index,
+                    # Absent means leaf, as the format defines it.
+                    level=encoding.get("level", "leaf"),
+                    units=alternate_spec.get("units"),
+                    coord_order=alternate_spec.get("coord_order"),
+                    description=alternate_spec.get("description"),
+                    layout=alternate_spec.get("layout"),
+                    extra=alternate_spec.get("extra"),
+                )
+            )
+        except ValueError as error:
+            raise PoseFileError(f"{label}: {error}") from error
+    return tuple(alternates)
+
+
+def _component_from(
+    spec: dict, data: np.ndarray, *, alternates: tuple[Alternate, ...] = ()
+) -> Component:
     """Build a Component from its manifest entry and payload.
 
     Args:
         spec: The component's manifest entry.
         data: The payload.
+        alternates: The component's alternates, already read.
 
     Returns:
         The component, preserving every declaration the manifest carried.
@@ -271,6 +383,7 @@ def _component_from(spec: dict, data: np.ndarray) -> Component:
         # Preserved so a read-write cycle does not relocate a payload that a
         # third-party producer deliberately stored elsewhere.
         stored_path=spec["path"],
+        alternates=alternates,
     )
 
 
@@ -340,11 +453,12 @@ def read_pose_file(path: str | Path) -> PoseFile:
         path: The pose file.
 
     Returns:
-        The file's contents, including attachments and namespaced extras, so
-        that writing the result back loses nothing.
+        The file's contents, including alternates, attachments and namespaced
+        extras, so that writing the result back loses nothing.
 
     Raises:
-        NotImplementedError: If a component's encoding cannot be decoded.
+        NotImplementedError: If a component's encoding cannot be decoded, or
+            an alternate's cannot be modeled.
         PoseFileError: If the file disagrees with its own manifest, or its
             declarations disagree with one another.
         NotAPoseFileError: If the file is not a ``jabs.pose-file``.
@@ -371,12 +485,14 @@ def read_pose_file(path: str | Path) -> PoseFile:
         provenance = parse_provenance(provenance_raw)
 
         components = []
+        indexes: dict[tuple[str, str], RaggedIndex] = {}
         for spec in parsed.component_specs:
             _check_decodable(spec)
             _check_skeleton(manifest, spec)
             payload = _payload(_dataset_for(h5, spec), spec)
+            alternates = _alternates_for(h5, spec, indexes)
             try:
-                components.append(_component_from(spec, payload))
+                components.append(_component_from(spec, payload, alternates=alternates))
             except ValueError as error:
                 raise PoseFileError(f"{path}: {spec['id']}: {error}") from error
 
