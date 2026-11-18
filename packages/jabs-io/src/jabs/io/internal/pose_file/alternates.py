@@ -3,10 +3,13 @@
 An alternate is a derived copy of a component's data in another encoding,
 under a name, so a reader with different access needs can read the same data
 without decoding the baseline. This revision defines one encoding for them,
-``ragged``: a payload indexed by two CSR offset arrays. Alternates of one name
-on different components are one encoding and name the same two offset
-datasets, so the offsets are their own object, a :class:`RaggedIndex`, which
-those alternates share.
+``ragged``: a payload indexed by two CSR offset arrays, which are their own
+object, a :class:`RaggedIndex`. Alternates of one name on different components
+are one encoding, so a :class:`~jabs.io.internal.pose_file.types.PoseFile`
+refuses them unless they name the same two offset datasets. Alternates that
+name the same offset datasets must share one :class:`RaggedIndex` object: the
+``PoseFile`` enforces that within one name, and the writer across names.
+Alternates of different names may share one index.
 
 ``types`` refers to :class:`Alternate` only for annotation, so this module can
 import from it without a cycle.
@@ -59,9 +62,9 @@ class RaggedIndex:
 
     ``instance_offsets`` holds group indices, one entry per ``(frame, slot)``
     in row-major order plus a trailing one; ``group_offsets`` holds payload
-    indices, one entry per group plus a trailing one. Every alternate of one
-    name shares a single instance, which is how the writer knows to write the
-    offsets once.
+    indices, one entry per group plus a trailing one. Alternates that name the
+    same offset paths, under one name or several, must share a single
+    instance, which is how the writer knows to write the offsets once.
 
     ``eq`` is disabled because the offsets are arrays; identity is what
     sharing means here.
@@ -113,10 +116,13 @@ class Alternate:
             payload in the file.
         axes: Axis name per payload dimension, e.g. ``("point", "coord")``.
         data: The payload: an in-memory array or a
-            :class:`~jabs.io.internal.pose_file.blocks.BlockSource`.
+            :class:`~jabs.io.internal.pose_file.blocks.BlockSource`. Never
+            string data: no defined ragged alternate is text, and the writer
+            writes alternates as they are, without a text conversion.
         missing: The missing-value policy, as for a component.
-        index: The offsets the payload is decoded through, shared by every
-            alternate of this name.
+        index: The offsets the payload is decoded through. Every alternate of
+            this name in a file names the same two offset paths, and every
+            alternate naming those paths shares this one object.
         level: ``"leaf"`` when the payload holds every leaf item, ``"group"``
             when it holds one value per group. Declared because no length
             check can tell them apart when every group holds one leaf.
@@ -167,6 +173,11 @@ class Alternate:
                     f"{label}: coord axis is {pair} wide; coord_order describes two values "
                     f"({self.coord_order!r}) and nothing else"
                 )
+        if self.dtype == "string":
+            raise ValueError(
+                f"{label}: an alternate cannot hold string data; no defined ragged "
+                "alternate is text"
+            )
         if self.dtype not in DTYPE_NAMES:
             raise ValueError(f"{label}: unsupported dtype {self.dtype!r}")
         if self.missing.get("policy") == "nan" and self.dtype not in ("float32", "float64"):

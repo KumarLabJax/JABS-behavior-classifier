@@ -141,24 +141,24 @@ def _alternate_layout(alternate: Alternate) -> dict:
     }
 
 
-def _file_paths(pose_file: PoseFile) -> list[tuple[str, str]]:
-    """Every dataset path the writer will create, with what owns it.
+def _file_paths(pose_file: PoseFile) -> list[tuple[str, str, bool]]:
+    """Every dataset path the writer will create, its owner, and whether it holds offsets.
 
     Two alternates sharing one :class:`RaggedIndex` share its two datasets, so
     those paths are listed once; two different indexes at one path are two
     claims on it.
     """
-    paths = [(component.path, component.id) for component in pose_file.components]
+    paths = [(component.path, component.id, False) for component in pose_file.components]
     listed: set[int] = set()
     for component in pose_file.components:
         for alternate in component.alternates:
             label = alternate_key(component.id, alternate.name)
-            paths.append((alternate.path, label))
+            paths.append((alternate.path, label, False))
             index = alternate.index
             if id(index) not in listed:
                 listed.add(id(index))
-                paths.append((index.group_offsets_path, f"{label}'s group_offsets"))
-                paths.append((index.instance_offsets_path, f"{label}'s instance_offsets"))
+                paths.append((index.group_offsets_path, f"{label}'s group_offsets", True))
+                paths.append((index.instance_offsets_path, f"{label}'s instance_offsets", True))
     return paths
 
 
@@ -174,16 +174,27 @@ def _check_path_collisions(pose_file: PoseFile) -> None:
         pose_file: The file's contents.
 
     Raises:
-        ValueError: If two paths collide.
+        ValueError: If two paths collide, or two different
+            :class:`RaggedIndex` objects declare offsets at one path.
     """
     owners: dict[str, str] = {}
-    for path, owner in _file_paths(pose_file):
+    offsets_paths: set[str] = set()
+    for path, owner, is_offsets in _file_paths(pose_file):
         other = owners.get(path)
+        if other is not None and is_offsets and path in offsets_paths:
+            # Each index is listed once, so this is a second index at the same
+            # offsets: one array declared twice, not two arrays.
+            raise ValueError(
+                f"{owner} and {other} are both at {path} through different RaggedIndex "
+                "objects; alternates using the same offsets must share one RaggedIndex object"
+            )
         if other is not None:
             raise ValueError(
                 f"paths collide: {owner} and {other} are both at {path}; HDF5 cannot hold both"
             )
         owners[path] = owner
+        if is_offsets:
+            offsets_paths.add(path)
     for path, owner in owners.items():
         # Every proper ancestor, so "/a" is found above "/a/b" however the
         # paths sort ("/a-c" sorts between them).
@@ -194,33 +205,6 @@ def _check_path_collisions(pose_file: PoseFile) -> None:
                 raise ValueError(
                     f"paths collide: {owners[parent]} at {parent} is a parent of {owner} at "
                     f"{path}; HDF5 cannot hold both"
-                )
-
-
-def _check_alternate_names(pose_file: PoseFile) -> None:
-    """Refuse alternates of one name that name different offset datasets.
-
-    ADR 0002: a name is one encoding, so every alternate under it is decoded
-    through the same two offset arrays. Two pairs would make the name mean two
-    things, and the writer would have no single set to place together.
-
-    Args:
-        pose_file: The file's contents.
-
-    Raises:
-        ValueError: If two alternates of one name name different offsets.
-    """
-    first: dict[str, tuple[str, tuple[str, str]]] = {}
-    for component in pose_file.components:
-        for alternate in component.alternates:
-            label = alternate_key(component.id, alternate.name)
-            offsets = (alternate.index.group_offsets_path, alternate.index.instance_offsets_path)
-            other_label, other_offsets = first.setdefault(alternate.name, (label, offsets))
-            if offsets != other_offsets:
-                raise ValueError(
-                    f"{label}: names offsets {offsets}, but {other_label} names "
-                    f"{other_offsets}; alternates of one name are one encoding and share "
-                    "their offsets"
                 )
 
 
@@ -279,14 +263,21 @@ def _write_blocks(dataset: h5py.Dataset, source: BlockSource, label: str) -> Non
         label: Names the payload in error messages, such as a component id.
 
     Raises:
-        ValueError: If a block has the wrong dtype or trailing shape, starts
-            anywhere but the end of the previous block, or runs past the
-            declared length, or if the blocks stop short of it.
+        ValueError: If a block has the wrong number of dimensions, dtype or
+            trailing shape, starts anywhere but the end of the previous block,
+            or runs past the declared length, or if the blocks stop short of it.
     """
     expected_rows = source.shape[0]
     trailing = source.shape[1:]
     written = 0
     for start, block in source.blocks():
+        # First: a 0-d block has no rows to count, and against a 1-D source
+        # its empty trailing shape would pass the check below.
+        if block.ndim != source.ndim:
+            raise ValueError(
+                f"{label}: a block has {block.ndim} dimensions {block.shape}, but the source "
+                f"declares {source.ndim} {source.shape}"
+            )
         if block.dtype != source.dtype:
             raise ValueError(
                 f"{label}: a block has dtype {block.dtype.str!r}, but the source declares "
@@ -438,31 +429,41 @@ def write_pose_file(
     destination's directory which is then moved into place. A failure at any
     point leaves an existing destination untouched.
 
+    Datasets are written in component order. Each named ragged set is written
+    immediately before the first component that carries an alternate of that
+    name: its offsets (unless an earlier set sharing its index already wrote
+    them), then its group-level payloads, then its leaf-level payloads. A
+    caller that wants spec 0029-A's layout, with the ragged set after the
+    keypoint-scale data, lists the keypoint-scale components before the
+    segmentation ones.
+
     Args:
         pose_file: The file's contents.
         path: Destination path.
         created: The manifest's creation timestamp. Defaults to now; pass a
             fixed value to make output byte-reproducible, as the conformance
             fixtures need.
-        deep: Also run the validator's deep check on the temporary file before
+        deep: Also run the validator's deep check on the temporary file, before
             it replaces the destination: decode every alternate and compare it
-            with its baseline. It reads the baseline in full, so it costs as
-            much as reading the payload; a tool that writes alternates should
-            pass it.
+            with its baseline, so a stale alternate never reaches the
+            destination. It reads the baseline in full, so it costs as much as
+            reading the payload; a tool that writes alternates should pass it.
+            Without it, an alternate whose values disagree with its baseline
+            is not caught.
 
     Raises:
         ValueError: If the manifest or provenance document would be invalid, if
-            two dataset paths collide, if alternates of one name name different
-            offsets, if a block source's blocks do not match its declared shape
-            and dtype, or if the finished file fails validation (with ``deep``,
-            including an alternate that disagrees with its baseline).
+            two dataset paths collide, if two different :class:`RaggedIndex`
+            objects declare offsets at one path, if a block source's blocks do
+            not match its declared shape and dtype, or if the finished file
+            fails validation (with ``deep``, including an alternate that
+            disagrees with its baseline).
         TypeError: If a value in the manifest or provenance cannot be
             serialized to JSON.
     """
     destination = Path(path)
     _check_encodings(pose_file)
     _check_path_collisions(pose_file)
-    _check_alternate_names(pose_file)
 
     layouts = {component.id: _layout_for(component) for component in pose_file.components}
     # Every alternate of a name, in component order: the set written together.

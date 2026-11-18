@@ -370,40 +370,57 @@ def _payload_under_a_component() -> PoseFile:
 
 
 @pytest.mark.parametrize(
-    "build",
+    ("build", "match"),
     [
-        pytest.param(_offsets_at_a_component_path, id="offsets-at-a-component-path"),
-        pytest.param(_payload_at_an_offset_path, id="alternate-payload-at-an-offset-path"),
-        pytest.param(_two_names_at_one_offset_path, id="two-names-one-offset-path"),
-        pytest.param(_payload_under_a_component, id="alternate-payload-under-a-component"),
+        pytest.param(_offsets_at_a_component_path, "collide", id="offsets-at-a-component-path"),
+        pytest.param(
+            _payload_at_an_offset_path, "collide", id="alternate-payload-at-an-offset-path"
+        ),
+        pytest.param(
+            _two_names_at_one_offset_path,
+            "must share one RaggedIndex object",
+            id="two-names-one-offset-path",
+        ),
+        pytest.param(
+            _payload_under_a_component, "collide", id="alternate-payload-under-a-component"
+        ),
     ],
 )
-def test_colliding_paths_are_refused(tmp_path: Path, build: Callable[[], PoseFile]) -> None:
-    """Every path in the file -- components, alternates, offsets -- must be distinct."""
+def test_colliding_paths_are_refused(
+    tmp_path: Path, build: Callable[[], PoseFile], match: str
+) -> None:
+    """Every path in the file -- components, alternates, offsets -- must be distinct.
+
+    Two indexes at one pair of offset paths are not two datasets but one shared
+    by mistake, so that refusal says what to do instead.
+    """
     path = tmp_path / "prior.h5"
     path.write_bytes(SENTINEL)
     pose_file = build()
-    with pytest.raises(ValueError, match="collide"):
+    with pytest.raises(ValueError, match=match):
         write_pose_file(pose_file, path)
     assert path.read_bytes() == SENTINEL
 
 
-def test_one_name_names_one_pair_of_offsets(tmp_path: Path) -> None:
-    """Alternates sharing a name across components must name the same offset datasets."""
-    pose_file = _segmentation_file(
-        flag_alternates=lambda s, _: (
-            _flags_alternate(
-                s,
-                _index(
-                    s,
-                    group_offsets_path=f"{PREFIX}/other_offsets",
-                    instance_offsets_path=f"{PREFIX}/other_instances",
-                ),
-            ),
-        )
-    )
+def test_one_name_names_one_pair_of_offsets() -> None:
+    """Alternates sharing a name across components must name the same offset datasets.
+
+    Refused when the file is constructed, so a file the writer cannot write
+    cannot exist.
+    """
     with pytest.raises(ValueError, match="one encoding"):
-        write_pose_file(pose_file, tmp_path / "out.h5")
+        _segmentation_file(
+            flag_alternates=lambda s, _: (
+                _flags_alternate(
+                    s,
+                    _index(
+                        s,
+                        group_offsets_path=f"{PREFIX}/other_offsets",
+                        instance_offsets_path=f"{PREFIX}/other_instances",
+                    ),
+                ),
+            )
+        )
 
 
 def test_two_names_sharing_one_index_write_its_offsets_once(tmp_path: Path) -> None:

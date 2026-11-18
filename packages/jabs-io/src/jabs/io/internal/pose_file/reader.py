@@ -282,11 +282,19 @@ def _offsets_for(h5: h5py.File, path: str, label: str) -> npt.NDArray[np.generic
         The offsets, in their stored dtype.
 
     Raises:
-        PoseFileError: If the path is absent or is not a dataset.
+        PoseFileError: If the path is absent, is not a dataset, or is not
+            one-dimensional.
     """
     node = h5.get(path)
     if not isinstance(node, h5py.Dataset):
         raise PoseFileError(f"{label}: declared offsets {path} are missing or are not a dataset")
+    # Checked before reading: a scalar dataset reads back as a bare value
+    # (bytes, for a string) that RaggedIndex cannot even ask the shape of.
+    if node.ndim != 1:
+        raise PoseFileError(
+            f"{label}: declared offsets {path} must be a one-dimensional dataset, got shape "
+            f"{node.shape} ({node.dtype})"
+        )
     return node[()]
 
 
@@ -448,6 +456,12 @@ def read_component(
 
 def read_pose_file(path: str | Path) -> PoseFile:
     """Read a whole pose file.
+
+    Alternates come back on their components. They are derived from the
+    baseline data, so per ADR 0002 a caller that changes a component's data
+    before writing it back must drop or regenerate its alternates, e.g.
+    ``dataclasses.replace(c, data=..., alternates=())``; the default
+    ``deep=False`` write does not catch a stale one.
 
     Args:
         path: The pose file.

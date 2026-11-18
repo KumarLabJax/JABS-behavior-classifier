@@ -19,9 +19,11 @@ Typical use::
             path, "jabs.pose.points", frames=slice(start, start + 1800), manifest=manifest
         )
 
-Only the ``dense`` encoding is implemented in this increment: the
-specification makes the baseline encoding the mandatory one and ``ragged`` and
-``rle`` optional.
+``dense`` is the only baseline encoding written or read: the specification
+makes the baseline encoding the mandatory one and ``ragged`` and ``rle``
+optional. ``ragged`` alternates (:class:`Alternate`, :class:`RaggedIndex`) are
+written and read, but not decoded in Python. A :class:`BlockSource` lets a
+writer stream a component's data to disk a block at a time.
 """
 
 from jabs.io.internal.pose_file.adapter import PoseFileHDF5Adapter

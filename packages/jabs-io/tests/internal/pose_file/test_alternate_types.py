@@ -183,26 +183,32 @@ def _offsets_not_1d(seg: dict, index: RaggedIndex) -> RaggedIndex:
     )
 
 
+def _string_payload(seg: dict, index: RaggedIndex) -> Alternate:
+    """Text, which no defined ragged alternate holds."""
+    return _flags_alternate(seg, index, data=np.array(["a", "b"]), axes=("contour",))
+
+
 @pytest.mark.parametrize(
-    "build",
+    ("build", "match"),
     [
-        _bad_name,
-        _bad_level,
-        _rank_mismatch,
-        _coord_without_units,
-        _coord_without_order,
-        _coord_three_wide,
-        _offsets_not_uint64,
-        _offsets_not_1d,
+        (_bad_name, "invalid alternate name"),
+        (_bad_level, "level must be one of"),
+        (_rank_mismatch, "declared 1 axes"),
+        (_coord_without_units, "must declare units and coord_order"),
+        (_coord_without_order, "must declare units and coord_order"),
+        (_coord_three_wide, "coord axis is 3 wide"),
+        (_offsets_not_uint64, "group_offsets .* must be one-dimensional uint64"),
+        (_offsets_not_1d, "instance_offsets .* must be one-dimensional uint64"),
+        (_string_payload, "cannot hold string data"),
     ],
 )
 def test_alternate_validates_its_declarations(
-    build: Callable[[dict, RaggedIndex], object],
+    build: Callable[[dict, RaggedIndex], object], match: str
 ) -> None:
-    """Each malformed declaration is refused at construction."""
+    """Each malformed declaration is refused at construction, for its own reason."""
     seg = ragged_segmentation()
     index = _index(seg)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=match):
         build(seg, index)
 
 

@@ -14,8 +14,8 @@ from typing import TypeAlias
 import numpy as np
 import numpy.typing as npt
 
-# numpy dtype kinds the format calls "string": object, bytes and unicode. The
-# same set as types._STRING_KINDS, repeated here because types imports this
+# numpy dtype kinds the format calls "string": object (h5py variable length),
+# bytes and unicode. Defined here rather than in types, which imports this
 # module.
 _STRING_KINDS = "OSU"
 

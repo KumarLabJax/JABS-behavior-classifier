@@ -1,6 +1,7 @@
 """The writer streams a block-sourced component to disk a block at a time."""
 
 import dataclasses
+import re
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
@@ -181,10 +182,15 @@ def _wrong_dtype(array: npt.NDArray[np.float32]) -> Blocks:
     return [(0, array.astype(np.float64))]
 
 
+def _zero_dimensional(array: npt.NDArray[np.float32]) -> Blocks:
+    """A scalar block, which has no rows to place."""
+    return [(0, np.zeros((), dtype=np.float32))]
+
+
 @pytest.mark.parametrize(
     "bad_blocks",
-    [_overlap, _gap, _short, _overrun, _wrong_trailing_shape, _wrong_dtype],
-    ids=["overlap", "gap", "short", "overrun", "trailing-shape", "dtype"],
+    [_overlap, _gap, _short, _overrun, _wrong_trailing_shape, _wrong_dtype, _zero_dimensional],
+    ids=["overlap", "gap", "short", "overrun", "trailing-shape", "dtype", "zero-dimensional"],
 )
 def test_bad_blocks_are_refused(
     tmp_path: Path, bad_blocks: Callable[[npt.NDArray[np.float32]], Blocks]
@@ -196,8 +202,31 @@ def test_bad_blocks_are_refused(
     path = tmp_path / "out.h5"
     path.write_bytes(SENTINEL)
 
-    with pytest.raises(ValueError, match=COMPRESSED_ID):
+    with pytest.raises(ValueError, match=re.escape(COMPRESSED_ID)):
         write_pose_file(_with_sources(pose_file, {COMPRESSED_ID: source}), path)
+
+    assert path.read_bytes() == SENTINEL
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_a_zero_dimensional_block_of_a_one_dimensional_source_is_refused(tmp_path: Path) -> None:
+    """A scalar block matches a 1-D source's empty trailing shape and is still refused."""
+    sample = build_sample_pose_file()
+    frames = sample.dimensions["frame"]
+    source = BlockSource((frames,), "float32", lambda: [(0, np.zeros((), dtype=np.float32))])
+    speed = Component(
+        id="org.example.lab.speed",
+        axes=("frame",),
+        data=source,
+        missing={"policy": "nan"},
+        units="unitless",
+    )
+    pose_file = dataclasses.replace(sample, components=(*sample.components, speed))
+    path = tmp_path / "out.h5"
+    path.write_bytes(SENTINEL)
+
+    with pytest.raises(ValueError, match=re.escape("org.example.lab.speed")):
+        write_pose_file(pose_file, path)
 
     assert path.read_bytes() == SENTINEL
     assert list(tmp_path.glob("*.tmp")) == []

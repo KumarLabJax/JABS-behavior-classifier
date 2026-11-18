@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from jabs.io.internal.pose_file.blocks import ComponentData
+from jabs.io.internal.pose_file.blocks import _STRING_KINDS, ComponentData
 
 if TYPE_CHECKING:
     # Annotation only: alternates imports this module for its dtype rules.
@@ -51,10 +51,6 @@ DTYPE_NAMES = frozenset(
         "string",
     }
 )
-
-# numpy dtype kinds that the format calls "string": object (h5py variable
-# length), bytes and unicode.
-_STRING_KINDS = "OSU"
 
 RESERVED_NAMESPACE = "jabs"
 
@@ -196,7 +192,12 @@ class Component:
             the path derived from the id. Preserved so a read-write cycle does
             not relocate a third party's data.
         alternates: Derived copies of the data in another encoding, each under
-            a name that appears at most once per component.
+            a name that appears at most once per component. They are derived
+            from ``data``, so per ADR 0002 a caller that changes a component's
+            baseline data must drop or regenerate its alternates, e.g.
+            ``dataclasses.replace(c, data=..., alternates=())``. Nothing here
+            compares them with the data, and the default ``deep=False`` write
+            does not catch a stale one.
     """
 
     id: str
@@ -577,20 +578,25 @@ class PoseFile:
 
         An alternate's payload path must differ from every component's and
         every other alternate's, or one dataset would be claimed twice. And
-        alternates of one name are one encoding: those naming the same offset
-        paths must share one :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`,
-        or the writer would have two different arrays to write at one path.
-        Parent/child path collisions are the writer's check.
+        alternates of one name are one encoding (ADR 0002): they must name the
+        same two offset paths, or the name would mean two things, and those
+        naming the same offset paths must share one
+        :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`, or the
+        writer would have two different arrays to write at one path.
+        Parent/child path collisions, and two names' different indexes at one
+        pair of paths, are the writer's checks.
 
         Raises:
-            ValueError: If a path is claimed twice or one name's offsets are
-                declared by two different indexes.
+            ValueError: If a path is claimed twice, alternates of one name name
+                different offset paths, or one name's offsets are declared by
+                two different indexes.
         """
         # Imported here: alternates imports this module at load time.
         from jabs.io.internal.pose_file.alternates import alternate_key
 
         owners = {component.path: component.id for component in self.components}
         indexes: dict[tuple[str, str, str], object] = {}
+        first: dict[str, tuple[str, tuple[str, str]]] = {}
         for component in self.components:
             for alternate in component.alternates:
                 label = alternate_key(component.id, alternate.name)
@@ -599,7 +605,15 @@ class PoseFile:
                     raise ValueError(f"{label}: path {alternate.path} is already {other}'s")
                 owners[alternate.path] = label
                 index = alternate.index
-                key = (alternate.name, index.group_offsets_path, index.instance_offsets_path)
+                offsets = (index.group_offsets_path, index.instance_offsets_path)
+                other_label, other_offsets = first.setdefault(alternate.name, (label, offsets))
+                if offsets != other_offsets:
+                    raise ValueError(
+                        f"{label}: names offsets {offsets}, but {other_label} names "
+                        f"{other_offsets}; alternates of one name are one encoding and share "
+                        "their offsets"
+                    )
+                key = (alternate.name, *offsets)
                 shared = indexes.setdefault(key, index)
                 if shared is not index:
                     raise ValueError(

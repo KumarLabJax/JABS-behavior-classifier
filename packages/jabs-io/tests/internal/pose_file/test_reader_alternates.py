@@ -7,6 +7,7 @@ writer write those offsets once.
 """
 
 import json
+import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -137,3 +138,31 @@ def test_missing_offsets_are_a_pose_file_error(tmp_path: Path) -> None:
         del h5[f"{PREFIX}/contour_offsets"]
     with pytest.raises(PoseFileError, match=f"{CONTOURS_ID}:alternate:ragged"):
         read_pose_file(path)
+
+
+def test_offsets_that_are_not_one_dimensional_are_a_pose_file_error(tmp_path: Path) -> None:
+    """A scalar dataset where offsets belong is the file disagreeing with itself."""
+    path = tmp_path / "scalar-offsets.h5"
+    shutil.copy(FIXTURE, path)
+    offsets_path = f"{PREFIX}/contour_offsets"
+    with h5py.File(path, "r+") as h5:
+        del h5[offsets_path]
+        h5.create_dataset(offsets_path, data="not offsets", dtype=h5py.string_dtype())
+    with pytest.raises(PoseFileError, match=re.escape(f"{CONTOURS_ID}:alternate:ragged")) as error:
+        read_pose_file(path)
+    assert offsets_path in str(error.value)
+
+
+def test_an_alternate_without_a_level_reads_as_leaf(tmp_path: Path) -> None:
+    """The format defines an absent ragged level as leaf."""
+    path = tmp_path / "no-level.h5"
+    shutil.copy(FIXTURE, path)
+
+    def _drop_level(manifest: dict) -> None:
+        """Remove the contours alternate's declared level."""
+        spec = next(s for s in manifest["components"] if s["id"] == CONTOURS_ID)
+        del spec["alternates"][0]["encoding"]["level"]
+
+    _rewrite_manifest(path, _drop_level)
+    contours = _component(read_pose_file(path), CONTOURS_ID)
+    assert contours.alternates[0].level == "leaf"
