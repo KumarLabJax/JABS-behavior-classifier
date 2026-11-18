@@ -19,6 +19,8 @@ from types import MappingProxyType
 
 import numpy as np
 
+from jabs.io.internal.pose_file.blocks import ComponentData
+
 # A dot-separated lowercase path of at least two segments. The first segment is
 # the namespace root; `jabs` is reserved by the specification.
 COMPONENT_ID_RE = re.compile(
@@ -151,7 +153,9 @@ class Component:
     Attributes:
         id: Namespaced component id, e.g. ``jabs.pose.points``.
         axes: Axis name per array dimension, e.g. ``("frame", "slot")``.
-        data: The payload.
+        data: The payload: an in-memory array, or a
+            :class:`~jabs.io.internal.pose_file.blocks.BlockSource` that
+            declares its shape and dtype and yields the rows in blocks.
         missing: The missing-value policy — ``{"policy": "none" | "nan"}``,
             ``{"policy": "mask", "mask": <id>}`` or
             ``{"policy": "length", "length": <id>}``.
@@ -176,7 +180,7 @@ class Component:
 
     id: str
     axes: tuple[str, ...]
-    data: np.ndarray
+    data: ComponentData
     missing: dict
     units: str | None = None
     coord_order: str | None = None
@@ -526,7 +530,14 @@ class PoseFile:
                 if other.data.ndim < component.data.ndim
                 else 0
             )
-            if other.data.size and (other.data.min() < 0 or other.data.max() > bound):
+            # A block source's values are not in memory, and reading them here
+            # would consume the blocks the writer needs; the validator checks
+            # the written values instead.
+            if (
+                isinstance(other.data, np.ndarray)
+                and other.data.size
+                and (other.data.min() < 0 or other.data.max() > bound)
+            ):
                 raise ValueError(
                     f"{component.id}: length reference {other.id!r} has values outside "
                     f"[0, {bound}], the axis it bounds"

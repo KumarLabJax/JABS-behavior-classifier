@@ -25,6 +25,7 @@ specification makes the baseline encoding the mandatory one and ``ragged`` and
 """
 
 from jabs.io.internal.pose_file.adapter import PoseFileHDF5Adapter
+from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.manifest import (
     ParsedManifest,
     build_manifest,
@@ -66,6 +67,7 @@ __all__ = [
     "PROVENANCE_SCHEMA",
     "SCHEMA_REVISION",
     "Attachment",
+    "BlockSource",
     "Component",
     "Finding",
     "HistoryEntry",
