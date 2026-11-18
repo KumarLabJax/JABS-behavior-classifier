@@ -940,7 +940,7 @@ class TestFromTrainingFile:
         # Mock both load_training_data and hash_file
         with (
             patch("jabs.classifier.classifier.load_training_data") as mock_load,
-            patch("jabs.classifier.classifier.hash_file") as mock_hash,
+            patch("jabs.classifier.base.hash_file") as mock_hash,
         ):
             mock_load.return_value = (training_data, None)
             mock_hash.return_value = "mock_hash_value"

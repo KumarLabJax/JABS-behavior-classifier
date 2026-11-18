@@ -354,12 +354,29 @@ class BaseClassifier:
         ``_classifier_file`` is ``None``, so an already-persisted classifier
         keeps its previous hash even if its contents change. Call this after
         mutating persisted state (e.g. renaming a class) so the next ``save()``
-        records a hash matching the rewritten file. ``train()`` performs the
-        same null-out after refitting.
+        records a hash matching the rewritten file. ``train()`` calls this
+        after refitting, since a refit classifier no longer matches any file.
         """
         self._classifier_file = None
         self._classifier_hash = None
         self._classifier_source = None
+
+    def _record_persistence_identity(self, path: Path, source: str) -> None:
+        """Record the file this classifier's persisted state came from.
+
+        The counterpart to :meth:`reset_persistence_identity`: it sets the three
+        identity fields that method clears, so the two stay in step if the set
+        of fields ever changes.
+
+        Args:
+            path: File the classifier was written to or read from. Its basename
+                is stored and its contents are hashed.
+            source: How the classifier reached that file, e.g. ``"serialized"``,
+                ``"pickle"`` or ``"training_file"``.
+        """
+        self._classifier_file = Path(path).name
+        self._classifier_hash = hash_file(Path(path))
+        self._classifier_source = source
 
     def save(self, path: Path) -> None:
         """Serialize the classifier to disk using joblib.
@@ -369,9 +386,7 @@ class BaseClassifier:
         """
         joblib.dump(self, path)
         if self._classifier_file is None:
-            self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = "serialized"
+            self._record_persistence_identity(path, "serialized")
 
     @classmethod
     def from_pickle(cls, path: Path) -> BaseClassifier:
@@ -410,9 +425,7 @@ class BaseClassifier:
             raise UnsupportedClassifierError(c._classifier_type.value)
 
         if c._classifier_file is None:
-            c._classifier_file = Path(path).name
-            c._classifier_hash = hash_file(Path(path))
-            c._classifier_source = "pickle"
+            c._record_persistence_identity(path, "pickle")
 
         return c
 
@@ -452,6 +465,4 @@ class BaseClassifier:
             self._classifier_hash = c._classifier_hash
             self._classifier_source = c._classifier_source
         else:
-            self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = "pickle"
+            self._record_persistence_identity(path, "pickle")

@@ -15,7 +15,6 @@ from jabs.core.enums import (
     compile_grouping_regex,
     filename_group_key,
 )
-from jabs.core.utils import hash_file
 from jabs.project import Project, load_training_data
 
 from . import classifier_utils
@@ -99,9 +98,7 @@ class Classifier(BaseClassifier):
             random_seed=loaded_training_data["training_seed"],
         )
 
-        classifier._classifier_file = Path(path).name
-        classifier._classifier_hash = hash_file(Path(path))
-        classifier._classifier_source = "training_file"
+        classifier._record_persistence_identity(path, "training_file")
 
         return classifier
 
@@ -238,9 +235,7 @@ class Classifier(BaseClassifier):
             warnings.simplefilter("ignore", category=FutureWarning)
             self._classifier = classifier.fit(cleaned_features, labels)
 
-        self._classifier_file = None
-        self._classifier_hash = None
-        self._classifier_source = None
+        self.reset_persistence_identity()
 
     def predict(
         self, features: pd.DataFrame, frame_indexes: np.ndarray | None = None
