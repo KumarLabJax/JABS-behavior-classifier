@@ -31,10 +31,10 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
     When the opened video has a JABS pose file beside it (``<video>_pose_est_v<N>.h5``)
     the pose skeletons and, when the pose file has them, segmentation contours,
-    bounding boxes and arena landmarks are drawn over the video. A pose file can also be opened on its own,
-    and is played over a solid background. Each overlay can be toggled from the View
-    menu or the toolbar, and the current frame or the whole video can be exported with
-    the overlays drawn from the File menu.
+    bounding boxes and arena landmarks are drawn over the video. A pose file can also
+    be opened on its own, and is played over a solid background. Each overlay can be
+    toggled from the View menu or the toolbar, and the current frame or the whole
+    video can be exported with the overlays drawn from the File menu.
     """
 
     def __init__(self, app_name: str, parent: QtWidgets.QWidget | None = None) -> None:

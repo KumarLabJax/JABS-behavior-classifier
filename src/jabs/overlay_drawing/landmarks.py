@@ -12,6 +12,7 @@ The colors are the ones that drawing used, converted from its BGR tuples.
 
 from collections.abc import Callable
 
+import numpy as np
 from PySide6 import QtCore, QtGui
 
 from jabs.pose_estimation import PoseEstimation
@@ -41,10 +42,16 @@ def pose_has_landmarks(pose: PoseEstimation) -> bool:
         pose: Pose estimation to check.
 
     Returns:
-        True if the pose file records the arena corners, a lixit, or the food hopper.
+        True if the pose file records at least one point for the arena corners, a
+        lixit, or the food hopper. An empty dataset does not count: it would enable
+        an overlay that draws nothing.
     """
-    static_objects = getattr(pose, "static_objects", None) or {}
-    return any(static_objects.get(name) is not None for name in _DRAWN_STATIC_OBJECTS)
+    return any(_has_points(pose.static_objects.get(name)) for name in _DRAWN_STATIC_OBJECTS)
+
+
+def _has_points(static_object: object) -> bool:
+    """Return whether a static object is an array holding at least one point."""
+    return isinstance(static_object, np.ndarray) and static_object.size > 0
 
 
 def native_landmark_sizes(width: int, height: int) -> tuple[int, int]:

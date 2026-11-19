@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest import mock
+
 import numpy as np
 import pytest
 
@@ -159,17 +161,22 @@ def test_landmarks_outside_a_crop_are_skipped() -> None:
         ({"food_hopper": np.zeros((4, 2))}, True),
         ({"corners": None}, False),
         ({"something_else": np.zeros((1, 2))}, False),
+        ({"corners": np.zeros((0, 2)), "food_hopper": np.zeros((0, 2))}, False),
     ],
-    ids=["none", "corners", "lixit", "food_hopper", "none_value", "undrawn_object"],
+    ids=["none", "corners", "lixit", "food_hopper", "none_value", "undrawn_object", "empty"],
 )
 def test_pose_has_landmarks(static_objects: dict, expected: bool) -> None:
     """Only the static objects draw_landmarks can draw count as landmarks."""
     assert pose_has_landmarks(StubPose(static_objects)) is expected
 
 
-def test_pose_has_landmarks_without_static_objects_attribute() -> None:
-    """A pose stand-in that has no static objects at all has no landmarks."""
-    assert pose_has_landmarks(object()) is False
+def test_pose_has_landmarks_on_a_bare_mock_pose() -> None:
+    """A bare Mock pose does not read as having landmarks.
+
+    Its ``static_objects.get`` returns a truthy Mock, which a None check alone would
+    count as a landmark, enabling the overlay in every UI test that uses one.
+    """
+    assert pose_has_landmarks(mock.Mock()) is False
 
 
 def test_native_landmark_sizes_never_shrink_below_the_base_size() -> None:

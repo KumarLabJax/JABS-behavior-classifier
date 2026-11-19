@@ -46,6 +46,13 @@ from jabs.pose_estimation import get_pose_path, open_pose_file
     "newer pose file; ignored otherwise. Use --no-segmentation for pose only.",
 )
 @click.option(
+    "--landmarks/--no-landmarks",
+    "draw_landmarks",
+    default=False,
+    help="Include the arena landmarks (corners, lixit and food hopper) the pose file "
+    "records. Ignored when it records none.",
+)
+@click.option(
     "--codec",
     default=None,
     help="FourCC codec for the output video  [default: avc1 (H.264) if this OpenCV build "
@@ -62,6 +69,7 @@ def export_video_command(
     output_path: Path | None,
     pose_path: Path | None,
     draw_segmentation: bool,
+    draw_landmarks: bool,
     codec: str | None,
     force: bool,
 ) -> None:
@@ -133,6 +141,7 @@ def export_video_command(
                 output_path,
                 pose_est,
                 draw_segmentation=draw_segmentation,
+                draw_landmarks=draw_landmarks,
                 codec=codec,
                 progress_callback=on_progress,
             )

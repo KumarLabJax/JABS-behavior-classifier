@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
 import pytest
 
 try:
@@ -67,7 +68,7 @@ def _fake_pose(
     pose.has_segmentation = segmentation
     pose.has_bounding_boxes = boxes
     pose.format_major_version = 8 if boxes else 6
-    pose.static_objects = {"corners": object()} if landmarks else {}
+    pose.static_objects = {"corners": np.zeros((4, 2))} if landmarks else {}
     return pose
 
 

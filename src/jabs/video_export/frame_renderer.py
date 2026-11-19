@@ -5,9 +5,9 @@ Shared by the GUI's "Export Frame", the GUI's "Export Video with Overlays", and
 do not ask for the same ones: only the video export passes a label marker overlay.
 Every overlay is painted with the shared drawing in :mod:`jabs.overlay_drawing`, in the
 order the player paints them: segmentation contours, then the arena landmarks, then the
-pose keypoints and skeleton, then the per-identity label and prediction markers. Bounding boxes, which
-the player paints after the markers, are drawn before them here so the caption banner
-that goes with the markers stays on top.
+pose keypoints and skeleton, then the per-identity label and prediction markers.
+Bounding boxes, which the player paints after the markers, are drawn before them here
+so the caption banner that goes with the markers stays on top.
 
 Sharing the GUI's drawing is deliberate. A second reimplementation would inevitably
 drift, and an exported video that does not match what the player shows is worse than no
