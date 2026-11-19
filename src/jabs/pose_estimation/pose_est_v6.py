@@ -99,8 +99,13 @@ class PoseEstimationV6(PoseEstimationV5):
             longterm_seg_id.shape,
         )
         # Copy the data into the new array, sorted
-        # Note that the -1 is the default for missing data
-        sorted_seg_data = np.zeros_like(seg_data) - 1
+        # Note that the -1 is the default for missing data. The result is allocated
+        # once, filled with -1: `zeros_like(...) - 1` allocated a second full-size
+        # temporary, which for an hour of segmentation data is several GB. The dtype is
+        # the one that subtraction produced, so bool flags still become int64 with -1
+        # marking unused slots rather than -1 being cast to True.
+        result_dtype = (np.zeros(0, dtype=seg_data.dtype) - 1).dtype
+        sorted_seg_data = np.full(seg_data.shape, -1, dtype=result_dtype)
         # Need to do a loop here because numpy doesn't allow sorting 2D indices for differently shaped arrays
         for animal_idx in np.arange(seg_data.shape[1]):
             # Detect which frames have valid data
