@@ -1,4 +1,5 @@
 import logging
+import numbers
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +19,29 @@ def _tag_length_valid(tag: str) -> bool:
 def _tag_characters_valid(tag: str) -> bool:
     """Whether a tag uses only alphanumeric characters, underscores, and hyphens."""
     return all(c.isalnum() or c in "_-" for c in tag)
+
+
+def _frame_range_valid(start: Any, end: Any) -> bool:
+    """Whether a serialized annotation's frame range can be stored as an interval.
+
+    Both endpoints are inclusive frame indexes, so the range an annotation covers
+    is empty unless ``start <= end``. ``IntervalTree`` rejects an empty interval
+    and refuses to compare values it cannot order, so a serialized entry that
+    fails either check has to be screened out before it reaches the tree.
+
+    Args:
+        start: Candidate first frame of the annotation.
+        end: Candidate last frame of the annotation, inclusive.
+
+    Returns:
+        True when both endpoints are integers (``bool`` is not accepted, despite
+        being an ``int`` subclass) and ``start <= end``.
+    """
+    if isinstance(start, bool) or isinstance(end, bool):
+        return False
+    if not isinstance(start, numbers.Integral) or not isinstance(end, numbers.Integral):
+        return False
+    return start <= end
 
 
 def is_valid_tag(tag: str) -> bool:
@@ -98,7 +122,9 @@ class TimelineAnnotations:
             TimelineAnnotations: An instance loaded with the provided data.
 
         Note: loading currently skips invalid entries with a logged warning. Consider
-        raising an exception for stricter handling in the future.
+        raising an exception for stricter handling in the future. An entry is invalid
+        when it is missing a required field, when its frame range fails
+        :func:`_frame_range_valid`, or when its tag fails :func:`is_valid_tag`.
         """
         annotations = cls()
 
@@ -111,6 +137,17 @@ class TimelineAnnotations:
             except KeyError:
                 logger.warning(
                     "Missing required annotation fields, loading skipped for annotation: %s", entry
+                )
+                continue
+
+            # validate the frame range before it reaches the interval tree: a
+            # reversed or non-integer range raises out of IntervalTree rather than
+            # being skipped, which would abort the whole document's load
+            if not _frame_range_valid(start, end):
+                logger.warning(
+                    "Annotation start and end must be integer frame indexes with "
+                    "start <= end, skipping annotation: \n\t%s",
+                    entry,
                 )
                 continue
 

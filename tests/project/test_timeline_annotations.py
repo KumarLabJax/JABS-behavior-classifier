@@ -4,6 +4,7 @@ from intervaltree import Interval
 from jabs.project.timeline_annotations import (
     MAX_TAG_LEN,
     TimelineAnnotations,
+    _frame_range_valid,
     is_valid_tag,
 )
 
@@ -203,6 +204,65 @@ def test_load_warns_on_skipped_entry(caplog):
         TimelineAnnotations.load([{"start": 0, "end": 1, "tag": "bad tag!", "color": "#fff"}])
 
     assert any("Skipping annotation" in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        (0, 0, True),
+        (5, 9, True),
+        (-3, -1, True),
+        (9, 5, False),
+        (0, -1, False),
+        (0.5, 2, False),
+        ("0", 2, False),
+        (0, None, False),
+        (False, True, False),
+    ],
+    ids=[
+        "single-frame",
+        "ascending",
+        "negative-ascending",
+        "reversed",
+        "end-one-before-start",
+        "float-start",
+        "string-start",
+        "none-end",
+        "bool-endpoints",
+    ],
+)
+def test_frame_range_valid(start, end, expected: bool) -> None:
+    """_frame_range_valid() accepts exactly the ranges an interval can be built from."""
+    assert _frame_range_valid(start, end) is expected
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [(9, 5), (0, -1), (0.5, 2), ("0", 2), (0, None)],
+    ids=["reversed", "end-one-before-start", "float-start", "string-start", "none-end"],
+)
+def test_load_skips_unusable_frame_range(start, end) -> None:
+    """An entry whose frame range cannot form an interval is skipped, not raised."""
+    rebuilt = TimelineAnnotations.load(
+        [{"start": start, "end": end, "tag": "tag1", "color": "#fff"}]
+    )
+    assert len(rebuilt) == 0
+
+
+def test_load_continues_after_unusable_frame_range(caplog) -> None:
+    """A bad frame range must not stop the surrounding entries from loading."""
+    data = [
+        {"start": 2, "end": 3, "tag": "ok_one", "color": "#fff"},
+        {"start": 50, "end": 10, "tag": "reversed", "color": "#fff"},  # skipped
+        {"start": 6, "end": 7, "tag": "ok_two", "color": "#fff"},
+    ]
+    with caplog.at_level("WARNING", logger="jabs.project.timeline_annotations"):
+        rebuilt = TimelineAnnotations.load(data)
+
+    assert len(rebuilt) == 2
+    assert rebuilt.annotation_exists(start=2, end=3, tag="ok_one", identity_index=None)
+    assert rebuilt.annotation_exists(start=6, end=7, tag="ok_two", identity_index=None)
+    assert any("skipping annotation" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.parametrize(
