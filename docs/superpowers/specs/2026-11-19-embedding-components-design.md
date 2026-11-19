@@ -158,7 +158,7 @@ A new optional component property, **required** (schema conditional + validator)
   },
   "tap": "trunk.final",
   "pooling": "mask_mean",
-  "window": {"before": 5, "after": 6},
+  "window": {"before": 9, "after": 9},
   "normalization": "none",
   "projection": null,
   "fingerprint": "sha256:<hex>"
@@ -174,10 +174,10 @@ A new optional component property, **required** (schema conditional + validator)
 | `model.weights` | string | content identifier of the exact weights, `sha256:<hex>` of the checkpoint file |
 | `tap` | string | producer-defined name of where in the model the vector comes from |
 | `pooling` | string | how spatial positions were reduced; registered values `mask_mean`, `bbox_mean`, `grid_mean`, `token`; others allowed |
-| `window` | `{before, after}` ints ≥ 0 | frames before/after *t* whose pixels the vector for *t* may depend on through the model's clip (nominal temporal receptive field) |
+| `window` | `{before, after}` ints ≥ 0 | nominal temporal receptive field: the **maximum over all frames** of how many frames before (and, separately, after) *t* the vector for *t* can depend on through the model's clip. For SPAL (12-frame windows, stride 8, interior frames 2-9 emitted) this is `{9, 9}`; the example above uses that value |
 | `normalization` | string | `none`, `l2`, or producer-defined |
 | `projection` | null or object `{kind, input_dim, basis}` | applied post-tap reduction (e.g. `{"kind":"pca","input_dim":1664,"basis":"sha256:<hex>"}`); `dim` is then the output dim |
-| `fingerprint` | string | `sha256:` of the canonical JSON (sorted keys, no whitespace) of the descriptor **excluding** `name`, `kind` and `fingerprint` |
+| `fingerprint` | string | `sha256:` + lowercase hex SHA-256 of the canonical JSON of the descriptor **excluding** `name`, `kind` and `fingerprint` (normative; see below) |
 
 Validator rules (new):
 
@@ -194,6 +194,12 @@ Validator rules (new):
   exists**, every per-instance row where it is false is all-NaN (error). A `.instance` embedding
   is legal in a file without `jabs.pose.slot_occupied`; the check is then skipped. *(Claude's
   call.)*
+
+**Canonical JSON (normative; ADR 0003 states it).** The descriptor may contain only objects,
+arrays, strings, integers, booleans and null — **no floating-point numbers**. Under that
+restriction the canonical form is RFC 8785 (JCS), which equals Python's
+`json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")`.
+A producer writing with h5py and JSON alone can reproduce it. *(Claude's call, after review.)*
 
 Semantics of the fingerprint: it is the consumer's comparability key. Two embeddings with equal
 fingerprints are interchangeable for training/prediction; names are labels only. Pooling is in the
@@ -224,8 +230,9 @@ inference parameters, carry details).
   1; the manifest records the clamped value.
 - Round trip: for `jabs.embedding.*` and foreign components only, the reader populates
   `requested_layout` from the manifest `layout`, so read-then-write keeps their layout. All other
-  components are re-laid-out by policy exactly as today, so files without embeddings behave
-  unchanged. No manifest schema change for this.
+  components are re-laid-out by policy exactly as today, so files whose components are all non-embedding
+  `jabs.*` behave unchanged. (A file with foreign components now keeps their on-disk layout on
+  round trip, which is intended: it is the foreign producer's choice.) No manifest schema change for this.
 - Validation of a requested layout: any legal HDF5 chunk shape is accepted (rank matches, each
   extent ≥ 1); contiguous + compression is rejected (HDF5 requires chunking for filters). Allowed
   compression: `none`, `gzip` (opts 0–9), `lzf`.
@@ -261,7 +268,6 @@ invalid fixture per new rule, following the existing one-fixture-per-error-check
 ## Left to the builder
 
 - Exact Python types (`EmbeddingDescriptor` dataclass shape, where it lives in `types.py`).
-- Canonical-JSON details for the fingerprint beyond "sorted keys, compact separators, UTF-8".
 - Chunk-size arithmetic for the ≈1 MiB default.
 - ADR 0003 prose, examples and an example manifest snippet.
 - Whether the validator's id-shape rule lives in the schema (regex/pattern) or code, as long as both
