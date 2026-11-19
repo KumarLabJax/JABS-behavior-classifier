@@ -37,6 +37,7 @@ COMPONENT_ID_RE = re.compile(
 # is declared as "string", which is the name the schema uses.
 DTYPE_NAMES = frozenset(
     {
+        "float16",
         "float32",
         "float64",
         "int8",
@@ -289,7 +290,11 @@ class Component:
                 )
         if "keypoint" in self.axes and self.skeleton is None:
             raise ValueError(f"{self.id}: a component with a keypoint axis must name its skeleton")
-        if self.missing.get("policy") == "nan" and self.dtype not in ("float32", "float64"):
+        if self.missing.get("policy") == "nan" and self.dtype not in (
+            "float16",
+            "float32",
+            "float64",
+        ):
             raise ValueError(
                 f"{self.id}: a nan missing-policy needs a float payload, not {self.dtype!r} -- "
                 "NaN is reserved for floats and no other dtype can represent it"

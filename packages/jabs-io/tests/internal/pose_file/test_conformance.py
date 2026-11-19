@@ -115,7 +115,7 @@ def test_invalid_fixtures_report_their_check(name, expected_check):
 SCHEMA_MESSAGES = {
     "invalid-manifest-schema.h5": "'video' is a required property",
     "invalid-coord-declarations.h5": "'units' is a required property",
-    "invalid-nan-policy.h5": "dtype: 'bool' is not one of ['float32', 'float64']",
+    "invalid-nan-policy.h5": "dtype: 'bool' is not one of ['float16', 'float32', 'float64']",
     "invalid-keypoint-without-skeleton.h5": "'skeleton' is a required property",
     "invalid-sample-without-sparse.h5": "'sparse' is a required property",
     "invalid-rle-shape.h5": "axes: ['run'] was expected",

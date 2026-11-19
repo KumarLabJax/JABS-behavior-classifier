@@ -134,3 +134,14 @@ def test_a_stored_path_must_be_canonical(path):
             missing={"policy": "none"},
             stored_path=path,
         )
+
+
+def test_float16_component_accepts_nan_policy():
+    """A float16 payload is a float payload, so it may declare a nan missing-policy."""
+    c = Component(
+        id="org.example.lab.x",
+        axes=("frame",),
+        data=np.zeros(4, np.float16),
+        missing={"policy": "nan"},
+    )
+    assert c.dtype == "float16"
