@@ -631,6 +631,21 @@ def _replace_dataset(path: str, data: npt.NDArray[np.generic]) -> Mutation:
     return mutate
 
 
+def _delete_at(path: str) -> Mutation:
+    """Delete one dataset."""
+    return lambda file: _delete(file, path)
+
+
+def _link(path: str, link: h5py.ExternalLink | h5py.SoftLink) -> Mutation:
+    """Put a link at ``path``."""
+
+    def mutate(file: Path) -> None:
+        with h5py.File(file, "r+") as h5:
+            h5[path] = link
+
+    return mutate
+
+
 def _first_alternate(manifest: dict, component_id: str) -> dict:
     """A component's first declared alternate."""
     return _entry(manifest, component_id)["alternates"][0]
@@ -670,6 +685,16 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
             "invalid-provenance-schema.h5",
             minimal,
             lambda path: _rewrite_document(path, "provenance", lambda p: p.update(history={})),
+        ),
+        # A payload whose data is in another file. A reader would follow the
+        # link and read whatever that file holds; the target need not exist.
+        (
+            "invalid-external-link.h5",
+            minimal,
+            _in_order(
+                _delete_at("/jabs/pose/points"),
+                _link("/jabs/pose/points", h5py.ExternalLink("elsewhere.h5", "/points")),
+            ),
         ),
         # Component structure.
         (

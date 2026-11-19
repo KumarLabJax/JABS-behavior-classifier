@@ -3,7 +3,10 @@
 A legacy file's ``version`` attribute does not say what it holds (the public
 v5 sample records ``3.0``), so the converter reads what is there instead and
 refuses anything outside the catalog of ``pose_est_v4``..``v8`` paths, naming
-it. A path it does not know is one it would silently lose.
+it. A path it does not know is one it would silently lose. Before any of that
+it refuses a file whose data is not all inside it (an external or soft link,
+external or virtual storage), since the Hub converts uploads on its own
+machines.
 
 Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 ``id_mask``, which it reads in frame blocks when the identity count has to
@@ -20,6 +23,7 @@ import h5py
 import numpy as np
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
+from jabs.io.internal.pose_file.hdf5_safety import check_self_contained
 from jabs.io.internal.pose_file.reader import attr_text
 
 logger = logging.getLogger(__name__)
@@ -130,7 +134,9 @@ def inspect_legacy(path: Path) -> LegacyLayout:
         Its layout.
 
     Raises:
-        LegacyConversionError: If the file holds a path outside the catalog,
+        LegacyConversionError: If the file has a link other than a hard link,
+            or a dataset with external or virtual storage (checked first,
+            before anything is read), holds a path outside the catalog,
             lacks a dataset v4 introduced, has other than 12 keypoints, has
             datasets whose shapes disagree, names other than one identity per
             ``external_identity_mapping`` entry, or has a malformed dynamic
@@ -139,6 +145,12 @@ def inspect_legacy(path: Path) -> LegacyLayout:
             frame). The message names the path.
     """
     with h5py.File(path, "r") as h5:
+        # First: everything after this reads through h5py, which follows links.
+        outside = check_self_contained(h5)
+        if outside:
+            raise LegacyConversionError(
+                f"{path}: refusing a file with data outside it: " + "; ".join(outside)
+            )
         _check_paths(path, h5)
         pose = h5["poseest"]
         missing = [name for name in _REQUIRED if name not in pose]

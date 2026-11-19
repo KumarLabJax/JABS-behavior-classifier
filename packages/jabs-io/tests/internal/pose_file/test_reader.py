@@ -16,6 +16,8 @@ from jabs.io.internal.pose_file.reader import (
 )
 from jabs.io.internal.pose_file.writer import write_pose_file
 
+from .conftest import OUTSIDE_KINDS, add_outside_reference
+
 
 @pytest.fixture
 def written(tmp_path, sample_pose_file):
@@ -167,3 +169,21 @@ def test_a_file_whose_declarations_disagree_is_a_pose_file_error():
     """
     with pytest.raises(PoseFileError, match="no_such_mask"):
         read_pose_file(FIXTURES / "invalid-dangling-mask.h5")
+
+
+@pytest.mark.parametrize("kind", sorted(OUTSIDE_KINDS))
+def test_outside_references_are_refused(tmp_path, written, kind):
+    """Every entry point refuses a file with data outside it, naming the path and kind."""
+    manifest = read_manifest(written)
+    with h5py.File(written, "r+") as h5:
+        del h5["/jabs/pose/confidence"]
+        add_outside_reference(h5, "/jabs/pose/confidence", kind, tmp_path)
+
+    match = f"/jabs/pose/confidence is .*{OUTSIDE_KINDS[kind]}"
+    with pytest.raises(PoseFileError, match=match):
+        read_pose_file(written)
+    with pytest.raises(PoseFileError, match=match):
+        read_manifest(written)
+    # The manifest given, so only the payload read is left to refuse it.
+    with pytest.raises(PoseFileError, match=match):
+        read_component(written, "jabs.pose.points", manifest=manifest)

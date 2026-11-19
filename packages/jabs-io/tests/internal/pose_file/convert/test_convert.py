@@ -26,6 +26,7 @@ from jabs.io.internal.pose_file.convert.provenance import legacy_hash
 from jabs.io.internal.pose_file.reader import read_pose_file
 from jabs.io.internal.pose_file.validate import validate
 
+from ..conftest import OUTSIDE_KINDS, add_outside_reference
 from .conftest import SAMPLES, generator, legacy, requires_samples
 
 REFUSALS = (
@@ -383,6 +384,29 @@ def test_refusals_leave_nothing(tmp_path: Path, name: str) -> None:
     # The writer's temporary file is a dotfile, which a glob would skip.
     assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
     assert src.read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", sorted(OUTSIDE_KINDS))
+@pytest.mark.parametrize("where", ["poseest/confidence", "static_objects/corners"])
+def test_outside_references_are_refused(tmp_path: Path, kind: str, where: str) -> None:
+    """A legacy file with data outside it is refused before any read, leaving nothing.
+
+    The Hub converts uploads on its own machines, so following a link or
+    reading external storage would copy the server's files into the output.
+    """
+    src = tmp_path / "legacy.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        if where in h5:
+            del h5[where]
+        add_outside_reference(h5, where, kind, tmp_path)
+    out = tmp_path / "out.h5"
+
+    with pytest.raises(LegacyConversionError, match=f"/{where} is .*{OUTSIDE_KINDS[kind]}"):
+        convert_legacy(src, out)
+
+    assert not out.exists()
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
 
 
 @pytest.mark.parametrize("link", ["same-path", "hard-link"])

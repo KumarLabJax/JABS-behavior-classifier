@@ -25,6 +25,7 @@ import numpy as np
 import numpy.typing as npt
 
 from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex
+from jabs.io.internal.pose_file.hdf5_safety import check_self_contained
 from jabs.io.internal.pose_file.manifest import parse_manifest, parse_provenance
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -103,6 +104,26 @@ def _describe_other_format(h5: h5py.File) -> str:
     return f"a legacy pose_est_v{major} file"
 
 
+def _require_self_contained(h5: h5py.File, path: str | Path) -> None:
+    """Refuse a file with a link or dataset referring to data outside it.
+
+    h5py follows external links and reads external or virtual storage when the
+    data is read, so this runs before any payload or document is.
+
+    Args:
+        h5: The open file.
+        path: The file's path, for the message.
+
+    Raises:
+        PoseFileError: Naming each offending path and what it is.
+    """
+    problems = check_self_contained(h5)
+    if problems:
+        raise PoseFileError(
+            f"{path}: refusing a file with data outside it: " + "; ".join(problems)
+        )
+
+
 def read_manifest(path: str | Path) -> dict:
     """Read and validate a pose file's contents declaration.
 
@@ -114,11 +135,13 @@ def read_manifest(path: str | Path) -> dict:
 
     Raises:
         NotAPoseFileError: If the file is not a ``jabs.pose-file``.
-        PoseFileError: If the manifest is unreadable or fails its schema.
+        PoseFileError: If the manifest is unreadable or fails its schema, or
+            the file has a link or dataset referring to data outside it.
     """
     with h5py.File(path, "r") as h5:
         if attr_text(h5.attrs.get("jabs_format")) != FORMAT_ID:
             raise NotAPoseFileError(f"{path} is {_describe_other_format(h5)}, not a {FORMAT_ID}")
+        _require_self_contained(h5, path)
         try:
             raw = h5["manifest"][()]
         except (KeyError, TypeError) as error:
@@ -427,7 +450,8 @@ def read_component(
         KeyError: If the manifest declares no such component.
         ValueError: If ``frames`` is given for a component with no frame axis.
         NotImplementedError: If the encoding cannot be decoded.
-        PoseFileError: If the file disagrees with its own manifest.
+        PoseFileError: If the file disagrees with its own manifest, or has a
+            link or dataset referring to data outside it.
         NotAPoseFileError: If the file is not a ``jabs.pose-file``.
     """
     if manifest is None:
@@ -442,6 +466,8 @@ def read_component(
             "window is meaningless; a sparse component is windowed through its index"
         )
     with h5py.File(path, "r") as h5:
+        # The manifest may be the caller's, so this open has not been checked.
+        _require_self_contained(h5, path)
         dataset = _dataset_for(h5, spec)
         if frames is None:
             return _payload(dataset, spec)
@@ -480,8 +506,9 @@ def read_pose_file(path: str | Path, *, alternates: bool = True) -> PoseFile:
     Raises:
         NotImplementedError: If a component's encoding cannot be decoded, or,
             when reading alternates, an alternate's cannot be modeled.
-        PoseFileError: If the file disagrees with its own manifest, or its
-            declarations disagree with one another.
+        PoseFileError: If the file disagrees with its own manifest, its
+            declarations disagree with one another, or it has a link or
+            dataset referring to data outside it.
         NotAPoseFileError: If the file is not a ``jabs.pose-file``.
     """
     manifest = read_manifest(path)

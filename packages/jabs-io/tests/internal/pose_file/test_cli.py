@@ -12,6 +12,7 @@ from jabs.io.internal.pose_file import cli
 from jabs.io.internal.pose_file.cli import main
 from jabs.io.internal.pose_file.validate import validate
 
+from .conftest import add_outside_reference
 from .convert.conftest import legacy
 
 POSE_FORMAT = Path(__file__).parents[2] / "data" / "pose-format"
@@ -55,6 +56,24 @@ def test_convert_refusal_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "frame 100" in captured.err
     assert "Traceback" not in captured.err
     assert captured.out == ""
+    assert not out.exists()
+
+
+def test_convert_external_link_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A legacy file linking outside itself is one ``error:`` line naming the link."""
+    src = tmp_path / "legacy.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        del h5["poseest/bbox"]
+        add_outside_reference(h5, "poseest/bbox", "external-link", tmp_path)
+    out = tmp_path / "out.h5"
+
+    assert _convert(src, out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "/poseest/bbox is an external link" in captured.err
     assert not out.exists()
 
 
