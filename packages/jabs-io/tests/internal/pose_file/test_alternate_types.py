@@ -298,6 +298,47 @@ def test_alternates_of_one_name_share_one_index() -> None:
     )
 
 
+def test_an_alternate_missing_reference_must_be_declared() -> None:
+    """A mask or length an alternate names must be a component, as for a component."""
+    seg = ragged_segmentation()
+    typo = _contours_alternate(
+        seg,
+        _index(seg),
+        missing={"policy": "length", "length": "jabs.segmentation.contour_lenght"},
+    )
+    with pytest.raises(ValueError, match="contour_lenght"):
+        _segmentation_file(seg, contours_alternates=(typo,))
+
+
+def test_an_alternate_missing_reference_must_align() -> None:
+    """A reference whose axes are not the alternate's leading axes is refused."""
+    seg = ragged_segmentation()
+    misaligned = _contours_alternate(
+        seg,
+        _index(seg),
+        missing={"policy": "length", "length": "jabs.segmentation.contour_length"},
+    )
+    with pytest.raises(ValueError, match="not the leading axes"):
+        _segmentation_file(seg, contours_alternates=(misaligned,))
+
+
+def test_an_alternate_reference_typo_is_refused_before_any_block_is_read() -> None:
+    """Refused at construction, so a streamed payload is never consumed."""
+
+    def never_read() -> Iterable[tuple[int, npt.NDArray[np.generic]]]:
+        raise AssertionError("a block source was read")
+
+    seg = ragged_segmentation()
+    typo = _contours_alternate(
+        seg,
+        _index(seg),
+        data=BlockSource(seg["points"].shape, seg["points"].dtype, never_read),
+        missing={"policy": "mask", "mask": "jabs.segmentation.no_such_mask"},
+    )
+    with pytest.raises(ValueError, match="no_such_mask"):
+        _segmentation_file(seg, contours_alternates=(typo,))
+
+
 def test_alternate_key_names_a_component_alternate() -> None:
     """The key layouts and history entries use."""
     assert (

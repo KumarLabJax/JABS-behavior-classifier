@@ -518,29 +518,38 @@ class PoseFile:
                 f"{index.data.shape[0]} entries"
             )
 
-    def _check_missing_reference(self, component: Component, by_id: dict) -> None:
+    def _check_missing_reference(
+        self, component: "Component | Alternate", by_id: dict, label: str | None = None
+    ) -> None:
         """Validate that a mask or length reference can align with its target.
 
         Args:
-            component: The component whose policy is checked.
+            component: The component or alternate whose policy is checked.
             by_id: Every component, keyed by id.
+            label: Names the payload in error messages; defaults to the
+                component's id. An alternate has no id of its own.
 
         Raises:
-            ValueError: If the reference's axes are not the target's leading
-                axes.
+            ValueError: If the reference names no component, or its axes are
+                not the target's leading axes.
         """
         policy = component.missing.get("policy")
         if policy not in ("mask", "length"):
             return
+        label = component.id if label is None else label
+        if component.missing[policy] not in by_id:
+            raise ValueError(
+                f"{label}: missing policy references undeclared {component.missing[policy]!r}"
+            )
         other = by_id[component.missing[policy]]
         if other.axes != component.axes[: len(other.axes)]:
             raise ValueError(
-                f"{component.id}: {policy} reference {other.id!r} has axes {other.axes}, which "
+                f"{label}: {policy} reference {other.id!r} has axes {other.axes}, which "
                 f"are not the leading axes of {component.axes}"
             )
         if other.data.shape != component.data.shape[: other.data.ndim]:
             raise ValueError(
-                f"{component.id}: {policy} reference {other.id!r} has shape "
+                f"{label}: {policy} reference {other.id!r} has shape "
                 f"{other.data.shape}, which does not align with {component.data.shape}"
             )
         # Alignment is not interpretability: a boolean mask says present or
@@ -548,13 +557,13 @@ class PoseFile:
         # length cannot be applied however well its shape lines up.
         if policy == "mask" and other.data.dtype.kind != "b":
             raise ValueError(
-                f"{component.id}: mask reference {other.id!r} has dtype "
+                f"{label}: mask reference {other.id!r} has dtype "
                 f"{other.data.dtype.name!r}; a mask must be boolean"
             )
         if policy == "length":
             if other.data.dtype.kind not in "iu":
                 raise ValueError(
-                    f"{component.id}: length reference {other.id!r} has dtype "
+                    f"{label}: length reference {other.id!r} has dtype "
                     f"{other.data.dtype.name!r}; a length must be an integer"
                 )
             bound = (
@@ -571,15 +580,17 @@ class PoseFile:
                 and (other.data.min() < 0 or other.data.max() > bound)
             ):
                 raise ValueError(
-                    f"{component.id}: length reference {other.id!r} has values outside "
+                    f"{label}: length reference {other.id!r} has values outside "
                     f"[0, {bound}], the axis it bounds"
                 )
 
     def _check_alternates(self) -> None:
         """Validate alternates across components.
 
-        An alternate's payload path must differ from every component's and
-        every other alternate's, or one dataset would be claimed twice. And
+        An alternate's mask or length reference must name a component it
+        aligns with, as a component's must. Its payload path must differ from
+        every component's and every other alternate's, or one dataset would be
+        claimed twice. And
         alternates of one name are one encoding (ADR 0002): they must name the
         same two offset paths, or the name would mean two things, and those
         naming the same offset paths must share one
@@ -589,19 +600,22 @@ class PoseFile:
         pair of paths, are the writer's checks.
 
         Raises:
-            ValueError: If a path is claimed twice, alternates of one name name
+            ValueError: If an alternate's missing reference is undeclared or
+                does not align, a path is claimed twice, alternates of one name name
                 different offset paths, or one name's offsets are declared by
                 two different indexes.
         """
         # Imported here: alternates imports this module at load time.
         from jabs.io.internal.pose_file.alternates import alternate_key
 
+        by_id = {component.id: component for component in self.components}
         owners = {component.path: component.id for component in self.components}
         indexes: dict[tuple[str, str, str], object] = {}
         first: dict[str, tuple[str, tuple[str, str]]] = {}
         for component in self.components:
             for alternate in component.alternates:
                 label = alternate_key(component.id, alternate.name)
+                self._check_missing_reference(alternate, by_id, label)
                 other = owners.get(alternate.path)
                 if other is not None:
                     raise ValueError(f"{label}: path {alternate.path} is already {other}'s")
