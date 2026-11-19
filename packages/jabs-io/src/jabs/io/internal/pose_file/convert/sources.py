@@ -9,7 +9,7 @@ each ``blocks()`` once.
 
 The values are spec 0029-A §2.3 and ADR 0002:1294-1315: points are flipped
 from ``(y, x)``, ``NaN`` only where there is no coordinate, and ``point_valid``
-is the float64 threshold. Empty slots get ``NaN`` points and bbox, zero
+is the float64 threshold on a keypoint that has a coordinate. Empty slots get ``NaN`` points and bbox, zero
 confidence, embeddings and tracklets, and false masks.
 """
 
@@ -219,8 +219,14 @@ def _read_points(pose: h5py.Group, start: int, stop: int) -> npt.NDArray[np.floa
 
 
 def _read_point_valid(pose: h5py.Group, start: int, stop: int) -> npt.NDArray[np.bool_]:
-    """Read whether each keypoint's confidence is above the threshold, in float64."""
-    return pose["confidence"][start:stop].astype(np.float64) > CONFIDENCE_THRESHOLD
+    """Read whether each keypoint has a coordinate and a confidence above the threshold.
+
+    The threshold is compared in float64. A keypoint without a coordinate
+    (``NaN`` in points) is never valid, whatever its confidence: there is
+    nothing to draw. Its raw confidence is still kept.
+    """
+    above = pose["confidence"][start:stop].astype(np.float64) > CONFIDENCE_THRESHOLD
+    return above & np.isfinite(_read_points(pose, start, stop)).all(axis=-1)
 
 
 def _read_occupied(pose: h5py.Group, start: int, stop: int) -> npt.NDArray[np.bool_]:

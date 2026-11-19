@@ -152,8 +152,18 @@ def test_nan_only_at_zero_confidence() -> None:
     frame, instance, keypoint = _edge_location("nan_with_confidence")
     slot = int(plan.slot_of[frame, instance])
     assert np.isnan(points[frame, slot, keypoint]).all()
+    # The confidence is kept as stored, but a keypoint without a coordinate
+    # is not valid.
+    assert (
+        confidence[frame, slot, keypoint] == _legacy(path, "confidence")[frame, instance, keypoint]
+    )
     assert confidence[frame, slot, keypoint] > 0.3
-    assert point_valid[frame, slot, keypoint]
+    assert not point_valid[frame, slot, keypoint]
+    # Everywhere: valid means above the threshold and a coordinate.
+    np.testing.assert_array_equal(
+        point_valid,
+        (confidence.astype(np.float64) > 0.3) & np.isfinite(points).all(-1),
+    )
 
     frame, instance, keypoint = _edge_location("low_confidence")
     slot = int(plan.slot_of[frame, instance])
