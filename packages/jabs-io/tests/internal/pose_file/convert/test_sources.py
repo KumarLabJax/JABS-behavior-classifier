@@ -9,6 +9,7 @@ import pytest
 
 from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.convert import (
+    LegacyConversionError,
     LegacyLayout,
     PlacementPlan,
     inspect_legacy,
@@ -81,6 +82,7 @@ def test_components_in_order() -> None:
         "jabs.pose.tracklet_id",
         "jabs.identity.embeddings",
         "jabs.identity.centers",
+        "jabs.identity.external_ids",
     ]
 
 
@@ -105,9 +107,13 @@ def test_declarations() -> None:
     centers = components["jabs.identity.centers"]
     assert centers.axes == ("identity", "embedding")
     assert centers.dtype == "float32"
+    external = components["jabs.identity.external_ids"]
+    assert external.axes == ("identity",)
+    assert external.dtype == "string"
+    assert dict(external.missing) == {"policy": "none"}
     assert all(c.provenance is None for c in components.values())
     for cid, component in components.items():
-        if cid != "jabs.identity.centers":
+        if component.axes[0] == "frame":
             assert isinstance(component.data, BlockSource), cid
 
 
@@ -279,6 +285,51 @@ def test_tracklets_and_identity() -> None:
         arrays["jabs.identity.centers"],
         _legacy(path, "instance_id_center").astype(np.float32),
     )
+
+
+def test_external_ids_are_carried_as_text() -> None:
+    """``external_identity_mapping`` becomes ``jabs.identity.external_ids``, decoded as UTF-8."""
+    external = _arrays(legacy("v8-with-centers.h5"))["jabs.identity.external_ids"]
+    assert external.tolist() == list(generator().EXTERNAL_IDS)
+    assert all(type(name) is str for name in external.tolist())
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        pytest.param(np.array([101, 7, 0], dtype=np.uint16), ["101", "7", "0"], id="integers"),
+        pytest.param(np.array([b"x1", b"x2", b"x3"]), ["x1", "x2", "x3"], id="fixed-bytes"),
+    ],
+)
+def test_external_ids_follow_the_v4_reader(
+    tmp_path: Path, stored: npt.NDArray[np.generic], expected: list[str]
+) -> None:
+    """Integer names become their decimal strings and bytes their UTF-8 text, as upstream reads them."""
+    gen = generator()
+
+    def name(h5: h5py.File) -> None:
+        """Store the identity names."""
+        h5["poseest"].create_dataset("external_identity_mapping", data=stored)
+
+    path = tmp_path / "named.h5"
+    gen.write_legacy(path, **gen.SMALL, version=gen.V8, seg=False, edits=name)
+    assert _arrays(path)["jabs.identity.external_ids"].tolist() == expected
+
+
+def test_external_ids_that_are_not_utf8_are_refused(tmp_path: Path) -> None:
+    """A name that is not UTF-8 is refused by dataset, not replaced or guessed at."""
+    gen = generator()
+
+    def name(h5: h5py.File) -> None:
+        """Store one name that is Latin-1, not UTF-8."""
+        h5["poseest"].create_dataset(
+            "external_identity_mapping", data=np.array([b"a", b"b", b"\xf6"])
+        )
+
+    path = tmp_path / "latin1.h5"
+    gen.write_legacy(path, **gen.SMALL, version=gen.V8, seg=False, edits=name)
+    with pytest.raises(LegacyConversionError, match="poseest/external_identity_mapping"):
+        _components(path)
 
 
 def test_without_centers_omits_identity_and_tracklets() -> None:

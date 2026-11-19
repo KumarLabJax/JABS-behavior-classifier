@@ -199,6 +199,16 @@ def _text_version(h5: h5py.File) -> None:
     h5["poseest"].attrs["version"] = "8.0"
 
 
+def _short_external_ids(h5: h5py.File) -> None:
+    """Name one fewer identity than the file has."""
+    h5["poseest"].create_dataset("external_identity_mapping", data=np.array([b"a", b"b"]))
+
+
+def _two_dimensional_external_ids(h5: h5py.File) -> None:
+    """Store the identity names as a column rather than a list."""
+    h5["poseest"].create_dataset("external_identity_mapping", data=np.array([[b"a"], [b"b"]]))
+
+
 def _unknown_static_object(h5: h5py.File) -> None:
     """Add a static object no catalog names."""
     h5.create_dataset("static_objects/water_bottle", data=np.zeros((2, 2), dtype=np.uint16))
@@ -224,6 +234,11 @@ def _unknown_static_object(h5: h5py.File) -> None:
         (_flat_bbox, r"poseest/bbox has shape \(120, 3, 4\)"),
         (_narrow_embeddings, r"poseest/identity_embeds has shape .*instance_id_center"),
         (_text_version, "version"),
+        (
+            _short_external_ids,
+            r"poseest/external_identity_mapping has 2 names.*3 identities",
+        ),
+        (_two_dimensional_external_ids, r"poseest/external_identity_mapping has shape \(2, 1\)"),
     ],
     ids=[
         "unknown-dataset",
@@ -240,6 +255,8 @@ def _unknown_static_object(h5: h5py.File) -> None:
         "bbox-shape",
         "embedding-width",
         "text-version",
+        "external-ids-length",
+        "external-ids-shape",
     ],
 )
 def test_refusals(tmp_path: Path, source: str | Callable[[h5py.File], None], match: str) -> None:

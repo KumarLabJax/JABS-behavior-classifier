@@ -170,6 +170,11 @@ DUPLICATE_EMBED = Case(
 # clean_track_id(0), in this frame only. Their embed ids stay distinct.
 TWO_SLOT_TRACKLET = Case((50,), (0, 1))
 
+# v8-with-centers.h5's poseest/external_identity_mapping, one name per
+# identity, stored as variable-length UTF-8; the last is not ASCII, so a
+# decoding step that is not UTF-8 shows.
+EXTERNAL_IDS = ("cage7-a", "cage7-b", "cage7-\u00f6")
+
 MODEL_METADATA = {
     "experiment_name": "synthetic_seg_and_pose",
     "spal_model_version": "2026-01-01_00000000_0/best_PCK@0.05",
@@ -480,6 +485,16 @@ def _model_metadata(h5: h5py.File) -> None:
     h5["poseest"].attrs["model_metadata_json"] = json.dumps(MODEL_METADATA, sort_keys=True)
 
 
+def _with_centers(h5: h5py.File) -> None:
+    """Record the producing model, and name each identity (``pose_est_v4.py:70-80``)."""
+    _model_metadata(h5)
+    h5["poseest"].create_dataset(
+        "external_identity_mapping",
+        data=np.array(EXTERNAL_IDS, dtype=object),
+        dtype=h5py.string_dtype(encoding="utf-8"),
+    )
+
+
 def _untrusted_bbox(h5: h5py.File) -> None:
     """Drop ``bboxes_generated``, which the v8 reader needs to trust ``bbox``."""
     del h5["poseest/bbox"].attrs["bboxes_generated"]
@@ -509,7 +524,7 @@ def main(out: Path = HERE) -> None:
     write_legacy(
         out / "v7-dynamic-objects.h5", **small, version=V7, seg=False, edits=_dynamic_objects
     )
-    write_legacy(out / "v8-with-centers.h5", **small, version=V8, seg=False, edits=_model_metadata)
+    write_legacy(out / "v8-with-centers.h5", **small, version=V8, seg=False, edits=_with_centers)
     write_legacy(
         out / "v8-without-centers.h5",
         **small,

@@ -21,6 +21,7 @@ import numpy as np
 import numpy.typing as npt
 
 from jabs.io.internal.pose_file.blocks import BlockSource
+from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12
@@ -45,9 +46,10 @@ def pose_components(
     In order: ``jabs.pose.points``, ``confidence``, ``point_valid``,
     ``slot_occupied``, ``bbox`` when the legacy bbox is trusted,
     ``tracklet_id`` when the file has tracklets, then
-    ``jabs.identity.embeddings`` when it has embeddings and
-    ``jabs.identity.centers`` when ``instance_id_center`` has rows. No
-    component carries provenance; the caller assigns it.
+    ``jabs.identity.embeddings`` when it has embeddings,
+    ``jabs.identity.centers`` when ``instance_id_center`` has rows and
+    ``jabs.identity.external_ids`` when ``external_identity_mapping`` has
+    names. No component carries provenance; the caller assigns it.
 
     Args:
         path: The legacy file. Each block source opens it when read.
@@ -60,6 +62,8 @@ def pose_components(
 
     Raises:
         ValueError: If ``block_frames`` is not a positive multiple of 900.
+        LegacyConversionError: If an ``external_identity_mapping`` name is
+            bytes that are not UTF-8.
     """
     check_block_frames(block_frames)
     frames, slots, keypoints = layout.frames, plan.slots, layout.keypoints
@@ -129,6 +133,8 @@ def pose_components(
         embedding = pose["identity_embeds"].shape[2] if layout.has_embeddings else 0
         centers = pose.get("instance_id_center")
         centers = centers[...].astype(np.float32) if centers is not None else None
+        names = pose.get("external_identity_mapping")
+        names = _identity_names(path, names) if names is not None else None
 
     if layout.has_embeddings:
         components.append(
@@ -150,6 +156,17 @@ def pose_components(
                 missing={"policy": "none"},
             )
         )
+    # Inspection refused a length other than the identity count; with no
+    # identity there is nothing to name.
+    if names is not None and names.size > 0:
+        components.append(
+            Component(
+                id="jabs.identity.external_ids",
+                axes=("identity",),
+                data=names,
+                missing={"policy": "none"},
+            )
+        )
     return components
 
 
@@ -166,6 +183,28 @@ def check_block_frames(block_frames: int) -> None:
         raise ValueError(
             f"block_frames must be a positive multiple of {BLOCK_FRAMES}, got {block_frames}"
         )
+
+
+def _identity_names(path: Path, dataset: h5py.Dataset) -> npt.NDArray[np.object_]:
+    """Read ``external_identity_mapping`` as text, as ``pose_est_v4.py:70-80`` does.
+
+    Integers become their decimal strings and bytes their UTF-8 text; bytes
+    that are not UTF-8 are refused rather than replaced, since the Hub deletes
+    the original.
+    """
+    raw = dataset[...]
+    if np.issubdtype(raw.dtype, np.integer):
+        return np.array([str(value) for value in raw.tolist()], dtype=object)
+    try:
+        names = [
+            value.decode("utf-8") if isinstance(value, bytes) else str(value)
+            for value in raw.tolist()
+        ]
+    except UnicodeDecodeError as error:
+        raise LegacyConversionError(
+            f"{path}: poseest/external_identity_mapping holds a name that is not UTF-8: {error}"
+        ) from error
+    return np.array(names, dtype=object)
 
 
 def _placed_source(

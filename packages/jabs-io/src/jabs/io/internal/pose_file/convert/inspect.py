@@ -42,6 +42,7 @@ _POSEEST = frozenset(
         "seg_data",
         "seg_external_flag",
         "bbox",
+        "external_identity_mapping",
     }
 )
 # What a v4 file has and older ones lack; without them nothing can be placed.
@@ -123,8 +124,9 @@ def inspect_legacy(path: Path) -> LegacyLayout:
     Raises:
         LegacyConversionError: If the file holds a path outside the catalog,
             lacks a dataset v4 introduced, has other than 12 keypoints, has
-            datasets whose shapes disagree, has a ``version`` that is not a
-            list of whole numbers, or has a malformed dynamic object. The
+            datasets whose shapes disagree, names other than one identity per
+            ``external_identity_mapping`` entry, has a ``version`` that is not
+            a list of whole numbers, or has a malformed dynamic object. The
             message names the path.
     """
     with h5py.File(path, "r") as h5:
@@ -156,6 +158,15 @@ def inspect_legacy(path: Path) -> LegacyLayout:
         for name in dynamics:
             _check_dynamic_object(path, dynamics[name])
 
+        identity = _identity(pose)
+        names = pose.get("external_identity_mapping")
+        # jabs.identity.external_ids is on the identity axis.
+        if names is not None and names.shape[0] != identity:
+            raise LegacyConversionError(
+                f"{path}: poseest/external_identity_mapping has {names.shape[0]} names, but the "
+                f"file has {identity} identities"
+            )
+
         dropped = [f"poseest/{name}" for name in _RETIRED if name in pose]
         if bbox is not None and not bbox_generated:
             dropped.append("poseest/bbox")
@@ -167,7 +178,7 @@ def inspect_legacy(path: Path) -> LegacyLayout:
             frames=int(frames),
             instances=int(instances),
             keypoints=int(keypoints),
-            identity=_identity(pose),
+            identity=identity,
             version=version,
             has_segmentation=seg is not None,
             contour_axis=int(seg.shape[2]) if seg is not None else 0,
@@ -225,6 +236,7 @@ def _check_shapes(path: Path, pose: h5py.Group, frames: int, instances: int) -> 
         "seg_external_flag": (frames, instances, None),
         "bbox": (frames, instances, 2, 2),
         "instance_id_center": (None, None),
+        "external_identity_mapping": (None,),
     }
     for name, axes in expected.items():
         if name in pose and not _matches(pose[name].shape, axes):

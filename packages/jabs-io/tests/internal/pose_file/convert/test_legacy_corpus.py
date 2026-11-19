@@ -147,13 +147,17 @@ def _check_v7_dynamic_objects(h5: h5py.File) -> None:
 
 
 def _check_v8_with_centers(h5: h5py.File) -> None:
-    """Identity centers, a trusted bbox and the model's metadata."""
+    """Identity centers and names, a trusted bbox and the model's metadata."""
     pose = h5["poseest"]
     assert pose.attrs["version"][0] == 8
     assert pose["instance_id_center"].shape == (3, 16)
     assert pose["bbox"].attrs["bboxes_generated"]
     metadata = json.loads(pose.attrs["model_metadata_json"])
     assert {"experiment_name", "spal_model_version"} <= set(metadata)
+    names = pose["external_identity_mapping"]
+    assert h5py.check_string_dtype(names.dtype).encoding == "utf-8"
+    assert names.asstr()[()].tolist() == list(generator().EXTERNAL_IDS)
+    assert len(names) == pose["instance_id_center"].shape[0]
     _assert_clean(h5)
 
 
