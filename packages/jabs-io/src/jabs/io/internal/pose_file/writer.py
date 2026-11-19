@@ -448,7 +448,10 @@ def write_pose_file(
             with its baseline, so a stale alternate never reaches the
             destination. It reads the baseline in full, so it costs as much as
             reading the payload; a tool that writes alternates should pass it.
-            Without it, an alternate whose values disagree with its baseline
+            An alternate the deep check cannot decode is refused too, though
+            ``validate`` reports it only as a warning: publishing it would
+            break the promise that every alternate was compared. Without
+            ``deep``, an alternate whose values disagree with its baseline
             is not caught.
 
     Raises:
@@ -457,7 +460,7 @@ def write_pose_file(
             objects declare offsets at one path, if a block source's blocks do
             not match its declared shape and dtype, or if the finished file
             fails validation (with ``deep``, including an alternate that
-            disagrees with its baseline).
+            disagrees with its baseline or that the deep check cannot decode).
         TypeError: If a value in the manifest or provenance cannot be
             serialized to JSON.
     """
@@ -520,7 +523,13 @@ def write_pose_file(
         # against its baseline and so reads both in full.
         from jabs.io.internal.pose_file.validate import validate
 
-        errors = [f for f in validate(temporary, deep=deep) if f.severity == "error"]
+        # Under deep, an undecodable alternate is a refusal: the caller asked
+        # for every alternate to be compared, and this one was not.
+        errors = [
+            f
+            for f in validate(temporary, deep=deep)
+            if f.severity == "error" or (deep and f.check == "alternate_deep_unchecked")
+        ]
         if errors:
             raise ValueError(
                 "refusing to write an invalid pose file: "

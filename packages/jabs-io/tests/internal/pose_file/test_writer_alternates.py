@@ -318,6 +318,33 @@ def test_deep_write_refuses_a_disagreeing_alternate(tmp_path: Path) -> None:
     assert path.read_bytes() != SENTINEL
 
 
+def test_deep_write_refuses_an_alternate_it_cannot_decode(tmp_path: Path) -> None:
+    """``deep`` promises a decoded alternate, so one it cannot decode is not published.
+
+    The validator reports an undecodable alternate as a warning; the deep write
+    refuses it, because publishing it would let a stale alternate through.
+    Without ``deep`` the same file publishes.
+    """
+    seg = ragged_segmentation()
+    stale = np.full_like(seg["points"], 9999)
+    pose_file = _segmentation_file(
+        seg,
+        points_alternates=lambda s, i: (_points_alternate(s, i, name="other", data=stale),),
+        flag_alternates=lambda s, i: (_flags_alternate(s, i, name="other"),),
+    )
+    path = tmp_path / "prior.h5"
+    path.write_bytes(SENTINEL)
+
+    with pytest.raises(ValueError, match="alternate_deep_unchecked"):
+        write_pose_file(pose_file, path, created=CREATED, deep=True)
+    assert path.read_bytes() == SENTINEL
+    assert sorted(tmp_path.iterdir()) == [path]
+
+    write_pose_file(pose_file, path, created=CREATED)
+    assert path.read_bytes() != SENTINEL
+    assert any(f.check == "alternate_deep_unchecked" for f in validate(path, deep=True))
+
+
 def test_a_ragged_baseline_is_still_refused(tmp_path: Path) -> None:
     """Alternates are written; a ragged component encoding is still not."""
     sample = build_sample_pose_file()
