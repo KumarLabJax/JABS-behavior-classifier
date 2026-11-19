@@ -12,6 +12,11 @@ The ``ragged`` alternate is the dense valid points and flags in
 ``(frame, slot, contour, point)`` order, which is the order the plan's offsets
 were built in. Each payload block is cut from the matching dense block, so
 the two cannot disagree; the deep check confirms it.
+
+So ``seg_data`` and ``seg_external_flag`` are each read twice: once for the
+ragged payload and once for the dense component. The writer drains each
+component's source fully before it starts the next, and the ragged byte
+range must be contiguous (spec 0029-A §2.6), so one read cannot feed both.
 """
 
 from collections.abc import Callable, Iterator

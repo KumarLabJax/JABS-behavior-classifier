@@ -4,8 +4,10 @@ Every frame-axis component is a :class:`BlockSource`. Its ``blocks()`` opens
 the legacy file itself, read-only, reads one block of frames, scatters each
 placed legacy instance into the slot the plan gave it and closes the file, so
 the components outlive any handle the caller held and memory stays bounded by
-one block. Each component reads only the datasets it needs; the writer calls
-each ``blocks()`` once.
+one block. The writer calls each ``blocks()`` once, and each component reads
+the datasets it needs itself, so one several need is read once by each:
+``confidence`` is read four times, by ``points`` (for where there is no
+coordinate), ``confidence``, ``point_valid`` and ``slot_occupied``.
 
 The values are spec 0029-A §2.3 and ADR 0002:1294-1315: points are flipped
 from ``(y, x)``, ``NaN`` only where there is no coordinate, and ``point_valid``
