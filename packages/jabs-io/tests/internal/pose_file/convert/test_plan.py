@@ -15,6 +15,11 @@ from jabs.io.internal.pose_file.convert import (
     inspect_legacy,
     plan_placement,
 )
+from jabs.io.internal.pose_file.convert.plan import (
+    LongtermMismatches,
+    TailSlots,
+    TrackletSplits,
+)
 
 from .conftest import SAMPLES, generator, legacy, requires_samples
 
@@ -32,6 +37,16 @@ def _write(path: Path, edits: Callable[[h5py.File], None], **overrides: object) 
     options: dict[str, object] = {**gen.SMALL, "version": gen.V8, "seg": False, **overrides}
     gen.write_legacy(path, edits=edits, **options)
     return path
+
+
+def _rows(records: TailSlots | LongtermMismatches | TrackletSplits) -> list[dict[str, object]]:
+    """Return a plan's columnar records as one dict per row, for comparison."""
+    columns = {
+        name: getattr(records, name).tolist() for name in type(records).__dataclass_fields__
+    }
+    count = len(records)
+    assert all(len(values) == count for values in columns.values())
+    return [{name: values[n] for name, values in columns.items()} for n in range(count)]
 
 
 def _identity_slot(instance: int) -> int:
@@ -54,16 +69,21 @@ def test_identity_slots_and_tails(edge: PlacementPlan) -> None:
     assert edge.slots == gen.EDGE_IDENTITIES + 1
 
     expected = []
-    for name, origin in (
-        ("embed_zero", "embed_out_of_range"),
-        ("embed_above_identities", "embed_out_of_range"),
-        ("masked_confident", "masked"),
-        ("masked_contour", "masked"),
+    for name, masked in (
+        ("embed_zero", False),
+        ("embed_above_identities", False),
+        ("masked_confident", True),
+        ("masked_contour", True),
     ):
         (frame,), (instance,) = gen.EDGE[name].frames, gen.EDGE[name].instances
         assert edge.slot_of[frame, instance] == tail
-        expected.append({"frame": frame, "slot": tail, "origin": origin, "legacy_index": instance})
-    assert list(edge.tail_slots) == expected
+        expected.append({"frame": frame, "slot": tail, "legacy_index": instance, "masked": masked})
+    assert _rows(edge.tail_slots) == expected
+    # Arrays, not records: an unusual file can have a tail in most frames.
+    tails = edge.tail_slots
+    assert len(tails) == 4
+    assert (tails.frame.dtype, tails.slot.dtype) == (np.uint32, np.int16)
+    assert (tails.legacy_index.dtype, tails.masked.dtype) == (np.int16, np.bool_)
 
     # Every other instance holding an identity is in its identity slot.
     frame = 0
@@ -91,10 +111,8 @@ def test_tails_follow_legacy_index_order(tmp_path: Path) -> None:
     assert plan.slots == identity + 2
     assert plan.slot_of[frame, 0] == identity
     assert plan.slot_of[frame, 2] == identity + 1
-    assert [(t["legacy_index"], t["origin"]) for t in plan.tail_slots] == [
-        (0, "masked"),
-        (2, "embed_out_of_range"),
-    ]
+    assert plan.tail_slots.legacy_index.tolist() == [0, 2]
+    assert plan.tail_slots.masked.tolist() == [True, False]
 
 
 @pytest.mark.parametrize("placed", [True, False])
@@ -123,13 +141,13 @@ def test_identity_zero_places_only_tails(tmp_path: Path, placed: bool) -> None:
         assert plan.slots == 1
         assert plan.slot_of[frame, 1] == 0
         assert np.count_nonzero(plan.slot_of >= 0) == 1
-        assert plan.tail_slots == (
-            {"frame": frame, "slot": 0, "origin": "embed_out_of_range", "legacy_index": 1},
-        )
+        assert _rows(plan.tail_slots) == [
+            {"frame": frame, "slot": 0, "legacy_index": 1, "masked": False}
+        ]
     else:
         assert plan.slots == 0
         assert (plan.slot_of == -1).all()
-        assert plan.tail_slots == ()
+        assert len(plan.tail_slots) == 0
     assert plan.tracklet_id is not None
     assert plan.tracklet_id.shape == (layout.frames, plan.slots)
 
@@ -235,14 +253,15 @@ def test_longterm_mismatches_are_recorded(edge: PlacementPlan) -> None:
     case = gen.EDGE["shared_longterm"]
     first, second = case.instances
     identities = gen.EDGE_IDENTITIES
-    assert edge.longterm_mismatches == (
+    assert _rows(edge.longterm_mismatches) == [
         {
             "frame": case.frames[0],
             "legacy_index": second,
             "embed_id": gen.clean_embed_id(second, identities),
             "longterm_seg_id": gen.clean_embed_id(first, identities),
         },
-    )
+    ]
+    assert edge.longterm_mismatches.frame.dtype == np.uint32
 
 
 def _runs(frames: npt.NDArray[np.intp]) -> int:
@@ -269,20 +288,20 @@ def test_tracklet_gap_is_split(edge: PlacementPlan) -> None:
 
     # Instance 0 hops into a tail slot at frames 10 and 20 and keeps its
     # tracklet: a slot change is not a gap. Its unoccupied frame is one.
-    assert edge.tracklet_splits == (
+    assert _rows(edge.tracklet_splits) == [
         {
             "id": largest + 1,
-            "from": original,
+            "from_id": original,
             "first_frame": returns,
             "last_frame": gen.EDGE_FRAMES - 1,
         },
         {
             "id": largest + 2,
-            "from": gen.clean_track_id(unoccupied_instance),
+            "from_id": gen.clean_track_id(unoccupied_instance),
             "first_frame": hole + 1,
             "last_frame": gen.EDGE_FRAMES - 1,
         },
-    )
+    ]
     slot = _identity_slot(instance)
     assert edge.tracklet_id[gap.frames[0] - 1, slot] == original
     assert edge.tracklet_id[returns, slot] == largest + 1
@@ -365,7 +384,7 @@ def _split_near_the_top(largest: int) -> Callable[[h5py.File], None]:
 def test_new_tracklet_ids_may_reach_the_uint32_maximum(tmp_path: Path) -> None:
     """A split whose new id is exactly the uint32 maximum is kept."""
     plan = _plan(_write(tmp_path / "top.h5", _split_near_the_top(_UINT32_MAX - 1)))
-    assert [split["id"] for split in plan.tracklet_splits] == [_UINT32_MAX]
+    assert plan.tracklet_splits.id.tolist() == [_UINT32_MAX]
     assert plan.tracklet_id is not None
     assert plan.tracklet_id.max() == _UINT32_MAX
 
@@ -382,13 +401,13 @@ def test_without_tracklets_or_segmentation() -> None:
     """A file without instance_track_id or seg_data plans no tracklets and no contours."""
     plan = _plan(legacy("v8-without-centers.h5"))
     assert plan.tracklet_id is None
-    assert plan.tracklet_splits == ()
+    assert len(plan.tracklet_splits) == 0
     assert plan.contour_count is None
     assert plan.contour_length is None
     assert plan.contour_source is None
     assert plan.group_offsets is None
     assert plan.instance_offsets is None
-    assert plan.longterm_mismatches == ()
+    assert len(plan.longterm_mismatches) == 0
 
 
 def test_no_contours_has_empty_offsets() -> None:
@@ -410,6 +429,11 @@ def test_block_size_does_not_change_the_plan(edge: PlacementPlan) -> None:
         if isinstance(ours, np.ndarray):
             assert ours.dtype == theirs.dtype, name
             assert np.array_equal(ours, theirs), name
+        elif hasattr(ours, "__dataclass_fields__"):
+            for column in type(ours).__dataclass_fields__:
+                mine, other = getattr(ours, column), getattr(theirs, column)
+                assert mine.dtype == other.dtype, (name, column)
+                assert np.array_equal(mine, other), (name, column)
         else:
             assert ours == theirs, name
 

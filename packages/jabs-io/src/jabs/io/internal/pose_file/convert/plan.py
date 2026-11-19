@@ -23,6 +23,81 @@ _TRACKLET_MAX = int(np.iinfo(np.uint32).max)
 
 
 @dataclass(frozen=True, eq=False)
+class TailSlots:
+    """The instances placed in tail slots, one row each, in frame then slot order.
+
+    Columns, not one record per row: an unusual file can put an instance in a
+    tail slot in most of its frames.
+
+    Attributes:
+        frame: The frame of each row.
+        slot: The tail slot the instance went to.
+        legacy_index: The instance's legacy index.
+        masked: True where the instance was masked (``id_mask`` set), false
+            where it was valid with an embed id outside ``1..identity``.
+    """
+
+    frame: npt.NDArray[np.uint32]
+    slot: npt.NDArray[np.int16]
+    legacy_index: npt.NDArray[np.int16]
+    masked: npt.NDArray[np.bool_]
+
+    def __len__(self) -> int:
+        """Return the number of rows."""
+        return int(self.frame.size)
+
+
+@dataclass(frozen=True, eq=False)
+class LongtermMismatches:
+    """The valid instances whose ``longterm_seg_id`` differs from their embed id, one row each.
+
+    Attributes:
+        frame: The frame of each row.
+        legacy_index: The instance's legacy index.
+        embed_id: Its embed id.
+        longterm_seg_id: Its ``longterm_seg_id``.
+    """
+
+    frame: npt.NDArray[np.uint32]
+    legacy_index: npt.NDArray[np.int16]
+    embed_id: npt.NDArray[np.int64]
+    longterm_seg_id: npt.NDArray[np.int64]
+
+    def __len__(self) -> int:
+        """Return the number of rows."""
+        return int(self.frame.size)
+
+
+@dataclass(frozen=True, eq=False)
+class TrackletSplits:
+    """The tracklet runs that took a new id, one row each, in the order the ids were given.
+
+    Attributes:
+        id: The new id.
+        from_id: The legacy id the run had (``"from"`` in the history).
+        first_frame: The run's first frame.
+        last_frame: The run's last frame.
+    """
+
+    id: npt.NDArray[np.uint32]
+    from_id: npt.NDArray[np.uint32]
+    first_frame: npt.NDArray[np.uint32]
+    last_frame: npt.NDArray[np.uint32]
+
+    def __len__(self) -> int:
+        """Return the number of rows."""
+        return int(self.id.size)
+
+
+_NO_SPLITS = TrackletSplits(
+    id=np.empty(0, np.uint32),
+    from_id=np.empty(0, np.uint32),
+    first_frame=np.empty(0, np.uint32),
+    last_frame=np.empty(0, np.uint32),
+)
+
+
+@dataclass(frozen=True, eq=False)
 class PlacementPlan:
     """Where every legacy instance, contour and tracklet goes in the output.
 
@@ -31,12 +106,9 @@ class PlacementPlan:
             instances in any frame.
         slot_of: ``(F, N)``, the slot each legacy instance is placed in; -1
             where it is not placed.
-        tail_slots: One record per tail-slot instance, in frame then slot
-            order: ``{"frame", "slot", "origin", "legacy_index"}``, with
-            origin ``"embed_out_of_range"`` or ``"masked"``.
-        longterm_mismatches: One record per valid instance whose
-            ``longterm_seg_id`` differs from its embed id:
-            ``{"frame", "legacy_index", "embed_id", "longterm_seg_id"}``.
+        tail_slots: Every tail-slot instance, in frame then slot order.
+        longterm_mismatches: Every valid instance whose ``longterm_seg_id``
+            differs from its embed id, in frame then legacy index order.
         contour_count: ``(F, S)``, contours per slot; ``None`` without
             segmentation.
         contour_length: ``(F, S, C)``, points per contour, packed: the slot's
@@ -50,22 +122,21 @@ class PlacementPlan:
         tracklet_id: ``(F, S)`` tracklet ids after splitting, 0 for none and
             at every unoccupied ``(frame, slot)``; ``None`` when the file has
             no ``instance_track_id``.
-        tracklet_splits: One record per run that took a new id:
-            ``{"id", "from", "first_frame", "last_frame"}``, in the order the
-            new ids were given.
+        tracklet_splits: Every run that took a new id, in the order the new
+            ids were given; empty without tracklets.
     """
 
     slots: int
     slot_of: npt.NDArray[np.int16]
-    tail_slots: tuple[dict, ...]
-    longterm_mismatches: tuple[dict, ...]
+    tail_slots: TailSlots
+    longterm_mismatches: LongtermMismatches
     contour_count: npt.NDArray[np.uint32] | None
     contour_length: npt.NDArray[np.uint32] | None
     contour_source: npt.NDArray[np.int8] | None
     group_offsets: npt.NDArray[np.uint64] | None
     instance_offsets: npt.NDArray[np.uint64] | None
     tracklet_id: npt.NDArray[np.uint32] | None
-    tracklet_splits: tuple[dict, ...]
+    tracklet_splits: TrackletSplits
 
 
 def plan_placement(
@@ -110,8 +181,9 @@ def plan_placement(
     legacy_track = np.zeros((frames, instances), dtype=np.uint32) if track is not None else None
     legacy_length = np.zeros((frames, instances, contours), dtype=np.uint32)
     legacy_source = np.full((frames, instances, contours), -1, dtype=np.int8)
-    tails: list[dict] = []
-    mismatches: list[dict] = []
+    # Per block, concatenated at the end.
+    tails: list[tuple[npt.NDArray[np.generic], ...]] = []
+    mismatches: list[tuple[npt.NDArray[np.generic], ...]] = []
     most_tails = 0
 
     for start in range(0, frames, block_frames):
@@ -136,26 +208,14 @@ def plan_placement(
         slot_of[start:stop] = slots
         most_tails = max(most_tails, int(tail.sum(axis=1).max(initial=0)))
 
-        for f, i in zip(*np.nonzero(tail), strict=True):
-            tails.append(
-                {
-                    "frame": start + int(f),
-                    "slot": int(slots[f, i]),
-                    "origin": "embed_out_of_range" if valid[f, i] else "masked",
-                    "legacy_index": int(i),
-                }
-            )
+        # nonzero is row-major: frame order, then legacy index order, which
+        # within a frame is tail slot order.
+        f, i = np.nonzero(tail)
+        tails.append((start + f, slots[f, i], i, ~valid[f, i]))
         if longterm is not None:
             seg_id = longterm[start:stop].astype(np.int64)
-            for f, i in zip(*np.nonzero(valid & (seg_id != embed)), strict=True):
-                mismatches.append(
-                    {
-                        "frame": start + int(f),
-                        "legacy_index": int(i),
-                        "embed_id": int(embed[f, i]),
-                        "longterm_seg_id": int(seg_id[f, i]),
-                    }
-                )
+            f, i = np.nonzero(valid & (seg_id != embed))
+            mismatches.append((start + f, i, embed[f, i], seg_id[f, i]))
         if track is not None and legacy_track is not None:
             placed = np.where(slots >= 0, _read_tracklets(layout, track, start, stop), 0)
             _refuse_shared_tracklets(layout, start, placed, slots)
@@ -170,7 +230,7 @@ def plan_placement(
     placed_slot = slot_of[placed_frame, placed_instance]
 
     tracklet_id = None
-    splits: tuple[dict, ...] = ()
+    splits = _NO_SPLITS
     if legacy_track is not None:
         tracklet_id = np.zeros((frames, slot_count), dtype=np.uint32)
         tracklet_id[placed_frame, placed_slot] = legacy_track[placed_frame, placed_instance]
@@ -190,8 +250,10 @@ def plan_placement(
     return PlacementPlan(
         slots=slot_count,
         slot_of=slot_of,
-        tail_slots=tuple(tails),
-        longterm_mismatches=tuple(mismatches),
+        tail_slots=TailSlots(*_columns(tails, (np.uint32, np.int16, np.int16, np.bool_))),
+        longterm_mismatches=LongtermMismatches(
+            *_columns(mismatches, (np.uint32, np.int16, np.int64, np.int64))
+        ),
         contour_count=count,
         contour_length=length,
         contour_source=source,
@@ -200,6 +262,16 @@ def plan_placement(
         tracklet_id=tracklet_id,
         tracklet_splits=splits,
     )
+
+
+def _columns(
+    blocks: list[tuple[npt.NDArray[np.generic], ...]], dtypes: tuple[type[np.generic], ...]
+) -> list[npt.NDArray[np.generic]]:
+    """Concatenate each column of per-block rows into one array of its dtype."""
+    return [
+        np.concatenate([np.empty(0, dtype), *(block[n] for block in blocks)]).astype(dtype)
+        for n, dtype in enumerate(dtypes)
+    ]
 
 
 def _check_extents(layout: LegacyLayout) -> None:
@@ -294,10 +366,8 @@ def _read_tracklets(
     return block.astype(np.uint32)
 
 
-def _split_tracklets(
-    layout: LegacyLayout, tracklet_id: npt.NDArray[np.uint32]
-) -> tuple[dict, ...]:
-    """Split each id's occupied frames into unbroken runs, in place; return the new ids' records.
+def _split_tracklets(layout: LegacyLayout, tracklet_id: npt.NDArray[np.uint32]) -> TrackletSplits:
+    """Split each id's occupied frames into unbroken runs, in place; return the new ids' rows.
 
     The first run of an id keeps it. Each later run, across all ids in order
     of first frame, takes the next id above the largest written one. A move to
@@ -305,7 +375,7 @@ def _split_tracklets(
     """
     frame, slot = np.nonzero(tracklet_id)
     if frame.size == 0:
-        return ()
+        return _NO_SPLITS
     ids = tracklet_id[frame, slot].astype(np.int64)
     order = np.lexsort((frame, ids))
     frame, slot, ids = frame[order], slot[order], ids[order]
@@ -328,22 +398,19 @@ def _split_tracklets(
             f"{layout.path}: splitting tracklets needs {later.size} new ids above the largest, "
             f"{largest}, which would pass {_TRACKLET_MAX}, the uint32 maximum"
         )
-    splits = []
-    for n, run in enumerate(later.tolist(), start=1):
-        splits.append(
-            {
-                "id": largest + n,
-                "from": int(run_ids[run]),
-                "first_frame": int(frame[starts[run]]),
-                "last_frame": int(frame[ends[run]]),
-            }
-        )
-        run_ids[run] = largest + n
-    if splits:
+    # Checked above, so the casts cannot wrap.
+    given = largest + 1 + np.arange(later.size, dtype=np.int64)
+    splits = TrackletSplits(
+        id=given.astype(np.uint32),
+        from_id=run_ids[later].astype(np.uint32),
+        first_frame=frame[starts[later]].astype(np.uint32),
+        last_frame=frame[ends[later]].astype(np.uint32),
+    )
+    if later.size:
+        run_ids[later] = given
         run_of = np.cumsum(new_run) - 1
-        # Checked above, so the cast cannot wrap.
         tracklet_id[frame, slot] = run_ids[run_of].astype(np.uint32)
-    return tuple(splits)
+    return splits
 
 
 def _offsets(sizes: npt.NDArray[np.uint32]) -> npt.NDArray[np.uint64]:

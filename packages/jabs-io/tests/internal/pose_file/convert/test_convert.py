@@ -133,11 +133,9 @@ def test_unoccupied_frame_splits_a_sample_tracklet(tmp_path: Path) -> None:
         assert h5["jabs/pose/tracklet_id"][frame, slot] == 0
     _assert_tracklets_are_unbroken(out)
     (entry, _) = _history(out)
-    assert any(
-        split["from"] == tracklet and split["first_frame"] == frame + 1
-        for split in entry["extra"]["tracklet_splits"]
-    )
-    assert report.tracklet_splits == len(entry["extra"]["tracklet_splits"])
+    splits = entry["extra"]["tracklet_splits"]
+    assert (tracklet, frame + 1) in zip(splits["from"], splits["first_frame"], strict=True)
+    assert report.tracklet_splits == len(splits["id"])
     assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
 
 
@@ -195,9 +193,24 @@ def test_provenance_records_the_conversion(tmp_path: Path) -> None:
         "dimensions.identity",
     ]
     assert entry["extra"]["point_valid"] == {"confidence_threshold": 0.3}
-    assert entry["extra"]["tail_slots"] == []
-    assert entry["extra"]["tracklet_splits"] == []
-    assert entry["extra"]["longterm_mismatches"] == []
+    assert entry["extra"]["tail_slots"] == {
+        "frame": [],
+        "slot": [],
+        "origin": [],
+        "legacy_index": [],
+    }
+    assert entry["extra"]["tracklet_splits"] == {
+        "id": [],
+        "from": [],
+        "first_frame": [],
+        "last_frame": [],
+    }
+    assert entry["extra"]["longterm_mismatches"] == {
+        "frame": [],
+        "legacy_index": [],
+        "embed_id": [],
+        "longterm_seg_id": [],
+    }
     assert all(c.provenance is None for c in read_pose_file(out).components)
 
 
@@ -306,8 +319,10 @@ def test_tracklet_splits_are_recorded(tmp_path: Path) -> None:
     convert_legacy(legacy("v8-edge-cases.h5"), out)
     (entry, _) = _history(out)
     assert "jabs.pose.tracklet_id" in entry["synthesized"]
-    assert entry["extra"]["tracklet_splits"]
-    assert {"id", "from", "first_frame", "last_frame"} == set(entry["extra"]["tracklet_splits"][0])
+    splits = entry["extra"]["tracklet_splits"]
+    assert list(splits) == ["id", "from", "first_frame", "last_frame"]
+    assert len(splits["id"]) == 2
+    assert all(len(column) == 2 for column in splits.values())
     # Legacy tracklet 0 and every unoccupied slot carry 0: no tracklet.
     assert entry["extra"]["tracklet_id_none"] == 0
 
@@ -547,11 +562,53 @@ def test_report(tmp_path: Path) -> None:
     written = read_pose_file(out)
     assert report.dimensions == dict(written.dimensions)
     (entry, _) = _history(out)
-    assert report.tail_slots == len(entry["extra"]["tail_slots"]) > 0
-    assert report.tracklet_splits == len(entry["extra"]["tracklet_splits"]) > 0
-    assert report.longterm_mismatches == len(entry["extra"]["longterm_mismatches"]) > 0
+    assert report.tail_slots == len(entry["extra"]["tail_slots"]["frame"]) > 0
+    assert report.tracklet_splits == len(entry["extra"]["tracklet_splits"]["id"]) > 0
+    assert report.longterm_mismatches == len(entry["extra"]["longterm_mismatches"]["frame"]) > 0
     assert report.dropped == tuple(entry["dropped"])
     assert report.seconds > 0
+
+
+def test_plan_rows_are_recorded_as_columns(tmp_path: Path) -> None:
+    """Tail slots and longterm mismatches are recorded as one list per field."""
+    gen = generator()
+    out = tmp_path / "out.h5"
+    convert_legacy(legacy("v8-edge-cases.h5"), out)
+    (entry, _) = _history(out)
+
+    cases = ("embed_zero", "embed_above_identities", "masked_confident", "masked_contour")
+    assert entry["extra"]["tail_slots"] == {
+        "frame": [gen.EDGE[name].frames[0] for name in cases],
+        "slot": [gen.EDGE_IDENTITIES] * len(cases),
+        "origin": ["embed_out_of_range", "embed_out_of_range", "masked", "masked"],
+        "legacy_index": [gen.EDGE[name].instances[0] for name in cases],
+    }
+    shared = gen.EDGE["shared_longterm"]
+    first, second = shared.instances
+    assert entry["extra"]["longterm_mismatches"] == {
+        "frame": [shared.frames[0]],
+        "legacy_index": [second],
+        "embed_id": [gen.clean_embed_id(second, gen.EDGE_IDENTITIES)],
+        "longterm_seg_id": [gen.clean_embed_id(first, gen.EDGE_IDENTITIES)],
+    }
+
+
+def test_report_counts_rows_not_columns(tmp_path: Path) -> None:
+    """The report counts tail instances, not the fields a tail row has."""
+    src = tmp_path / "two-tails.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        # A masked instance with confidence, and a valid one with embed id 0.
+        h5["poseest/id_mask"][7, 0] = True
+        h5["poseest/instance_embed_id"][7, 2] = 0
+    out = tmp_path / "out.h5"
+    report = convert_legacy(src, out)
+
+    (entry,) = _history(out)
+    assert report.tail_slots == 2
+    assert entry["extra"]["tail_slots"]["origin"] == ["masked", "embed_out_of_range"]
+    assert report.tracklet_splits == 0
+    assert "jabs.pose.tracklet_id" not in entry["synthesized"]
 
 
 def test_block_frames_for() -> None:

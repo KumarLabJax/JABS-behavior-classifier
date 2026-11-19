@@ -170,6 +170,15 @@ def convert_entry(
 ) -> HistoryEntry:
     """Return the ``convert`` history entry for one legacy file.
 
+    Its ``extra`` holds the plan's rows as columns, one equal-length list per
+    field: ``tail_slots`` has ``frame``, ``slot``, ``origin``
+    (``"embed_out_of_range"`` or ``"masked"``) and ``legacy_index``;
+    ``longterm_mismatches`` has ``frame``, ``legacy_index``, ``embed_id`` and
+    ``longterm_seg_id``; ``tracklet_splits`` has ``id``, ``from``,
+    ``first_frame`` and ``last_frame``. It also holds ``point_valid``'s
+    threshold, ``legacy_attributes``, ``tracklet_id_none`` when the file has
+    tracklets, and ``model_metadata_json`` when the file has one.
+
     Args:
         h5: The open legacy file, for its attributes.
         layout: What ``inspect_legacy`` found in it.
@@ -190,7 +199,7 @@ def convert_entry(
         "dimensions.identity",
     ]
     synthesized += [f"video.{name}" for name in _VIDEO_FIELDS if video[name] is not None]
-    if plan.tracklet_splits:
+    if len(plan.tracklet_splits):
         synthesized.append("jabs.pose.tracklet_id")
     unknown = [f"video.{name}" for name in _VIDEO_FIELDS if video[name] is None]
     sentences = list(scale_notes)
@@ -202,10 +211,28 @@ def convert_entry(
         )
     notes = " ".join(sentences) or None
 
+    tails, mismatches, splits = plan.tail_slots, plan.longterm_mismatches, plan.tracklet_splits
+    # Columns, one list per field, rather than a record per row: an unusual
+    # file can put an instance in a tail slot in most of its frames.
     extra: dict = {
-        "tail_slots": list(plan.tail_slots),
-        "longterm_mismatches": list(plan.longterm_mismatches),
-        "tracklet_splits": list(plan.tracklet_splits),
+        "tail_slots": {
+            "frame": tails.frame.tolist(),
+            "slot": tails.slot.tolist(),
+            "origin": np.where(tails.masked, "masked", "embed_out_of_range").tolist(),
+            "legacy_index": tails.legacy_index.tolist(),
+        },
+        "longterm_mismatches": {
+            "frame": mismatches.frame.tolist(),
+            "legacy_index": mismatches.legacy_index.tolist(),
+            "embed_id": mismatches.embed_id.tolist(),
+            "longterm_seg_id": mismatches.longterm_seg_id.tolist(),
+        },
+        "tracklet_splits": {
+            "id": splits.id.tolist(),
+            "from": splits.from_id.tolist(),
+            "first_frame": splits.first_frame.tolist(),
+            "last_frame": splits.last_frame.tolist(),
+        },
         # The policy point_valid was derived by (ADR 0002:752); the converter
         # writes no record to carry it.
         "point_valid": {"confidence_threshold": CONFIDENCE_THRESHOLD},
