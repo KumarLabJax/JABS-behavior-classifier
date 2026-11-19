@@ -45,8 +45,9 @@ class PlacementPlan:
             points start, in ``(frame, slot, contour)`` order, then the total.
         instance_offsets: Where each ``(frame, slot)``'s contours start, in
             row-major order, then the total; ``F * S + 1`` long.
-        tracklet_id: ``(F, S)`` tracklet ids after splitting, 0 for none;
-            ``None`` when the file has no ``instance_track_id``.
+        tracklet_id: ``(F, S)`` tracklet ids after splitting, 0 for none and
+            at every unoccupied ``(frame, slot)``; ``None`` when the file has
+            no ``instance_track_id``.
         tracklet_splits: One record per run that took a new id:
             ``{"id", "from", "first_frame", "last_frame"}``, in the order the
             new ids were given.
@@ -114,7 +115,9 @@ def plan_placement(
         valid = pose["id_mask"][start:stop] == 0
         # Signed, so e - 1 cannot wrap at e == 0.
         embed = pose["instance_embed_id"][start:stop].astype(np.int64)
-        anything = (pose["confidence"][start:stop] > 0).any(axis=-1)
+        # slot_occupied, as pass 2 writes it: any confidence above 0.
+        occupied = (pose["confidence"][start:stop] > 0).any(axis=-1)
+        anything = occupied.copy()
         if seg is not None:
             anything |= _pack_contours(
                 seg[start:stop, :, :, :, 0], legacy_length[start:stop], legacy_source[start:stop]
@@ -152,7 +155,11 @@ def plan_placement(
         if track is not None and legacy_track is not None:
             placed = np.where(slots >= 0, track[start:stop], 0).astype(np.uint32)
             _refuse_shared_tracklets(layout, start, placed, slots)
-            legacy_track[start:stop] = placed
+            # tracklet_id is masked by slot_occupied, so a placed but
+            # unoccupied instance gets 0 (no tracklet): a reader never sees a
+            # tracklet with a hole in it, and the split below runs over
+            # occupied frames (spec 0029-B §5.3).
+            legacy_track[start:stop] = np.where(occupied, placed, 0)
 
     slot_count = identity + most_tails
     placed_frame, placed_instance = np.nonzero(slot_of >= 0)
@@ -264,10 +271,10 @@ def _refuse_shared_tracklets(
 
 
 def _split_tracklets(tracklet_id: npt.NDArray[np.uint32]) -> tuple[dict, ...]:
-    """Split each id's placed frames into unbroken runs, in place; return the new ids' records.
+    """Split each id's occupied frames into unbroken runs, in place; return the new ids' records.
 
     The first run of an id keeps it. Each later run, across all ids in order
-    of first frame, takes the next id above the largest placed one. A move to
+    of first frame, takes the next id above the largest written one. A move to
     another slot is not a gap: runs are over frames.
     """
     frame, slot = np.nonzero(tracklet_id)

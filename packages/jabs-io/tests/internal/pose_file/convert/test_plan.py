@@ -251,17 +251,24 @@ def _runs(frames: npt.NDArray[np.intp]) -> int:
 
 
 def test_tracklet_gap_is_split(edge: PlacementPlan) -> None:
-    """A tracklet that leaves and returns becomes two ids, the second above the largest."""
+    """A tracklet that leaves and returns, or goes unoccupied, takes a new id above the largest.
+
+    Runs are over occupied frames (spec 0029-B §5.3): a placed instance with
+    every confidence 0 breaks its tracklet as an absent one does, and its
+    ``(frame, slot)`` carries tracklet 0.
+    """
     gen = generator()
     gap = gen.EDGE["tracklet_gap"]
     instance = gap.instances[0]
     original = gen.clean_track_id(instance)
     largest = gen.clean_track_id(gen.EDGE_IDENTITIES - 1)
     returns = gap.frames[-1] + 1
+    unoccupied = gen.EDGE["unoccupied_in_tracklet"]
+    (hole,), (unoccupied_instance,) = unoccupied.frames, unoccupied.instances
     assert edge.tracklet_id is not None
 
     # Instance 0 hops into a tail slot at frames 10 and 20 and keeps its
-    # tracklet: a slot change is not a gap.
+    # tracklet: a slot change is not a gap. Its unoccupied frame is one.
     assert edge.tracklet_splits == (
         {
             "id": largest + 1,
@@ -269,10 +276,28 @@ def test_tracklet_gap_is_split(edge: PlacementPlan) -> None:
             "first_frame": returns,
             "last_frame": gen.EDGE_FRAMES - 1,
         },
+        {
+            "id": largest + 2,
+            "from": gen.clean_track_id(unoccupied_instance),
+            "first_frame": hole + 1,
+            "last_frame": gen.EDGE_FRAMES - 1,
+        },
     )
     slot = _identity_slot(instance)
     assert edge.tracklet_id[gap.frames[0] - 1, slot] == original
     assert edge.tracklet_id[returns, slot] == largest + 1
+
+    unoccupied_slot = _identity_slot(unoccupied_instance)
+    assert edge.slot_of[hole, unoccupied_instance] == unoccupied_slot
+    assert edge.tracklet_id[hole - 1, unoccupied_slot] == gen.clean_track_id(unoccupied_instance)
+    assert edge.tracklet_id[hole, unoccupied_slot] == 0
+    assert edge.tracklet_id[hole + 1, unoccupied_slot] == largest + 2
+
+    # The zero-confidence instance in the last frame is placed but unoccupied.
+    case = gen.EDGE["zero_confidence_contours"]
+    (frame,), (zero,) = case.frames, case.instances
+    assert edge.slot_of[frame, zero] == _identity_slot(zero)
+    assert edge.tracklet_id[frame, _identity_slot(zero)] == 0
     assert edge.tracklet_id.dtype == np.uint32
     assert edge.tracklet_id.shape == (gen.EDGE_FRAMES, edge.slots)
 

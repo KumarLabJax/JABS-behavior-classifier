@@ -145,6 +145,10 @@ EDGE: dict[str, Case] = {
     "nan_with_confidence": Case((95,), (0,), keypoint=2),
     # The instance is empty; its tracklet, clean_track_id(1), returns at 103.
     "tracklet_gap": Case((100, 101, 102), (1,)),
+    # A valid, in-range instance with every confidence 0 and no contour, in
+    # the middle of its tracklet: placed in its identity slot but unoccupied,
+    # so its tracklet, clean_track_id(0), splits there.
+    "unoccupied_in_tracklet": Case((110,), (0,)),
     # A valid instance with contours and every confidence 0, in the last frame
     # so its tracklet ends rather than gaps.
     "zero_confidence_contours": Case((119,), (2,)),
@@ -432,6 +436,14 @@ def _edge_cases(h5: h5py.File) -> None:
     gap = EDGE["tracklet_gap"]
     for frame in gap.frames:
         _empty(h5, frame, gap.instances[0])
+
+    frame, slot = at("unoccupied_in_tracklet")
+    pose["confidence"][frame, slot] = 0
+    pose["points"][frame, slot] = np.nan
+    pose["bbox"][frame, slot] = 0
+    pose["seg_data"][frame, slot] = -1
+    pose["seg_external_flag"][frame, slot] = False
+    pose["instance_seg_id"][frame, slot] = 0
 
     frame, slot = at("zero_confidence_contours")
     pose["confidence"][frame, slot] = 0

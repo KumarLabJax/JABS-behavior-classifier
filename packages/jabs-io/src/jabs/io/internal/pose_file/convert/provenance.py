@@ -213,6 +213,10 @@ def convert_entry(
         },
         "legacy_attributes": legacy_attributes(h5),
     }
+    if plan.tracklet_id is not None:
+        # The id that means no tracklet: legacy tracklet 0 and every
+        # unoccupied (frame, slot) carry it.
+        extra["tracklet_id_none"] = 0
     metadata = h5["poseest"].attrs.get("model_metadata_json")
     if metadata is not None:
         extra["model_metadata_json"] = attr_text(metadata)

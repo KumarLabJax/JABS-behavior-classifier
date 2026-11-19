@@ -81,6 +81,66 @@ def test_converted_corpus_is_valid(tmp_path: Path, source: Path) -> None:
     read_pose_file(out)
 
 
+def _assert_tracklets_are_unbroken(path: Path) -> None:
+    """Assert each written tracklet id holds one unbroken run of occupied frames.
+
+    An unoccupied ``(frame, slot)`` carries tracklet 0, so a reader that masks
+    ``tracklet_id`` by ``slot_occupied`` never sees a hole inside a tracklet.
+    """
+    with h5py.File(path, "r") as h5:
+        if "jabs/pose/tracklet_id" not in h5:
+            return
+        tracklet = h5["jabs/pose/tracklet_id"][()]
+        occupied = h5["jabs/pose/slot_occupied"][()]
+    assert (tracklet[~occupied] == 0).all()
+    for tracklet_id in np.unique(tracklet[tracklet > 0]).tolist():
+        frames, _ = np.nonzero(tracklet == tracklet_id)
+        assert occupied[tracklet == tracklet_id].all(), tracklet_id
+        assert (np.diff(frames) == 1).all(), tracklet_id
+
+
+@pytest.mark.parametrize("source", _sources())
+def test_converted_tracklets_are_unbroken(tmp_path: Path, source: Path) -> None:
+    """Every written tracklet is one run of occupied frames; an unoccupied slot has none."""
+    out = tmp_path / "out.h5"
+    convert_legacy(source, out, created=CREATED)
+    _assert_tracklets_are_unbroken(out)
+
+
+@requires_samples
+def test_unoccupied_frame_splits_a_sample_tracklet(tmp_path: Path) -> None:
+    """Zeroing one instance's confidences mid-tracklet splits it there, with no hole (C1).
+
+    The reviewer's reproduction: frame 100, instance 0 of the v6 sample.
+    """
+    frame, instance = 100, 0
+    src = tmp_path / "sample_pose_est_v6.h5"
+    shutil.copyfile(SAMPLES / "sample_pose_est_v6.h5", src)
+    with h5py.File(src, "r+") as h5:
+        tracklet = int(h5["poseest/instance_track_id"][frame, instance])
+        assert tracklet > 0
+        assert not h5["poseest/id_mask"][frame, instance]
+        h5["poseest/confidence"][frame, instance] = 0
+    layout = inspect_legacy(src)
+    with h5py.File(src, "r") as h5:
+        slot = int(plan_placement(h5, layout).slot_of[frame, instance])
+    assert slot >= 0
+
+    out = tmp_path / "out.h5"
+    report = convert_legacy(src, out, created=CREATED)
+    with h5py.File(out, "r") as h5:
+        assert not h5["jabs/pose/slot_occupied"][frame, slot]
+        assert h5["jabs/pose/tracklet_id"][frame, slot] == 0
+    _assert_tracklets_are_unbroken(out)
+    (entry, _) = _history(out)
+    assert any(
+        split["from"] == tracklet and split["first_frame"] == frame + 1
+        for split in entry["extra"]["tracklet_splits"]
+    )
+    assert report.tracklet_splits == len(entry["extra"]["tracklet_splits"])
+    assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
+
+
 def test_provenance_records_the_conversion(tmp_path: Path) -> None:
     """The history says what the source was, what was invented and what was left behind."""
     src = tmp_path / "v8-with-centers.h5"
@@ -212,6 +272,8 @@ def test_tracklet_splits_are_recorded(tmp_path: Path) -> None:
     assert "jabs.pose.tracklet_id" in entry["synthesized"]
     assert entry["extra"]["tracklet_splits"]
     assert {"id", "from", "first_frame", "last_frame"} == set(entry["extra"]["tracklet_splits"][0])
+    # Legacy tracklet 0 and every unoccupied slot carry 0: no tracklet.
+    assert entry["extra"]["tracklet_id_none"] == 0
 
 
 def test_no_tracklets_no_tracklet_component(tmp_path: Path) -> None:
@@ -223,6 +285,7 @@ def test_no_tracklets_no_tracklet_component(tmp_path: Path) -> None:
     assert "jabs.identity.embeddings" not in ids
     (entry,) = _history(out)
     assert "jabs.pose.tracklet_id" not in entry["synthesized"]
+    assert "tracklet_id_none" not in entry["extra"]
 
 
 def test_zero_identities_convert(tmp_path: Path) -> None:

@@ -250,8 +250,15 @@ def _check_v8_edge_cases(h5: h5py.File) -> None:
     for f, i in _where(valid) - odd:
         assert embed[f, i] == g.clean_embed_id(i, g.EDGE_IDENTITIES), (f, i)
 
-    # Exactly one tracklet leaves its instance for the listed frames and
-    # comes back to the same instance.
+    # A valid instance with neither confidence nor contour, mid-tracklet.
+    unoccupied = edge["unoccupied_in_tracklet"]
+    assert _where(valid & unconfident & ~contour.any(axis=-1)) == _at(unoccupied)
+    (frame,), (instance,) = unoccupied.frames, unoccupied.instances
+    assert embed[frame, instance] == g.clean_embed_id(instance, g.EDGE_IDENTITIES)
+
+    # Exactly two tracklets have a gap: one leaves its instance for the
+    # tracklet_gap frames and comes back to it, and one is unoccupied for the
+    # unoccupied_in_tracklet frame. Each gap is one run of frames.
     gap = edge["tracklet_gap"]
     (instance,) = gap.instances
     tracklet = g.clean_track_id(instance)
@@ -259,7 +266,11 @@ def _check_v8_edge_cases(h5: h5py.File) -> None:
     track = _poseest(h5, "instance_track_id")
     assert _where(~placed[:, instance]) == {(f,) for f in gap.frames}
     assert (track[placed[:, instance], instance] == tracklet).all()
-    assert {t: n for t, n in _tracklet_gaps(h5).items() if n} == {tracklet: 1}
+    (unoccupied_instance,) = unoccupied.instances
+    assert {t: n for t, n in _tracklet_gaps(h5).items() if n} == {
+        tracklet: 1,
+        g.clean_track_id(unoccupied_instance): 1,
+    }
 
     _assert_clean(h5)
 
