@@ -8,6 +8,7 @@ it and only then replaces the destination.
 """
 
 import importlib.metadata
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -128,12 +129,19 @@ def convert_legacy(
         What the conversion did.
 
     Raises:
-        LegacyConversionError: If the file is outside the catalog, cannot be
-            placed (a duplicate identity, a tracklet in two slots of a frame),
-            or the converted file fails validation. The message says why.
+        LegacyConversionError: If the destination is the source (by path or
+            by link), the file is outside the catalog, cannot be placed (a
+            duplicate identity, a tracklet in two slots of a frame), or the
+            converted file fails validation. The message says why.
     """
     started = time.perf_counter()
     source, destination = Path(source), Path(destination)
+    # Replacing the destination would replace the legacy file with its own
+    # conversion, and the Hub deletes the original once it is converted.
+    if source.exists() and destination.exists() and os.path.samefile(source, destination):
+        raise LegacyConversionError(
+            f"{source}: the destination {destination} is the source; refusing to overwrite it"
+        )
     video = video or VideoOverrides()
     stamp = created or datetime.now(timezone.utc).isoformat()
     version = importlib.metadata.version("jabs-io")

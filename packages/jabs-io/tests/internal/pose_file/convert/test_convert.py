@@ -333,6 +333,23 @@ def test_refusals_leave_nothing(tmp_path: Path, name: str) -> None:
     assert src.read_bytes() == before
 
 
+@pytest.mark.parametrize("link", ["same-path", "hard-link"])
+def test_converting_a_file_onto_itself_is_refused(tmp_path: Path, link: str) -> None:
+    """A destination that is the source, by path or by hard link, is refused untouched."""
+    src = tmp_path / "v8-with-centers.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    before = src.read_bytes()
+    out = src if link == "same-path" else tmp_path / "linked.h5"
+    if link == "hard-link":
+        out.hardlink_to(src)
+
+    with pytest.raises(LegacyConversionError, match="is the source"):
+        convert_legacy(src, out)
+
+    assert src.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
+
+
 @pytest.mark.parametrize(
     ("scale", "source", "written", "nulled"),
     [

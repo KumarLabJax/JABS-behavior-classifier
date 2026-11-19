@@ -1,6 +1,7 @@
 """The ``jabs-pose-file`` command converts and validates, and exits with a meaningful code."""
 
 import importlib.metadata
+import shutil
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,22 @@ def test_convert_missing_source_exits_1(
     captured = capsys.readouterr()
     assert captured.err.startswith("error:")
     assert "Traceback" not in captured.err
+
+
+def test_convert_onto_the_source_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Converting a file onto itself is refused with an ``error:`` line, leaving it as it was."""
+    src = tmp_path / "v8-with-centers.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    before = src.read_bytes()
+
+    assert _convert(src, src) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "is the source" in captured.err
+    assert src.read_bytes() == before
 
 
 @pytest.mark.parametrize(
