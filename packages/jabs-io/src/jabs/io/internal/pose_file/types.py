@@ -21,6 +21,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from jabs.io.internal.pose_file.blocks import _STRING_KINDS, ComponentData
+from jabs.io.internal.pose_file.embeddings import (
+    EMBEDDING_AXES,
+    EMBEDDING_DTYPES,
+    EmbeddingDescriptor,
+    is_embedding_id,
+    parse_embedding_id,
+)
 
 if TYPE_CHECKING:
     # Annotation only: alternates imports this module for its dtype rules.
@@ -239,6 +246,11 @@ class Component:
             ``dataclasses.replace(c, data=..., alternates=())``. Nothing here
             compares them with the data, and the default ``deep=False`` write
             does not catch a stale one.
+        embedding: The descriptor of an embedding component. Required for an
+            id under ``jabs.embedding.``, which must be exactly
+            ``jabs.embedding.<name>.(instance|frame)`` with axes, feature
+            width, dtype and missing policy matching the descriptor, and
+            forbidden on every other id.
     """
 
     id: str
@@ -256,6 +268,7 @@ class Component:
     extra: dict | None = None
     stored_path: str | None = None
     alternates: "tuple[Alternate, ...]" = ()
+    embedding: EmbeddingDescriptor | None = None
 
     def __post_init__(self) -> None:
         """Validate the id, the axis declarations, the payload dtype and alternates."""
@@ -327,12 +340,62 @@ class Component:
                 f"{self.id}: alternates {repeated} are declared more than once; a name "
                 "identifies one encoding"
             )
+        self._check_embedding()
         # Frozen only freezes the attribute bindings. Without this a caller
         # keeps a live reference to the dicts that were validated, and can
         # mutate them past every check above.
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(self, "missing", MappingProxyType(dict(self.missing)))
         object.__setattr__(self, "encoding", MappingProxyType(dict(self.encoding)))
+
+    def _check_embedding(self) -> None:
+        """Validate the embedding descriptor against the id and payload.
+
+        Raises:
+            ValueError: If an embedding id is malformed, lacks a descriptor or
+                disagrees with it, or a non-embedding id carries one.
+        """
+        if not is_embedding_id(self.id):
+            if self.embedding is not None:
+                raise ValueError(
+                    f"{self.id}: only jabs.embedding.<name>.<kind> components carry an "
+                    "embedding descriptor"
+                )
+            return
+        parsed = parse_embedding_id(self.id)
+        if parsed is None:
+            raise ValueError(
+                f"invalid embedding component id {self.id!r}: expected "
+                "jabs.embedding.<name>.instance or jabs.embedding.<name>.frame"
+            )
+        descriptor = self.embedding
+        if descriptor is None:
+            raise ValueError(f"{self.id}: an embedding component must carry its descriptor")
+        name, kind = parsed
+        if (descriptor.name, descriptor.kind) != (name, kind):
+            raise ValueError(
+                f"{self.id}: descriptor names {descriptor.name!r} of kind {descriptor.kind!r}, "
+                f"but the id says {name!r} of kind {kind!r}"
+            )
+        if self.axes != EMBEDDING_AXES[kind]:
+            raise ValueError(
+                f"{self.id}: a {kind} embedding has axes {EMBEDDING_AXES[kind]}, not {self.axes}"
+            )
+        if self.data.shape[-1] != descriptor.dim:
+            raise ValueError(
+                f"{self.id}: feature axis is {self.data.shape[-1]} wide but the descriptor's "
+                f"dim is {descriptor.dim}"
+            )
+        if self.dtype not in EMBEDDING_DTYPES:
+            raise ValueError(
+                f"{self.id}: an embedding must be one of {sorted(EMBEDDING_DTYPES)}, "
+                f"not {self.dtype!r}"
+            )
+        if dict(self.missing) != {"policy": "nan"}:
+            raise ValueError(
+                f"{self.id}: an embedding's missing policy must be {{'policy': 'nan'}}, "
+                f"not {dict(self.missing)}"
+            )
 
     @property
     def path(self) -> str:

@@ -29,6 +29,7 @@ import numpy as np
 import numpy.typing as npt
 
 from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex
+from jabs.io.internal.pose_file.embeddings import EmbeddingDescriptor
 from jabs.io.internal.pose_file.hdf5_safety import check_self_contained
 from jabs.io.internal.pose_file.manifest import parse_manifest, parse_provenance
 from jabs.io.internal.pose_file.schema import (
@@ -422,6 +423,11 @@ def _component_from(
         # third-party producer deliberately stored elsewhere.
         stored_path=spec["path"],
         alternates=alternates,
+        # The manifest was schema-validated by read_manifest, so the
+        # descriptor carries every required key.
+        embedding=EmbeddingDescriptor.from_json(spec["embedding"])
+        if "embedding" in spec
+        else None,
     )
 
 

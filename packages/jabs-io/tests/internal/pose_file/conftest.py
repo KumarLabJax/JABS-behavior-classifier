@@ -1,5 +1,6 @@
 """Shared fixtures for pose file format tests."""
 
+import dataclasses
 from pathlib import Path
 
 import h5py
@@ -7,6 +8,12 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from jabs.io.internal.pose_file.embeddings import (
+    EMBEDDING_AXES,
+    EmbeddingDescriptor,
+    EmbeddingModel,
+    TemporalWindow,
+)
 from jabs.io.internal.pose_file.skeletons import jabs_mouse12
 from jabs.io.internal.pose_file.types import (
     Component,
@@ -159,6 +166,71 @@ def build_sample_pose_file(width: int | None = 800, height: int | None = 800) ->
             ),
         ),
     )
+
+
+EMBEDDING_WEIGHTS = "sha256:" + "0" * 64
+
+
+def build_embedding_component(
+    name: str = "trunk",
+    kind: str = "instance",
+    *,
+    frames: int = 4,
+    slots: int = 2,
+    dim: int = 8,
+    dtype: str = "float16",
+    tap: str = "trunk.final",
+) -> Component:
+    """Build a valid embedding component with random, fully present rows.
+
+    Args:
+        name: The ``<name>`` segment of the component id.
+        kind: ``"instance"`` or ``"frame"``.
+        frames: Length of the frame axis.
+        slots: Length of the slot axis, for the instance kind.
+        dim: Length of the feature axis.
+        dtype: Payload dtype.
+        tap: The descriptor's tap.
+
+    Returns:
+        A component with id ``jabs.embedding.<name>.<kind>``.
+    """
+    shape = (frames, slots, dim) if kind == "instance" else (frames, dim)
+    rng = np.random.default_rng(11)
+    descriptor = EmbeddingDescriptor(
+        name=name,
+        kind=kind,
+        dim=dim,
+        model=EmbeddingModel("vit-carry-spal", EMBEDDING_WEIGHTS),
+        tap=tap,
+        pooling="mask_mean" if kind == "instance" else "mean",
+        window=TemporalWindow(9, 9),
+    )
+    return Component(
+        id=f"jabs.embedding.{name}.{kind}",
+        axes=EMBEDDING_AXES[kind],
+        data=rng.standard_normal(shape).astype(dtype),
+        missing={"policy": "nan"},
+        embedding=descriptor,
+    )
+
+
+def build_pose_file_with_embeddings() -> PoseFile:
+    """Build the sample pose file plus ``trunk.instance`` and ``trunk.frame`` embeddings.
+
+    Instance rows are NaN wherever ``jabs.pose.slot_occupied`` is false.
+
+    Returns:
+        A valid pose file.
+    """
+    base = build_sample_pose_file()
+    occupied = np.asarray(base.component("jabs.pose.slot_occupied").data)
+    instance = build_embedding_component("trunk", "instance")
+    rows = np.array(instance.data, copy=True)
+    rows[~occupied] = np.nan
+    instance = dataclasses.replace(instance, data=rows)
+    frame = build_embedding_component("trunk", "frame")
+    return dataclasses.replace(base, components=(*base.components, instance, frame))
 
 
 @pytest.fixture

@@ -249,7 +249,8 @@ class EmbeddingDescriptor:
         """Build a descriptor from its manifest form.
 
         Any stored ``fingerprint`` is ignored; comparing it with the computed
-        one is the validator's job.
+        one is the validator's job. Every key the schema requires is indexed
+        directly, so call this only on schema-validated manifest data.
 
         Args:
             data: The descriptor as recorded in the manifest.
@@ -260,7 +261,7 @@ class EmbeddingDescriptor:
         Raises:
             ValueError: If a field is out of range or malformed.
         """
-        projection = data.get("projection")
+        projection = data["projection"]
         return cls(
             name=data["name"],
             kind=data["kind"],
@@ -269,6 +270,6 @@ class EmbeddingDescriptor:
             tap=data["tap"],
             pooling=data["pooling"],
             window=TemporalWindow(**data["window"]),
-            normalization=data.get("normalization", "none"),
+            normalization=data["normalization"],
             projection=None if projection is None else Projection(**projection),
         )
