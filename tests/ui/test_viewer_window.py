@@ -1,18 +1,50 @@
 """Tests for the jabs-viewer main window."""
 
+import threading
+import time
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
 try:
+    from PySide6.QtCore import QObject, Signal
     from PySide6.QtWidgets import QApplication
 
     from jabs.ui.player_widget import PlayerWidget
     from jabs.ui.viewer import viewer_window
     from jabs.ui.viewer.frame_size_dialog import FrameSizeDialog
     from jabs.ui.viewer.overlay_export import OverlayChoice
+    from jabs.ui.viewer.pose_loader_thread import PoseLoaderThread
     from jabs.ui.viewer.viewer_window import ViewerWindow
+
+    class _SynchronousPoseLoader(QObject):
+        """PoseLoaderThread stand-in that opens the pose file as soon as it is started.
+
+        Lets tests assert on the window right after ``open_video`` returns, as if the
+        background load had already finished.
+        """
+
+        pose_loaded = Signal(object)
+        load_error = Signal(Exception)
+        finished = Signal()
+
+        def __init__(self, pose_path: Path, loader, parent=None) -> None:
+            super().__init__(parent)
+            self.pose_path = pose_path
+            self._loader = loader
+
+        def start(self) -> None:
+            try:
+                pose_est = self._loader(self.pose_path)
+            except Exception as e:
+                self.load_error.emit(e)
+            else:
+                self.pose_loaded.emit(pose_est)
+            self.finished.emit()
+
+        def wait(self) -> bool:
+            return True
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -36,6 +68,21 @@ def qapp():
     if app is None:
         app = QApplication([])
     yield app
+
+
+@pytest.fixture(autouse=True)
+def synchronous_pose_loading(monkeypatch) -> None:
+    """Open pose files synchronously; tests of the background load restore the thread."""
+    monkeypatch.setattr(viewer_window, "PoseLoaderThread", _SynchronousPoseLoader)
+
+
+def _process_events_until(condition, timeout: float = 5.0) -> None:
+    """Run the Qt event loop until ``condition()`` is true, failing after ``timeout``."""
+    deadline = time.monotonic() + timeout
+    while not condition():
+        assert time.monotonic() < deadline, "timed out waiting for the event loop"
+        QApplication.processEvents()
+        time.sleep(0.01)
 
 
 @pytest.fixture
@@ -455,3 +502,101 @@ def test_export_does_nothing_with_nothing_open() -> None:
 
     window._exporter.export_frame.assert_not_called()
     window._exporter.export_video.assert_not_called()
+
+
+@pytest.fixture
+def blocking_pose_load(monkeypatch):
+    """Load pose files on the real background thread, held until the test releases it."""
+    monkeypatch.setattr(viewer_window, "PoseLoaderThread", PoseLoaderThread)
+    release = threading.Event()
+    pose = _fake_pose()
+
+    def open_pose(_path: Path) -> mock.Mock:
+        assert release.wait(5), "test never released the pose load"
+        return pose
+
+    monkeypatch.setattr(viewer_window, "get_pose_path", lambda _video_path: POSE_PATH)
+    monkeypatch.setattr(viewer_window, "open_pose_file", open_pose)
+    yield release, pose
+    release.set()
+
+
+def test_pose_file_opens_in_the_background(window, blocking_pose_load) -> None:
+    """The window stays usable while a pose file opens, then shows the video and pose."""
+    release, pose = blocking_pose_load
+
+    window.open_video(VIDEO_PATH)
+
+    # open_video returned while the pose file is still loading
+    loader = window._pose_loader
+    assert loader is not None and loader.isRunning()
+    window._player.load_video.assert_not_called()
+    assert window.statusBar().currentMessage() == f"Loading pose file {POSE_PATH.name}..."
+
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+
+    window._player.load_video.assert_called_once_with(VIDEO_PATH, pose)
+    assert window.pose_est is pose
+    assert window._pose_action.isEnabled()
+
+
+def test_open_requests_are_ignored_while_a_pose_file_loads(window, blocking_pose_load) -> None:
+    """A second file can't be opened until the first one's pose file has loaded."""
+    release, pose = blocking_pose_load
+    window._player.load_blank_frames = mock.Mock()
+
+    window.open_video(VIDEO_PATH)
+    loader = window._pose_loader
+    window.open_video(Path("/data/other.mp4"))
+    window.open_pose_file(POSE_PATH)
+
+    assert window._pose_loader is loader
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+    window._player.load_video.assert_called_once_with(VIDEO_PATH, pose)
+    window._player.load_blank_frames.assert_not_called()
+
+
+def test_busy_dialog_shows_for_a_slow_load_and_closes_after(
+    monkeypatch, window, blocking_pose_load
+) -> None:
+    """A pose file that takes a while to open shows a busy dialog until it has loaded."""
+    release, _pose = blocking_pose_load
+    dialog = mock.Mock()
+    monkeypatch.setattr(viewer_window, "create_progress_dialog", mock.Mock(return_value=dialog))
+    monkeypatch.setattr(viewer_window, "BUSY_DIALOG_DELAY_MS", 0)
+
+    window.open_video(VIDEO_PATH)
+    _process_events_until(lambda: dialog.show.called)
+    dialog.close.assert_not_called()
+
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+    dialog.close.assert_called_once()
+
+
+def test_quick_load_does_not_flash_the_busy_dialog(monkeypatch, window) -> None:
+    """A pose file that opens before the delay never shows the busy dialog."""
+    dialog = mock.Mock()
+    monkeypatch.setattr(viewer_window, "create_progress_dialog", mock.Mock(return_value=dialog))
+    _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose())
+
+    window.open_video(VIDEO_PATH)
+    deadline = time.monotonic() + 2 * viewer_window.BUSY_DIALOG_DELAY_MS / 1000
+    while time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+
+    dialog.show.assert_not_called()
+    dialog.close.assert_called_once()
+
+
+def test_closing_waits_for_a_pose_file_still_loading(window) -> None:
+    """Closing mid-load waits for the thread, since destroying a running QThread aborts."""
+    loader = mock.Mock()
+    window._pose_loader = loader
+
+    window.close()
+
+    loader.wait.assert_called_once()
