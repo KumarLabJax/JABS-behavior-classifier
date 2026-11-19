@@ -9,12 +9,13 @@ def psd_sum(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         sum of power
     """
-    return np.sum(psd, axis=0)
+    return np.sum(psd, axis=-2)
 
 
 def psd_max(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
@@ -22,12 +23,13 @@ def psd_max(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         max of power
     """
-    return np.nanmax(psd, axis=0)
+    return np.nanmax(psd, axis=-2)
 
 
 def psd_min(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
@@ -35,12 +37,13 @@ def psd_min(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         min of power
     """
-    return np.min(psd, axis=0)
+    return np.min(psd, axis=-2)
 
 
 def psd_mean(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
@@ -48,12 +51,13 @@ def psd_mean(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         mean of power
     """
-    return np.mean(psd, axis=0)
+    return np.mean(psd, axis=-2)
 
 
 def psd_mean_band(
@@ -69,7 +73,8 @@ def psd_mean_band(
 
     Args:
         freqs: frequencies in the psd, used to select the band
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
         band_low: inclusive lower bound of the frequency band
         band_high: exclusive upper bound of the frequency band
 
@@ -80,8 +85,8 @@ def psd_mean_band(
     idx = np.logical_and(freqs >= band_low, freqs < band_high)
 
     if not np.any(idx):
-        return np.full([psd.shape[1]], np.nan)
-    return np.mean(np.asarray(psd)[idx], axis=0)
+        return np.full(psd.shape[:-2] + psd.shape[-1:], np.nan)
+    return np.mean(np.asarray(psd)[..., idx, :], axis=-2)
 
 
 def psd_median(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
@@ -89,12 +94,13 @@ def psd_median(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         median of power
     """
-    return np.median(psd, axis=0)
+    return np.median(psd, axis=-2)
 
 
 def psd_std_dev(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
@@ -102,12 +108,13 @@ def psd_std_dev(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         standard deviation of power
     """
-    return np.std(psd, axis=0)
+    return np.std(psd, axis=-2)
 
 
 def _standardized_moment(psd: np.ndarray, order: int) -> np.ndarray:
@@ -119,18 +126,19 @@ def _standardized_moment(psd: np.ndarray, order: int) -> np.ndarray:
     variance is negligible relative to its mean is nan.
 
     Args:
-        psd: power spectral density matrix with no nan values
+        psd: power spectral density with no nan values, frequency on the
+            second-to-last axis and time on the last; may have a leading batch axis
         order: 3 for skew or 4 for Pearson kurtosis
 
     Returns:
-        standardized moment of each column
+        standardized moment over the frequency axis
     """
-    mean = psd.mean(axis=0)
+    mean = psd.mean(axis=-2, keepdims=True)
     centered = psd - mean
     squared = centered * centered
-    variance = squared.mean(axis=0)
-    moment = (squared * centered if order == 3 else squared * squared).mean(axis=0)
-    negligible_variance = variance <= (np.finfo(variance.dtype).eps * mean) ** 2
+    variance = squared.mean(axis=-2)
+    moment = (squared * centered if order == 3 else squared * squared).mean(axis=-2)
+    negligible_variance = variance <= (np.finfo(variance.dtype).eps * mean[..., 0, :]) ** 2
     with np.errstate(all="ignore"):
         return np.where(negligible_variance, np.nan, moment / variance ** (order / 2))
 
@@ -144,7 +152,8 @@ def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         excess kurtosis of power
@@ -152,7 +161,7 @@ def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
         if np.isnan(psd).any():
-            return_values = kurtosis(psd, axis=0, nan_policy="omit")
+            return_values = kurtosis(psd, axis=-2, nan_policy="omit")
         else:
             return_values = _standardized_moment(psd, 4) - 3.0
         # If infinity shows up, convert to nan
@@ -165,7 +174,8 @@ def psd_skew(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd, ignored
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         skew of power
@@ -173,7 +183,7 @@ def psd_skew(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
         if np.isnan(psd).any():
-            return_values = skew(psd, axis=0, nan_policy="omit")
+            return_values = skew(psd, axis=-2, nan_policy="omit")
         else:
             return_values = _standardized_moment(psd, 3)
         # If infinity shows up, convert to nan
@@ -186,9 +196,10 @@ def psd_peak_freq(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 
     Args:
         freqs: frequencies in the psd
-        psd: power spectral density matrix
+        psd: power spectral density with frequency on the second-to-last axis and
+            time on the last; may have a leading batch axis of series
 
     Returns:
         frequency with highest power
     """
-    return freqs[np.argmax(psd, axis=0)]
+    return freqs[np.argmax(psd, axis=-2)]

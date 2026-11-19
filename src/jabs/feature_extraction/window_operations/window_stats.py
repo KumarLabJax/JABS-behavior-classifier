@@ -7,26 +7,34 @@ def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float | None = N
     """Generates a sliding window view of an input array with nan-padding.
 
     Args:
-        arr: 1d array to generate a sliding window
+        arr: array to generate a sliding window over, with time on the last axis. A 1d
+            array is a single series; a 2d array of shape (n_series, n_frames) is a
+            batch of series that are windowed independently.
         window: number of frames to include on each side of the center frame. The
             resulting window spans ``2 * window + 1`` frames.
         pad_const: Constant to pad the array with. None will pad with value at the edge.
 
     Returns:
-        an unmodifiable 2d view of the input array where the first axis is time and the second axis is the window. Note that typical usage will use summary stats with axis=1.
+        an unmodifiable view of the input array with one extra trailing axis: the
+        second-to-last axis is time and the last axis is the window. Typical usage
+        computes summary stats with axis=-1.
     """
+    edge_shape = (*arr.shape[:-1], window)
     if pad_const is not None:
-        arr_ext = np.concatenate([np.full(window, pad_const), arr, np.full(window, pad_const)])
+        left = right = np.full(edge_shape, pad_const)
     else:
-        arr_ext = np.concatenate([np.full(window, arr[0]), arr, np.full(window, arr[-1])])
-    return np.lib.stride_tricks.sliding_window_view(arr_ext, window_shape=window * 2 + 1)
+        left = np.broadcast_to(arr[..., :1], edge_shape)
+        right = np.broadcast_to(arr[..., -1:], edge_shape)
+    arr_ext = np.concatenate([left, arr, right], axis=-1)
+    return np.lib.stride_tricks.sliding_window_view(arr_ext, window_shape=window * 2 + 1, axis=-1)
 
 
 def window_mean(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked mean of a window
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -36,7 +44,7 @@ def window_mean(values: np.ndarray, window: int) -> np.ndarray:
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        return_values = np.nanmean(window_values, axis=1)
+        return_values = np.nanmean(window_values, axis=-1)
     return return_values
 
 
@@ -44,7 +52,8 @@ def window_median(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked median of a window
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -53,18 +62,19 @@ def window_median(values: np.ndarray, window: int) -> np.ndarray:
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
     # nan sorts to the end of each row, so the first `counts` entries are the valid values
-    sorted_values = np.sort(window_values, axis=1)
-    counts = np.sum(~np.isnan(window_values), axis=1)
-    lower = np.take_along_axis(sorted_values, np.maximum((counts - 1) // 2, 0)[:, None], axis=1)
-    upper = np.take_along_axis(sorted_values, (counts // 2)[:, None], axis=1)
-    return np.where(counts > 0, (lower[:, 0] + upper[:, 0]) / 2, np.nan)
+    sorted_values = np.sort(window_values, axis=-1)
+    counts = np.sum(~np.isnan(window_values), axis=-1)
+    lower = np.take_along_axis(sorted_values, np.maximum((counts - 1) // 2, 0)[..., None], axis=-1)
+    upper = np.take_along_axis(sorted_values, (counts // 2)[..., None], axis=-1)
+    return np.where(counts > 0, (lower[..., 0] + upper[..., 0]) / 2, np.nan)
 
 
 def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked standard deviation of a window
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -74,7 +84,7 @@ def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        return_values = np.nanstd(window_values, axis=1)
+        return_values = np.nanstd(window_values, axis=-1)
     return return_values
 
 
@@ -82,7 +92,7 @@ def _center_windows(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Subtracts each window's mean from its non-nan values.
 
     Args:
-        values: 2d array with time on the first axis and the window on the second
+        values: array with the window on the last axis (time on the axis before it)
 
     Returns:
         tuple of the number of non-nan values in each window and the array of window
@@ -90,9 +100,9 @@ def _center_windows(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         has a count of 0 and a nan mean.
     """
     valid = ~np.isnan(values)
-    counts = np.sum(valid, axis=1)
-    mean = np.where(valid, values, 0.0).sum(axis=1) / counts
-    return counts, values - mean[:, None]
+    counts = np.sum(valid, axis=-1)
+    mean = np.where(valid, values, 0.0).sum(axis=-1) / counts
+    return counts, values - mean[..., None]
 
 
 def _central_moment_terms(
@@ -101,7 +111,7 @@ def _central_moment_terms(
     """Compute the terms shared by the window standard deviation, skew, and kurtosis.
 
     Args:
-        values: 2d array with time on the first axis and the window on the second
+        values: array with the window on the last axis (time on the axis before it)
 
     Returns:
         tuple of (number of non-nan values in each window, window values minus their
@@ -110,7 +120,7 @@ def _central_moment_terms(
     """
     counts, centered = _center_windows(values)
     squared = centered * centered
-    variance = np.nansum(squared, axis=1) / counts
+    variance = np.nansum(squared, axis=-1) / counts
     return counts, centered, squared, variance
 
 
@@ -118,14 +128,14 @@ def _skew_from_terms(
     counts: np.ndarray, centered: np.ndarray, squared: np.ndarray, variance: np.ndarray
 ) -> np.ndarray:
     """Biased skew of each window from the terms of `_central_moment_terms`."""
-    return np.nansum(squared * centered, axis=1) / counts / variance**1.5
+    return np.nansum(squared * centered, axis=-1) / counts / variance**1.5
 
 
 def _kurtosis_from_terms(
     counts: np.ndarray, squared: np.ndarray, variance: np.ndarray
 ) -> np.ndarray:
     """Pearson kurtosis of each window from the terms of `_central_moment_terms`."""
-    return np.nansum(squared * squared, axis=1) / counts / (variance * variance)
+    return np.nansum(squared * squared, axis=-1) / counts / (variance * variance)
 
 
 def window_std_skew_kurtosis(
@@ -138,7 +148,8 @@ def window_std_skew_kurtosis(
     once.
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -153,7 +164,7 @@ def window_std_skew_kurtosis(
         # inf - inf still makes the result nan. Sum the same way so windows containing
         # infinities give the same result as window_std_dev.
         input_nan = np.isnan(window_values)
-        std_dev = np.sqrt(np.sum(np.where(input_nan, 0.0, squared), axis=1) / counts)
+        std_dev = np.sqrt(np.sum(np.where(input_nan, 0.0, squared), axis=-1) / counts)
         skew = _skew_from_terms(counts, centered, squared, variance)
         kurtosis = _kurtosis_from_terms(counts, squared, variance)
     return std_dev, skew, kurtosis
@@ -163,17 +174,17 @@ def np_kurtosis(values: np.ndarray) -> np.ndarray:
     """Calculates kurtosis in a rolling window faster than scipy
 
     This computes Pearson (non-excess) kurtosis, equivalent to
-    ``scipy.stats.kurtosis(values, axis=1, nan_policy="omit", fisher=False)``. It is
+    ``scipy.stats.kurtosis(values, axis=-1, nan_policy="omit", fisher=False)``. It is
     *not* equivalent to scipy's default, which subtracts 3.0 to give Fisher (excess)
     kurtosis: values returned here are 3.0 larger than
-    ``scipy.stats.kurtosis(values, axis=1, nan_policy="omit")``.
+    ``scipy.stats.kurtosis(values, axis=-1, nan_policy="omit")``.
 
     Note that ``signal_stats.psd_kurtosis`` calls scipy with its default arguments, so
     the ``kurtosis`` window feature and the ``psd_kurtosis`` signal feature do not use
     the same convention.
 
     Args:
-        values: 2d array with time on the first axis and the window on the second
+        values: array with the window on the last axis (time on the axis before it)
 
     Returns:
         Pearson kurtosis of the non-nan values in each window. A window that is
@@ -191,7 +202,8 @@ def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked kurtosis of a window
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -209,10 +221,10 @@ def np_skew(values: np.ndarray) -> np.ndarray:
     """Calculates skew in a rolling window faster than scipy
 
     This computes the biased (population) skew, equivalent to
-    ``scipy.stats.skew(values, axis=1, nan_policy="omit")``, which is scipy's default.
+    ``scipy.stats.skew(values, axis=-1, nan_policy="omit")``, which is scipy's default.
 
     Args:
-        values: 2d array with time on the first axis and the window on the second
+        values: array with the window on the last axis (time on the axis before it)
 
     Returns:
         skew of the non-nan values in each window. A window that is entirely nan
@@ -230,7 +242,8 @@ def window_skew(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked skew of a window
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -248,7 +261,8 @@ def window_min(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked minimum of a window
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -256,14 +270,15 @@ def window_min(values: np.ndarray, window: int) -> np.ndarray:
         sliding window minimum values
     """
     # fmin ignores nan, and is nan only when every value in the window is nan
-    return np.fmin.reduce(pad_sliding_window(values, window, pad_const=np.nan), axis=1)
+    return np.fmin.reduce(pad_sliding_window(values, window, pad_const=np.nan), axis=-1)
 
 
 def window_max(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked maximum of a window
 
     Args:
-        values: 1d np.ndarray of values
+        values: values with time on the last axis; 1d for one series or 2d of
+            shape (n_series, n_frames) for a batch of series
         window: number of frames to include on each side of the center frame. The
             window used for each output value spans ``2 * window + 1`` frames.
 
@@ -271,4 +286,4 @@ def window_max(values: np.ndarray, window: int) -> np.ndarray:
         sliding window maximum values
     """
     # fmax ignores nan, and is nan only when every value in the window is nan
-    return np.fmax.reduce(pad_sliding_window(values, window, pad_const=np.nan), axis=1)
+    return np.fmax.reduce(pad_sliding_window(values, window, pad_const=np.nan), axis=-1)
