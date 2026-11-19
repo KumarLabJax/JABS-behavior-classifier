@@ -23,6 +23,11 @@ import h5py
 import numpy as np
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
+from jabs.io.internal.pose_file.convert.memory import (
+    check_storage,
+    estimate_memory,
+    require_memory,
+)
 from jabs.io.internal.pose_file.hdf5_safety import check_self_contained
 from jabs.io.internal.pose_file.reader import attr_text
 
@@ -124,11 +129,22 @@ class LegacyLayout:
     dropped: tuple[str, ...]
 
 
-def inspect_legacy(path: Path) -> LegacyLayout:
+def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout:
     """Identify a legacy ``pose_est_v4``..``v8`` file by its contents.
+
+    Shapes and attributes are checked before any data is read: first that
+    the file is self-contained, then its paths and shapes, then, with
+    ``max_memory``, a lower bound on the conversion's memory, and that no
+    large dataset declares far more than it stores. Only then are the embed
+    ids and dynamic objects read.
 
     Args:
         path: The legacy HDF5 file.
+        max_memory: A cap on the conversion's estimated peak memory, in
+            bytes, checked against a lower bound (the identities
+            ``instance_id_center`` declares, 900-frame blocks) before any data
+            is read; ``convert_legacy`` checks the full estimate once the
+            identity count is known. None checks no memory bound.
 
     Returns:
         Its layout.
@@ -142,7 +158,9 @@ def inspect_legacy(path: Path) -> LegacyLayout:
             ``external_identity_mapping`` entry, or has a malformed dynamic
             object (datasets that disagree on the sample count, counts above
             its object axis, or sample frames out of order or past the last
-            frame). The message names the path.
+            frame), would need more than ``max_memory`` by its declared
+            shapes, or has a dataset declaring more than 1 GiB and over
+            2000 times what it stores. The message names the path.
     """
     with h5py.File(path, "r") as h5:
         # First: everything after this reads through h5py, which follows links.
@@ -169,6 +187,14 @@ def inspect_legacy(path: Path) -> LegacyLayout:
                 f"{path}: poseest/points has {keypoints} keypoints; expected {KEYPOINTS}"
             )
         _check_shapes(path, pose, frames, instances)
+        # Before any data is read: the reads below are sized by the shapes.
+        if max_memory is not None:
+            centers = pose.get("instance_id_center")
+            floor = int(centers.shape[0]) if centers is not None else 0
+            require_memory(
+                path, estimate_memory(h5, identity=floor, block_frames=BLOCK_FRAMES), max_memory
+            )
+        check_storage(path, h5)
         version = _version(pose)
 
         seg = pose.get("seg_data")

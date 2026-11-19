@@ -45,6 +45,23 @@ def test_convert_block_mb(tmp_path: Path) -> None:
     assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
 
 
+def test_convert_max_memory_gb(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """``--max-memory-gb`` caps the estimate in GiB: a tiny cap refuses in one line, 1 converts."""
+    out = tmp_path / "out.h5"
+    source = str(legacy("v8-with-centers.h5"))
+
+    assert main(["convert", source, str(out), "--max-memory-gb", "0.0001"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "estimated" in captured.err
+    assert f"({int(0.0001 * 2**30)} bytes)" in captured.err
+    assert not out.exists()
+
+    assert main(["convert", source, str(out), "--max-memory-gb", "1"]) == 0
+    assert out.exists()
+
+
 def test_convert_refusal_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A refusal prints one ``error:`` line naming the frame, with no traceback."""
     out = tmp_path / "out.h5"
@@ -182,6 +199,9 @@ def test_validate_findings_are_one_line_each(
         ["--fps", "0"],
         ["--fps", "nan"],
         ["--fps", "thirty"],
+        ["--max-memory-gb", "0"],
+        ["--max-memory-gb", "-1"],
+        ["--max-memory-gb", "inf"],
     ],
 )
 def test_convert_usage_errors_exit_2(tmp_path: Path, extra: list[str]) -> None:

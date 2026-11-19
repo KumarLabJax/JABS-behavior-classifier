@@ -5,6 +5,11 @@ The order is what makes a refusal leave nothing behind: inspection and pass 1
 before a component is built or a byte written. Pass 2 then streams the
 components into ``write_pose_file``, which writes a temporary file, deep-checks
 it and only then replaces the destination.
+
+Before pass 1 allocates anything, the conversion's peak memory is estimated
+from the declared shapes and checked against ``max_memory`` (see
+``memory.py``): the Hub converts uploads, and a few kilobytes of HDF5 can
+declare billions of frames.
 """
 
 import importlib.metadata
@@ -19,6 +24,7 @@ import h5py
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout, inspect_legacy
+from jabs.io.internal.pose_file.convert.memory import estimate_memory, require_memory
 from jabs.io.internal.pose_file.convert.objects import object_components
 from jabs.io.internal.pose_file.convert.plan import plan_placement
 from jabs.io.internal.pose_file.convert.provenance import (
@@ -38,6 +44,9 @@ logger = logging.getLogger(__name__)
 
 # Dense contours are int32 and points float32: four bytes a value either way.
 _VALUE_BYTES = 4
+
+# The default cap on a conversion's estimated peak memory.
+DEFAULT_MAX_MEMORY = 16 * 2**30
 
 
 @dataclass(frozen=True)
@@ -112,6 +121,7 @@ def convert_legacy(
     *,
     video: VideoOverrides | None = None,
     block_bytes: int = 64 * 2**20,
+    max_memory: int = DEFAULT_MAX_MEMORY,
     created: str | None = None,
 ) -> ConversionReport:
     """Convert a legacy ``pose_est_v4``..``v8`` file to a ``jabs.pose-file``.
@@ -120,11 +130,20 @@ def convert_legacy(
     deep-checked before it replaces any existing file, so a refusal or a
     failure leaves an existing destination as it was.
 
+    Memory grows with the recording: the plan keeps a few hundred bytes a
+    frame, and pass 2 holds a block of at least 900 frames. Before the plan
+    allocates anything, the peak is estimated from the declared shapes
+    (``memory.estimate_memory``) and a file above ``max_memory`` is refused,
+    so a small upload declaring enormous shapes cannot exhaust the machine.
+
     Args:
         source: The legacy HDF5 file.
         destination: Where to write the pose file.
         video: Video facts the legacy file does not record.
         block_bytes: The memory budget for one block of the widest component.
+        max_memory: The cap on the estimated peak memory, in bytes. The
+            default, 16 GiB, admits a four-day recording at the public v6
+            sample's widths.
         created: The timestamp for the manifest and the history, ISO 8601.
             Defaults to now.
 
@@ -133,9 +152,13 @@ def convert_legacy(
 
     Raises:
         LegacyConversionError: If the destination is the source (by path or
-            by link), the file is outside the catalog, cannot be placed (a
-            duplicate identity, a tracklet in two slots of a frame), or the
-            converted file fails validation. The message says why.
+            by link), the file refers to data outside itself (a link other
+            than a hard link, external or virtual storage), is outside the
+            catalog, its estimated peak memory is above ``max_memory``, a
+            large dataset declares far more than it stores, it cannot be
+            placed (a duplicate identity, a tracklet in two slots of a
+            frame), or the converted file fails validation. The message says
+            why.
     """
     started = time.perf_counter()
     source, destination = Path(source), Path(destination)
@@ -150,7 +173,7 @@ def convert_legacy(
     stamp = created or datetime.now(timezone.utc).isoformat()
     version = importlib.metadata.version("jabs-io")
 
-    layout = inspect_legacy(source)
+    layout = inspect_legacy(source, max_memory=max_memory)
     logger.debug(
         "inspected %s: %d frames, %d legacy instances, %d identities, version %s",
         source,
@@ -161,6 +184,10 @@ def convert_legacy(
     )
     block_frames = block_frames_for(layout, block_bytes)
     with h5py.File(source, "r") as h5:
+        # Inspection checked a lower bound; this is the full estimate, now
+        # that the identity count and the block size are known.
+        estimate = estimate_memory(h5, identity=layout.identity, block_frames=block_frames)
+        require_memory(source, estimate, max_memory)
         # Pass 1 runs to completion first: every refusal it makes happens with
         # nothing built and nothing written.
         plan = plan_placement(h5, layout, block_frames=block_frames)

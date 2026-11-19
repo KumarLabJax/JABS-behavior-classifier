@@ -3,13 +3,16 @@
 ::
 
     jabs-pose-file convert LEGACY.h5 OUT.h5 [--width W --height H --fps F] [--block-mb N]
+        [--max-memory-gb G]
     jabs-pose-file validate FILE.h5 [--deep]
 
 Exit codes: 0 on success, 1 when a conversion is refused or a file has a
 validation error, 2 on a usage error (argparse's own). A refusal is the
 user's input being outside what the converter accepts, so it is reported as
-one ``error:`` line, never a traceback. Any other exception is a bug and is
-left to raise.
+one ``error:`` line, never a traceback. Refusals include a file with a link or
+storage outside itself, and one whose estimated peak memory, from its
+declared shapes, is above ``--max-memory-gb``. Any other exception is a bug
+and is left to raise.
 """
 
 import argparse
@@ -23,11 +26,13 @@ from jabs.io.internal.pose_file.convert import (
     VideoOverrides,
     convert_legacy,
 )
+from jabs.io.internal.pose_file.convert.convert import DEFAULT_MAX_MEMORY
 from jabs.io.internal.pose_file.validate import validate
 
 logger = logging.getLogger(__name__)
 
 _MEBIBYTE = 2**20
+_GIBIBYTE = 2**30
 
 
 def _one_line(message: object) -> str:
@@ -85,6 +90,16 @@ def _parser() -> argparse.ArgumentParser:
         metavar="N",
         help="memory budget for one block of the widest component, in MiB (default: 64)",
     )
+    convert.add_argument(
+        "--max-memory-gb",
+        type=_positive_float,
+        default=DEFAULT_MAX_MEMORY / _GIBIBYTE,
+        metavar="G",
+        help=(
+            "refuse a file whose estimated peak memory, from its declared shapes, is above "
+            f"this many GiB (2^30 bytes) (default: {DEFAULT_MAX_MEMORY // _GIBIBYTE})"
+        ),
+    )
 
     check = commands.add_parser(
         "validate",
@@ -119,7 +134,11 @@ def _convert(args: argparse.Namespace) -> int:
     video = VideoOverrides(width=args.width, height=args.height, fps=args.fps)
     try:
         report = convert_legacy(
-            args.source, args.destination, video=video, block_bytes=args.block_mb * _MEBIBYTE
+            args.source,
+            args.destination,
+            video=video,
+            block_bytes=args.block_mb * _MEBIBYTE,
+            max_memory=int(args.max_memory_gb * _GIBIBYTE),
         )
     except (LegacyConversionError, OSError) as error:
         # One line per error: a deep-check refusal lists its findings on
