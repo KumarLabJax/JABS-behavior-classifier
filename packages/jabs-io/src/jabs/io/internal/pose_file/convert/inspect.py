@@ -77,7 +77,8 @@ class LegacyLayout:
         identity: Rows of ``instance_id_center`` when it has any, otherwise the
             largest embed id of a valid instance (ADR 0002:1294-1295); 0 when
             there is none.
-        version: The ``poseest`` ``version`` attribute, as stored.
+        version: The ``poseest`` ``version`` attribute, as stored; empty when
+            the file has none, since the contents, not the version, identify it.
         has_segmentation: Whether ``poseest/seg_data`` is present.
         contour_axis: ``seg_data.shape[2]``, the padded contour extent; 0
             without segmentation.
@@ -121,11 +122,13 @@ def inspect_legacy(path: Path) -> LegacyLayout:
 
     Raises:
         LegacyConversionError: If the file holds a path outside the catalog,
-            lacks a dataset v4 introduced, has other than 12 keypoints, or has
-            a malformed dynamic object. The message names the path.
+            lacks a dataset v4 introduced, has other than 12 keypoints, has
+            datasets whose shapes disagree, has a ``version`` that is not a
+            list of whole numbers, or has a malformed dynamic object. The
+            message names the path.
     """
     with h5py.File(path, "r") as h5:
-        _check_paths(h5)
+        _check_paths(path, h5)
         pose = h5["poseest"]
         missing = [name for name in _REQUIRED if name not in pose]
         if missing:
@@ -141,9 +144,8 @@ def inspect_legacy(path: Path) -> LegacyLayout:
             raise LegacyConversionError(
                 f"{path}: poseest/points has {keypoints} keypoints; expected {KEYPOINTS}"
             )
-        if "version" not in pose.attrs:
-            raise LegacyConversionError(f"{path}: poseest has no version attribute")
-        version = tuple(int(v) for v in np.atleast_1d(pose.attrs["version"]).ravel())
+        _check_shapes(path, pose, frames, instances)
+        version = _version(path, pose)
 
         seg = pose.get("seg_data")
         bbox = pose.get("bbox")
@@ -181,27 +183,93 @@ def inspect_legacy(path: Path) -> LegacyLayout:
         )
 
 
-def _check_paths(h5: h5py.File) -> None:
+def _check_paths(path: Path, h5: h5py.File) -> None:
     """Refuse any group or dataset outside the legacy catalog, naming it."""
     if "poseest" not in h5:
-        _refuse(h5, "poseest", "is missing")
+        _refuse(path, "poseest", "is missing")
     for name in h5:
         if name not in _ROOTS or not isinstance(h5[name], h5py.Group):
-            _refuse(h5, name, "is not a legacy pose path")
+            _refuse(path, name, "is not a legacy pose path")
     for name in h5["poseest"]:
         if name not in _POSEEST or not isinstance(h5["poseest"][name], h5py.Dataset):
-            _refuse(h5, f"poseest/{name}", "is not a legacy pose dataset")
+            _refuse(path, f"poseest/{name}", "is not a legacy pose dataset")
     for name in h5.get("static_objects", {}):
         if name not in _STATIC_OBJECTS or not isinstance(h5["static_objects"][name], h5py.Dataset):
-            _refuse(h5, f"static_objects/{name}", "is not a legacy static object")
+            _refuse(path, f"static_objects/{name}", "is not a legacy static object")
     dynamics = h5.get("dynamic_objects", {})
     for name in dynamics:
         if not isinstance(dynamics[name], h5py.Group):
-            _refuse(h5, f"dynamic_objects/{name}", "is not a dynamic object group")
+            _refuse(path, f"dynamic_objects/{name}", "is not a dynamic object group")
         for member in dynamics[name]:
             obj = dynamics[name][member]
             if member not in _DYNAMIC_DATASETS or not isinstance(obj, h5py.Dataset):
-                _refuse(h5, f"dynamic_objects/{name}/{member}", "is not a dynamic object dataset")
+                _refuse(
+                    path, f"dynamic_objects/{name}/{member}", "is not a dynamic object dataset"
+                )
+
+
+def _check_shapes(path: Path, pose: h5py.Group, frames: int, instances: int) -> None:
+    """Refuse ``poseest`` datasets whose shapes disagree with ``points`` or each other.
+
+    A disagreement would otherwise surface mid-conversion as an index error,
+    or not at all, with data silently misaligned.
+    """
+    # None stands for an axis whose extent is the dataset's own.
+    expected: dict[str, tuple[int | None, ...]] = {
+        "confidence": (frames, instances, KEYPOINTS),
+        "id_mask": (frames, instances),
+        "instance_embed_id": (frames, instances),
+        "instance_track_id": (frames, instances),
+        "identity_embeds": (frames, instances, None),
+        "seg_data": (frames, instances, None, None, 2),
+        "seg_external_flag": (frames, instances, None),
+        "bbox": (frames, instances, 2, 2),
+        "instance_id_center": (None, None),
+    }
+    for name, axes in expected.items():
+        if name in pose and not _matches(pose[name].shape, axes):
+            _refuse_shapes(path, name, pose[name].shape, "poseest/points", pose["points"].shape)
+    if "seg_data" in pose and "seg_external_flag" in pose:
+        flag, seg = pose["seg_external_flag"].shape, pose["seg_data"].shape
+        if flag != seg[:3]:
+            _refuse_shapes(path, "seg_external_flag", flag, "poseest/seg_data", seg)
+    if "identity_embeds" in pose and "instance_id_center" in pose:
+        embeds, centers = pose["identity_embeds"].shape, pose["instance_id_center"].shape
+        # Both hold vectors in one embedding space, so their widths agree.
+        if embeds[2] != centers[1]:
+            _refuse_shapes(path, "identity_embeds", embeds, "poseest/instance_id_center", centers)
+
+
+def _matches(shape: tuple[int, ...], axes: tuple[int | None, ...]) -> bool:
+    """Return whether ``shape`` has ``axes``' rank and every fixed extent."""
+    return len(shape) == len(axes) and all(
+        a is None or a == s for s, a in zip(shape, axes, strict=True)
+    )
+
+
+def _refuse_shapes(
+    path: Path, name: str, shape: tuple[int, ...], other: str, other_shape: tuple[int, ...]
+) -> NoReturn:
+    """Raise the refusal for a ``poseest`` dataset whose shape disagrees with another's."""
+    raise LegacyConversionError(
+        f"{path}: poseest/{name} has shape {shape}, which disagrees with {other} {other_shape}"
+    )
+
+
+def _version(path: Path, pose: h5py.Group) -> tuple[int, ...]:
+    """Return the ``version`` attribute as whole numbers; empty when it is absent."""
+    if "version" not in pose.attrs:
+        return ()
+    stored = np.atleast_1d(np.asarray(pose.attrs["version"])).ravel()
+    whole = stored.dtype.kind in "iu" or (
+        stored.dtype.kind == "f"
+        and bool(np.all(np.isfinite(stored) & (stored == np.round(stored))))
+    )
+    if not whole:
+        raise LegacyConversionError(
+            f"{path}: poseest version attribute {pose.attrs['version']!r} is not a list of whole numbers"
+        )
+    return tuple(int(v) for v in stored)
 
 
 def _check_dynamic_object(path: Path, group: h5py.Group) -> None:
@@ -241,6 +309,6 @@ def _identity(pose: h5py.Group) -> int:
     return largest
 
 
-def _refuse(h5: h5py.File, name: str, why: str) -> NoReturn:
-    """Raise the refusal for one path of ``h5``."""
-    raise LegacyConversionError(f"{h5.filename}: {name} {why}")
+def _refuse(path: Path, name: str, why: str) -> NoReturn:
+    """Raise the refusal for one HDF5 path of the legacy file ``path``."""
+    raise LegacyConversionError(f"{path}: {name} {why}")

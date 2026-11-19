@@ -5,6 +5,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from jabs.io.internal.pose_file.convert import LegacyConversionError, inspect_legacy
@@ -66,7 +67,7 @@ def test_identity_count() -> None:
 
     without = inspect_legacy(legacy("v8-without-centers.h5"))
     with h5py.File(legacy("v8-without-centers.h5"), "r") as h5:
-        valid = ~h5["poseest/id_mask"][()]
+        valid = ~h5["poseest/id_mask"][()].astype(bool)
         largest = int(h5["poseest/instance_embed_id"][()][valid].max())
     assert without.identity == largest == gen.SMALL["identities"]
 
@@ -161,6 +162,43 @@ def _unknown_root(h5: h5py.File) -> None:
     h5.create_group("extras")
 
 
+def _replace(h5: h5py.File, name: str, data: npt.NDArray[np.generic]) -> None:
+    """Replace one ``poseest`` dataset with ``data``."""
+    del h5["poseest"][name]
+    h5["poseest"].create_dataset(name, data=data)
+
+
+def _narrow_id_mask(h5: h5py.File) -> None:
+    """Give ``id_mask`` one fewer instance column than ``points``."""
+    _replace(h5, "id_mask", h5["poseest/id_mask"][:, :-1])
+
+
+def _short_confidence(h5: h5py.File) -> None:
+    """Give ``confidence`` one fewer frame than ``points``."""
+    _replace(h5, "confidence", h5["poseest/confidence"][:-1])
+
+
+def _short_external_flag(h5: h5py.File) -> None:
+    """Give ``seg_external_flag`` one fewer contour than ``seg_data``."""
+    _replace(h5, "seg_external_flag", h5["poseest/seg_external_flag"][:, :, :-1])
+
+
+def _flat_bbox(h5: h5py.File) -> None:
+    """Store ``bbox`` as four numbers per instance rather than two corners."""
+    bbox = h5["poseest/bbox"][()]
+    _replace(h5, "bbox", bbox.reshape(*bbox.shape[:2], 4))
+
+
+def _narrow_embeddings(h5: h5py.File) -> None:
+    """Make ``identity_embeds`` narrower than ``instance_id_center``."""
+    _replace(h5, "identity_embeds", h5["poseest/identity_embeds"][..., :-1])
+
+
+def _text_version(h5: h5py.File) -> None:
+    """Record the version as text."""
+    h5["poseest"].attrs["version"] = "8.0"
+
+
 def _unknown_static_object(h5: h5py.File) -> None:
     """Add a static object no catalog names."""
     h5.create_dataset("static_objects/water_bottle", data=np.zeros((2, 2), dtype=np.uint16))
@@ -177,6 +215,15 @@ def _unknown_static_object(h5: h5py.File) -> None:
         (_bad_points_ndim, "ndim"),
         (_unknown_root, "extras"),
         (_unknown_static_object, "static_objects/water_bottle"),
+        (
+            _narrow_id_mask,
+            r"poseest/id_mask has shape \(120, 2\).*poseest/points \(120, 3, 12, 2\)",
+        ),
+        (_short_confidence, r"poseest/confidence has shape \(119, 3, 12\)"),
+        (_short_external_flag, r"poseest/seg_external_flag has shape \(120, 3, 2\).*seg_data"),
+        (_flat_bbox, r"poseest/bbox has shape \(120, 3, 4\)"),
+        (_narrow_embeddings, r"poseest/identity_embeds has shape .*instance_id_center"),
+        (_text_version, "version"),
     ],
     ids=[
         "unknown-dataset",
@@ -187,6 +234,12 @@ def _unknown_static_object(h5: h5py.File) -> None:
         "points-ndim",
         "unknown-root",
         "unknown-static-object",
+        "id-mask-shape",
+        "confidence-shape",
+        "external-flag-shape",
+        "bbox-shape",
+        "embedding-width",
+        "text-version",
     ],
 )
 def test_refusals(tmp_path: Path, source: str | Callable[[h5py.File], None], match: str) -> None:
@@ -194,7 +247,11 @@ def test_refusals(tmp_path: Path, source: str | Callable[[h5py.File], None], mat
 
     ``source`` is a corpus file's name, or edits to a clean small v8 file.
     """
-    path = legacy(source) if isinstance(source, str) else _write(tmp_path / "x.h5", source)
+    if isinstance(source, str):
+        path = legacy(source)
+    else:
+        # Segmentation is on so its shape checks have something to check.
+        path = _write(tmp_path / "x.h5", source, seg=True)
     with pytest.raises(LegacyConversionError, match=match):
         inspect_legacy(path)
 
@@ -233,3 +290,13 @@ def test_empty_lixit_is_dropped(tmp_path: Path) -> None:
     layout = inspect_legacy(_write(tmp_path / "lixit.h5", empty_lixit))
     assert layout.static_objects == ("corners",)
     assert layout.dropped[-1] == "static_objects/lixit"
+
+
+def test_missing_version_is_empty(tmp_path: Path) -> None:
+    """A file without a ``version`` attribute is identified by its contents."""
+
+    def no_version(h5: h5py.File) -> None:
+        """Remove the version attribute."""
+        del h5["poseest"].attrs["version"]
+
+    assert inspect_legacy(_write(tmp_path / "unversioned.h5", no_version)).version == ()
