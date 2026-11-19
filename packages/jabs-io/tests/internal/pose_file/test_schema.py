@@ -101,18 +101,6 @@ def test_schema_accepts_an_embedding_entry(minimal_manifest):
     assert validate_manifest(minimal_manifest) == []
 
 
-def _set(path: tuple, value: object):
-    """Return a mutation that sets one nested descriptor field."""
-
-    def mutate(descriptor: dict) -> None:
-        target = descriptor
-        for key in path[:-1]:
-            target = target[key]
-        target[path[-1]] = value
-
-    return mutate
-
-
 @pytest.mark.parametrize(
     "mutate",
     [

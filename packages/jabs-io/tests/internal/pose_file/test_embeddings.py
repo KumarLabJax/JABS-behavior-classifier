@@ -136,7 +136,11 @@ def test_parse_embedding_id(component_id, expected):
 
 @pytest.mark.parametrize(
     ("component_id", "expected"),
-    [("jabs.embedding.trunk", True), ("jabs.pose.points", False)],
+    [
+        ("jabs.embedding.trunk", True),
+        ("jabs.pose.points", False),
+        ("jabs.embeddings.trunk.instance", False),
+    ],
 )
 def test_is_embedding_id(component_id, expected):
     """Any id under jabs.embedding. is in the namespace, well-formed or not."""
@@ -228,6 +232,11 @@ def test_embedding_round_trip(tmp_path):
             == original.embedding.fingerprint
         )
     assert read.component("jabs.pose.points").embedding is None
+    # An unoccupied slot's instance row is all-NaN, and stays so on disk.
+    original_rows = np.isnan(np.asarray(pose_file.component(_INSTANCE).data)).all(axis=-1)
+    restored_rows = np.isnan(read.component(_INSTANCE).data).all(axis=-1)
+    assert original_rows.any()
+    np.testing.assert_array_equal(restored_rows, original_rows)
 
 
 def _as_two_blocks(array: npt.NDArray[np.float16]) -> BlockSource:

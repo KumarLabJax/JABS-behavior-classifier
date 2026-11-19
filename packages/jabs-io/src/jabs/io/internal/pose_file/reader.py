@@ -37,7 +37,14 @@ from jabs.io.internal.pose_file.schema import (
     validate_manifest,
     validate_provenance,
 )
-from jabs.io.internal.pose_file.types import Attachment, Component, PoseFile, alternate_key
+from jabs.io.internal.pose_file.types import (
+    Attachment,
+    Component,
+    PoseFile,
+    accepts_requested_layout,
+    alternate_key,
+    requested_layout_problems,
+)
 
 # Only the baseline encoding can be decoded. Handing back RLE run values or a
 # ragged point buffer as though it were a dense array is worse than failing.
@@ -428,7 +435,33 @@ def _component_from(
         embedding=EmbeddingDescriptor.from_json(spec["embedding"])
         if "embedding" in spec
         else None,
+        requested_layout=_requested_layout(spec, data.ndim),
     )
+
+
+def _requested_layout(spec: dict, ndim: int) -> dict | None:
+    """The manifest layout to carry forward as a request, when it can be one.
+
+    A layout recorded for an embedding or a foreign component is kept so that
+    a read-write cycle preserves it. One the writer could not honor -- szip,
+    say, which a third party may legitimately have used -- is dropped rather
+    than failing the read, and the writer's policy applies instead.
+
+    Args:
+        spec: The component's manifest entry.
+        ndim: The payload's rank.
+
+    Returns:
+        The layout, or None when there is none to request.
+    """
+    layout = spec.get("layout")
+    if (
+        layout is None
+        or not accepts_requested_layout(spec["id"])
+        or requested_layout_problems(layout, ndim)
+    ):
+        return None
+    return layout
 
 
 def read_component(
