@@ -17,7 +17,13 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from jabs.io.internal.pose_file import Alternate, RaggedIndex, validate, write_pose_file
+from jabs.io.internal.pose_file import (
+    Alternate,
+    RaggedIndex,
+    read_pose_file,
+    validate,
+    write_pose_file,
+)
 from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.types import Component, PoseFile
 
@@ -377,16 +383,6 @@ def _payload_at_an_offset_path() -> PoseFile:
     )
 
 
-def _two_names_at_one_offset_path() -> PoseFile:
-    """A second name, through its own index, puts its offsets at the same paths."""
-    return _segmentation_file(
-        flag_alternates=lambda s, i: (
-            _flags_alternate(s, i),
-            _flags_alternate(s, _index(s), name="copy", path=f"{PREFIX}/copy"),
-        ),
-    )
-
-
 def _payload_under_a_component() -> PoseFile:
     """The flags' payload sits beneath a component's dataset."""
     return _segmentation_file(
@@ -404,11 +400,6 @@ def _payload_under_a_component() -> PoseFile:
             _payload_at_an_offset_path, "collide", id="alternate-payload-at-an-offset-path"
         ),
         pytest.param(
-            _two_names_at_one_offset_path,
-            "must share one RaggedIndex object",
-            id="two-names-one-offset-path",
-        ),
-        pytest.param(
             _payload_under_a_component, "collide", id="alternate-payload-under-a-component"
         ),
     ],
@@ -416,11 +407,7 @@ def _payload_under_a_component() -> PoseFile:
 def test_colliding_paths_are_refused(
     tmp_path: Path, build: Callable[[], PoseFile], match: str
 ) -> None:
-    """Every path in the file -- components, alternates, offsets -- must be distinct.
-
-    Two indexes at one pair of offset paths are not two datasets but one shared
-    by mistake, so that refusal says what to do instead.
-    """
+    """Every path in the file -- components, alternates, offsets -- must be distinct."""
     path = tmp_path / "prior.h5"
     path.write_bytes(SENTINEL)
     pose_file = build()
@@ -464,3 +451,6 @@ def test_two_names_sharing_one_index_write_its_offsets_once(tmp_path: Path) -> N
     with h5py.File(path, "r") as h5:
         np.testing.assert_array_equal(h5[f"{PREFIX}/copy"][()], seg["flags"])
         np.testing.assert_array_equal(h5[GROUP][()], seg["contour_offsets"])
+    # Read back, the two names share one index again, so the file rewrites.
+    flags = read_pose_file(path).component(FLAG_ID).alternates
+    assert flags[0].index is flags[1].index

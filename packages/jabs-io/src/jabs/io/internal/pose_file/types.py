@@ -590,27 +590,25 @@ class PoseFile:
         An alternate's mask or length reference must name a component it
         aligns with, as a component's must. Its payload path must differ from
         every component's and every other alternate's, or one dataset would be
-        claimed twice. And
-        alternates of one name are one encoding (ADR 0002): they must name the
-        same two offset paths, or the name would mean two things, and those
-        naming the same offset paths must share one
-        :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`, or the
-        writer would have two different arrays to write at one path.
-        Parent/child path collisions, and two names' different indexes at one
-        pair of paths, are the writer's checks.
+        claimed twice. Alternates of one name are one encoding (ADR 0002): they
+        must name the same two offset paths, or the name would mean two things.
+        And alternates naming the same offset paths, under any names, must
+        share one :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`,
+        or the writer would have two different arrays to write at one path.
+        Parent/child path collisions are the writer's check.
 
         Raises:
             ValueError: If an alternate's missing reference is undeclared or
-                does not align, a path is claimed twice, alternates of one name name
-                different offset paths, or one name's offsets are declared by
-                two different indexes.
+                does not align, a path is claimed twice, alternates of one name
+                name different offset paths, or one pair of offset paths is
+                declared by two different indexes.
         """
         # Imported here: alternates imports this module at load time.
         from jabs.io.internal.pose_file.alternates import alternate_key
 
         by_id = {component.id: component for component in self.components}
         owners = {component.path: component.id for component in self.components}
-        indexes: dict[tuple[str, str, str], object] = {}
+        indexes: dict[tuple[str, str], tuple[str, object]] = {}
         first: dict[str, tuple[str, tuple[str, str]]] = {}
         for component in self.components:
             for alternate in component.alternates:
@@ -629,13 +627,12 @@ class PoseFile:
                         f"{other_offsets}; alternates of one name are one encoding and share "
                         "their offsets"
                     )
-                key = (alternate.name, *offsets)
-                shared = indexes.setdefault(key, index)
+                sharer, shared = indexes.setdefault(offsets, (label, index))
                 if shared is not index:
                     raise ValueError(
-                        f"{label}: alternates named {alternate.name!r} declare offsets at "
-                        f"{key[1]} and {key[2]} through different RaggedIndex objects; "
-                        "they must share one"
+                        f"{label} and {sharer} declare offsets at {offsets[0]} and "
+                        f"{offsets[1]} through different RaggedIndex objects; alternates "
+                        "naming the same offsets must share one"
                     )
 
     def _freeze(self) -> None:

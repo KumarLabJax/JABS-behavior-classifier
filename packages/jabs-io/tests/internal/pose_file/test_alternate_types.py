@@ -339,6 +339,21 @@ def test_an_alternate_reference_typo_is_refused_before_any_block_is_read() -> No
         _segmentation_file(seg, contours_alternates=(typo,))
 
 
+def test_two_names_at_one_offset_path_share_one_index() -> None:
+    """Different indexes at one pair of offset paths are refused, whatever their names.
+
+    They are not two datasets but one shared by mistake, so the refusal says
+    what to do instead.
+    """
+    seg = ragged_segmentation()
+    index = _index(seg)
+    contours = _contours_alternate(seg, index)
+    flags = _flags_alternate(seg, index)
+    copy = _flags_alternate(seg, _index(seg), name="copy", path=f"{PREFIX}/copy")
+    with pytest.raises(ValueError, match="must share one"):
+        _segmentation_file(seg, contours_alternates=(contours,), flag_alternates=(flags, copy))
+
+
 def test_alternate_key_names_a_component_alternate() -> None:
     """The key layouts and history entries use."""
     assert (

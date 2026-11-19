@@ -7,8 +7,8 @@ without decoding the baseline. This revision defines one encoding for them,
 object, a :class:`RaggedIndex`. Alternates of one name on different components
 are one encoding, so a :class:`~jabs.io.internal.pose_file.types.PoseFile`
 refuses them unless they name the same two offset datasets. Alternates that
-name the same offset datasets must share one :class:`RaggedIndex` object: the
-``PoseFile`` enforces that within one name, and the writer across names.
+name the same offset datasets, under one name or several, must share one
+:class:`RaggedIndex` object, and the ``PoseFile`` refuses them otherwise.
 Alternates of different names may share one index.
 
 ``types`` refers to :class:`Alternate` only for annotation, so this module can

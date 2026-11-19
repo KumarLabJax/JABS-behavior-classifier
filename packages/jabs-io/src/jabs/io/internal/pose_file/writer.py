@@ -141,24 +141,25 @@ def _alternate_layout(alternate: Alternate) -> dict:
     }
 
 
-def _file_paths(pose_file: PoseFile) -> list[tuple[str, str, bool]]:
-    """Every dataset path the writer will create, its owner, and whether it holds offsets.
+def _file_paths(pose_file: PoseFile) -> list[tuple[str, str]]:
+    """Every dataset path the writer will create, and its owner.
 
     Two alternates sharing one :class:`RaggedIndex` share its two datasets, so
-    those paths are listed once; two different indexes at one path are two
-    claims on it.
+    those paths are listed once. The ``PoseFile`` guarantees that alternates
+    naming the same offset paths share one index, so a path listed twice is a
+    real collision.
     """
-    paths = [(component.path, component.id, False) for component in pose_file.components]
+    paths = [(component.path, component.id) for component in pose_file.components]
     listed: set[int] = set()
     for component in pose_file.components:
         for alternate in component.alternates:
             label = alternate_key(component.id, alternate.name)
-            paths.append((alternate.path, label, False))
+            paths.append((alternate.path, label))
             index = alternate.index
             if id(index) not in listed:
                 listed.add(id(index))
-                paths.append((index.group_offsets_path, f"{label}'s group_offsets", True))
-                paths.append((index.instance_offsets_path, f"{label}'s instance_offsets", True))
+                paths.append((index.group_offsets_path, f"{label}'s group_offsets"))
+                paths.append((index.instance_offsets_path, f"{label}'s instance_offsets"))
     return paths
 
 
@@ -174,27 +175,16 @@ def _check_path_collisions(pose_file: PoseFile) -> None:
         pose_file: The file's contents.
 
     Raises:
-        ValueError: If two paths collide, or two different
-            :class:`RaggedIndex` objects declare offsets at one path.
+        ValueError: If two paths collide.
     """
     owners: dict[str, str] = {}
-    offsets_paths: set[str] = set()
-    for path, owner, is_offsets in _file_paths(pose_file):
+    for path, owner in _file_paths(pose_file):
         other = owners.get(path)
-        if other is not None and is_offsets and path in offsets_paths:
-            # Each index is listed once, so this is a second index at the same
-            # offsets: one array declared twice, not two arrays.
-            raise ValueError(
-                f"{owner} and {other} are both at {path} through different RaggedIndex "
-                "objects; alternates using the same offsets must share one RaggedIndex object"
-            )
         if other is not None:
             raise ValueError(
                 f"paths collide: {owner} and {other} are both at {path}; HDF5 cannot hold both"
             )
         owners[path] = owner
-        if is_offsets:
-            offsets_paths.add(path)
     for path, owner in owners.items():
         # Every proper ancestor, so "/a" is found above "/a/b" however the
         # paths sort ("/a-c" sorts between them).
@@ -456,8 +446,7 @@ def write_pose_file(
 
     Raises:
         ValueError: If the manifest or provenance document would be invalid, if
-            two dataset paths collide, if two different :class:`RaggedIndex`
-            objects declare offsets at one path, if a block source's blocks do
+            two dataset paths collide, if a block source's blocks do
             not match its declared shape and dtype, or if the finished file
             fails validation (with ``deep``, including an alternate that
             disagrees with its baseline or that the deep check cannot decode).
