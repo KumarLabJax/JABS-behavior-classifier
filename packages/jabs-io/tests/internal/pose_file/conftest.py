@@ -216,19 +216,33 @@ def build_embedding_component(
 def build_pose_file_with_embeddings() -> PoseFile:
     """Build the sample pose file plus ``trunk.instance`` and ``trunk.frame`` embeddings.
 
-    Instance rows are NaN wherever ``jabs.pose.slot_occupied`` is false.
+    Slot 1 of frame 0 is forced empty, so at least one slot is unoccupied, and
+    instance rows are NaN wherever ``jabs.pose.slot_occupied`` is false.
 
     Returns:
         A valid pose file.
     """
     base = build_sample_pose_file()
-    occupied = np.asarray(base.component("jabs.pose.slot_occupied").data)
+    points = np.array(base.component("jabs.pose.points").data, copy=True)
+    point_valid = np.array(base.component("jabs.pose.point_valid").data, copy=True)
+    point_valid[0, 1] = False
+    points[0, 1] = np.nan
+    occupied = point_valid.any(axis=2)
+    replaced = {
+        "jabs.pose.points": points,
+        "jabs.pose.point_valid": point_valid,
+        "jabs.pose.slot_occupied": occupied,
+    }
+    pose = tuple(
+        dataclasses.replace(c, data=replaced[c.id]) if c.id in replaced else c
+        for c in base.components
+    )
     instance = build_embedding_component("trunk", "instance")
     rows = np.array(instance.data, copy=True)
     rows[~occupied] = np.nan
     instance = dataclasses.replace(instance, data=rows)
     frame = build_embedding_component("trunk", "frame")
-    return dataclasses.replace(base, components=(*base.components, instance, frame))
+    return dataclasses.replace(base, components=(*pose, instance, frame))
 
 
 @pytest.fixture

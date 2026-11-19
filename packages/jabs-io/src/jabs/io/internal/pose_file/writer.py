@@ -8,6 +8,7 @@ full disk — would otherwise cost the caller the file they already had.
 """
 
 import json
+import math
 import os
 import tempfile
 from pathlib import Path
@@ -17,6 +18,7 @@ import numpy as np
 
 from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex, alternate_key
 from jabs.io.internal.pose_file.blocks import BlockSource, ComponentData
+from jabs.io.internal.pose_file.embeddings import is_embedding_id
 from jabs.io.internal.pose_file.manifest import build_manifest, build_provenance
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -57,6 +59,15 @@ _FRAME_CHUNK = 300
 # than the interleaved values.
 _RAGGED_CHUNK = 65536
 
+# Target chunk size for an embedding, in bytes. Embeddings are read whole rows
+# at a time and their float payloads compress poorly, so they are stored
+# uncompressed, chunked along frame with every other axis whole, at about one
+# MiB a chunk: few enough chunks for a long recording, small enough that a
+# window read does not pull in much more than it asked for.
+_EMBEDDING_CHUNK_BYTES = 1_048_576
+
+_CONTIGUOUS = {"storage": "contiguous", "compression": "none"}
+
 
 def _is_keypoint_scale(component_id: str) -> bool:
     """Whether a component is stored contiguous and uncompressed.
@@ -70,25 +81,72 @@ def _is_keypoint_scale(component_id: str) -> bool:
     return component_id.startswith(_CONTIGUOUS_ID_PREFIXES)
 
 
-def _frame_major_chunks(component: Component) -> tuple[int, ...] | None:
+def _frame_major_chunks(component: Component) -> tuple[int, ...]:
     """A chunk shape that keeps a frame window contiguous within chunks.
 
     Args:
-        component: The component about to be written.
+        component: A non-empty component about to be written.
 
     Returns:
-        The chunk shape, or None when the payload is empty and cannot be
-        chunked.
+        The chunk shape.
     """
     shape = component.data.shape
-    if not shape or any(dimension == 0 for dimension in shape):
-        return None
     leading = min(_FRAME_CHUNK, shape[0])
     return (leading, *shape[1:])
 
 
+def _embedding_chunks(component: Component) -> tuple[int, ...]:
+    """A frame-major chunk shape of about ``_EMBEDDING_CHUNK_BYTES``.
+
+    Args:
+        component: A non-empty embedding component.
+
+    Returns:
+        The chunk shape: at least one frame, every other axis whole.
+    """
+    shape = component.data.shape
+    bytes_per_frame = math.prod(shape[1:]) * component.data.dtype.itemsize
+    frames = max(1, min(shape[0], _EMBEDDING_CHUNK_BYTES // bytes_per_frame))
+    return (frames, *shape[1:])
+
+
+def _honored_request(component: Component) -> dict:
+    """The layout a component requested, with chunk extents clamped to its shape.
+
+    ``Component`` has already validated the request, so only the clamp is left.
+
+    Args:
+        component: A non-empty component carrying a ``requested_layout``.
+
+    Returns:
+        The layout to apply and record; ``compression_opts`` appears only for
+        gzip.
+    """
+    request = component.requested_layout
+    compression = request.get("compression", "none")
+    if request["storage"] == "contiguous":
+        return dict(_CONTIGUOUS)
+    layout = {
+        "storage": "chunked",
+        "chunks": [
+            min(extent, max(1, length))
+            for extent, length in zip(request["chunks"], component.data.shape, strict=True)
+        ],
+        "compression": compression,
+    }
+    if compression == "gzip":
+        layout["compression_opts"] = request["compression_opts"]
+    return layout
+
+
 def _layout_for(component: Component) -> dict:
     """The storage layout this writer will apply to a component.
+
+    The single source of truth: ``_create_dataset`` creates exactly what this
+    returns, and the manifest records it. In order: an empty payload cannot be
+    chunked; a request is honored; an embedding gets its uncompressed default;
+    keypoint-scale components are contiguous; everything else is chunked
+    ``_FRAME_CHUNK`` frames at a time with gzip.
 
     Args:
         component: The component about to be written.
@@ -96,14 +154,22 @@ def _layout_for(component: Component) -> dict:
     Returns:
         The layout to record in the manifest.
     """
+    shape = component.data.shape
+    if not shape or any(dimension == 0 for dimension in shape):
+        return dict(_CONTIGUOUS)
+    if component.requested_layout is not None:
+        return _honored_request(component)
+    if is_embedding_id(component.id):
+        return {
+            "storage": "chunked",
+            "chunks": list(_embedding_chunks(component)),
+            "compression": "none",
+        }
     if _is_keypoint_scale(component.id):
-        return {"storage": "contiguous", "compression": "none"}
-    chunks = _frame_major_chunks(component)
-    if chunks is None:
-        return {"storage": "contiguous", "compression": "none"}
+        return dict(_CONTIGUOUS)
     return {
         "storage": "chunked",
-        "chunks": list(chunks),
+        "chunks": list(_frame_major_chunks(component)),
         "compression": _COMPRESSION,
         "compression_opts": _COMPRESSION_OPTS,
     }
@@ -334,18 +400,15 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
         source, data = data, None
         options.update(shape=source.shape, dtype=source.dtype)
 
-    chunks = None if _is_keypoint_scale(component.id) else _frame_major_chunks(component)
-    if chunks is None:
-        dataset = h5.create_dataset(component.path, data=data, chunks=None, **options)
+    layout = _layout_for(component)
+    if layout["storage"] == "chunked":
+        options["chunks"] = tuple(layout["chunks"])
+        if layout["compression"] != "none":
+            options["compression"] = layout["compression"]
+            options["compression_opts"] = layout.get("compression_opts")
     else:
-        dataset = h5.create_dataset(
-            component.path,
-            data=data,
-            chunks=chunks,
-            compression=_COMPRESSION,
-            compression_opts=_COMPRESSION_OPTS,
-            **options,
-        )
+        options["chunks"] = None
+    dataset = h5.create_dataset(component.path, data=data, **options)
     if source is not None:
         _write_blocks(dataset, source, component.id)
 
