@@ -8,6 +8,7 @@ requires a producer, version and creation time, and no legacy file records
 them all.
 """
 
+import base64
 import hashlib
 import math
 from collections.abc import Sequence
@@ -56,7 +57,10 @@ def legacy_attributes(h5: h5py.File) -> dict[str, dict]:
     document can parse: a non-finite float becomes the string ``"NaN"``,
     ``"Infinity"`` or ``"-Infinity"``, an empty (null-dataspace) attribute
     ``None``, and an object reference ``"<reference:{target path}>"``, or
-    ``"<reference:null>"`` for a null one.
+    ``"<reference:null>"`` for a null one. Text that is not UTF-8, whether
+    stored as bytes or handed back by h5py with surrogate escapes, becomes
+    ``{"base64": "<the stored bytes, base64>"}``, so the bytes are kept
+    exactly; that object is the only one a value can hold, and marks it.
 
     Args:
         h5: The open legacy file.
@@ -211,9 +215,10 @@ def convert_entry(
         # The id that means no tracklet: legacy tracklet 0 and every
         # unoccupied (frame, slot) carry it.
         extra["tracklet_id_none"] = 0
-    metadata = h5["poseest"].attrs.get("model_metadata_json")
-    if metadata is not None:
-        extra["model_metadata_json"] = attr_text(metadata)
+    if "model_metadata_json" in h5["poseest"].attrs:
+        # Recorded whole, as legacy_attributes records it; legacy_attributes
+        # above has already refused a value with no JSON form.
+        extra["model_metadata_json"] = _json_value(h5["poseest"].attrs["model_metadata_json"], h5)
 
     return HistoryEntry(
         operation="convert",
@@ -283,8 +288,19 @@ def _json_value(value: object, h5: h5py.File | None) -> object:
         return _reference(value, h5)
     # np.bytes_ is a bytes subclass.
     if isinstance(value, bytes):
-        return bytes(value).decode("utf-8", errors="replace")
-    if isinstance(value, bool | int | str) or value is None:
+        return _text(bytes(value))
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            # h5py decodes a variable-length string's undecodable bytes as
+            # surrogate escapes; any other lone surrogate passes through.
+            try:
+                return _text(value.encode("utf-8", "surrogateescape"))
+            except UnicodeEncodeError:
+                return _text(value.encode("utf-8", "surrogatepass"))
+        return value
+    if isinstance(value, bool | int) or value is None:
         return value
     if isinstance(value, float):
         if math.isfinite(value):
@@ -304,6 +320,15 @@ def _json_value(value: object, h5: h5py.File | None) -> object:
     if isinstance(value, list | tuple):
         return [_json_value(item, h5) for item in value]
     raise TypeError(f"a value of type {type(value).__name__} has no JSON form")
+
+
+def _text(raw: bytes) -> str | dict[str, str]:
+    """Return bytes as their UTF-8 text, or ``{"base64": ...}`` when they are not UTF-8."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # Replacing what does not decode would lose it for good.
+        return {"base64": base64.b64encode(raw).decode("ascii")}
 
 
 def _reference(reference: h5py.Reference, h5: h5py.File | None) -> str:
