@@ -9,6 +9,7 @@ it names.
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 import h5py
 import numpy as np
@@ -115,9 +116,13 @@ def _check_points(h5: h5py.File) -> None:
     assert nan[_poseest(h5, "confidence") == 0].all()
 
 
-def _frames_with(mask: npt.NDArray[np.bool_]) -> int:
-    """Count the frames (axis 0) where ``mask`` holds anywhere."""
-    return int(mask.reshape(mask.shape[0], -1).any(axis=1).sum())
+def _check_bbox(h5: h5py.File) -> None:
+    """Every instance with confidence has the bbox of its finite keypoints, ``(x, y)``."""
+    points = _poseest(h5, "points").astype(np.float64)[..., ::-1]
+    bbox = _poseest(h5, "bbox")
+    for f, i in _where((_poseest(h5, "confidence") > 0).any(axis=-1)):
+        xy = points[f, i][np.isfinite(points[f, i]).all(axis=-1)]
+        assert (bbox[f, i] == np.stack([xy.min(axis=0), xy.max(axis=0)])).all(), (f, i)
 
 
 def _check_v7_dynamic_objects(h5: h5py.File) -> None:
@@ -161,55 +166,100 @@ def _check_v8_without_centers(h5: h5py.File) -> None:
     _assert_clean(h5)
 
 
+class _Case(Protocol):
+    """The shape of ``generate.Case``, which is loaded by path."""
+
+    frames: tuple[int, ...]
+    instances: tuple[int, ...]
+    keypoint: int | None
+
+
+def _where(mask: npt.NDArray[np.bool_]) -> set[tuple[int, ...]]:
+    """Return the indexes where ``mask`` holds."""
+    return {tuple(int(v) for v in index) for index in np.argwhere(mask)}
+
+
+def _at(case: _Case) -> set[tuple[int, ...]]:
+    """Return a ``generate.Case``'s locations, as ``_where`` reports them."""
+    return {
+        (f, i) if case.keypoint is None else (f, i, case.keypoint)
+        for f in case.frames
+        for i in case.instances
+    }
+
+
+def _shared_longterm(h5: h5py.File) -> npt.NDArray[np.bool_]:
+    """Return which valid instances share their frame's ``longterm_seg_id`` with another."""
+    longterm = _poseest(h5, "longterm_seg_id")
+    valid = _valid(h5)
+    shared = np.zeros_like(valid)
+    for f in range(longterm.shape[0]):
+        values, counts = np.unique(longterm[f][valid[f]], return_counts=True)
+        shared[f] = valid[f] & np.isin(longterm[f], values[counts > 1])
+    return shared
+
+
 def _check_v8_edge_cases(h5: h5py.File) -> None:
-    """Each placement edge case in exactly one frame, and no refusal."""
+    """Each case at exactly its ``EDGE`` location, and no refusal."""
+    g = generator()
+    edge = g.EDGE
     embed = _poseest(h5, "instance_embed_id")
     valid = _valid(h5)
     masked = ~valid
     confidence = _poseest(h5, "confidence")
     unconfident = (confidence == 0).all(axis=-1)
     contour = _has_contour(h5)
-    identities = h5["poseest/instance_id_center"].shape[0]
+    assert _poseest(h5, "points").shape[:2] == (g.EDGE_FRAMES, g.EDGE_INSTANCES)
+    assert h5["poseest/instance_id_center"].shape[0] == g.EDGE_IDENTITIES
     assert h5["poseest/seg_data"].dtype == np.int16
     assert (_poseest(h5, "seg_data") >= -1).all()
     assert h5["poseest/seg_external_flag"].dtype == np.bool_
 
-    assert _frames_with(valid & (embed == 0)) == 1
-    assert _frames_with(valid & (embed > identities)) == 1
-    assert _frames_with(masked & ~unconfident) == 1
-    assert _frames_with(masked & contour.any(axis=-1) & unconfident) == 1
-    assert _frames_with(valid & contour.any(axis=-1) & unconfident) == 1
+    assert _where(valid & (embed == 0)) == _at(edge["embed_zero"])
+    assert _where(valid & (embed > g.EDGE_IDENTITIES)) == _at(edge["embed_above_identities"])
+    assert {int(embed[loc]) for loc in _at(edge["embed_above_identities"])} == {g.EDGE_EMBED_ABOVE}
+    assert _where(masked & ~unconfident) == _at(edge["masked_confident"])
+    assert _where(masked & contour.any(axis=-1) & unconfident) == _at(edge["masked_contour"])
+    assert _where(valid & contour.any(axis=-1) & unconfident) == _at(
+        edge["zero_confidence_contours"]
+    )
     exact = confidence == np.float32(0.3)
     low = (confidence > 0) & (confidence.astype(np.float64) <= 0.3) & ~exact
-    assert _frames_with(exact & valid[..., None]) == 1
-    assert _frames_with(low & valid[..., None]) == 1
-    assert _frames_with(valid & ~contour[..., 0] & contour[..., 1]) == 1
-    # A keypoint with confidence whose source coordinate is already NaN.
-    assert _nan_with_confidence(h5).sum() == 1
+    assert _where(exact & valid[..., None]) == _at(edge["threshold_exact"])
+    assert _where(low & valid[..., None]) == _at(edge["low_confidence"])
+    assert {float(confidence[loc]) for loc in _at(edge["low_confidence"])} == {
+        float(g.EDGE_LOW_CONFIDENCE)
+    }
+    assert _where(valid & ~contour[..., 0] & contour[..., 1]) == _at(edge["contour_gap"])
+    assert _where(_nan_with_confidence(h5)) == _at(edge["nan_with_confidence"])
 
-    # One frame where two valid instances share a longterm_seg_id, and their
-    # embed ids differ.
+    # Two valid instances share a longterm_seg_id, keeping their clean,
+    # distinct embed ids; the shared value is the first one's embed id.
+    shared = edge["shared_longterm"]
+    assert _where(_shared_longterm(h5)) == _at(shared)
+    (frame,) = shared.frames
+    ids = [g.clean_embed_id(i, g.EDGE_IDENTITIES) for i in shared.instances]
+    assert [int(embed[frame, i]) for i in shared.instances] == ids
+    assert len(set(ids)) == len(ids)
     longterm = _poseest(h5, "longterm_seg_id")
-    shared = [
-        f
-        for f in range(longterm.shape[0])
-        if len(longterm[f][valid[f]]) != len(set(longterm[f][valid[f]].tolist()))
-    ]
-    assert len(shared) == 1
-    frame = shared[0]
-    value = np.bincount(longterm[frame][valid[frame]]).argmax()
-    owners = valid[frame] & (longterm[frame] == value)
-    assert len(set(embed[frame][owners].tolist())) == owners.sum() == 2
+    assert {int(longterm[frame, i]) for i in shared.instances} == {ids[0]}
 
-    # Exactly one tracklet leaves its slot, for 3 frames, and comes back to
-    # the same slot.
-    gaps = _tracklet_gaps(h5)
-    assert sorted(gaps.values()) == [0] * (len(gaps) - 1) + [1]
-    (tracklet,) = [t for t, g in gaps.items() if g]
+    # Every other valid instance holds its clean embed id, so a placement test
+    # can read where it lands from clean_embed_id.
+    odd = _at(edge["embed_zero"]) | _at(edge["embed_above_identities"])
+    for f, i in _where(valid) - odd:
+        assert embed[f, i] == g.clean_embed_id(i, g.EDGE_IDENTITIES), (f, i)
+
+    # Exactly one tracklet leaves its instance for the listed frames and
+    # comes back to the same instance.
+    gap = edge["tracklet_gap"]
+    (instance,) = gap.instances
+    tracklet = g.clean_track_id(instance)
+    placed = _placed(h5)
     track = _poseest(h5, "instance_track_id")
-    rows, slots = np.nonzero(_placed(h5) & (track == tracklet))
-    assert len(set(slots.tolist())) == 1
-    assert np.diff(rows).max() == 4
+    assert _where(~placed[:, instance]) == {(f,) for f in gap.frames}
+    assert (track[placed[:, instance], instance] == tracklet).all()
+    assert {t: n for t, n in _tracklet_gaps(h5).items() if n} == {tracklet: 1}
 
     _assert_clean(h5)
 
@@ -219,20 +269,34 @@ def _check_v8_no_contours(h5: h5py.File) -> None:
     seg = h5["poseest/seg_data"]
     assert seg.dtype == np.int16 and seg.size > 0
     assert (seg[()] == -1).all()
+    assert not _poseest(h5, "seg_external_flag").any()
+    assert not _poseest(h5, "instance_seg_id").any()
+    assert not _poseest(h5, "longterm_seg_id").any()
     _assert_clean(h5)
 
 
 def _check_v8_duplicate_embed(h5: h5py.File) -> None:
-    """Embed id 2 twice in frame 100, and no other refusal."""
-    assert _duplicate_embed_frames(h5) == [100]
-    embed = _poseest(h5, "instance_embed_id")[100]
-    assert ((embed == 2) & _valid(h5)[100]).sum() == 2
+    """``DUPLICATE_EMBED_ID`` on exactly the ``DUPLICATE_EMBED`` instances, and no other refusal."""
+    g = generator()
+    case = g.DUPLICATE_EMBED
+    assert _duplicate_embed_frames(h5) == list(case.frames)
+    embed = _poseest(h5, "instance_embed_id")
+    frames = set(case.frames)
+    holders = _where(_valid(h5) & (embed == g.DUPLICATE_EMBED_ID))
+    assert {loc for loc in holders if loc[0] in frames} == _at(case)
+    assert len(case.instances) == 2
     assert _two_slot_tracklet_frames(h5) == []
 
 
 def _check_v8_tracklet_two_slots(h5: h5py.File) -> None:
-    """One tracklet id on two placed instances in one frame, and no other refusal."""
-    assert len(_two_slot_tracklet_frames(h5)) == 1
+    """The first instance's tracklet id on both ``TWO_SLOT_TRACKLET`` instances, and no other refusal."""
+    g = generator()
+    case = g.TWO_SLOT_TRACKLET
+    assert _two_slot_tracklet_frames(h5) == list(case.frames)
+    track = _poseest(h5, "instance_track_id")
+    frames = set(case.frames)
+    holders = _where(_placed(h5) & (track == g.clean_track_id(case.instances[0])))
+    assert {loc for loc in holders if loc[0] in frames} == _at(case)
     assert _duplicate_embed_frames(h5) == []
 
 
@@ -289,6 +353,8 @@ def test_each_file_carries_its_case(name: str) -> None:
         assert {"version", "cm_per_pixel"} <= set(pose.attrs)
         assert pose["points"].shape[2:] == (12, 2)
         _check_points(h5)
+        if "bbox" in pose:
+            _check_bbox(h5)
         if name != "v8-edge-cases.h5":
             assert not _nan_with_confidence(h5).any()
         assert pose["confidence"].dtype == np.float32

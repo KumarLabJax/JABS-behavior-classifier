@@ -28,6 +28,7 @@ is written.
 import json
 import sys
 from collections.abc import Callable, Collection
+from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
@@ -71,6 +72,100 @@ _POSEEST = frozenset(
     }
 )
 
+
+def clean_embed_id(instance: int, identities: int) -> int:
+    """Return the embed id legacy instance ``instance`` holds in a clean file.
+
+    A fixed rotation, not a seeded shuffle, so tests read it rather than
+    re-derive it: no instance holds ``instance + 1`` when there are two or
+    more identities, so placement by embed id always moves it, as it moves
+    about half of real instances.
+
+    Args:
+        instance: The legacy instance index, below ``identities``.
+        identities: The file's identity count.
+
+    Returns:
+        The embed id, in ``1..identities``.
+    """
+    return (instance + 1) % identities + 1
+
+
+def clean_instance_of_embed(embed: int, identities: int) -> int:
+    """Return the legacy instance that holds ``embed`` in a clean file."""
+    return next(i for i in range(identities) if clean_embed_id(i, identities) == embed)
+
+
+def clean_track_id(instance: int) -> int:
+    """Return the tracklet id legacy instance ``instance`` holds in a clean file."""
+    return instance + 1
+
+
+@dataclass(frozen=True)
+class Case:
+    """Where one case sits in a corpus file, in legacy terms.
+
+    Attributes:
+        frames: The frames that carry the case.
+        instances: The legacy instance indexes (``poseest`` axis 1) that carry
+            it, in every one of ``frames``.
+        keypoint: The keypoint, for a case on one keypoint.
+    """
+
+    frames: tuple[int, ...]
+    instances: tuple[int, ...]
+    keypoint: int | None = None
+
+
+# v8-edge-cases.h5: 120 frames, 4 instances, 3 identities. Instance 3 is empty
+# in the clean file, so the masked cases use it.
+EDGE_FRAMES = 120
+EDGE_INSTANCES = 4
+EDGE_IDENTITIES = 3
+EDGE_EMBED_ABOVE = EDGE_IDENTITIES + 1
+EDGE: dict[str, Case] = {
+    # A valid instance with embed id 0.
+    "embed_zero": Case((10,), (0,)),
+    # A valid instance with embed id EDGE_EMBED_ABOVE.
+    "embed_above_identities": Case((20,), (0,)),
+    # id_mask set, keypoint confidence above 0, no contour.
+    "masked_confident": Case((30,), (3,)),
+    # id_mask set, a contour, every confidence 0.
+    "masked_contour": Case((40,), (3,)),
+    # Two valid instances sharing a longterm_seg_id, with their clean,
+    # distinct embed ids; the shared value is the first one's embed id.
+    "shared_longterm": Case((70,), (0, 1)),
+    # Confidence exactly float32 0.3 (0.30000001192, valid under float64 > 0.3).
+    "threshold_exact": Case((80,), (0,), keypoint=0),
+    # Confidence EDGE_LOW_CONFIDENCE, above 0 and at most 0.3.
+    "low_confidence": Case((85,), (0,), keypoint=1),
+    # Contour 0 empty, contour 1 present.
+    "contour_gap": Case((90,), (0,)),
+    # Confidence above 0, coordinate already NaN (ADR 0002:1314-1315).
+    "nan_with_confidence": Case((95,), (0,), keypoint=2),
+    # The instance is empty; its tracklet, clean_track_id(1), returns at 103.
+    "tracklet_gap": Case((100, 101, 102), (1,)),
+    # A valid instance with contours and every confidence 0, in the last frame
+    # so its tracklet ends rather than gaps.
+    "zero_confidence_contours": Case((119,), (2,)),
+}
+EDGE_LOW_CONFIDENCE = np.float32(0.15)
+
+# The 3-instance, 3-identity files.
+SMALL: dict[str, int] = {"frames": 120, "instances": 3, "identities": 3}
+
+# v8-duplicate-embed.h5: the instance that holds DUPLICATE_EMBED_ID in a clean
+# file, and a second instance given it too; each keeps its own tracklet.
+DUPLICATE_EMBED_ID = 2
+_DUPLICATE_HOLDER = clean_instance_of_embed(DUPLICATE_EMBED_ID, SMALL["identities"])
+DUPLICATE_EMBED = Case(
+    (100,), tuple(sorted({_DUPLICATE_HOLDER, (_DUPLICATE_HOLDER + 1) % SMALL["instances"]}))
+)
+
+# v8-tracklet-two-slots.h5: instance 1 takes instance 0's tracklet id,
+# clean_track_id(0), in this frame only. Their embed ids stay distinct.
+TWO_SLOT_TRACKLET = Case((50,), (0, 1))
+
 MODEL_METADATA = {
     "experiment_name": "synthetic_seg_and_pose",
     "spal_model_version": "2026-01-01_00000000_0/best_PCK@0.05",
@@ -92,9 +187,9 @@ def write_legacy(
     """Write one clean legacy pose file, then let ``edits`` add its case.
 
     The clean file holds ``identities`` animals, one per instance slot, each a
-    single gap-free tracklet with confidence in ``[0.4, 1)``. Slot ``s`` holds
-    a fixed embed id from a shuffled ``1..identities``, so instances are not in
-    slot ``embed - 1``, as in about half of real instances. Slots past
+    single gap-free tracklet with confidence in ``[0.4, 1)``. Instance ``i``
+    holds embed id ``clean_embed_id(i, identities)`` and tracklet id
+    ``clean_track_id(i)`` in every frame. Slots past
     ``identities`` are empty: ``id_mask`` true, confidence 0, embed and track
     id 0, and no contours. It trips none of the converter's refusals.
 
@@ -143,9 +238,10 @@ def write_legacy(
     points[~occupied] = 0
 
     embed_of_slot = np.zeros(instances, dtype=np.uint32)
-    embed_of_slot[:identities] = rng.permutation(identities) + 1
+    embed_of_slot[:identities] = [clean_embed_id(i, identities) for i in range(identities)]
     embed = np.where(occupied, embed_of_slot, 0).astype(np.uint32)
-    track = np.where(occupied, np.arange(1, instances + 1, dtype=np.uint32), 0).astype(np.uint32)
+    track_of_slot = np.array([clean_track_id(i) for i in range(instances)], dtype=np.uint32)
+    track = np.where(occupied, track_of_slot, 0).astype(np.uint32)
     embeds = rng.normal(0, 1, (*shape, EMBEDDING)).astype(np.float32)
     embeds[~occupied] = 0
     centers = rng.normal(0, 1, (identities, EMBEDDING))
@@ -259,9 +355,11 @@ def _no_coordinate(pose: h5py.Group) -> float:
     return np.nan if pose["points"].dtype.kind == "f" else 0
 
 
-def _slot_of_embed(h5: h5py.File, embed: int) -> int:
-    """Return the slot that holds ``embed`` in the clean file's first frame."""
-    return int(np.flatnonzero(h5["poseest/instance_embed_id"][0] == embed)[0])
+def _refit_bbox(pose: h5py.Group, frame: int, slot: int) -> None:
+    """Recompute one instance's bbox from its finite keypoints, after an edit."""
+    xy = pose["points"][frame, slot][:, ::-1].astype(np.float32)
+    xy = xy[np.isfinite(xy).all(axis=-1)]
+    pose["bbox"][frame, slot] = np.stack([xy.min(axis=0), xy.max(axis=0)])
 
 
 def _dynamic_objects(h5: h5py.File) -> None:
@@ -289,49 +387,57 @@ def _dynamic_objects(h5: h5py.File) -> None:
 
 
 def _edge_cases(h5: h5py.File) -> None:
-    """Put each placement edge case in its own frame of a 3-animal, 4-slot file."""
+    """Put each case in ``EDGE`` at its location, one case per frame."""
     pose = h5["poseest"]
 
-    # Embed id 0 on a valid instance, then one above the identity count.
-    pose["instance_embed_id"][10, 0] = 0
-    pose["longterm_seg_id"][10, 0] = 0
-    pose["instance_embed_id"][20, 0] = 4
-    pose["longterm_seg_id"][20, 0] = 4
+    def at(name: str) -> tuple[int, int]:
+        """Return a single-frame, single-instance case's (frame, instance)."""
+        case = EDGE[name]
+        assert len(case.frames) == len(case.instances) == 1
+        return case.frames[0], case.instances[0]
 
-    # The tail slot 3 is empty in the clean file. A masked instance with
-    # keypoint confidence, and one with a contour but no confidence.
+    for name, embed in (("embed_zero", 0), ("embed_above_identities", EDGE_EMBED_ABOVE)):
+        frame, slot = at(name)
+        pose["instance_embed_id"][frame, slot] = embed
+        pose["longterm_seg_id"][frame, slot] = embed
+
     rng = np.random.default_rng(SEED + 1)
-    pose["points"][30, 3] = np.stack(
+    frame, slot = at("masked_confident")
+    pose["points"][frame, slot] = np.stack(
         [rng.integers(*Y_RANGE, KEYPOINTS), rng.integers(*X_RANGE, KEYPOINTS)], axis=-1
     )
-    pose["confidence"][30, 3] = rng.uniform(0.4, 1.0, KEYPOINTS).astype(np.float32)
-    _set_contours(h5, 40, 3)
+    pose["confidence"][frame, slot] = rng.uniform(0.4, 1.0, KEYPOINTS).astype(np.float32)
+    _refit_bbox(pose, frame, slot)
+    _set_contours(h5, *at("masked_contour"))
 
-    # Two valid instances, distinct embed ids, sharing one longterm_seg_id.
-    pose["longterm_seg_id"][70, 1] = pose["longterm_seg_id"][70, 0]
+    shared = EDGE["shared_longterm"]
+    first, second = shared.instances
+    pose["longterm_seg_id"][shared.frames[0], second] = pose["longterm_seg_id"][
+        shared.frames[0], first
+    ]
 
-    # The threshold: a stored float32 0.3 (0.30000001192, which counts as
-    # valid), and in another frame a keypoint at 0 < confidence <= 0.3.
-    pose["confidence"][80, 0, 0] = np.float32(0.3)
-    pose["confidence"][85, 0, 1] = np.float32(0.15)
+    for name, value in (
+        ("threshold_exact", np.float32(0.3)),
+        ("low_confidence", EDGE_LOW_CONFIDENCE),
+    ):
+        frame, slot = at(name)
+        pose["confidence"][frame, slot, EDGE[name].keypoint] = value
 
-    # A keypoint with confidence whose source coordinate is already NaN
-    # (ADR 0002:1314-1315): the converter keeps NaN, it does not invent one.
-    pose["points"][95, 0, 2] = np.nan
+    frame, slot = at("nan_with_confidence")
+    pose["points"][frame, slot, EDGE["nan_with_confidence"].keypoint] = np.nan
+    _refit_bbox(pose, frame, slot)
 
-    # A contour gap: contour 1 present, contour 0 empty.
-    _set_contours(h5, 90, 0, contour=1)
+    _set_contours(h5, *at("contour_gap"), contour=1)
 
-    # Slot 1's tracklet leaves for frames 100-102 and returns at 103.
-    for frame in range(100, 103):
-        _empty(h5, frame, 1)
+    gap = EDGE["tracklet_gap"]
+    for frame in gap.frames:
+        _empty(h5, frame, gap.instances[0])
 
-    # A valid instance with contours and every keypoint at confidence 0. It is
-    # in the last frame, so its tracklet ends rather than gaps.
-    pose["confidence"][119, 2] = 0
-    pose["points"][119, 2] = np.nan
-    pose["bbox"][119, 2] = 0
-    _set_contours(h5, 119, 2)
+    frame, slot = at("zero_confidence_contours")
+    pose["confidence"][frame, slot] = 0
+    pose["points"][frame, slot] = np.nan
+    pose["bbox"][frame, slot] = 0
+    _set_contours(h5, frame, slot)
 
 
 def _no_contours(h5: h5py.File) -> None:
@@ -340,18 +446,21 @@ def _no_contours(h5: h5py.File) -> None:
     pose["seg_data"][...] = -1
     pose["seg_external_flag"][...] = False
     pose["instance_seg_id"][...] = 0
+    pose["longterm_seg_id"][...] = 0
 
 
 def _duplicate_embed(h5: h5py.File) -> None:
-    """Give a second valid instance in frame 100 embed id 2, keeping its tracklet."""
-    other = 0 if _slot_of_embed(h5, 2) != 0 else 1
-    h5["poseest/instance_embed_id"][100, other] = 2
+    """Give both ``DUPLICATE_EMBED`` instances ``DUPLICATE_EMBED_ID``, keeping their tracklets."""
+    for instance in DUPLICATE_EMBED.instances:
+        h5["poseest/instance_embed_id"][DUPLICATE_EMBED.frames[0], instance] = DUPLICATE_EMBED_ID
 
 
 def _tracklet_two_slots(h5: h5py.File) -> None:
-    """Put slot 0's tracklet id on slot 1 too, in frame 50 only."""
+    """Put the first ``TWO_SLOT_TRACKLET`` instance's tracklet id on the second too."""
+    (frame,) = TWO_SLOT_TRACKLET.frames
+    first, second = TWO_SLOT_TRACKLET.instances
     track = h5["poseest/instance_track_id"]
-    track[50, 1] = track[50, 0]
+    track[frame, second] = track[frame, first]
 
 
 def _model_metadata(h5: h5py.File) -> None:
@@ -384,7 +493,7 @@ def main(out: Path = HERE) -> None:
             another, so a test can regenerate the corpus and compare bytes.
     """
     out.mkdir(parents=True, exist_ok=True)
-    small = {"frames": 120, "instances": 3, "identities": 3}
+    small = SMALL
     write_legacy(
         out / "v7-dynamic-objects.h5", **small, version=V7, seg=False, edits=_dynamic_objects
     )
@@ -399,9 +508,9 @@ def main(out: Path = HERE) -> None:
     )
     write_legacy(
         out / "v8-edge-cases.h5",
-        frames=120,
-        instances=4,
-        identities=3,
+        frames=EDGE_FRAMES,
+        instances=EDGE_INSTANCES,
+        identities=EDGE_IDENTITIES,
         version=V8,
         seg=True,
         edits=_edge_cases,
