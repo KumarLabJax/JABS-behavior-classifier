@@ -19,6 +19,7 @@ component's source fully before it starts the next, and the ragged byte
 range must be contiguous (spec 0029-A §2.6), so one read cannot feed both.
 """
 
+import logging
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -36,6 +37,8 @@ from jabs.io.internal.pose_file.convert.sources import (
     check_block_frames,
 )
 from jabs.io.internal.pose_file.types import Component
+
+logger = logging.getLogger(__name__)
 
 _GROUP = "/jabs/segmentation"
 _RAGGED = f"{_GROUP}/ragged"

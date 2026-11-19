@@ -10,6 +10,7 @@ The rules are ADR 0002:1294-1315 and spec 0029-A §2.3-§2.5. Everything kept is
 ``O(F*S*C)`` integers; ``seg_data`` is read one block at a time.
 """
 
+import logging
 from dataclasses import dataclass
 
 import h5py
@@ -18,6 +19,8 @@ import numpy.typing as npt
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout
+
+logger = logging.getLogger(__name__)
 
 _TRACKLET_MAX = int(np.iinfo(np.uint32).max)
 

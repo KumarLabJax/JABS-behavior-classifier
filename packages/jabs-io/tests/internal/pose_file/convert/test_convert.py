@@ -3,6 +3,7 @@
 import hashlib
 import importlib
 import json
+import logging
 import shutil
 import tracemalloc
 from pathlib import Path
@@ -609,6 +610,26 @@ def test_report_counts_rows_not_columns(tmp_path: Path) -> None:
     assert entry["extra"]["tail_slots"]["origin"] == ["masked", "embed_out_of_range"]
     assert report.tracklet_splits == 0
     assert "jabs.pose.tracklet_id" not in entry["synthesized"]
+
+
+def test_conversion_is_logged(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """The start and the finish are logged at INFO, the steps between at DEBUG."""
+    src = legacy("v8-edge-cases.h5")
+    out = tmp_path / "out.h5"
+    caplog.set_level(logging.DEBUG, logger="jabs.io.internal.pose_file.convert.convert")
+
+    report = convert_legacy(src, out)
+
+    info = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert [r.name for r in info] == ["jabs.io.internal.pose_file.convert.convert"] * 2
+    start, finish = (r.getMessage() for r in info)
+    assert str(src) in start
+    assert str(out) in start
+    assert report.format in finish
+    assert f"{report.dimensions['frame']} frames" in finish
+    assert f"{report.dimensions['slot']} slots" in finish
+    assert f"{report.tail_slots} tail" in finish
+    assert any(r.levelno == logging.DEBUG for r in caplog.records)
 
 
 def test_block_frames_for() -> None:

@@ -8,6 +8,7 @@ it and only then replaces the destination.
 """
 
 import importlib.metadata
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -32,6 +33,8 @@ from jabs.io.internal.pose_file.convert.sources import pose_components
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12, jabs_mouse12
 from jabs.io.internal.pose_file.types import PoseFile, Provenance, VideoInfo
 from jabs.io.internal.pose_file.writer import write_pose_file
+
+logger = logging.getLogger(__name__)
 
 # Dense contours are int32 and points float32: four bytes a value either way.
 _VALUE_BYTES = 4
@@ -136,6 +139,7 @@ def convert_legacy(
     """
     started = time.perf_counter()
     source, destination = Path(source), Path(destination)
+    logger.info("converting legacy pose file %s to %s", source, destination)
     # Replacing the destination would replace the legacy file with its own
     # conversion, and the Hub deletes the original once it is converted.
     if source.exists() and destination.exists() and os.path.samefile(source, destination):
@@ -147,11 +151,25 @@ def convert_legacy(
     version = importlib.metadata.version("jabs-io")
 
     layout = inspect_legacy(source)
+    logger.debug(
+        "inspected %s: %d frames, %d legacy instances, %d identities, version %s",
+        source,
+        layout.frames,
+        layout.instances,
+        layout.identity,
+        layout.version,
+    )
     block_frames = block_frames_for(layout, block_bytes)
     with h5py.File(source, "r") as h5:
         # Pass 1 runs to completion first: every refusal it makes happens with
         # nothing built and nothing written.
         plan = plan_placement(h5, layout, block_frames=block_frames)
+        logger.debug(
+            "planned %s: %d slots, read in blocks of %d frames",
+            source,
+            plan.slots,
+            block_frames,
+        )
         cm_per_pixel, cm_per_pixel_source, scale_notes = legacy_scale(h5["poseest"].attrs)
         written_video = {"width": video.width, "height": video.height, "fps": video.fps}
         convert = convert_entry(
@@ -188,12 +206,13 @@ def convert_legacy(
         components=components,
         provenance=Provenance(history=(convert,) if encode is None else (convert, encode)),
     )
+    logger.debug("writing %d components to %s", len(components), destination)
     try:
         write_pose_file(pose_file, destination, created=stamp, deep=True)
     except ValueError as error:
         raise LegacyConversionError(f"{source}: {error}") from error
 
-    return ConversionReport(
+    report = ConversionReport(
         source=source,
         destination=destination,
         format=source_format(layout),
@@ -204,3 +223,13 @@ def convert_legacy(
         dropped=layout.dropped,
         seconds=time.perf_counter() - started,
     )
+    logger.info(
+        "converted %s (%s): %d frames, %d slots, %d tail instances in %.2f seconds",
+        source,
+        report.format,
+        layout.frames,
+        plan.slots,
+        report.tail_slots,
+        report.seconds,
+    )
+    return report

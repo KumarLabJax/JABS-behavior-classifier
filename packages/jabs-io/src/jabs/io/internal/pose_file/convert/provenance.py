@@ -10,6 +10,7 @@ them all.
 
 import base64
 import hashlib
+import logging
 import math
 from collections.abc import Sequence
 from pathlib import Path
@@ -24,6 +25,8 @@ from jabs.io.internal.pose_file.convert.sources import CONFIDENCE_THRESHOLD
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12
 from jabs.io.internal.pose_file.types import Component, HistoryEntry
+
+logger = logging.getLogger(__name__)
 
 TOOL = "jabs-io"
 

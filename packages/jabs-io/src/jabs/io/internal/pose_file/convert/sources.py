@@ -16,6 +16,7 @@ is the confidence threshold alone, compared in float64. Empty slots get
 masks.
 """
 
+import logging
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -29,6 +30,8 @@ from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayou
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12
 from jabs.io.internal.pose_file.types import Component
+
+logger = logging.getLogger(__name__)
 
 # The browser's threshold (pose-adapter.ts:59), compared in float64 so that a
 # stored float32 0.3, which is 0.30000001192, counts as valid.

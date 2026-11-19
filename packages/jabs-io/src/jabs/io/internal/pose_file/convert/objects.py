@@ -8,6 +8,7 @@ stored ``(x, y)``, ``lixit`` and ``food_hopper`` ``(y, x)``
 ``axis_order`` attribute, ``"yx"`` when it is absent (``pose_est_v7.py:15-19``).
 """
 
+import logging
 from pathlib import Path
 
 import h5py
@@ -18,6 +19,8 @@ from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.types import Component
+
+logger = logging.getLogger(__name__)
 
 # Static objects stored (y, x), which are flipped.
 _FLIPPED_STATIC = frozenset({"lixit", "food_hopper"})

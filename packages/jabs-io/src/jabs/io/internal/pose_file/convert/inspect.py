@@ -10,6 +10,7 @@ Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 come from the largest valid embed id.
 """
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,8 @@ import numpy as np
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.reader import attr_text
+
+logger = logging.getLogger(__name__)
 
 KEYPOINTS = 12
 

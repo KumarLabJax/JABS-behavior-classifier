@@ -13,6 +13,7 @@ left to raise.
 """
 
 import argparse
+import logging
 import math
 import sys
 
@@ -23,6 +24,8 @@ from jabs.io.internal.pose_file.convert import (
     convert_legacy,
 )
 from jabs.io.internal.pose_file.validate import validate
+
+logger = logging.getLogger(__name__)
 
 _MEBIBYTE = 2**20
 

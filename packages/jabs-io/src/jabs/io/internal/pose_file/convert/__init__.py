@@ -1,5 +1,7 @@
 """Conversion of legacy ``pose_est_v4``..``v8`` HDF5 files to ``jabs.pose-file``."""
 
+import logging
+
 from jabs.io.internal.pose_file.convert.convert import (
     ConversionReport,
     VideoOverrides,
@@ -11,6 +13,8 @@ from jabs.io.internal.pose_file.convert.objects import object_components
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan, plan_placement
 from jabs.io.internal.pose_file.convert.segmentation import segmentation_components
 from jabs.io.internal.pose_file.convert.sources import pose_components
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ConversionReport",
