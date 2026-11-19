@@ -5,8 +5,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 import numpy.typing as npt
+import pytest
 
-from jabs.io.internal.pose_file.convert import inspect_legacy
+from jabs.io.internal.pose_file.convert import LegacyConversionError, inspect_legacy
 from jabs.io.internal.pose_file.convert.objects import object_components
 from jabs.io.internal.pose_file.types import Component
 
@@ -122,3 +123,49 @@ def test_no_objects() -> None:
     """A v8 file with only corners yields corners alone."""
     ids = set(_objects(legacy("v8-with-centers.h5")))
     assert ids == {"jabs.static_objects.corners"}
+
+
+@pytest.mark.parametrize(
+    ("member", "stored", "match"),
+    [
+        pytest.param(
+            "sample_indices",
+            np.array([0.0, 30.0]),
+            r"sample_indices has dtype float64",
+            id="float",
+        ),
+        pytest.param(
+            "counts", np.array([1, -1], dtype=np.int8), r"counts holds -1", id="negative"
+        ),
+        pytest.param(
+            "sample_indices",
+            np.array([0, 2**32], dtype=np.uint64),
+            r"sample_indices holds 4294967296",
+            id="above-uint32",
+        ),
+    ],
+)
+def test_dynamic_object_indexes_that_would_wrap_are_refused(
+    tmp_path: Path, member: str, stored: npt.NDArray[np.generic], match: str
+) -> None:
+    """``sample_indices`` and ``counts`` that are not uint32-sized integers are refused by name."""
+    gen = generator()
+
+    def add_boli(h5: h5py.File) -> None:
+        """Store a fecal_boli object with one bad index dataset."""
+        boli = h5.create_group("dynamic_objects/fecal_boli")
+        boli.create_dataset("points", data=np.zeros((2, 3, 2), dtype=np.uint16))
+        members = {
+            "counts": np.array([1, 1], dtype=np.uint8),
+            "sample_indices": np.array([0, 30], dtype=np.uint32),
+        }
+        members[member] = stored
+        for name, data in members.items():
+            boli.create_dataset(name, data=data)
+
+    path = tmp_path / "boli.h5"
+    gen.write_legacy(path, **gen.SMALL, version=gen.V7, seg=False, edits=add_boli)
+    with pytest.raises(LegacyConversionError, match=match) as caught:
+        _objects(path)
+    assert f"dynamic_objects/fecal_boli/{member}" in str(caught.value)
+    assert "boli.h5" in str(caught.value)

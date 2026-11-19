@@ -209,6 +209,27 @@ def _two_dimensional_external_ids(h5: h5py.File) -> None:
     h5["poseest"].create_dataset("external_identity_mapping", data=np.array([[b"a"], [b"b"]]))
 
 
+def _short_longterm_seg_id(h5: h5py.File) -> None:
+    """Give ``longterm_seg_id`` one fewer frame than ``points``."""
+    _replace(h5, "longterm_seg_id", h5["poseest/longterm_seg_id"][:-1])
+
+
+def _wide_instance_seg_id(h5: h5py.File) -> None:
+    """Give ``instance_seg_id`` one more instance column than ``points``."""
+    seg_id = h5["poseest/instance_seg_id"][()]
+    _replace(h5, "instance_seg_id", np.concatenate([seg_id, seg_id[:, :1]], axis=1))
+
+
+def _flat_instance_embedding(h5: h5py.File) -> None:
+    """Add an ``instance_embedding`` with no per-keypoint axis."""
+    h5["poseest"].create_dataset("instance_embedding", data=np.zeros((120, 3), dtype=np.float32))
+
+
+def _per_instance_count(h5: h5py.File) -> None:
+    """Add an ``instance_count`` with a column per instance rather than one per frame."""
+    h5["poseest"].create_dataset("instance_count", data=np.zeros((120, 3), dtype=np.uint8))
+
+
 def _unknown_static_object(h5: h5py.File) -> None:
     """Add a static object no catalog names."""
     h5.create_dataset("static_objects/water_bottle", data=np.zeros((2, 2), dtype=np.uint16))
@@ -239,6 +260,10 @@ def _unknown_static_object(h5: h5py.File) -> None:
             r"poseest/external_identity_mapping has 2 names.*3 identities",
         ),
         (_two_dimensional_external_ids, r"poseest/external_identity_mapping has shape \(2, 1\)"),
+        (_short_longterm_seg_id, r"poseest/longterm_seg_id has shape \(119, 3\)"),
+        (_wide_instance_seg_id, r"poseest/instance_seg_id has shape \(120, 4\)"),
+        (_flat_instance_embedding, r"poseest/instance_embedding has shape \(120, 3\)"),
+        (_per_instance_count, r"poseest/instance_count has shape \(120, 3\)"),
     ],
     ids=[
         "unknown-dataset",
@@ -257,6 +282,10 @@ def _unknown_static_object(h5: h5py.File) -> None:
         "text-version",
         "external-ids-length",
         "external-ids-shape",
+        "longterm-seg-id-shape",
+        "instance-seg-id-shape",
+        "instance-embedding-shape",
+        "instance-count-shape",
     ],
 )
 def test_refusals(tmp_path: Path, source: str | Callable[[h5py.File], None], match: str) -> None:

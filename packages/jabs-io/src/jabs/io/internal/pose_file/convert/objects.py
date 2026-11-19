@@ -48,14 +48,15 @@ def object_components(path: Path, layout: LegacyLayout) -> list[Component]:
 
     Raises:
         LegacyConversionError: If a static object is not ``(O, 2)`` or
-            ``(O, P, 2)``.
+            ``(O, P, 2)``, or a dynamic object's ``sample_indices`` or
+            ``counts`` are not integers in the uint32 range.
     """
     components: list[Component] = []
     with h5py.File(path, "r") as h5:
         for name in layout.static_objects:
             components.append(_static(path, name, h5["static_objects"][name]))
         for name in layout.dynamic_objects:
-            components.extend(_dynamic(name, h5["dynamic_objects"][name]))
+            components.extend(_dynamic(path, name, h5["dynamic_objects"][name]))
     return components
 
 
@@ -81,10 +82,28 @@ def _static(path: Path, name: str, dataset: h5py.Dataset) -> Component:
     )
 
 
-def _dynamic(name: str, group: h5py.Group) -> list[Component]:
+def _uint32(path: Path, dataset: h5py.Dataset) -> npt.NDArray[np.uint32]:
+    """Read an index dataset as uint32, refusing anything the cast would change."""
+    name = dataset.name.lstrip("/")
+    data = dataset[...]
+    if data.dtype.kind not in "iu":
+        raise LegacyConversionError(f"{path}: {name} has dtype {data.dtype}; expected integers")
+    limit = np.iinfo(np.uint32).max
+    bad = data[(data < 0) | (data > limit)] if data.size else data[:0]
+    if bad.size:
+        raise LegacyConversionError(
+            f"{path}: {name} holds {bad.flat[0]}, outside the uint32 range 0..{limit}"
+        )
+    return data.astype(np.uint32)
+
+
+def _dynamic(path: Path, name: str, group: h5py.Group) -> list[Component]:
     """Return one dynamic object's ``frame_index``, ``points`` and ``counts`` components."""
     prefix = f"jabs.dynamic_objects.{name}"
     index, counts = f"{prefix}.frame_index", f"{prefix}.counts"
+    # Checked before the uint32 cast, which would wrap a negative or wide value.
+    frame_index = _uint32(path, group["sample_indices"])
+    count_data = _uint32(path, group["counts"])
     points: npt.NDArray[np.float32] = group["points"][...].astype(np.float32)
     if points.ndim == 3:
         points = points[:, :, None, :]
@@ -95,7 +114,7 @@ def _dynamic(name: str, group: h5py.Group) -> list[Component]:
         Component(
             id=index,
             axes=("sample",),
-            data=group["sample_indices"][...].astype(np.uint32),
+            data=frame_index,
             missing={"policy": "none"},
             units="frame",
             # Its own index, so a clip tool filters it by the rule it applies
@@ -114,7 +133,7 @@ def _dynamic(name: str, group: h5py.Group) -> list[Component]:
         Component(
             id=counts,
             axes=("sample",),
-            data=group["counts"][...].astype(np.uint32),
+            data=count_data,
             missing={"policy": "none"},
             units="unitless",
             sparse_index=index,

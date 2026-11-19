@@ -231,6 +231,12 @@ def _check_shapes(path: Path, pose: h5py.Group, frames: int, instances: int) -> 
         "id_mask": (frames, instances),
         "instance_embed_id": (frames, instances),
         "instance_track_id": (frames, instances),
+        "longterm_seg_id": (frames, instances),
+        "instance_seg_id": (frames, instances),
+        "instance_count": (frames,),
+        # The old per-keypoint association embedding; dropped, but a misshapen
+        # one says the file is not what it claims.
+        "instance_embedding": (frames, instances, None),
         "identity_embeds": (frames, instances, None),
         "seg_data": (frames, instances, None, None, 2),
         "seg_external_flag": (frames, instances, None),
