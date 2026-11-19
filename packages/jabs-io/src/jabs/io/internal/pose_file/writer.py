@@ -53,9 +53,12 @@ _FRAME_CHUNK = 300
 # A leaf-level ragged payload is chunked along its single item axis at this many
 # rows (spec 0029-A §2.6): large enough that a whole recording's points are a
 # few hundred chunks, small enough that one frame's points cost one chunk read.
-# Byte shuffling groups the coordinates' high bytes, which compress far better
-# than the interleaved values.
 _RAGGED_CHUNK = 65536
+
+# Whether a compressed ragged payload is byte-shuffled first. Shuffling groups
+# the coordinates' high bytes, which compress far better than the interleaved
+# values.
+_RAGGED_SHUFFLE = True
 
 
 def _is_keypoint_scale(component_id: str) -> bool:
@@ -139,6 +142,30 @@ def _alternate_layout(alternate: Alternate) -> dict:
         "compression": _COMPRESSION,
         "compression_opts": _COMPRESSION_OPTS,
     }
+
+
+def _create_options(layout: dict, *, shuffle: bool = False) -> dict:
+    """The ``create_dataset`` storage options that produce a layout.
+
+    Derived from the layout the manifest records, so the two cannot disagree.
+
+    Args:
+        layout: The layout from :func:`_layout_for` or :func:`_alternate_layout`.
+        shuffle: Byte-shuffle before compressing; applies only when compressed.
+
+    Returns:
+        Keyword arguments for ``create_dataset``.
+    """
+    if layout["storage"] != "chunked":
+        return {"chunks": None}
+    options: dict = {"chunks": tuple(layout["chunks"])}
+    if layout["compression"] != "none":
+        options.update(
+            compression=layout["compression"], compression_opts=layout["compression_opts"]
+        )
+        if shuffle:
+            options["shuffle"] = True
+    return options
 
 
 def _file_paths(pose_file: PoseFile) -> list[tuple[str, str]]:
@@ -308,7 +335,7 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
         component: The component to write.
     """
     data = component.data
-    options: dict = {}
+    options = _create_options(_layout_for(component))
     if component.dtype == "string":
         # Variable-length UTF-8, so a reader on any HDF5 implementation gets
         # text rather than this machine's fixed-width padding. Converted
@@ -319,29 +346,7 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
             [_as_text(value) for value in component.data.ravel().tolist()], dtype=object
         ).reshape(component.data.shape)
         options["dtype"] = h5py.string_dtype(encoding="utf-8")
-
-    source = None
-    if isinstance(data, BlockSource):
-        # Create the dataset empty at the declared shape and fill it a block at
-        # a time, so the whole array is never in memory. The layout is the same
-        # as for an in-memory array: it depends only on the id and the shape.
-        source, data = data, None
-        options.update(shape=source.shape, dtype=source.dtype)
-
-    chunks = None if _is_keypoint_scale(component.id) else _frame_major_chunks(component)
-    if chunks is None:
-        dataset = h5.create_dataset(component.path, data=data, chunks=None, **options)
-    else:
-        dataset = h5.create_dataset(
-            component.path,
-            data=data,
-            chunks=chunks,
-            compression=_COMPRESSION,
-            compression_opts=_COMPRESSION_OPTS,
-            **options,
-        )
-    if source is not None:
-        _write_blocks(dataset, source, component.id)
+    _write_array(h5, component.path, data, component.id, **options)
 
 
 def _write_array(
@@ -398,18 +403,12 @@ def _write_ragged_set(
         for component_id, alternate in members:
             if alternate.level != level:
                 continue
-            chunks = _ragged_chunks(alternate)
-            options: dict = {"chunks": chunks}
-            if chunks is not None:
-                options.update(
-                    compression=_COMPRESSION, compression_opts=_COMPRESSION_OPTS, shuffle=True
-                )
             _write_array(
                 h5,
                 alternate.path,
                 alternate.data,
                 alternate_key(component_id, alternate.name),
-                **options,
+                **_create_options(_alternate_layout(alternate), shuffle=_RAGGED_SHUFFLE),
             )
 
 
