@@ -26,7 +26,9 @@ class BlockSource:
 
     ``blocks`` is a callable rather than an iterable so that nothing can
     consume the blocks by accident: validation reads only ``shape``, ``ndim``,
-    ``size`` and ``dtype``, and the writer calls ``blocks()`` once.
+    ``size`` and ``dtype``, and the writer calls ``blocks()`` once. Blocks whose
+    row count is a multiple of the dataset's chunk rows avoid recompressing
+    chunks split across blocks.
 
     Attributes:
         shape: The full array's shape.
