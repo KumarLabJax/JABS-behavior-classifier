@@ -265,18 +265,83 @@ def test_refusals_leave_nothing(tmp_path: Path, name: str) -> None:
     assert src.read_bytes() == before
 
 
-def test_write_failure_is_a_conversion_error(tmp_path: Path) -> None:
-    """A file the writer rejects is refused as a conversion error, leaving nothing behind."""
-    src = tmp_path / "bad-scale.h5"
+@pytest.mark.parametrize(
+    ("scale", "source", "written", "nulled"),
+    [
+        pytest.param(
+            np.float32(-1),
+            "corner_detection",
+            (None, None),
+            ("video.cm_per_pixel is null", "video.cm_per_pixel_source is null"),
+            id="negative-scale",
+        ),
+        pytest.param(
+            np.float64(np.nan),
+            None,
+            (None, None),
+            ("video.cm_per_pixel is null",),
+            id="nan-scale",
+        ),
+        pytest.param(
+            np.float32(0.0794),
+            b"eyeballed",
+            (pytest.approx(0.0794), None),
+            ("video.cm_per_pixel_source is null",),
+            id="unknown-source",
+        ),
+    ],
+)
+def test_unusable_scale_is_unknown(
+    tmp_path: Path,
+    scale: np.floating,
+    source: str | bytes | None,
+    written: tuple[object, object],
+    nulled: tuple[str, ...],
+) -> None:
+    """A scale or source the manifest cannot hold is written as null, noted, and kept raw."""
+    src = tmp_path / "odd-scale.h5"
     shutil.copyfile(legacy("v8-with-centers.h5"), src)
     with h5py.File(src, "r+") as h5:
-        # The manifest schema admits only a positive scale.
-        h5["poseest"].attrs["cm_per_pixel"] = np.float32(-1)
+        h5["poseest"].attrs["cm_per_pixel"] = scale
+        if source is not None:
+            h5["poseest"].attrs["cm_per_pixel_source"] = source
     out = tmp_path / "out.h5"
-    with pytest.raises(LegacyConversionError, match="cm_per_pixel"):
-        convert_legacy(src, out)
-    assert not out.exists()
-    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
+    convert_legacy(src, out, video=VideoOverrides(800, 800, 30.0))
+
+    video = read_pose_file(out).video
+    assert (video.cm_per_pixel, video.cm_per_pixel_source) == written
+    (entry,) = _history(out)
+    for note in nulled:
+        assert note in entry["notes"]
+    if "video.cm_per_pixel is null" in nulled:
+        assert "not a positive number" in entry["notes"]
+    if source == b"eyeballed":
+        assert "not a recognized source" in entry["notes"]
+    raw = entry["extra"]["legacy_attributes"]["poseest"]
+    if np.isnan(scale):
+        # JSON NaN parses back as a float NaN.
+        assert np.isnan(raw["cm_per_pixel"])
+    else:
+        assert raw["cm_per_pixel"] == scale.item()
+    if source is not None:
+        assert raw["cm_per_pixel_source"] == (
+            source.decode() if isinstance(source, bytes) else source
+        )
+
+
+def test_write_failure_is_a_conversion_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file the writer rejects is refused as a conversion error naming the source."""
+    module = importlib.import_module("jabs.io.internal.pose_file.convert.convert")
+
+    def reject(*args: object, **kwargs: object) -> None:
+        """Fail as the writer does on an invalid file."""
+        raise ValueError("refusing to write an invalid pose file: test")
+
+    monkeypatch.setattr(module, "write_pose_file", reject)
+    with pytest.raises(LegacyConversionError, match="v8-with-centers.h5: refusing"):
+        convert_legacy(legacy("v8-with-centers.h5"), tmp_path / "out.h5")
 
 
 def test_report(tmp_path: Path) -> None:
@@ -348,9 +413,11 @@ def test_memory_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
 
     # A budget that gives both conversions 900-frame blocks.
     assert block_frames_for(layout, 1) == BLOCK_FRAMES
-    # The deep check reads in its own blocks, of up to 64 MiB, so below that
-    # it holds a whole file's contours. Shrunk to about 900 frames' worth, it
-    # is bounded the same way and the comparison measures the converter.
+    # The deep check reads in its own blocks, capped at the constant
+    # DEEP_CHECK_BLOCK_BYTES (64 MiB). That cap is a fixed ceiling, so total
+    # memory stays bounded, but below it the deep check holds the whole of a
+    # small file's contours. Shrunk to about 900 frames' worth, it is bounded
+    # the same way as the converter, and the comparison measures the converter.
     deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
     frame_bytes = layout.instances * layout.contour_axis * layout.point_axis * 2 * 4
     monkeypatch.setattr(deep_check, "DEEP_CHECK_BLOCK_BYTES", BLOCK_FRAMES * frame_bytes)

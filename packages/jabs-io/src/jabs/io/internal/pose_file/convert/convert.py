@@ -23,11 +23,11 @@ from jabs.io.internal.pose_file.convert.provenance import (
     convert_entry,
     encode_entry,
     legacy_hash,
+    legacy_scale,
     source_format,
 )
 from jabs.io.internal.pose_file.convert.segmentation import segmentation_components
 from jabs.io.internal.pose_file.convert.sources import pose_components
-from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12, jabs_mouse12
 from jabs.io.internal.pose_file.types import PoseFile, Provenance, VideoInfo
 from jabs.io.internal.pose_file.writer import write_pose_file
@@ -144,8 +144,7 @@ def convert_legacy(
         # Pass 1 runs to completion first: every refusal it makes happens with
         # nothing built and nothing written.
         plan = plan_placement(h5, layout, block_frames=block_frames)
-        cm_per_pixel = h5["poseest"].attrs.get("cm_per_pixel")
-        cm_per_pixel_source = h5["poseest"].attrs.get("cm_per_pixel_source")
+        cm_per_pixel, cm_per_pixel_source, scale_notes = legacy_scale(h5["poseest"].attrs)
         written_video = {"width": video.width, "height": video.height, "fps": video.fps}
         convert = convert_entry(
             h5=h5,
@@ -155,6 +154,7 @@ def convert_legacy(
             version=version,
             time=stamp,
             video=written_video,
+            scale_notes=scale_notes,
         )
 
     # In spec 0029-A §2.6's order: keypoint-scale data before segmentation,
@@ -173,8 +173,8 @@ def convert_legacy(
             width=video.width,
             height=video.height,
             fps=video.fps,
-            cm_per_pixel=float(cm_per_pixel) if cm_per_pixel is not None else None,
-            cm_per_pixel_source=attr_text(cm_per_pixel_source),
+            cm_per_pixel=cm_per_pixel,
+            cm_per_pixel_source=cm_per_pixel_source,
         ),
         skeletons={JABS_MOUSE12: jabs_mouse12()},
         components=components,

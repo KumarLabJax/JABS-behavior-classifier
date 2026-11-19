@@ -9,6 +9,7 @@ them all.
 """
 
 import hashlib
+import math
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -26,6 +27,8 @@ TOOL = "jabs-io"
 
 _HASH_CHUNK = 2**20
 _VIDEO_FIELDS = ("width", "height", "fps")
+# The manifest schema's cm_per_pixel_source values, null aside.
+_SCALE_SOURCES = frozenset({"corner_detection", "manually_set", "default_alignment"})
 
 
 def legacy_hash(path: Path) -> str:
@@ -68,6 +71,60 @@ def legacy_attributes(h5: h5py.File) -> dict[str, dict]:
     return found
 
 
+def legacy_scale(attrs: h5py.AttributeManager) -> tuple[float | None, str | None, tuple[str, ...]]:
+    """Return the ``poseest`` scale and its source as the manifest can hold them.
+
+    A value the manifest cannot hold is written as unknown rather than
+    refusing the file: the converter only passes the scale through, and ADR
+    0002 prefers an explicit unknown. The raw value stays in
+    ``legacy_attributes``.
+
+    Args:
+        attrs: The ``poseest`` group's attributes.
+
+    Returns:
+        ``cm_per_pixel`` (a finite number above 0, else None),
+        ``cm_per_pixel_source`` (a schema value, else None, and None whenever
+        the scale is) and one note per value that was present but nulled.
+    """
+    notes = []
+    raw_scale = attrs.get("cm_per_pixel")
+    scale = None
+    if raw_scale is not None:
+        number = _json_value(raw_scale)
+        if isinstance(number, list) and len(number) == 1:
+            number = number[0]
+        if (
+            isinstance(number, int | float)
+            and not isinstance(number, bool)
+            and math.isfinite(number)
+            and number > 0
+        ):
+            scale = float(number)
+        else:
+            notes.append(
+                f"video.cm_per_pixel is null: the legacy value {number!r} is not a positive number."
+            )
+
+    raw_source = attrs.get("cm_per_pixel_source")
+    source = None
+    if raw_source is not None:
+        text = attr_text(raw_source)
+        if text not in _SCALE_SOURCES:
+            notes.append(
+                f"video.cm_per_pixel_source is null: the legacy value "
+                f"{_json_value(raw_source)!r} is not a recognized source."
+            )
+        elif scale is None:
+            notes.append(
+                f"video.cm_per_pixel_source is null: the legacy value {text!r} is the source "
+                "of a scale that is not written, and means nothing without it."
+            )
+        else:
+            source = text
+    return scale, source, tuple(notes)
+
+
 def convert_entry(
     *,
     h5: h5py.File,
@@ -77,6 +134,7 @@ def convert_entry(
     version: str,
     time: str,
     video: dict[str, object],
+    scale_notes: Sequence[str] = (),
 ) -> HistoryEntry:
     """Return the ``convert`` history entry for one legacy file.
 
@@ -88,6 +146,7 @@ def convert_entry(
         version: This package's version.
         time: The conversion's ISO 8601 timestamp.
         video: The written ``width``, ``height`` and ``fps``; None where unknown.
+        scale_notes: ``legacy_scale``'s notes on scale values written as null.
 
     Returns:
         The entry.
@@ -102,12 +161,14 @@ def convert_entry(
     if plan.tracklet_splits:
         synthesized.append("jabs.pose.tracklet_id")
     unknown = [f"video.{name}" for name in _VIDEO_FIELDS if video[name] is None]
-    notes = (
-        f"{_join(unknown)} {'is' if len(unknown) == 1 else 'are'} null: "
-        "not recorded in legacy pose files."
-        if unknown
-        else None
-    )
+    sentences = list(scale_notes)
+    if unknown:
+        sentences.insert(
+            0,
+            f"{_join(unknown)} {'is' if len(unknown) == 1 else 'are'} null: "
+            "not recorded in legacy pose files.",
+        )
+    notes = " ".join(sentences) or None
 
     extra: dict = {
         "tail_slots": list(plan.tail_slots),
