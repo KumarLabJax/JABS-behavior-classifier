@@ -181,7 +181,7 @@ def convert_legacy(
         provenance=Provenance(history=(convert,) if encode is None else (convert, encode)),
     )
     try:
-        write_pose_file(pose_file, destination, created=created, deep=True)
+        write_pose_file(pose_file, destination, created=stamp, deep=True)
     except ValueError as error:
         raise LegacyConversionError(f"{source}: {error}") from error
 
@@ -189,7 +189,7 @@ def convert_legacy(
         source=source,
         destination=destination,
         format=source_format(layout),
-        dimensions=dimensions,
+        dimensions=dict(dimensions),
         tail_slots=len(plan.tail_slots),
         tracklet_splits=len(plan.tracklet_splits),
         longterm_mismatches=len(plan.longterm_mismatches),

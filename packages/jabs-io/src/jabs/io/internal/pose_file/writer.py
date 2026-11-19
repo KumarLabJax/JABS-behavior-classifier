@@ -434,7 +434,8 @@ def write_pose_file(
             is not caught.
 
     Raises:
-        ValueError: If the manifest or provenance document would be invalid, if
+        ValueError: If the manifest or provenance document would be invalid or
+            is not strict JSON (a NaN or infinity anywhere in it), if
             two dataset paths collide, if a block source's blocks do
             not match its declared shape and dtype, or if the finished file
             fails validation (with ``deep``, including an alternate that
@@ -463,8 +464,20 @@ def write_pose_file(
     # Serialize before opening anything: a value the schema admits can still be
     # unserializable (numpy integer scalars, for one), and discovering that
     # after the destination has been truncated destroys the caller's file.
-    manifest_json = json.dumps(manifest)
-    provenance_json = json.dumps(provenance)
+    # Strict JSON: NaN and infinity are Python extensions that Go's and
+    # JavaScript's parsers reject, so a file carrying them is unreadable there.
+    try:
+        manifest_json = json.dumps(manifest, allow_nan=False)
+    except ValueError as error:
+        raise ValueError(
+            f"refusing to write an invalid pose file: the manifest is not strict JSON: {error}"
+        ) from error
+    try:
+        provenance_json = json.dumps(provenance, allow_nan=False)
+    except ValueError as error:
+        raise ValueError(
+            f"refusing to write an invalid pose file: the provenance is not strict JSON: {error}"
+        ) from error
 
     string_dtype = h5py.string_dtype(encoding="utf-8")
     handle, temporary = tempfile.mkstemp(

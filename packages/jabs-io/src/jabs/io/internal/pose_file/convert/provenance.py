@@ -16,6 +16,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan
 from jabs.io.internal.pose_file.convert.sources import CONFIDENCE_THRESHOLD
@@ -54,17 +55,42 @@ def legacy_attributes(h5: h5py.File) -> dict[str, dict]:
     Args:
         h5: The open legacy file.
 
+    The values are strict JSON, which every consumer of the provenance
+    document can parse: a non-finite float becomes the string ``"NaN"``,
+    ``"Infinity"`` or ``"-Infinity"``, an empty (null-dataspace) attribute
+    ``None``, and an object reference ``"<reference:{target path}>"``, or
+    ``"<reference:null>"`` for a null one.
+
+    Args:
+        h5: The open legacy file.
+
     Returns:
         ``{path: {name: value}}``, ``"/"`` for the root and otherwise the path
         without its leading slash, for each group or dataset that has
         attributes.
+
+    Raises:
+        LegacyConversionError: If an attribute cannot be read or has a kind
+            with no JSON form, such as a compound value, naming its path and
+            name.
     """
     found: dict[str, dict] = {}
 
     def collect(name: str, obj: h5py.HLObject) -> None:
         """Record one object's attributes, if it has any."""
-        if len(obj.attrs):
-            found[name] = {key: _json_value(value) for key, value in obj.attrs.items()}
+        if not len(obj.attrs):
+            return
+        values = {}
+        for key in obj.attrs:
+            try:
+                values[key] = _json_value(obj.attrs[key], h5)
+            except (TypeError, ValueError, OSError) as error:
+                # Leaving it out would lose it for good once the Hub deletes
+                # the original.
+                raise LegacyConversionError(
+                    f"{h5.filename}: attribute {key!r} of {name} cannot be recorded: {error}"
+                ) from error
+        found[name] = values
 
     collect("/", h5)
     h5.visititems(collect)
@@ -91,7 +117,11 @@ def legacy_scale(attrs: h5py.AttributeManager) -> tuple[float | None, str | None
     raw_scale = attrs.get("cm_per_pixel")
     scale = None
     if raw_scale is not None:
-        number = _json_value(raw_scale)
+        try:
+            number = _json_value(raw_scale, None)
+        except (TypeError, ValueError):
+            # legacy_attributes refuses it, naming it.
+            number = repr(raw_scale)
         if isinstance(number, list) and len(number) == 1:
             number = number[0]
         if (
@@ -113,7 +143,8 @@ def legacy_scale(attrs: h5py.AttributeManager) -> tuple[float | None, str | None
         if text not in _SCALE_SOURCES:
             notes.append(
                 f"video.cm_per_pixel_source is null: the legacy value "
-                f"{_json_value(raw_source)!r} is not a recognized source."
+                f"{text if text is not None else repr(raw_source)!r} is not a recognized "
+                "source."
             )
         elif scale is None:
             notes.append(
@@ -245,16 +276,41 @@ def _join(names: list[str]) -> str:
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def _json_value(value: object) -> object:
-    """Return an HDF5 attribute value as plain JSON: numbers, strings, bools and lists."""
+def _json_value(value: object, h5: h5py.File | None) -> object:
+    """Return an HDF5 attribute value as strict JSON; raise TypeError when it has no JSON form."""
+    if isinstance(value, h5py.Empty):
+        return None
+    if isinstance(value, h5py.Reference):
+        return _reference(value, h5)
     # np.bytes_ is a bytes subclass.
     if isinstance(value, bytes):
         return bytes(value).decode("utf-8", errors="replace")
+    if isinstance(value, bool | int | str) or value is None:
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        # Strict JSON has no NaN or infinity; strings keep the value.
+        return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
     if isinstance(value, np.ndarray):
-        # A 0-d array's tolist() is a scalar, not a list.
-        return _json_value(value.tolist())
+        if value.dtype.names is not None:
+            raise TypeError(f"a compound value of dtype {value.dtype} has no JSON form")
+        # A 0-d array's tolist() is a scalar, not a list; an object array's
+        # holds the objects (strings, references), converted in turn.
+        return _json_value(value.tolist(), h5)
+    if isinstance(value, np.void):
+        raise TypeError(f"a compound value of dtype {value.dtype} has no JSON form")
     if isinstance(value, np.generic):
-        return _json_value(value.item())
+        return _json_value(value.item(), h5)
     if isinstance(value, list | tuple):
-        return [_json_value(item) for item in value]
-    return value
+        return [_json_value(item, h5) for item in value]
+    raise TypeError(f"a value of type {type(value).__name__} has no JSON form")
+
+
+def _reference(reference: h5py.Reference, h5: h5py.File | None) -> str:
+    """Return an object reference as ``"<reference:{target path}>"``, or ``"<reference:null>"``."""
+    if not reference:
+        return "<reference:null>"
+    if h5 is None:
+        raise TypeError("an object reference cannot be resolved without its file")
+    return f"<reference:{h5[reference].name}>"

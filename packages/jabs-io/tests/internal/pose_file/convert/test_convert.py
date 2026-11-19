@@ -44,10 +44,15 @@ SAMPLE_NAMES = ("sample_pose_est_v4.h5", "sample_pose_est_v5.h5", "sample_pose_e
 CREATED = "2026-11-18T00:00:00+00:00"
 
 
+def _not_json(token: str) -> None:
+    """Refuse the NaN and infinity tokens strict JSON parsers (Go, JavaScript) reject."""
+    raise ValueError(f"{token} is not strict JSON")
+
+
 def _provenance(path: Path) -> dict:
-    """Read a pose file's provenance document."""
+    """Read a pose file's provenance document, as a strict JSON parser would."""
     with h5py.File(path, "r") as h5:
-        return json.loads(h5["provenance"][()])
+        return json.loads(h5["provenance"][()], parse_constant=_not_json)
 
 
 def _history(path: Path) -> list[dict]:
@@ -319,14 +324,83 @@ def test_unusable_scale_is_unknown(
         assert "not a recognized source" in entry["notes"]
     raw = entry["extra"]["legacy_attributes"]["poseest"]
     if np.isnan(scale):
-        # JSON NaN parses back as a float NaN.
-        assert np.isnan(raw["cm_per_pixel"])
+        # Strict JSON has no NaN; the string keeps the raw value.
+        assert raw["cm_per_pixel"] == "NaN"
     else:
         assert raw["cm_per_pixel"] == scale.item()
     if source is not None:
         assert raw["cm_per_pixel_source"] == (
             source.decode() if isinstance(source, bytes) else source
         )
+
+
+def test_every_attribute_kind_is_recorded_as_json(tmp_path: Path) -> None:
+    """Non-finite floats, empty attributes and references all get a strict JSON form."""
+    src = tmp_path / "kinds.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        attrs = h5["poseest/points"].attrs
+        attrs["nan"] = np.float32(np.nan)
+        attrs["limits"] = np.array([np.inf, -np.inf, 1.5])
+        attrs["empty"] = h5py.Empty("f4")
+        attrs["target"] = h5["poseest/confidence"].ref
+        attrs["nowhere"] = h5py.Reference()
+        attrs["targets"] = np.array(
+            [h5["poseest/bbox"].ref, h5py.Reference()], dtype=h5py.ref_dtype
+        )
+    out = tmp_path / "out.h5"
+    convert_legacy(src, out)
+
+    (entry,) = _history(out)
+    assert entry["extra"]["legacy_attributes"]["poseest/points"] == {
+        "nan": "NaN",
+        "limits": ["Infinity", "-Infinity", 1.5],
+        "empty": None,
+        "target": "<reference:/poseest/confidence>",
+        "nowhere": "<reference:null>",
+        "targets": ["<reference:/poseest/bbox>", "<reference:null>"],
+    }
+
+
+def test_a_compound_attribute_is_refused_by_name(tmp_path: Path) -> None:
+    """An attribute with no JSON form is refused, naming where it is, and nothing is written."""
+    src = tmp_path / "compound.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        h5["poseest/points"].attrs["calibration"] = np.array(
+            (1, 2.0), dtype=[("a", "i4"), ("b", "f4")]
+        )
+    out = tmp_path / "out.h5"
+    with pytest.raises(LegacyConversionError, match="'calibration' of poseest/points"):
+        convert_legacy(src, out)
+    assert not out.exists()
+
+
+def test_a_failed_deep_check_leaves_the_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the writer's own validation fails, the destination keeps its bytes and no temp is left."""
+    deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
+    finding = deep_check.Finding(deep_check.ERROR, "alternate_decodes", "planted for the test")
+    monkeypatch.setattr(deep_check, "validate", lambda path, deep=False: [finding])
+    out = tmp_path / "out.h5"
+    sentinel = b"an earlier conversion"
+    out.write_bytes(sentinel)
+
+    with pytest.raises(LegacyConversionError, match="planted for the test"):
+        convert_legacy(legacy("v8-edge-cases.h5"), out)
+    assert out.read_bytes() == sentinel
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
+
+
+def test_created_is_shared_by_manifest_and_history(tmp_path: Path) -> None:
+    """Without ``created``, the manifest and the history carry one timestamp."""
+    out = tmp_path / "out.h5"
+    convert_legacy(legacy("v8-with-centers.h5"), out)
+    with h5py.File(out, "r") as h5:
+        created = json.loads(h5["manifest"][()])["created"]
+    (entry,) = _history(out)
+    assert entry["time"] == created
 
 
 def test_write_failure_is_a_conversion_error(
