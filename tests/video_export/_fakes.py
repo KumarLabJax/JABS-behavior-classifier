@@ -32,6 +32,8 @@ class StubPose:
         # overlay_segmentation() checks the pose version before asking for contours
         self.format_major_version = 6 if has_segmentation else 5
         self.segmentation_calls: list[tuple[int, int]] = []
+        # The PoseEstimation base class defaults this to an empty dict.
+        self.static_objects: dict = {}
         # Contour data, shaped the way a pose file stores it: a fixed number of
         # slots and points per identity, padded with -1 where unused.
         self._contours = None

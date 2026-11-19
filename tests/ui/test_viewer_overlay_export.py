@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
 import pytest
 
 try:
@@ -12,7 +13,7 @@ try:
     from jabs.ui.viewer import overlay_export
     from jabs.ui.viewer.overlay_export import ExportSource, OverlayChoice, OverlayExporter
 
-    ALL_OVERLAYS = OverlayChoice(pose=True, segmentation=True, bounding_boxes=True)
+    ALL_OVERLAYS = OverlayChoice(pose=True, segmentation=True, bounding_boxes=True, landmarks=True)
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -60,11 +61,14 @@ def exporter(player) -> "OverlayExporter":
     return OverlayExporter(QWidget(), player, mock.Mock())
 
 
-def _fake_pose(*, segmentation: bool = True, boxes: bool = True) -> mock.Mock:
+def _fake_pose(
+    *, segmentation: bool = True, boxes: bool = True, landmarks: bool = True
+) -> mock.Mock:
     pose = mock.Mock()
     pose.has_segmentation = segmentation
     pose.has_bounding_boxes = boxes
     pose.format_major_version = 8 if boxes else 6
+    pose.static_objects = {"corners": np.zeros((4, 2))} if landmarks else {}
     return pose
 
 
@@ -95,7 +99,7 @@ def _patch_frame_dialog(
 def test_export_frame_saves_raw_frame_and_overlay_copy(monkeypatch, exporter, player) -> None:
     """A video frame is saved bare, plus a copy with the displayed overlays."""
     _patch_frame_dialog(monkeypatch, selected="/tmp/still")
-    overlays = OverlayChoice(pose=True, segmentation=False, bounding_boxes=True)
+    overlays = OverlayChoice(pose=True, segmentation=False, bounding_boxes=True, landmarks=False)
 
     saved = exporter.export_frame(ExportSource(VIDEO_PATH, _fake_pose()), overlays)
 
@@ -104,7 +108,11 @@ def test_export_frame_saves_raw_frame_and_overlay_copy(monkeypatch, exporter, pl
     player.get_raw_frame.assert_called_once_with(42)
     player.get_raw_frame.return_value.save.assert_called_once_with("/tmp/still.png", "PNG")
     player.get_overlay_frame.assert_called_once_with(
-        42, draw_pose=True, draw_segmentation=False, draw_bounding_boxes=True
+        42,
+        draw_pose=True,
+        draw_segmentation=False,
+        draw_bounding_boxes=True,
+        draw_landmarks=False,
     )
     player.get_overlay_frame.return_value.save.assert_called_once_with(
         "/tmp/still-overlay.png", "PNG"
@@ -191,6 +199,7 @@ def video_dialogs(monkeypatch):
     options.draw_pose = False
     options.draw_segmentation = True
     options.draw_bounding_boxes = True
+    options.draw_landmarks = True
     options_cls = mock.Mock(return_value=options)
     monkeypatch.setattr(overlay_export, "VideoExportOptionsDialog", options_cls)
 
@@ -216,6 +225,7 @@ def test_export_video_starts_thread_with_chosen_overlays(exporter, video_dialogs
     assert args == (VIDEO_PATH, Path("/tmp/clip.mp4"), pose, True)
     assert kwargs["draw_pose"] is False
     assert kwargs["draw_bounding_boxes"] is True
+    assert kwargs["draw_landmarks"] is True
     assert kwargs["frames"] is None
     video_dialogs.thread_cls.return_value.start.assert_called_once()
     start = video_dialogs.save.getSaveFileName.call_args.args[2]
@@ -224,7 +234,7 @@ def test_export_video_starts_thread_with_chosen_overlays(exporter, video_dialogs
 
 def test_export_video_offers_boxes_but_not_labels(exporter, video_dialogs) -> None:
     """The dialog starts from the displayed overlays and has no project-only options."""
-    overlays = OverlayChoice(pose=True, segmentation=False, bounding_boxes=True)
+    overlays = OverlayChoice(pose=True, segmentation=False, bounding_boxes=True, landmarks=False)
 
     exporter.export_video(ExportSource(VIDEO_PATH, _fake_pose()), overlays)
 
@@ -232,21 +242,28 @@ def test_export_video_offers_boxes_but_not_labels(exporter, video_dialogs) -> No
     assert kwargs["draw_pose"] is True
     assert kwargs["draw_segmentation"] is False
     assert kwargs["draw_bounding_boxes"] is True
+    assert kwargs["draw_landmarks"] is False
     assert kwargs["offer_bounding_boxes"] is True
+    assert kwargs["offer_landmarks"] is True
     assert kwargs["offer_labels"] is False
     assert kwargs["segmentation_unavailable"] is None
     assert kwargs["bounding_boxes_unavailable"] is None
+    assert kwargs["landmarks_unavailable"] is None
 
 
-def test_export_video_explains_missing_segmentation_and_boxes(exporter, video_dialogs) -> None:
-    """A pose file without segmentation or boxes disables those options with a reason."""
+def test_export_video_explains_missing_segmentation_boxes_and_landmarks(
+    exporter, video_dialogs
+) -> None:
+    """A pose file without segmentation, boxes or landmarks disables them with a reason."""
     exporter.export_video(
-        ExportSource(VIDEO_PATH, _fake_pose(segmentation=False, boxes=False)), ALL_OVERLAYS
+        ExportSource(VIDEO_PATH, _fake_pose(segmentation=False, boxes=False, landmarks=False)),
+        ALL_OVERLAYS,
     )
 
     kwargs = video_dialogs.options_cls.call_args.kwargs
     assert kwargs["segmentation_unavailable"]
     assert "version 8" in kwargs["bounding_boxes_unavailable"]
+    assert "landmarks" in kwargs["landmarks_unavailable"]
 
 
 def test_export_video_of_pose_only_draws_over_the_given_frames(exporter, video_dialogs) -> None:

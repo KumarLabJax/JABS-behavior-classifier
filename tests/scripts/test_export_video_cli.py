@@ -117,6 +117,21 @@ def test_segmentation_defaults_on(video: Path, export_spy: mock.Mock) -> None:
     assert export_spy.call_args.kwargs["draw_segmentation"] is True
 
 
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [((), False), (("--landmarks",), True), (("--no-landmarks",), False)],
+    ids=["default-off", "on", "off"],
+)
+def test_landmarks_flag(
+    video: Path, export_spy: mock.Mock, flags: tuple[str, ...], expected: bool
+) -> None:
+    """--landmarks/--no-landmarks reaches the exporter, and landmarks are opt-in."""
+    result = _invoke(str(video), *flags)
+
+    assert result.exit_code == 0, result.output
+    assert export_spy.call_args.kwargs["draw_landmarks"] is expected
+
+
 def test_codec_defaults_to_the_exporters_choice(video: Path, export_spy: mock.Mock) -> None:
     """Omitting --codec passes None, so the exporter picks the best available codec."""
     _invoke(str(video))

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QProgressDialog
 
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import ClassifierMode, PredictionType
+from jabs.overlay_drawing import pose_has_landmarks
 from jabs.pose_estimation import PoseEstimationV6
 from jabs.utils import check_for_update
 
@@ -55,6 +56,7 @@ _SETTINGS_EXPORT_VIDEO_SEGMENTATION = "ui/export_overlay_video_segmentation"
 _SETTINGS_EXPORT_VIDEO_POSE = "ui/export_overlay_video_pose"
 _SETTINGS_EXPORT_VIDEO_PREDICTIONS = "ui/export_overlay_video_predictions"
 _SETTINGS_EXPORT_VIDEO_LABELS = "ui/export_overlay_video_labels"
+_SETTINGS_EXPORT_VIDEO_LANDMARKS = "ui/export_overlay_video_landmarks"
 
 
 class UpdateCheckThread(QtCore.QThread):
@@ -175,7 +177,11 @@ class MenuHandlers:
         overlay_saved = False
         if save_overlay:
             overlay_path = str(Path(save_path).with_name(f"{Path(save_path).stem}-overlay.png"))
-            overlay_pixmap = player.get_overlay_frame(frame_number)
+            # Landmarks follow the on-screen toggle, so the copy shows what the user sees.
+            overlay_pixmap = player.get_overlay_frame(
+                frame_number,
+                draw_landmarks=self.window._menu_refs.overlay_landmark.isChecked(),
+            )
             if overlay_pixmap is None:
                 MessageDialog.warning(self.window, message="No overlay frame available to export.")
             elif not overlay_pixmap.save(overlay_path, "PNG"):
@@ -239,6 +245,13 @@ class MenuHandlers:
             segmentation_unavailable=segmentation_unavailable,
             labels_unavailable=label_markers.labels_unavailable,
             predictions_unavailable=label_markers.predictions_unavailable,
+            draw_landmarks=settings.value(_SETTINGS_EXPORT_VIDEO_LANDMARKS, False, type=bool),
+            landmarks_unavailable=(
+                None
+                if pose_has_landmarks(pose_est)
+                else "This pose file has no arena landmarks (corners, lixit or food hopper)"
+            ),
+            offer_landmarks=True,
         )
         if options.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return  # user cancelled
@@ -257,6 +270,8 @@ class MenuHandlers:
         settings.setValue(_SETTINGS_EXPORT_VIDEO_POSE, draw_pose)
         if options.segmentation_enabled:
             settings.setValue(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, draw_segmentation)
+        if options.landmarks_enabled:
+            settings.setValue(_SETTINGS_EXPORT_VIDEO_LANDMARKS, options.draw_landmarks)
         if options.labels_enabled:
             settings.setValue(_SETTINGS_EXPORT_VIDEO_LABELS, options.draw_labels)
         if options.predictions_enabled:
@@ -300,6 +315,7 @@ class MenuHandlers:
             draw_segmentation,
             parent=self.window,
             draw_pose=draw_pose,
+            draw_landmarks=options.draw_landmarks,
             label_overlay=label_overlay,
         )
         # A plain QProgressDialog rather than the cancelable dialog used for training

@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
+import numpy as np
 import pytest
 
 from jabs.pose_estimation import PoseEstimationV5, PoseEstimationV6
@@ -54,9 +55,11 @@ def handler_setup():
             ),
         ),
         _settings=MagicMock(),
+        _menu_refs=SimpleNamespace(overlay_landmark=MagicMock()),
         display_status_message=MagicMock(),
     )
     window._settings.value.return_value = ""
+    window._menu_refs.overlay_landmark.isChecked.return_value = False
     return MenuHandlers(window), window, player
 
 
@@ -177,9 +180,14 @@ def test_export_frame_write_failure_uses_error_message(monkeypatch, handler_setu
     window.display_status_message.assert_not_called()
 
 
-def test_export_frame_saves_overlay_copy(monkeypatch, handler_setup):
-    """With the checkbox enabled, a second -overlay.png copy is written and reported."""
+@pytest.mark.parametrize("landmarks_shown", [True, False], ids=["landmarks-on", "landmarks-off"])
+def test_export_frame_saves_overlay_copy(monkeypatch, handler_setup, landmarks_shown: bool):
+    """With the checkbox enabled, a second -overlay.png copy is written and reported.
+
+    The copy draws landmarks exactly when they are shown on screen.
+    """
     handler, window, player = handler_setup
+    window._menu_refs.overlay_landmark.isChecked.return_value = landmarks_shown
     pixmap = MagicMock()
     pixmap.save.return_value = True
     player.get_raw_frame.return_value = pixmap
@@ -194,7 +202,7 @@ def test_export_frame_saves_overlay_copy(monkeypatch, handler_setup):
     handler.export_frame()
 
     pixmap.save.assert_called_once_with("/tmp/video_frame000042.png", "PNG")
-    player.get_overlay_frame.assert_called_once_with(42)
+    player.get_overlay_frame.assert_called_once_with(42, draw_landmarks=landmarks_shown)
     overlay_pixmap.save.assert_called_once_with("/tmp/video_frame000042-overlay.png", "PNG")
     window._settings.setValue.assert_any_call(_SETTINGS_EXPORT_OVERLAY, True)
     window.display_status_message.assert_called_once_with(
@@ -259,8 +267,9 @@ def test_handle_select_current_bout_delegates_to_central_widget():
 class _FakeV6Pose:
     """Stands in for a v6+ pose object, with segmentation optionally present."""
 
-    def __init__(self, has_segmentation: bool) -> None:
+    def __init__(self, has_segmentation: bool, static_objects: dict | None = None) -> None:
         self.has_segmentation = has_segmentation
+        self.static_objects = static_objects or {}
 
 
 class _FakeLabelMarkers:
@@ -318,9 +327,11 @@ def _patch_video_export_dialogs(
     draw_segmentation: bool = True,
     draw_labels: bool = False,
     draw_predictions: bool = False,
+    draw_landmarks: bool = False,
     segmentation_enabled: bool = True,
     labels_enabled: bool = True,
     predictions_enabled: bool = True,
+    landmarks_enabled: bool = True,
 ):
     """Replace the overlay options dialog and the save dialog with controllable mocks.
 
@@ -337,6 +348,8 @@ def _patch_video_export_dialogs(
     options.draw_segmentation = draw_segmentation
     options.draw_labels = draw_labels
     options.draw_predictions = draw_predictions
+    options.draw_landmarks = draw_landmarks
+    options.landmarks_enabled = landmarks_enabled
     options.segmentation_enabled = segmentation_enabled
     options.labels_enabled = labels_enabled
     options.predictions_enabled = predictions_enabled
@@ -549,6 +562,43 @@ def test_export_overlay_video_persists_available_choices_only(video_export_setup
     assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_LABELS in saved
     assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_SEGMENTATION not in saved
     assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_PREDICTIONS not in saved
+
+
+@pytest.mark.parametrize(
+    ("static_objects", "unavailable"),
+    [({"corners": np.zeros((4, 2))}, False), ({}, True)],
+    ids=["has-landmarks", "no-landmarks"],
+)
+def test_export_overlay_video_offers_landmarks(
+    video_export_setup, monkeypatch, static_objects: dict, unavailable: bool
+):
+    """Landmarks are offered, disabled with a reason when the pose file has none."""
+    handlers, _window, player, thread_cls, _thread = video_export_setup
+    player.pose_est = _FakeV6Pose(has_segmentation=True, static_objects=static_objects)
+    options_cls, _options, _save_dialog = _patch_video_export_dialogs(
+        monkeypatch, draw_landmarks=not unavailable
+    )
+
+    handlers.export_overlay_video()
+
+    kwargs = options_cls.call_args.kwargs
+    assert kwargs["offer_landmarks"] is True
+    assert (kwargs["landmarks_unavailable"] is not None) is unavailable
+    assert thread_cls.call_args.kwargs["draw_landmarks"] is (not unavailable)
+
+
+@pytest.mark.parametrize("enabled", [True, False], ids=["available", "forced-off"])
+def test_export_overlay_video_persists_landmarks_only_when_available(
+    video_export_setup, monkeypatch, enabled: bool
+):
+    """The landmark choice is remembered only when the user could make it."""
+    handlers, window, _player, _thread_cls, _thread = video_export_setup
+    _patch_video_export_dialogs(monkeypatch, landmarks_enabled=enabled)
+
+    handlers.export_overlay_video()
+
+    saved = {c.args[0] for c in window._settings.setValue.call_args_list}
+    assert (menu_handlers_module._SETTINGS_EXPORT_VIDEO_LANDMARKS in saved) is enabled
 
 
 def test_export_overlay_video_thread_deletes_itself_on_finished(video_export_setup, monkeypatch):

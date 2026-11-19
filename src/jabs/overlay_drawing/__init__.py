@@ -16,10 +16,12 @@ exports cannot drift apart:
   by both exports.
 * the per-identity bounding box (:func:`draw_identity_bounding_box`), drawn by both
   exports; the on-screen overlay draws its own clickable, palette-colored boxes.
-* the movement track (:func:`draw_identity_track`), the arena landmarks
-  (:func:`draw_landmarks`) and the marker that calls out one animal
-  (:func:`draw_identity_marker`), drawn by the player only so far, though the exports
-  could offer them now that the drawing is shared.
+* the arena landmarks (:func:`draw_landmarks`), drawn by the on-screen
+  :class:`~jabs.ui.player_widget.overlays.landmark_overlay.LandmarkOverlay` and by both
+  exports.
+* the movement track (:func:`draw_identity_track`) and the marker that calls out one
+  animal (:func:`draw_identity_marker`), drawn by the player only so far, though the
+  exports could offer them now that the drawing is shared.
 
 The only thing that differs between callers is how image coordinates map to the
 painter's coordinate space, so that mapping is passed in as ``to_output``, and how
@@ -72,6 +74,8 @@ from .landmarks import (
     LANDMARK_LIXIT_COLOR,
     LANDMARK_POINT_RADIUS,
     draw_landmarks,
+    native_landmark_sizes,
+    pose_has_landmarks,
 )
 from .markers import (
     CLOSEST_FOV_MARKER_COLOR,
@@ -140,9 +144,11 @@ __all__ = [
     "label_marker_color",
     "native_bounding_box_sizes",
     "native_label_marker_sizes",
+    "native_landmark_sizes",
     "native_overlay_scale",
     "native_pose_sizes",
     "native_segmentation_line_width",
     "pose_has_bounding_boxes",
+    "pose_has_landmarks",
     "segmentation_prediction_color",
 ]

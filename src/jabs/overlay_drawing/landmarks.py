@@ -3,7 +3,8 @@
 Landmarks are the static objects a pose file records for the arena itself: its
 corners, one or more lixit, and a food hopper. They do not move, so they are drawn
 from the pose file's static objects rather than per frame. Drawn by the on-screen
-:class:`~jabs.ui.player_widget.overlays.landmark_overlay.LandmarkOverlay`.
+:class:`~jabs.ui.player_widget.overlays.landmark_overlay.LandmarkOverlay` and by the
+frame and video exports in :mod:`jabs.video_export`.
 
 Replaces the cv2 drawing that used to bake landmarks into the frame as it was decoded.
 The colors are the ones that drawing used, converted from its BGR tuples.
@@ -11,11 +12,13 @@ The colors are the ones that drawing used, converted from its BGR tuples.
 
 from collections.abc import Callable
 
+import numpy as np
 from PySide6 import QtCore, QtGui
 
 from jabs.pose_estimation import PoseEstimation
 
 from .mapping import visible_runs
+from .scaling import native_overlay_scale
 
 LANDMARK_CORNER_COLOR = QtGui.QColor(252, 135, 0)
 LANDMARK_LIXIT_COLOR = QtGui.QColor(0, 222, 215)
@@ -27,6 +30,48 @@ LANDMARK_LINE_WIDTH = 1
 
 # A lixit is recorded either as one keypoint or as three.
 _LIXIT_KEYPOINTS_3 = 3
+
+# The static objects draw_landmarks knows how to draw.
+_DRAWN_STATIC_OBJECTS = ("corners", "lixit", "food_hopper")
+
+
+def pose_has_landmarks(pose: PoseEstimation) -> bool:
+    """Return whether a pose file carries any arena landmarks to draw.
+
+    Args:
+        pose: Pose estimation to check.
+
+    Returns:
+        True if the pose file records at least one point for the arena corners, a
+        lixit, or the food hopper. An empty dataset does not count: it would enable
+        an overlay that draws nothing.
+    """
+    return any(_has_points(pose.static_objects.get(name)) for name in _DRAWN_STATIC_OBJECTS)
+
+
+def _has_points(static_object: object) -> bool:
+    """Return whether a static object is an array holding at least one point."""
+    return isinstance(static_object, np.ndarray) and static_object.size > 0
+
+
+def native_landmark_sizes(width: int, height: int) -> tuple[int, int]:
+    """Return ``(point_radius, line_width)`` for drawing landmarks at native resolution.
+
+    Sizes come from :func:`~jabs.overlay_drawing.scaling.native_overlay_scale`, which
+    explains why they grow sub-linearly with the frame.
+
+    Args:
+        width: Frame width in pixels.
+        height: Frame height in pixels.
+
+    Returns:
+        Tuple of ``(point_radius, line_width)`` in pixels.
+    """
+    scale = native_overlay_scale(width, height)
+    return (
+        max(LANDMARK_POINT_RADIUS, round(LANDMARK_POINT_RADIUS * scale)),
+        max(LANDMARK_LINE_WIDTH, round(LANDMARK_LINE_WIDTH * scale)),
+    )
 
 
 def draw_landmarks(

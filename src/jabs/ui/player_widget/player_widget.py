@@ -480,6 +480,7 @@ class PlayerWidget(QtWidgets.QWidget):
         draw_pose: bool = True,
         draw_segmentation: bool = True,
         draw_bounding_boxes: bool = False,
+        draw_landmarks: bool = False,
     ) -> QtGui.QPixmap | None:
         """Return a frame at original resolution with pose and segmentation overlays.
 
@@ -496,6 +497,8 @@ class PlayerWidget(QtWidgets.QWidget):
             draw_pose: Whether to draw the pose keypoints and skeleton.
             draw_segmentation: Whether to draw segmentation contours, when available.
             draw_bounding_boxes: Whether to draw bounding boxes, when available (v8+).
+            draw_landmarks: Whether to draw the arena landmarks, when the pose file
+                records any.
 
         Returns:
             A QPixmap at native video resolution with overlays drawn, or None if no
@@ -523,6 +526,7 @@ class PlayerWidget(QtWidgets.QWidget):
             draw_pose=draw_pose,
             draw_segmentation=draw_segmentation,
             draw_bounding_boxes=draw_bounding_boxes,
+            draw_landmarks=draw_landmarks,
         )
 
         rgb = np.ascontiguousarray(rendered[..., ::-1])  # BGR -> RGB

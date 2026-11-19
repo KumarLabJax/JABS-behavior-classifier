@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from jabs.overlay_drawing import pose_has_bounding_boxes
+from jabs.overlay_drawing import pose_has_bounding_boxes, pose_has_landmarks
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.ui.dialogs import MessageDialog
 from jabs.ui.player_widget import PlayerWidget
@@ -30,11 +30,11 @@ class ViewerWindow(QtWidgets.QMainWindow):
     """Window that plays a video or a pose file with pose and segmentation overlays.
 
     When the opened video has a JABS pose file beside it (``<video>_pose_est_v<N>.h5``)
-    the pose skeletons and, when the pose file has them, segmentation contours and
-    bounding boxes are drawn over the video. A pose file can also be opened on its own,
-    and is played over a solid background. Each overlay can be toggled from the View
-    menu or the toolbar, and the current frame or the whole video can be exported with
-    the overlays drawn from the File menu.
+    the pose skeletons and, when the pose file has them, segmentation contours,
+    bounding boxes and arena landmarks are drawn over the video. A pose file can also
+    be opened on its own, and is played over a solid background. Each overlay can be
+    toggled from the View menu or the toolbar, and the current frame or the whole
+    video can be exported with the overlays drawn from the File menu.
     """
 
     def __init__(self, app_name: str, parent: QtWidgets.QWidget | None = None) -> None:
@@ -89,6 +89,15 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._bbox_action.setShortcut(QtGui.QKeySequence("B"))
         self._bbox_action.toggled.connect(self._player.overlay_bounding_boxes)
 
+        self._landmarks_action = QtGui.QAction("Overlay &Landmarks", self)
+        self._landmarks_action.setCheckable(True)
+        self._landmarks_action.setChecked(True)
+        self._landmarks_action.setShortcut(QtGui.QKeySequence("L"))
+        self._landmarks_action.setStatusTip(
+            "Show the arena landmarks (corners, lixit and food hopper) the pose file records"
+        )
+        self._landmarks_action.toggled.connect(self._player.overlay_landmarks)
+
         self._exporter = OverlayExporter(self, self._player, self.statusBar().showMessage)
 
         self._export_frame_action = QtGui.QAction("Export &Frame...", self)
@@ -98,8 +107,8 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
         self._export_video_action = QtGui.QAction("Export &Video with Overlays...", self)
         self._export_video_action.setStatusTip(
-            "Export a copy of the video with the pose, segmentation and bounding box "
-            "overlays drawn on every frame"
+            "Export a copy of the video with the pose, segmentation, bounding box and "
+            "landmark overlays drawn on every frame"
         )
         self._export_video_action.triggered.connect(self.export_video)
 
@@ -116,6 +125,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self._pose_action)
         view_menu.addAction(self._segmentation_action)
         view_menu.addAction(self._bbox_action)
+        view_menu.addAction(self._landmarks_action)
         view_menu.addSeparator()
         self._frame_size_action = view_menu.addAction("Set &Frame Size...")
         self._frame_size_action.triggered.connect(self._prompt_frame_size)
@@ -130,12 +140,14 @@ class ViewerWindow(QtWidgets.QMainWindow):
         toolbar.addAction(self._pose_action)
         toolbar.addAction(self._segmentation_action)
         toolbar.addAction(self._bbox_action)
+        toolbar.addAction(self._landmarks_action)
 
         # Apply the initial overlay state to the player; the toggled signals only fire on
         # a change.
         self._set_pose_overlay(self._pose_action.isChecked())
         self._player.overlay_segmentation(self._segmentation_action.isChecked())
         self._player.overlay_bounding_boxes(self._bbox_action.isChecked())
+        self._player.overlay_landmarks(self._landmarks_action.isChecked())
         self._update_overlay_controls()
 
         self.statusBar().showMessage("Open a video or pose file to begin (File menu)")
@@ -316,6 +328,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
             pose=self._pose_action.isChecked(),
             segmentation=self._segmentation_action.isChecked(),
             bounding_boxes=self._bbox_action.isChecked(),
+            landmarks=self._landmarks_action.isChecked(),
         )
 
     def set_frame_size(self, width: int, height: int) -> None:
@@ -443,9 +456,11 @@ class ViewerWindow(QtWidgets.QMainWindow):
         has_pose = self._pose_est is not None
         has_segmentation = has_pose and getattr(self._pose_est, "has_segmentation", False)
         has_bboxes = has_pose and pose_has_bounding_boxes(self._pose_est)
+        has_landmarks = has_pose and pose_has_landmarks(self._pose_est)
         self._pose_action.setEnabled(has_pose)
         self._segmentation_action.setEnabled(has_segmentation)
         self._bbox_action.setEnabled(has_bboxes)
+        self._landmarks_action.setEnabled(has_landmarks)
         self._frame_size_action.setEnabled(pose_only)
         self._export_frame_action.setEnabled(self._player.num_frames > 0)
         self._export_video_action.setEnabled(has_pose)

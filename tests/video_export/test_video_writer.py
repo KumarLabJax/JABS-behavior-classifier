@@ -427,6 +427,7 @@ def test_overlay_choices_reach_the_renderer(
         draw_pose=False,
         draw_segmentation=False,
         draw_bounding_boxes=True,
+        draw_landmarks=True,
         label_overlay=overlay,
     )
 
@@ -437,6 +438,7 @@ def test_overlay_choices_reach_the_renderer(
             "draw_pose": False,
             "draw_segmentation": False,
             "draw_bounding_boxes": True,
+            "draw_landmarks": True,
             "label_overlay": overlay,
         }
         for call in seen
