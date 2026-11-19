@@ -36,8 +36,10 @@ This document is **project 1 of 5**. The full sequence, agreed in conversation:
   normalization/projection), without trusting the producer-chosen name.
 - Embeddings can be stored compactly (**float16**) and the producer can choose their **storage
   layout and compression**.
-- Embedding components survive the generic tooling the ADR already defines: validation, frame-range
-  clipping, read-then-write round trips, lazy frame-window reads.
+- Embedding components work with the generic tooling `jabs-io` already has: validation,
+  read-then-write round trips, lazy frame-window reads. (Clipping is not implemented in `jabs-io`
+  yet; embeddings are clip-ready by construction — `frame` is axis 0 — but no clip tool is built
+  here. *(Claude's call.)*)
 
 ## Non-goals
 
@@ -188,7 +190,10 @@ Validator rules (new):
 - If both `<name>.instance` and `<name>.frame` exist, their descriptors may differ only in `kind`,
   `pooling` and `fingerprint` (same model, weights, tap, window, normalization, projection, dim).
   *(Claude's call: a name means one tap; a different tap needs a different name.)*
-- Deep check (opt-in, `deep=True`): no partially-NaN rows.
+- Deep check (opt-in, `deep=True`): no partially-NaN rows; and, **when `jabs.pose.slot_occupied`
+  exists**, every per-instance row where it is false is all-NaN (error). A `.instance` embedding
+  is legal in a file without `jabs.pose.slot_occupied`; the check is then skipped. *(Claude's
+  call.)*
 
 Semantics of the fingerprint: it is the consumer's comparability key. Two embeddings with equal
 fingerprints are interchangeable for training/prediction; names are labels only. Pooling is in the
@@ -205,9 +210,22 @@ inference parameters, carry details).
 
 ### Storage layout: producer-selectable
 
-- `Component` gains an optional requested layout (`storage`, `chunks`, `compression`,
-  `compression_opts`, same vocabulary as the manifest `layout` field). When given, the writer
-  applies it and records it; when absent, the writer's default policy applies.
+*(Claude's calls in this section, settled after builder review.)*
+
+- `Component` gains a **new** optional field `requested_layout` (`storage`, `chunks`,
+  `compression`, `compression_opts`, same vocabulary as the manifest `layout` field). The existing
+  `Component.layout` keeps its current meaning (what the file actually has; the writer's choice
+  wins).
+- A request is honored **only for `jabs.embedding.*` and foreign (non-`jabs`) components**. A
+  request on any other `jabs.*` component is a `ValueError` — `jabs.pose.*` stays contiguous for
+  the Hub's byte-range overlay, and segmentation keeps its policy.
+- When honored, the writer applies it and records the result in the manifest `layout`. A frame
+  chunk larger than the frame axis (short or clipped data) is clamped to the axis length, minimum
+  1; the manifest records the clamped value.
+- Round trip: for `jabs.embedding.*` and foreign components only, the reader populates
+  `requested_layout` from the manifest `layout`, so read-then-write keeps their layout. All other
+  components are re-laid-out by policy exactly as today, so files without embeddings behave
+  unchanged. No manifest schema change for this.
 - Validation of a requested layout: any legal HDF5 chunk shape is accepted (rank matches, each
   extent ≥ 1); contiguous + compression is rejected (HDF5 requires chunking for filters). Allowed
   compression: `none`, `gzip` (opts 0–9), `lzf`.
@@ -225,9 +243,10 @@ and belongs in the pose file; features **computed by JABS** from pose file conte
 
 ### Clipping, round-trip, reading
 
-- Clipping: no new rules; the generic frame-axis slice applies. Descriptor is unchanged by clipping
-  (it describes the model, not the frames).
-- Read-then-write must preserve components, descriptors and requested layouts.
+- Clipping (when a clip tool exists): no new rules; the generic frame-axis slice applies. ADR 0003
+  states the descriptor is unchanged by clipping (it describes the model, not the frames).
+- Read-then-write must preserve components, descriptors and (for embedding/foreign components)
+  layouts.
 - `read_component(path, "jabs.embedding.trunk.instance", frames=slice(...))` works as for any
   dense component; float16 comes back as float16 (consumer upcasts).
 - A small helper `list_embeddings(manifest) -> list[EmbeddingInfo]` (name, kind, dim, fingerprint,
