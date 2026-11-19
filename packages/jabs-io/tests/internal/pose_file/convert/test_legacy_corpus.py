@@ -97,6 +97,24 @@ def _assert_clean(h5: h5py.File) -> None:
     assert "mystery" not in h5["poseest"]
 
 
+def _nan_with_confidence(h5: h5py.File) -> npt.NDArray[np.bool_]:
+    """Return, per keypoint, whether its coordinate is NaN although its confidence is above 0."""
+    nan = np.isnan(_poseest(h5, "points")).any(axis=-1)
+    return nan & (_poseest(h5, "confidence") > 0)
+
+
+def _check_points(h5: h5py.File) -> None:
+    """``points`` is uint16 through v7; float32 in v8, NaN at every zero-confidence keypoint."""
+    points = _poseest(h5, "points")
+    if h5["poseest"].attrs["version"][0] < 8:
+        assert points.dtype == np.uint16
+        return
+    assert points.dtype == np.float32
+    nan = np.isnan(points)
+    assert (nan[..., 0] == nan[..., 1]).all()
+    assert nan[_poseest(h5, "confidence") == 0].all()
+
+
 def _frames_with(mask: npt.NDArray[np.bool_]) -> int:
     """Count the frames (axis 0) where ``mask`` holds anywhere."""
     return int(mask.reshape(mask.shape[0], -1).any(axis=1).sum())
@@ -166,6 +184,8 @@ def _check_v8_edge_cases(h5: h5py.File) -> None:
     assert _frames_with(exact & valid[..., None]) == 1
     assert _frames_with(low & valid[..., None]) == 1
     assert _frames_with(valid & ~contour[..., 0] & contour[..., 1]) == 1
+    # A keypoint with confidence whose source coordinate is already NaN.
+    assert _nan_with_confidence(h5).sum() == 1
 
     # One frame where two valid instances share a longterm_seg_id, and their
     # embed ids differ.
@@ -259,12 +279,18 @@ def test_samples_point_at_the_repository_root() -> None:
 
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_each_file_carries_its_case(name: str) -> None:
-    """Each file has the v4+ datasets the samples have, and its own case."""
+    """Each file has the v4+ datasets the samples have, and its own case.
+
+    Only ``v8-edge-cases.h5`` has a NaN coordinate on a keypoint with
+    confidence; everywhere else NaN means confidence 0.
+    """
     with h5py.File(legacy(name), "r") as h5:
         pose = h5["poseest"]
         assert {"version", "cm_per_pixel"} <= set(pose.attrs)
-        assert pose["points"].dtype == np.uint16
         assert pose["points"].shape[2:] == (12, 2)
+        _check_points(h5)
+        if name != "v8-edge-cases.h5":
+            assert not _nan_with_confidence(h5).any()
         assert pose["confidence"].dtype == np.float32
         assert pose["id_mask"].dtype == np.bool_
         CASES[name](h5)

@@ -13,8 +13,10 @@ refuse. Each file carries one case, and a refusal file carries no other
 refusal, so a test that expects one fails for the reason it names.
 
 Dataset names, dtypes and shapes follow the public samples and upstream's
-``pose_est_v5.py``..``pose_est_v8.py`` readers: ``points`` is ``uint16``
-``(y, x)``, ``seg_data`` is ``int16`` ``(x, y)`` padded with ``-1``, and
+``pose_est_v5.py``..``pose_est_v8.py`` readers: ``points`` is ``(y, x)``,
+``uint16`` through v7 as in the samples and ``float32`` in v8 with ``NaN`` at
+every zero-confidence keypoint, as the Hub's real v8 files store it;
+``seg_data`` is ``int16`` ``(x, y)`` padded with ``-1``, and
 ``id_mask`` true marks an instance with no identity. Every stored coordinate
 pair has ``y != x``, so a missing or extra flip cannot pass unnoticed.
 
@@ -96,8 +98,10 @@ def write_legacy(
     ``identities`` are empty: ``id_mask`` true, confidence 0, embed and track
     id 0, and no contours. It trips none of the converter's refusals.
 
-    By version: v5 and later add ``static_objects/corners``; v8 adds
-    ``poseest/bbox`` with ``bboxes_generated`` true. ``seg`` adds
+    By version: v5 and later add ``static_objects/corners``; v8 stores
+    ``points`` as ``float32`` with ``NaN`` wherever confidence is 0 (the Hub's
+    census of real v8 files found every such coordinate already ``NaN``), and
+    adds ``poseest/bbox`` with ``bboxes_generated`` true. ``seg`` adds
     ``seg_data``, ``seg_external_flag``, ``instance_seg_id`` (index + 1) and
     ``longterm_seg_id`` (the embed id), as the Hub's segmentation model writes
     them.
@@ -157,6 +161,9 @@ def write_legacy(
     }
     if version[0] >= 8:
         datasets["bbox"] = _bbox(points, occupied)
+        floats = points.astype(np.float32)
+        floats[confidence == 0] = np.nan
+        datasets["points"] = floats
     if seg:
         seg_data, external = _segmentation(rng, occupied)
         datasets["seg_data"] = seg_data
@@ -233,7 +240,7 @@ def _set_contours(h5: h5py.File, frame: int, slot: int, *, contour: int = 0) -> 
 def _empty(h5: h5py.File, frame: int, slot: int) -> None:
     """Make one slot empty in one frame, as an unfilled legacy slot is."""
     pose = h5["poseest"]
-    pose["points"][frame, slot] = 0
+    pose["points"][frame, slot] = _no_coordinate(pose)
     pose["confidence"][frame, slot] = 0
     pose["id_mask"][frame, slot] = True
     pose["instance_embed_id"][frame, slot] = 0
@@ -245,6 +252,11 @@ def _empty(h5: h5py.File, frame: int, slot: int) -> None:
         pose["seg_external_flag"][frame, slot] = False
         pose["instance_seg_id"][frame, slot] = 0
         pose["longterm_seg_id"][frame, slot] = 0
+
+
+def _no_coordinate(pose: h5py.Group) -> float:
+    """Return what a zero-confidence keypoint stores: ``NaN`` in float points, else 0."""
+    return np.nan if pose["points"].dtype.kind == "f" else 0
 
 
 def _slot_of_embed(h5: h5py.File, embed: int) -> int:
@@ -303,6 +315,10 @@ def _edge_cases(h5: h5py.File) -> None:
     pose["confidence"][80, 0, 0] = np.float32(0.3)
     pose["confidence"][85, 0, 1] = np.float32(0.15)
 
+    # A keypoint with confidence whose source coordinate is already NaN
+    # (ADR 0002:1314-1315): the converter keeps NaN, it does not invent one.
+    pose["points"][95, 0, 2] = np.nan
+
     # A contour gap: contour 1 present, contour 0 empty.
     _set_contours(h5, 90, 0, contour=1)
 
@@ -313,7 +329,7 @@ def _edge_cases(h5: h5py.File) -> None:
     # A valid instance with contours and every keypoint at confidence 0. It is
     # in the last frame, so its tracklet ends rather than gaps.
     pose["confidence"][119, 2] = 0
-    pose["points"][119, 2] = 0
+    pose["points"][119, 2] = np.nan
     pose["bbox"][119, 2] = 0
     _set_contours(h5, 119, 2)
 
