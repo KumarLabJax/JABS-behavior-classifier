@@ -52,9 +52,6 @@ def legacy_hash(path: Path) -> str:
 def legacy_attributes(h5: h5py.File) -> dict[str, dict]:
     """Return every attribute of the legacy file, keyed by HDF5 path, as JSON values.
 
-    Args:
-        h5: The open legacy file.
-
     The values are strict JSON, which every consumer of the provenance
     document can parse: a non-finite float becomes the string ``"NaN"``,
     ``"Infinity"`` or ``"-Infinity"``, an empty (null-dataspace) attribute

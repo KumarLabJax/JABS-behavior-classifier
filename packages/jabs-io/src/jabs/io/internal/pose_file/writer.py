@@ -407,6 +407,12 @@ def write_pose_file(
     destination's directory which is then moved into place. A failure at any
     point leaves an existing destination untouched.
 
+    Both documents must be strict JSON, which every consumer can parse: a
+    non-finite float (``NaN``, infinity) anywhere in the manifest or the
+    provenance, including a history entry's ``extra``, is refused rather than
+    written. A caller holding such a value records it some other way, as a
+    string.
+
     Datasets are written in component order. Each ragged set -- one
     :class:`RaggedIndex` and every alternate decoded through it, under any
     name -- is written immediately before the first component that carries
