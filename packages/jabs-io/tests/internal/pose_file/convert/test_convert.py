@@ -194,10 +194,7 @@ def test_provenance_records_the_conversion(tmp_path: Path) -> None:
         "jabs.pose.slot_occupied",
         "dimensions.identity",
     ]
-    assert entry["extra"]["point_valid"] == {
-        "confidence_threshold": 0.3,
-        "requires_finite_coordinates": True,
-    }
+    assert entry["extra"]["point_valid"] == {"confidence_threshold": 0.3}
     assert entry["extra"]["tail_slots"] == []
     assert entry["extra"]["tracklet_splits"] == []
     assert entry["extra"]["longterm_mismatches"] == []

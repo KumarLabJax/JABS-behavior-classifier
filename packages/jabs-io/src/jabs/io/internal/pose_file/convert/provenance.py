@@ -207,10 +207,7 @@ def convert_entry(
         "tracklet_splits": list(plan.tracklet_splits),
         # The policy point_valid was derived by (ADR 0002:752); the converter
         # writes no record to carry it.
-        "point_valid": {
-            "confidence_threshold": CONFIDENCE_THRESHOLD,
-            "requires_finite_coordinates": True,
-        },
+        "point_valid": {"confidence_threshold": CONFIDENCE_THRESHOLD},
         "legacy_attributes": legacy_attributes(h5),
     }
     if plan.tracklet_id is not None:
