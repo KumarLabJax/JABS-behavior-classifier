@@ -317,6 +317,67 @@ def test_tracklet_in_two_slots_is_refused() -> None:
     assert re.search(rf"\btracklet {gen.clean_track_id(0)}\b", message)
 
 
+_UINT32_MAX = int(np.iinfo(np.uint32).max)
+
+
+def _retrack(dtype: type[np.integer], value: int, frame: int = 5) -> Callable[[h5py.File], None]:
+    """Return edits storing ``instance_track_id`` as ``dtype``, with ``value`` at one instance."""
+
+    def edits(h5: h5py.File) -> None:
+        track = h5["poseest/instance_track_id"][()].astype(dtype)
+        track[frame, 1] = value
+        del h5["poseest/instance_track_id"]
+        h5["poseest"].create_dataset("instance_track_id", data=track)
+
+    return edits
+
+
+@pytest.mark.parametrize(
+    ("dtype", "value", "match"),
+    [
+        pytest.param(np.int32, -1, r"negative", id="negative"),
+        pytest.param(np.int64, -(2**40), r"negative", id="negative-int64"),
+        pytest.param(np.uint64, _UINT32_MAX + 1, r"above", id="above-uint32"),
+    ],
+)
+def test_tracklet_ids_that_would_wrap_are_refused(
+    tmp_path: Path, dtype: type[np.integer], value: int, match: str
+) -> None:
+    """A tracklet id that is negative or above the uint32 range is refused, not wrapped."""
+    path = _write(tmp_path / "wrap.h5", _retrack(dtype, value))
+    with pytest.raises(LegacyConversionError, match=match) as caught:
+        _plan(path)
+    assert "poseest/instance_track_id" in str(caught.value)
+    assert "wrap.h5" in str(caught.value)
+
+
+def _split_near_the_top(largest: int) -> Callable[[h5py.File], None]:
+    """Return edits giving instance 0 tracklet ``largest`` and instance 1 one gap."""
+
+    def edits(h5: h5py.File) -> None:
+        h5["poseest/instance_track_id"][:, 0] = largest
+        # Unoccupied for one frame, so its tracklet splits once.
+        h5["poseest/confidence"][50, 1] = 0
+
+    return edits
+
+
+def test_new_tracklet_ids_may_reach_the_uint32_maximum(tmp_path: Path) -> None:
+    """A split whose new id is exactly the uint32 maximum is kept."""
+    plan = _plan(_write(tmp_path / "top.h5", _split_near_the_top(_UINT32_MAX - 1)))
+    assert [split["id"] for split in plan.tracklet_splits] == [_UINT32_MAX]
+    assert plan.tracklet_id is not None
+    assert plan.tracklet_id.max() == _UINT32_MAX
+
+
+def test_new_tracklet_ids_past_the_uint32_maximum_are_refused(tmp_path: Path) -> None:
+    """A split that needs an id above the uint32 maximum is refused rather than wrapped."""
+    path = _write(tmp_path / "over.h5", _split_near_the_top(_UINT32_MAX))
+    with pytest.raises(LegacyConversionError, match="over.h5.*tracklet") as caught:
+        _plan(path)
+    assert str(_UINT32_MAX) in str(caught.value)
+
+
 def test_without_tracklets_or_segmentation() -> None:
     """A file without instance_track_id or seg_data plans no tracklets and no contours."""
     plan = _plan(legacy("v8-without-centers.h5"))

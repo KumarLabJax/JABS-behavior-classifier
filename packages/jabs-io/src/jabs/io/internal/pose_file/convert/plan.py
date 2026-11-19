@@ -19,6 +19,8 @@ import numpy.typing as npt
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout
 
+_TRACKLET_MAX = int(np.iinfo(np.uint32).max)
+
 
 @dataclass(frozen=True, eq=False)
 class PlacementPlan:
@@ -88,9 +90,11 @@ def plan_placement(
 
     Raises:
         LegacyConversionError: If two valid instances of a frame hold one
-            identity, if one tracklet id is in two slots of a frame, or if the
-            file's extents do not fit the plan's index types. The message
-            names the file, and the frame and id where there is one.
+            identity, if one tracklet id is in two slots of a frame, if a
+            tracklet id is negative or above the uint32 range, if splitting
+            needs a new id above that range, or if the file's extents do not
+            fit the plan's index types. The message names the file, and the
+            frame and id where there is one.
     """
     pose = h5["poseest"]
     frames, instances, identity = layout.frames, layout.instances, layout.identity
@@ -153,7 +157,7 @@ def plan_placement(
                     }
                 )
         if track is not None and legacy_track is not None:
-            placed = np.where(slots >= 0, track[start:stop], 0).astype(np.uint32)
+            placed = np.where(slots >= 0, _read_tracklets(layout, track, start, stop), 0)
             _refuse_shared_tracklets(layout, start, placed, slots)
             # tracklet_id is masked by slot_occupied, so a placed but
             # unoccupied instance gets 0 (no tracklet): a reader never sees a
@@ -170,7 +174,7 @@ def plan_placement(
     if legacy_track is not None:
         tracklet_id = np.zeros((frames, slot_count), dtype=np.uint32)
         tracklet_id[placed_frame, placed_slot] = legacy_track[placed_frame, placed_instance]
-        splits = _split_tracklets(tracklet_id)
+        splits = _split_tracklets(layout, tracklet_id)
 
     count = length = source = group_offsets = instance_offsets = None
     if seg is not None:
@@ -270,7 +274,29 @@ def _refuse_shared_tracklets(
         )
 
 
-def _split_tracklets(tracklet_id: npt.NDArray[np.uint32]) -> tuple[dict, ...]:
+def _read_tracklets(
+    layout: LegacyLayout, track: h5py.Dataset, start: int, stop: int
+) -> npt.NDArray[np.uint32]:
+    """Read a block of ``instance_track_id`` as uint32, refusing any id the cast would wrap."""
+    block = track[start:stop]
+    name = f"{layout.path}: poseest/instance_track_id"
+    if block.dtype.kind not in "iu":
+        raise LegacyConversionError(f"{name} has dtype {block.dtype}; expected integers")
+    if block.size and block.dtype.kind == "i" and block.min() < 0:
+        frame = start + int(np.nonzero((block < 0).any(axis=1))[0][0])
+        raise LegacyConversionError(f"{name} holds a negative tracklet id at frame {frame}")
+    if block.size and block.max() > _TRACKLET_MAX:
+        frame = start + int(np.nonzero((block > _TRACKLET_MAX).any(axis=1))[0][0])
+        raise LegacyConversionError(
+            f"{name} holds a tracklet id above {_TRACKLET_MAX}, the uint32 maximum, "
+            f"at frame {frame}"
+        )
+    return block.astype(np.uint32)
+
+
+def _split_tracklets(
+    layout: LegacyLayout, tracklet_id: npt.NDArray[np.uint32]
+) -> tuple[dict, ...]:
     """Split each id's occupied frames into unbroken runs, in place; return the new ids' records.
 
     The first run of an id keeps it. Each later run, across all ids in order
@@ -297,6 +323,11 @@ def _split_tracklets(tracklet_id: npt.NDArray[np.uint32]) -> tuple[dict, ...]:
     later = np.flatnonzero(~new_id[starts])
     later = later[np.lexsort((run_ids[later], frame[starts[later]]))]
     largest = int(ids.max())
+    if largest + later.size > _TRACKLET_MAX:
+        raise LegacyConversionError(
+            f"{layout.path}: splitting tracklets needs {later.size} new ids above the largest, "
+            f"{largest}, which would pass {_TRACKLET_MAX}, the uint32 maximum"
+        )
     splits = []
     for n, run in enumerate(later.tolist(), start=1):
         splits.append(
@@ -310,7 +341,8 @@ def _split_tracklets(tracklet_id: npt.NDArray[np.uint32]) -> tuple[dict, ...]:
         run_ids[run] = largest + n
     if splits:
         run_of = np.cumsum(new_run) - 1
-        tracklet_id[frame, slot] = run_ids[run_of]
+        # Checked above, so the cast cannot wrap.
+        tracklet_id[frame, slot] = run_ids[run_of].astype(np.uint32)
     return tuple(splits)
 
 
