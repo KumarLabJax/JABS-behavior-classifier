@@ -270,6 +270,9 @@ class Component:
             raise ValueError(f"{self.id}: sparse_index declared but there is no sample axis")
         if self.dtype not in DTYPE_NAMES:
             raise ValueError(f"{self.id}: unsupported dtype {self.dtype!r}")
+        # Before the name check reads it: a generator would be consumed there,
+        # leaving nothing to store.
+        object.__setattr__(self, "alternates", tuple(self.alternates))
         names = [alternate.name for alternate in self.alternates]
         repeated = sorted({n for n in names if names.count(n) > 1})
         if repeated:
@@ -283,7 +286,6 @@ class Component:
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(self, "missing", MappingProxyType(dict(self.missing)))
         object.__setattr__(self, "encoding", MappingProxyType(dict(self.encoding)))
-        object.__setattr__(self, "alternates", tuple(self.alternates))
 
     @property
     def path(self) -> str:

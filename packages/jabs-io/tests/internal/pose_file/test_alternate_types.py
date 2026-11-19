@@ -254,6 +254,16 @@ def test_a_component_refuses_two_alternates_of_one_name() -> None:
         _segmentation_file(seg, contours_alternates=(first, second))
 
 
+def test_a_component_keeps_alternates_given_as_a_generator() -> None:
+    """Alternates from a one-shot iterable survive the duplicate-name check, in order."""
+    seg = ragged_segmentation()
+    index = _index(seg)
+    first = _contours_alternate(seg, index)
+    second = _contours_alternate(seg, index, name="copy", path=f"{PREFIX}/copy")
+    pose = _segmentation_file(seg, contours_alternates=(a for a in (first, second)))  # type: ignore[arg-type]
+    assert pose.component("jabs.segmentation.contours").alternates == (first, second)
+
+
 def test_pose_file_refuses_alternate_path_collisions() -> None:
     """An alternate's path is distinct from every component's and alternate's."""
     seg = ragged_segmentation()
