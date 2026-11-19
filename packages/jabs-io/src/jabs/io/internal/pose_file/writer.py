@@ -149,7 +149,8 @@ def _file_paths(pose_file: PoseFile) -> list[tuple[str, str]]:
     naming the same offset paths share one index, so a path listed twice is a
     real collision.
     """
-    paths = [(component.path, component.id) for component in pose_file.components]
+    paths = [("/manifest", "the manifest"), ("/provenance", "the provenance document")]
+    paths += [(component.path, component.id) for component in pose_file.components]
     listed: set[int] = set()
     for component in pose_file.components:
         for alternate in component.alternates:
@@ -160,16 +161,19 @@ def _file_paths(pose_file: PoseFile) -> list[tuple[str, str]]:
                 listed.add(id(index))
                 paths.append((index.group_offsets_path, f"{label}'s group_offsets"))
                 paths.append((index.instance_offsets_path, f"{label}'s instance_offsets"))
+    paths += [(a.path, f"the attachment at {a.path}") for a in pose_file.attachments]
     return paths
 
 
 def _check_path_collisions(pose_file: PoseFile) -> None:
     """Refuse datasets whose HDF5 paths cannot coexist.
 
-    Covers every dataset the writer creates -- component payloads, alternate
-    payloads and offsets. Two paths may be individually valid and still be
-    equal, or name paths where one is a parent of the other, which HDF5 cannot
-    represent.
+    Covers every dataset the writer creates -- the manifest and provenance
+    documents, component payloads, alternate payloads and offsets, and
+    attachments -- before any is written, so a block source is not consumed
+    for a file that cannot be finished. Two paths may be individually valid
+    and still be equal, or name paths where one is a parent of the other,
+    which HDF5 cannot represent.
 
     Args:
         pose_file: The file's contents.

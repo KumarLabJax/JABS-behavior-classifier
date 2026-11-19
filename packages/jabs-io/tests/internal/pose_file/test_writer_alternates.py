@@ -25,7 +25,7 @@ from jabs.io.internal.pose_file import (
     write_pose_file,
 )
 from jabs.io.internal.pose_file.blocks import BlockSource
-from jabs.io.internal.pose_file.types import Component, PoseFile
+from jabs.io.internal.pose_file.types import Attachment, Component, PoseFile
 
 from .conftest import build_sample_pose_file, ragged_segmentation
 
@@ -392,6 +392,49 @@ def _payload_under_a_component() -> PoseFile:
     )
 
 
+def _tripwire(array: npt.NDArray[np.generic]) -> BlockSource:
+    """A block source declared like ``array`` that fails the test if it is read."""
+
+    def blocks() -> Iterator[tuple[int, npt.NDArray[np.generic]]]:
+        raise AssertionError("a block source was read before the collision was refused")
+
+    return BlockSource(array.shape, array.dtype, blocks)
+
+
+def _streamed_points(**overrides: Any) -> Callable[[Segmentation, RaggedIndex], tuple[Alternate]]:
+    """Builds the contours' alternate with a tripwire payload."""
+    return lambda s, i: (_points_alternate(s, i, data=_tripwire(s["points"]), **overrides),)
+
+
+def _with_attachment(pose_file: PoseFile, path: str) -> PoseFile:
+    """The pose file with one attachment at ``path``."""
+    return dataclasses.replace(
+        pose_file, attachments=(*pose_file.attachments, Attachment(path=path, data=np.zeros(3)))
+    )
+
+
+def _offsets_at_an_attachment_path() -> PoseFile:
+    """The shared group offsets sit at an attachment's path."""
+    seg = ragged_segmentation()
+    pose_file = _segmentation_file(
+        seg,
+        index=_index(seg, group_offsets_path="/attachments/seg"),
+        points_alternates=_streamed_points(),
+    )
+    return _with_attachment(pose_file, "/attachments/seg")
+
+
+def _payload_under_an_attachment() -> PoseFile:
+    """The contours' payload sits beneath an attachment's dataset."""
+    pose_file = _segmentation_file(points_alternates=_streamed_points(path="/attachments/seg/x"))
+    return _with_attachment(pose_file, "/attachments/seg")
+
+
+def _payload_at_the_manifest() -> PoseFile:
+    """The contours' payload sits at the manifest's path."""
+    return _segmentation_file(points_alternates=_streamed_points(path="/manifest"))
+
+
 @pytest.mark.parametrize(
     ("build", "match"),
     [
@@ -402,12 +445,19 @@ def _payload_under_a_component() -> PoseFile:
         pytest.param(
             _payload_under_a_component, "collide", id="alternate-payload-under-a-component"
         ),
+        pytest.param(_offsets_at_an_attachment_path, "collide", id="offsets-at-an-attachment"),
+        pytest.param(_payload_under_an_attachment, "collide", id="alternate-under-an-attachment"),
+        pytest.param(_payload_at_the_manifest, "collide", id="alternate-at-the-manifest"),
     ],
 )
 def test_colliding_paths_are_refused(
     tmp_path: Path, build: Callable[[], PoseFile], match: str
 ) -> None:
-    """Every path in the file -- components, alternates, offsets -- must be distinct."""
+    """Every path in the file must be distinct, and none may hold another.
+
+    That covers components, alternates and offsets, the two documents and the
+    attachments. Refused before any block source is read.
+    """
     path = tmp_path / "prior.h5"
     path.write_bytes(SENTINEL)
     pose_file = build()
