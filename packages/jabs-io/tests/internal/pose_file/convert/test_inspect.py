@@ -1,0 +1,235 @@
+"""Inspect identifies a legacy pose file by its contents, or refuses it."""
+
+from collections.abc import Callable
+from pathlib import Path
+
+import h5py
+import numpy as np
+import pytest
+
+from jabs.io.internal.pose_file.convert import LegacyConversionError, inspect_legacy
+
+from .conftest import SAMPLES, generator, legacy, requires_samples
+
+RETIRED = (
+    "poseest/instance_seg_id",
+    "poseest/longterm_seg_id",
+    "poseest/instance_count",
+    "poseest/id_mask",
+    "poseest/instance_embed_id",
+)
+
+
+def _write(path: Path, edits: Callable[[h5py.File], None], **overrides: object) -> Path:
+    """Write a small clean v8 file with ``edits`` applied, and return its path."""
+    gen = generator()
+    options: dict[str, object] = {**gen.SMALL, "version": gen.V8, "seg": False, **overrides}
+    gen.write_legacy(path, edits=edits, **options)
+    return path
+
+
+@requires_samples
+@pytest.mark.parametrize("version", [4, 5, 6])
+def test_samples_are_recognized(version: int) -> None:
+    """The public samples are recognized, with the version each file records."""
+    layout = inspect_legacy(SAMPLES / f"sample_pose_est_v{version}.h5")
+
+    assert layout.keypoints == 12
+    assert layout.dynamic_objects == ()
+    if version == 4:
+        assert layout.identity == 5
+        assert layout.instances == 6
+        assert layout.frames == 9000
+        assert layout.version == (4, 0)
+        assert not layout.has_segmentation
+        assert (layout.contour_axis, layout.point_axis) == (0, 0)
+        assert layout.static_objects == ()
+    if version == 5:
+        assert layout.version == (3, 0)
+        assert layout.static_objects == ("corners",)
+    if version == 6:
+        assert layout.has_segmentation
+        assert layout.contour_axis == 4
+        assert layout.point_axis == 319
+        assert layout.has_tracklets
+        assert layout.has_embeddings
+        assert not layout.bbox_generated
+    assert all(isinstance(part, int) for part in layout.version)
+
+
+def test_identity_count() -> None:
+    """Centers give the identity count; without them, the largest valid embed id does."""
+    gen = generator()
+    with_centers = inspect_legacy(legacy("v8-with-centers.h5"))
+    assert with_centers.identity == 3
+    assert with_centers.version == (8, 0, 0)
+
+    without = inspect_legacy(legacy("v8-without-centers.h5"))
+    with h5py.File(legacy("v8-without-centers.h5"), "r") as h5:
+        valid = ~h5["poseest/id_mask"][()]
+        largest = int(h5["poseest/instance_embed_id"][()][valid].max())
+    assert without.identity == largest == gen.SMALL["identities"]
+
+
+def test_identity_ignores_masked_embed_ids(tmp_path: Path) -> None:
+    """A masked instance's embed id does not count toward the identity count."""
+
+    def mask_high_embed(h5: h5py.File) -> None:
+        """Give a masked instance an embed id above every valid one."""
+        del h5["poseest/instance_id_center"]
+        h5["poseest/instance_embed_id"][0, 3] = 9
+
+    path = _write(tmp_path / "masked.h5", mask_high_embed, instances=4)
+    assert inspect_legacy(path).identity == 3
+
+
+def test_identity_may_be_zero(tmp_path: Path) -> None:
+    """A file with no centers and no valid embed id has identity 0, not a refusal."""
+
+    def mask_everything(h5: h5py.File) -> None:
+        """Remove the centers and mask every instance."""
+        del h5["poseest/instance_id_center"]
+        h5["poseest/id_mask"][...] = True
+
+    layout = inspect_legacy(_write(tmp_path / "anonymous.h5", mask_everything))
+    assert layout.identity == 0
+
+
+def test_tracklet_and_embedding_flags() -> None:
+    """A ``pose_v4`` v8 file carries neither tracklets nor embeddings."""
+    layout = inspect_legacy(legacy("v8-without-centers.h5"))
+    assert not layout.has_tracklets
+    assert not layout.has_embeddings
+    with_centers = inspect_legacy(legacy("v8-with-centers.h5"))
+    assert with_centers.has_tracklets
+    assert with_centers.has_embeddings
+
+
+def test_v7_objects() -> None:
+    """Static and dynamic objects are listed by name."""
+    layout = inspect_legacy(legacy("v7-dynamic-objects.h5"))
+    assert layout.static_objects == ("corners", "food_hopper", "lixit")
+    assert layout.dynamic_objects == ("fecal_boli",)
+    assert layout.version == (7, 0)
+
+
+def test_segmentation_extents() -> None:
+    """The padded contour and point extents come from ``seg_data``'s shape."""
+    gen = generator()
+    layout = inspect_legacy(legacy("v8-edge-cases.h5"))
+    assert layout.has_segmentation
+    assert (layout.contour_axis, layout.point_axis) == (gen.CONTOURS, gen.CONTOUR_POINTS)
+    assert (layout.frames, layout.instances) == (gen.EDGE_FRAMES, gen.EDGE_INSTANCES)
+    assert layout.identity == gen.EDGE_IDENTITIES
+    assert layout.bbox_generated
+
+
+def _delete_id_mask(h5: h5py.File) -> None:
+    """Delete ``id_mask``, as a file below v4 lacks it."""
+    del h5["poseest/id_mask"]
+
+
+def _bad_axis_order(h5: h5py.File) -> None:
+    """Add a dynamic object whose ``axis_order`` is neither ``xy`` nor ``yx``."""
+    obj = h5.create_group("dynamic_objects/fecal_boli")
+    obj.create_dataset("points", data=np.zeros((2, 3, 2), dtype=np.uint16))
+    obj.create_dataset("counts", data=np.zeros(2, dtype=np.uint8))
+    obj.create_dataset("sample_indices", data=np.array([0, 30], dtype=np.uint32))
+    obj["points"].attrs["axis_order"] = "zz"
+
+
+def _bad_points_ndim(h5: h5py.File) -> None:
+    """Add a dynamic object whose ``points`` is 2-D."""
+    obj = h5.create_group("dynamic_objects/fecal_boli")
+    obj.create_dataset("points", data=np.zeros((2, 2), dtype=np.uint16))
+    obj.create_dataset("counts", data=np.zeros(2, dtype=np.uint8))
+    obj.create_dataset("sample_indices", data=np.array([0, 30], dtype=np.uint32))
+
+
+def _eleven_keypoints(h5: h5py.File) -> None:
+    """Replace ``points`` and ``confidence`` with 11-keypoint versions."""
+    pose = h5["poseest"]
+    points = pose["points"][:, :, :11]
+    confidence = pose["confidence"][:, :, :11]
+    del pose["points"], pose["confidence"]
+    pose.create_dataset("points", data=points)
+    pose.create_dataset("confidence", data=confidence)
+
+
+def _unknown_root(h5: h5py.File) -> None:
+    """Add a top-level group no catalog names."""
+    h5.create_group("extras")
+
+
+def _unknown_static_object(h5: h5py.File) -> None:
+    """Add a static object no catalog names."""
+    h5.create_dataset("static_objects/water_bottle", data=np.zeros((2, 2), dtype=np.uint16))
+
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        ("v8-unknown-dataset.h5", "poseest/mystery"),
+        ("v7-bad-dynamic-object.h5", "counts"),
+        (_delete_id_mask, "id_mask"),
+        (_bad_axis_order, "axis_order"),
+        (_eleven_keypoints, "12"),
+        (_bad_points_ndim, "ndim"),
+        (_unknown_root, "extras"),
+        (_unknown_static_object, "static_objects/water_bottle"),
+    ],
+    ids=[
+        "unknown-dataset",
+        "bad-dynamic-object",
+        "no-id-mask",
+        "axis-order",
+        "eleven-keypoints",
+        "points-ndim",
+        "unknown-root",
+        "unknown-static-object",
+    ],
+)
+def test_refusals(tmp_path: Path, source: str | Callable[[h5py.File], None], match: str) -> None:
+    """Anything outside the catalog, or malformed within it, is refused by name.
+
+    ``source`` is a corpus file's name, or edits to a clean small v8 file.
+    """
+    path = legacy(source) if isinstance(source, str) else _write(tmp_path / "x.h5", source)
+    with pytest.raises(LegacyConversionError, match=match):
+        inspect_legacy(path)
+
+
+def test_dropped_lists_retired_datasets() -> None:
+    """Retired datasets are listed when present, and an untrusted bbox with them."""
+    assert inspect_legacy(legacy("v8-without-centers.h5")).dropped == (
+        "poseest/id_mask",
+        "poseest/instance_embed_id",
+        "poseest/bbox",
+    )
+    assert "poseest/bbox" not in inspect_legacy(legacy("v8-with-centers.h5")).dropped
+
+
+@requires_samples
+def test_dropped_on_samples() -> None:
+    """v6 drops its segmentation ids and identity bookkeeping; v4 its old embedding too."""
+    # The v6 sample has no instance_embedding, so it is not listed.
+    assert inspect_legacy(SAMPLES / "sample_pose_est_v6.h5").dropped == RETIRED
+    v4 = inspect_legacy(SAMPLES / "sample_pose_est_v4.h5").dropped
+    assert v4 == (
+        "poseest/instance_count",
+        "poseest/id_mask",
+        "poseest/instance_embed_id",
+        "poseest/instance_embedding",
+    )
+
+
+def test_empty_lixit_is_dropped(tmp_path: Path) -> None:
+    """An empty lixit is not a static object, and is listed as dropped."""
+
+    def empty_lixit(h5: h5py.File) -> None:
+        """Add a lixit with no objects in it."""
+        h5.create_dataset("static_objects/lixit", data=np.zeros((0, 2), dtype=np.float32))
+
+    layout = inspect_legacy(_write(tmp_path / "lixit.h5", empty_lixit))
+    assert layout.static_objects == ("corners",)
+    assert layout.dropped[-1] == "static_objects/lixit"
