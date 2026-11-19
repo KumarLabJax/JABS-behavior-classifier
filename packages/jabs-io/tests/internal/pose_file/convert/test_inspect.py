@@ -222,11 +222,6 @@ def _narrow_embeddings(h5: h5py.File) -> None:
     _replace(h5, "identity_embeds", h5["poseest/identity_embeds"][..., :-1])
 
 
-def _text_version(h5: h5py.File) -> None:
-    """Record the version as text."""
-    h5["poseest"].attrs["version"] = "8.0"
-
-
 def _short_external_ids(h5: h5py.File) -> None:
     """Name one fewer identity than the file has."""
     h5["poseest"].create_dataset("external_identity_mapping", data=np.array([b"a", b"b"]))
@@ -318,7 +313,6 @@ def _unknown_static_object(h5: h5py.File) -> None:
         (_short_external_flag, r"poseest/seg_external_flag has shape \(120, 3, 2\).*seg_data"),
         (_flat_bbox, r"poseest/bbox has shape \(120, 3, 4\)"),
         (_narrow_embeddings, r"poseest/identity_embeds has shape .*instance_id_center"),
-        (_text_version, "version"),
         (
             _short_external_ids,
             r"poseest/external_identity_mapping has 2 names.*3 identities",
@@ -352,7 +346,6 @@ def _unknown_static_object(h5: h5py.File) -> None:
         "external-flag-shape",
         "bbox-shape",
         "embedding-width",
-        "text-version",
         "external-ids-length",
         "external-ids-shape",
         "longterm-seg-id-shape",

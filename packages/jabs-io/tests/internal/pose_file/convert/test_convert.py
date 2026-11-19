@@ -261,6 +261,45 @@ def test_video_overrides(tmp_path: Path) -> None:
     assert "video.width" in entry["notes"] and "video.fps" not in entry["notes"]
 
 
+@pytest.mark.parametrize(
+    ("stored", "version", "dialect"),
+    [
+        pytest.param("6.0", (6, 0), "pose_est_v6", id="str"),
+        pytest.param(np.bytes_(b"6"), (6,), "pose_est_v6", id="bytes"),
+        pytest.param(" 7.0.1 ", (7, 0, 1), "pose_est_v7", id="str-padded"),
+        pytest.param("6.5", (6, 5), "pose_est_v6", id="str-minor"),
+        pytest.param(np.array([8, 0], dtype=np.int32), (8, 0), "pose_est_v8", id="int-list"),
+        pytest.param(6.0, (6,), "pose_est_v6", id="whole-float"),
+        pytest.param(6.5, (), "pose_est", id="fractional-float"),
+        pytest.param("v6", (), "pose_est", id="str-not-a-version"),
+        pytest.param("", (), "pose_est", id="str-empty"),
+        pytest.param(None, (), "pose_est", id="absent"),
+    ],
+)
+def test_version_attribute_kinds_convert(
+    tmp_path: Path, stored: object, version: tuple[int, ...], dialect: str
+) -> None:
+    """A version in any form converts; one that is not dotted whole numbers is just ``pose_est``.
+
+    The contents identify a legacy file, not its version (spec 0029-B §5.3),
+    so an odd version only makes the recorded dialect less specific.
+    """
+    source = tmp_path / "versioned.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), source)
+    with h5py.File(source, "r+") as h5:
+        if stored is None:
+            del h5["poseest"].attrs["version"]
+        else:
+            h5["poseest"].attrs["version"] = stored
+
+    assert inspect_legacy(source).version == version
+    out = tmp_path / "out.h5"
+    report = convert_legacy(source, out, created=CREATED)
+
+    assert report.format == dialect
+    assert _history(out)[0]["source"]["format"] == dialect
+
+
 def test_tracklet_splits_are_recorded(tmp_path: Path) -> None:
     """A gapped tracklet's split is listed as synthesized and recorded."""
     out = tmp_path / "out.h5"

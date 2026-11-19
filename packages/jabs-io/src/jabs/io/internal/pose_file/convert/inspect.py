@@ -10,6 +10,7 @@ Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 come from the largest valid embed id.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
@@ -51,6 +52,8 @@ _STATIC_OBJECTS = frozenset({"corners", "lixit", "food_hopper"})
 _DYNAMIC_DATASETS = ("points", "counts", "sample_indices")
 _AXIS_ORDERS = frozenset({"xy", "yx"})
 _ROOTS = frozenset({"poseest", "static_objects", "dynamic_objects"})
+# A version stored as text, such as "6.0".
+_VERSION_TEXT = re.compile(r"\d+(\.\d+)*")
 
 # Legacy datasets the format retires: segmentation is indexed by slot, so the
 # seg ids go; occupancy and identity are stated directly, so the counts, masks
@@ -78,8 +81,10 @@ class LegacyLayout:
         identity: Rows of ``instance_id_center`` when it has any, otherwise the
             largest embed id of a valid instance (ADR 0002:1294-1295); 0 when
             there is none.
-        version: The ``poseest`` ``version`` attribute, as stored; empty when
-            the file has none, since the contents, not the version, identify it.
+        version: The ``poseest`` ``version`` attribute as whole numbers,
+            parsed from text such as ``"6.0"``; empty when the file has none or
+            it is neither whole numbers nor dotted whole-number text, since the
+            contents, not the version, identify the file.
         has_segmentation: Whether ``poseest/seg_data`` is present.
         contour_axis: ``seg_data.shape[2]``, the padded contour extent; 0
             without segmentation.
@@ -125,11 +130,10 @@ def inspect_legacy(path: Path) -> LegacyLayout:
         LegacyConversionError: If the file holds a path outside the catalog,
             lacks a dataset v4 introduced, has other than 12 keypoints, has
             datasets whose shapes disagree, names other than one identity per
-            ``external_identity_mapping`` entry, has a ``version`` that is not
-            a list of whole numbers, or has a malformed dynamic object (datasets
-            that disagree on the sample count, counts above its object axis,
-            or sample frames out of order or past the last frame). The message
-            names the path.
+            ``external_identity_mapping`` entry, or has a malformed dynamic
+            object (datasets that disagree on the sample count, counts above
+            its object axis, or sample frames out of order or past the last
+            frame). The message names the path.
     """
     with h5py.File(path, "r") as h5:
         _check_paths(path, h5)
@@ -150,7 +154,7 @@ def inspect_legacy(path: Path) -> LegacyLayout:
                 f"{path}: poseest/points has {keypoints} keypoints; expected {KEYPOINTS}"
             )
         _check_shapes(path, pose, frames, instances)
-        version = _version(path, pose)
+        version = _version(pose)
 
         seg = pose.get("seg_data")
         bbox = pose.get("bbox")
@@ -277,20 +281,27 @@ def _refuse_shapes(
     )
 
 
-def _version(path: Path, pose: h5py.Group) -> tuple[int, ...]:
-    """Return the ``version`` attribute as whole numbers; empty when it is absent."""
+def _version(pose: h5py.Group) -> tuple[int, ...]:
+    """Return the ``version`` attribute as whole numbers; empty when it has none.
+
+    Numbers count when they are whole; text when it is dotted whole numbers,
+    such as ``"6.0"``. Anything else is recorded as no version rather than
+    refused: the contents identify the file, and the version is provenance
+    only (spec 0029-B §5.3).
+    """
     if "version" not in pose.attrs:
         return ()
     stored = np.atleast_1d(np.asarray(pose.attrs["version"])).ravel()
+    if stored.dtype.kind in "SUO":
+        text = attr_text(stored[0]) if stored.size == 1 else None
+        if text is None or not _VERSION_TEXT.fullmatch(text.strip()):
+            return ()
+        return tuple(int(part) for part in text.strip().split("."))
     whole = stored.dtype.kind in "iu" or (
         stored.dtype.kind == "f"
         and bool(np.all(np.isfinite(stored) & (stored == np.round(stored))))
     )
-    if not whole:
-        raise LegacyConversionError(
-            f"{path}: poseest version attribute {pose.attrs['version']!r} is not a list of whole numbers"
-        )
-    return tuple(int(v) for v in stored)
+    return tuple(int(v) for v in stored) if whole else ()
 
 
 def _check_dynamic_object(path: Path, group: h5py.Group, frames: int) -> None:

@@ -264,7 +264,8 @@ def source_format(layout: LegacyLayout) -> str:
         layout: What ``inspect_legacy`` found.
 
     Returns:
-        ``"pose_est_v<major>"``, or ``"pose_est"`` when the file has no version.
+        ``"pose_est_v<major>"``, or ``"pose_est"`` when the file has no
+        version ``inspect_legacy`` could read as whole numbers.
     """
     return f"pose_est_v{layout.version[0]}" if layout.version else "pose_est"
 
