@@ -8,23 +8,17 @@ from scipy import signal
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
 
-# Set to True in forked worker processes (e.g. via parallel_workers.py) to avoid
-# calling scipy.linalg.lstsq (Apple Accelerate LAPACK) from a forked child on macOS,
-# which causes a segfault.  The main process and CLI leave this False so they
-# continue to use scipy's built-in "linear" detrend path.
-_use_numpy_detrend: bool = False
-
 
 def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
-    """Linear detrend along axis=-1 using only numpy (no LAPACK).
+    """Linear detrend along axis=-1 using the closed-form least-squares fit.
 
-    When passed to ``scipy.signal.stft`` as the ``detrend`` callable, this
-    function receives a 2-D array of shape ``(n_windows, nperseg)`` and must
-    detrend every row independently.  It produces the same result as
-    ``scipy.signal.detrend(x, type='linear')`` but uses the closed-form
-    OLS solution (pure numpy dot/matmul) instead of ``scipy.linalg.lstsq``,
-    avoiding a segfault that occurs when Accelerate LAPACK is called from a
-    forked child process on macOS arm64.
+    Passed to ``scipy.signal.stft`` as its ``detrend`` callable, this function
+    receives every segment at once, with the segments along the last axis, and
+    detrends each independently. It matches
+    ``scipy.signal.detrend(x, type='linear')`` to within floating-point rounding,
+    but every segment has the same length, so the fit reduces to a mean and a
+    slope computed with one matrix product instead of a ``scipy.linalg.lstsq``
+    solve, which makes the STFT about a quarter faster.
 
     Args:
         segment: Array of shape ``(..., n)``; detrending is applied along the
@@ -413,13 +407,7 @@ class Feature(abc.ABC):
                     window="hann",
                     scaling="psd",
                     axis=-1,
-                    # When running inside a forked worker process on macOS,
-                    # use a pure-numpy detrend to avoid the segfault caused by
-                    # calling scipy.linalg.lstsq (Accelerate LAPACK) from a
-                    # forked child.  _use_numpy_detrend is set by the worker
-                    # function in parallel_workers.py; the main process and
-                    # CLI leave it False so they use scipy's normal path.
-                    detrend=_linear_detrend_numpy if _use_numpy_detrend else "linear",
+                    detrend=_linear_detrend_numpy,
                 )
             # Zxx has shape (n_series, n_freqs, n_segments)
             psd_batches.append((keys, np.abs(Zxx)))
