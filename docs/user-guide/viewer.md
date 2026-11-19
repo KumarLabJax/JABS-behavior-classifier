@@ -1,7 +1,7 @@
 # JABS Viewer
 
 `jabs-viewer` is a standalone player for checking pose estimation output. It plays a
-video with its pose, segmentation and bounding boxes drawn on top, or plays a pose
+video with its pose, segmentation, bounding boxes and arena landmarks drawn on top, or plays a pose
 file on its own when there is no video. It uses the same video player as the main JABS application
 but does not need a JABS project: open a file and watch.
 
@@ -65,6 +65,10 @@ All animals are drawn the same way. There is no selected animal in the viewer.
 - **Overlay Bounding Boxes** (`B`): Show or hide each animal's bounding box, labeled
   with its identity. This is only available when the pose file contains bounding
   boxes (version 8 or newer, and generated with bounding boxes, which is optional).
+- **Overlay Landmarks** (`L`): Show or hide the arena landmarks (static objects): the
+  arena corners, the lixit and the food hopper. This is only available when the pose
+  file records at least one of them (version 5 or newer); each is drawn only if the
+  pose file records it.
 
 All are on by default and can be toggled from the **View** menu or the toolbar.
 They are unavailable when no pose file is open.
@@ -85,7 +89,7 @@ playing it is paused first.
 
 **File→Export Video with Overlays...** writes an MP4 copy of the video with the
 overlays drawn on every frame. A dialog first asks which overlays to include (pose,
-segmentation and bounding boxes), starting from those currently shown; overlays the
+segmentation, bounding boxes and landmarks), starting from those currently shown; overlays the
 pose file does not have are disabled, with the reason as a tooltip. You then choose
 where to save the file. The export runs in the background with a progress dialog
 and can be cancelled, which removes the partial file.
@@ -109,5 +113,6 @@ mouse is over the video (playback speed, cropping, brightness and contrast).
 | `P` | Toggle pose overlay |
 | `S` | Toggle segmentation overlay |
 | `B` | Toggle bounding box overlay |
+| `L` | Toggle landmark overlay |
 | Ctrl+O / ⌘O | Open video |
 | Ctrl+E / ⌘E | Export frame |

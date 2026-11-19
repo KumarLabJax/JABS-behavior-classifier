@@ -8,6 +8,7 @@ try:
 
     from jabs.overlay_drawing import (
         BEHAVIOR_COLOR,
+        LANDMARK_CORNER_COLOR,
         NOT_BEHAVIOR_COLOR,
         native_label_marker_sizes,
     )
@@ -402,6 +403,40 @@ def test_render_overlay_frame_ignores_bounding_boxes_without_data(
         draw_pose=False,
         draw_segmentation=False,
         draw_bounding_boxes=True,
+    )
+
+    assert (result == blank_frame).all()
+
+
+class _LandmarkPose(StubPose):
+    """StubPose whose pose file records the four arena corners."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.static_objects = {
+            "corners": np.array([[20, 20], [140, 20], [140, 100], [20, 100]], dtype=np.float32)
+        }
+        self.num_lixit_keypoints = 1
+
+
+def test_render_overlay_frame_draws_landmarks_only_when_asked(blank_frame: np.ndarray) -> None:
+    """Landmarks are off by default and drawn, in the landmark color, when requested."""
+    pose = _LandmarkPose()
+    without = render_overlay_frame(blank_frame, pose, 0, draw_pose=False, draw_segmentation=False)
+    with_landmarks = render_overlay_frame(
+        blank_frame, pose, 0, draw_pose=False, draw_segmentation=False, draw_landmarks=True
+    )
+
+    assert (without == blank_frame).all()
+    # each corner gets a marker centered on it
+    for x, y in pose.static_objects["corners"].astype(int):
+        assert tuple(int(c) for c in with_landmarks[y, x]) == _bgr(LANDMARK_CORNER_COLOR)
+
+
+def test_render_overlay_frame_ignores_landmarks_without_data(blank_frame: np.ndarray) -> None:
+    """A pose file without static objects renders nothing extra rather than failing."""
+    result = render_overlay_frame(
+        blank_frame, StubPose(), 0, draw_pose=False, draw_segmentation=False, draw_landmarks=True
     )
 
     assert (result == blank_frame).all()

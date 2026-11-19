@@ -52,10 +52,13 @@ def window() -> "ViewerWindow":
     return window
 
 
-def _fake_pose(has_segmentation: bool = True, has_bounding_boxes: bool = False) -> mock.Mock:
+def _fake_pose(
+    has_segmentation: bool = True, has_bounding_boxes: bool = False, has_landmarks: bool = False
+) -> mock.Mock:
     """Build a stand-in pose file with 100 frames.
 
-    It is a v8 pose file when it has bounding boxes, and v6 otherwise.
+    It is a v8 pose file when it has bounding boxes, and v6 otherwise. With landmarks it
+    records the arena corners.
     """
     pose = mock.Mock()
     pose.identities = [0, 1, 2]
@@ -63,6 +66,7 @@ def _fake_pose(has_segmentation: bool = True, has_bounding_boxes: bool = False) 
     pose.has_segmentation = has_segmentation
     pose.has_bounding_boxes = has_bounding_boxes
     pose.format_major_version = 8 if has_bounding_boxes else 6
+    pose.static_objects = {"corners": object()} if has_landmarks else {}
     return pose
 
 
@@ -394,6 +398,32 @@ def test_bounding_box_toggle_sets_bounding_box_overlay() -> None:
     assert frame_widget.bounding_box_overlay_enabled
 
 
+def test_landmark_control_follows_the_pose_file(monkeypatch, window) -> None:
+    """Only a pose file that records arena landmarks enables the landmark toggle."""
+    assert not window._landmarks_action.isEnabled()
+
+    _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose(has_landmarks=False))
+    window.open_video(VIDEO_PATH)
+    assert not window._landmarks_action.isEnabled()
+
+    _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose(has_landmarks=True))
+    window.open_video(VIDEO_PATH)
+    assert window._landmarks_action.isEnabled()
+
+
+def test_landmark_toggle_sets_landmark_overlay() -> None:
+    """The landmark toggle drives the player's landmark overlay, which starts on."""
+    window = ViewerWindow(app_name="test")
+    frame_widget = window._player._frame_widget
+    assert frame_widget.landmark_overlay_enabled
+
+    window._landmarks_action.setChecked(False)
+    assert not frame_widget.landmark_overlay_enabled
+
+    window._landmarks_action.setChecked(True)
+    assert frame_widget.landmark_overlay_enabled
+
+
 def test_export_actions_follow_what_is_open(monkeypatch, window) -> None:
     """Frames can be exported from any open file; a video export needs a pose to draw."""
     assert not window._export_frame_action.isEnabled()
@@ -411,7 +441,7 @@ def test_export_actions_follow_what_is_open(monkeypatch, window) -> None:
 
 def test_export_passes_the_video_and_displayed_overlays(monkeypatch, window) -> None:
     """Exports start from the open video and the overlays the View menu has on."""
-    pose = _fake_pose(has_bounding_boxes=True)
+    pose = _fake_pose(has_bounding_boxes=True, has_landmarks=True)
     _patch_pose_lookup(monkeypatch, POSE_PATH, pose)
     window._player._video_path = VIDEO_PATH
     window.open_video(VIDEO_PATH)
@@ -425,7 +455,9 @@ def test_export_passes_the_video_and_displayed_overlays(monkeypatch, window) -> 
     assert source.path == VIDEO_PATH
     assert source.pose_est is pose
     assert not source.pose_only
-    assert overlays == OverlayChoice(pose=True, segmentation=False, bounding_boxes=True)
+    assert overlays == OverlayChoice(
+        pose=True, segmentation=False, bounding_boxes=True, landmarks=True
+    )
     assert window._exporter.export_video.call_args.args == (source, overlays)
 
 

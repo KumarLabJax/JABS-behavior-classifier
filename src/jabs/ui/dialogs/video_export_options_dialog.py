@@ -42,6 +42,10 @@ class VideoExportOptionsDialog(QDialog):
         bounding_boxes_unavailable: Why bounding boxes cannot be drawn, or ``None``
             when they can.
         offer_bounding_boxes: Whether to show the bounding box checkbox at all.
+        draw_landmarks: Initial state of the arena landmarks checkbox.
+        landmarks_unavailable: Why the arena landmarks cannot be drawn, or ``None``
+            when they can.
+        offer_landmarks: Whether to show the arena landmarks checkbox at all.
         offer_labels: Whether to show the manual label and prediction checkboxes,
             which need a JABS project; jabs-viewer has none.
     """
@@ -60,6 +64,9 @@ class VideoExportOptionsDialog(QDialog):
         draw_bounding_boxes: bool = False,
         bounding_boxes_unavailable: str | None = None,
         offer_bounding_boxes: bool = False,
+        draw_landmarks: bool = False,
+        landmarks_unavailable: str | None = None,
+        offer_landmarks: bool = False,
         offer_labels: bool = True,
     ) -> None:
         super().__init__(parent)
@@ -80,12 +87,18 @@ class VideoExportOptionsDialog(QDialog):
         self._bounding_boxes_checkbox = QCheckBox("Bounding boxes", self)
         self._bounding_boxes_checkbox.setChecked(draw_bounding_boxes)
 
+        self._landmarks_checkbox = QCheckBox("Landmarks (corners, lixit, food hopper)", self)
+        self._landmarks_checkbox.setChecked(draw_landmarks)
+
         self._apply_availability(self._segmentation_checkbox, segmentation_unavailable)
         self._apply_availability(self._bounding_boxes_checkbox, bounding_boxes_unavailable)
+        self._apply_availability(self._landmarks_checkbox, landmarks_unavailable)
         # A hidden checkbox is also unchecked and disabled, so it never contributes an
         # overlay and its `*_enabled` property reports it was not offered.
         if not offer_bounding_boxes:
             self._apply_availability(self._bounding_boxes_checkbox, "")
+        if not offer_landmarks:
+            self._apply_availability(self._landmarks_checkbox, "")
         if not offer_labels:
             self._apply_availability(self._labels_checkbox, "")
             self._apply_availability(self._predictions_checkbox, "")
@@ -103,6 +116,7 @@ class VideoExportOptionsDialog(QDialog):
             self._pose_checkbox,
             self._segmentation_checkbox,
             self._bounding_boxes_checkbox,
+            self._landmarks_checkbox,
             self._labels_checkbox,
             self._predictions_checkbox,
         ):
@@ -116,6 +130,10 @@ class VideoExportOptionsDialog(QDialog):
             layout.addWidget(self._bounding_boxes_checkbox)
         else:
             self._bounding_boxes_checkbox.hide()
+        if offer_landmarks:
+            layout.addWidget(self._landmarks_checkbox)
+        else:
+            self._landmarks_checkbox.hide()
         if offer_labels:
             layout.addWidget(self._labels_checkbox)
             layout.addWidget(self._predictions_checkbox)
@@ -142,6 +160,11 @@ class VideoExportOptionsDialog(QDialog):
         return self._bounding_boxes_checkbox.isChecked()
 
     @property
+    def draw_landmarks(self) -> bool:
+        """Whether the arena landmarks should be drawn."""
+        return self._landmarks_checkbox.isChecked()
+
+    @property
     def draw_labels(self) -> bool:
         """Whether manual labels should be drawn."""
         return self._labels_checkbox.isChecked()
@@ -165,6 +188,11 @@ class VideoExportOptionsDialog(QDialog):
     def bounding_boxes_enabled(self) -> bool:
         """Whether the bounding box checkbox was offered and available."""
         return self._bounding_boxes_checkbox.isEnabled()
+
+    @property
+    def landmarks_enabled(self) -> bool:
+        """Whether the arena landmarks checkbox was offered and available."""
+        return self._landmarks_checkbox.isEnabled()
 
     @property
     def labels_enabled(self) -> bool:
@@ -193,6 +221,7 @@ class VideoExportOptionsDialog(QDialog):
                 self.draw_pose
                 or self.draw_segmentation
                 or self.draw_bounding_boxes
+                or self.draw_landmarks
                 or self.draw_labels
                 or self.draw_predictions
             )

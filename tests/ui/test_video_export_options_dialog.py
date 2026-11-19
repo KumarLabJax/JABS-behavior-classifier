@@ -170,3 +170,52 @@ def test_unavailable_bounding_boxes_are_disabled_with_a_reason() -> None:
     assert dialog.draw_bounding_boxes is False
     assert dialog.bounding_boxes_enabled is False
     assert dialog._bounding_boxes_checkbox.toolTip() == "no boxes"
+
+
+def test_landmarks_are_hidden_unless_offered() -> None:
+    """The labeling GUI does not offer landmarks; a hidden checkbox never contributes."""
+    dialog = VideoExportOptionsDialog(draw_landmarks=True)
+
+    assert dialog._landmarks_checkbox.isHidden()
+    assert dialog.draw_landmarks is False
+    assert dialog.landmarks_enabled is False
+
+
+def test_viewer_offers_landmarks() -> None:
+    """jabs-viewer shows the landmarks checkbox, starting from the state it was given."""
+    dialog = VideoExportOptionsDialog(
+        draw_landmarks=True, offer_landmarks=True, offer_labels=False
+    )
+
+    assert not dialog._landmarks_checkbox.isHidden()
+    assert dialog.draw_landmarks is True
+    assert dialog.landmarks_enabled is True
+
+
+def test_landmarks_alone_allow_saving() -> None:
+    """A landmarks-only export is a real export, so Save stays enabled."""
+    dialog = VideoExportOptionsDialog(
+        draw_pose=False,
+        draw_segmentation=False,
+        draw_landmarks=True,
+        offer_landmarks=True,
+        offer_labels=False,
+    )
+
+    assert _save_button(dialog).isEnabled()
+
+    dialog._landmarks_checkbox.setChecked(False)
+    assert not _save_button(dialog).isEnabled()
+
+
+def test_unavailable_landmarks_are_disabled_with_a_reason() -> None:
+    """A pose file without static objects explains why the option is off."""
+    dialog = VideoExportOptionsDialog(
+        draw_landmarks=True,
+        landmarks_unavailable="no landmarks",
+        offer_landmarks=True,
+    )
+
+    assert dialog.draw_landmarks is False
+    assert dialog.landmarks_enabled is False
+    assert dialog._landmarks_checkbox.toolTip() == "no landmarks"

@@ -11,8 +11,12 @@ try:
     from jabs.overlay_drawing import (
         LANDMARK_CORNER_COLOR,
         LANDMARK_HOPPER_COLOR,
+        LANDMARK_LINE_WIDTH,
         LANDMARK_LIXIT_COLOR,
+        LANDMARK_POINT_RADIUS,
         draw_landmarks,
+        native_landmark_sizes,
+        pose_has_landmarks,
     )
 
     SKIP_UI_TESTS = False
@@ -144,3 +148,39 @@ def test_landmarks_outside_a_crop_are_skipped() -> None:
     corner_color = LANDMARK_CORNER_COLOR.getRgb()[:3]
     assert QtGui.QColor(image.pixel(20, 20)).getRgb()[:3] == corner_color
     assert QtGui.QColor(image.pixel(100, 20)).getRgb()[:3] != corner_color
+
+
+@pytest.mark.parametrize(
+    ("static_objects", "expected"),
+    [
+        ({}, False),
+        ({"corners": np.zeros((4, 2))}, True),
+        ({"lixit": np.zeros((1, 2))}, True),
+        ({"food_hopper": np.zeros((4, 2))}, True),
+        ({"corners": None}, False),
+        ({"something_else": np.zeros((1, 2))}, False),
+    ],
+    ids=["none", "corners", "lixit", "food_hopper", "none_value", "undrawn_object"],
+)
+def test_pose_has_landmarks(static_objects: dict, expected: bool) -> None:
+    """Only the static objects draw_landmarks can draw count as landmarks."""
+    assert pose_has_landmarks(StubPose(static_objects)) is expected
+
+
+def test_pose_has_landmarks_without_static_objects_attribute() -> None:
+    """A pose stand-in that has no static objects at all has no landmarks."""
+    assert pose_has_landmarks(object()) is False
+
+
+def test_native_landmark_sizes_never_shrink_below_the_base_size() -> None:
+    """Small frames keep the on-screen base sizes rather than shrinking the markers."""
+    assert native_landmark_sizes(100, 100) == (LANDMARK_POINT_RADIUS, LANDMARK_LINE_WIDTH)
+
+
+def test_native_landmark_sizes_grow_with_the_frame() -> None:
+    """Larger frames get larger markers, so the landmarks stay legible in exports."""
+    small_radius, small_width = native_landmark_sizes(800, 800)
+    large_radius, large_width = native_landmark_sizes(3200, 3200)
+
+    assert large_radius > small_radius
+    assert large_width >= small_width

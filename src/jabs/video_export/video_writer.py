@@ -97,6 +97,7 @@ def export_overlay_video(
     draw_pose: bool = True,
     draw_segmentation: bool = True,
     draw_bounding_boxes: bool = False,
+    draw_landmarks: bool = False,
     label_overlay: LabelMarkerOverlay | None = None,
     codec: str | None = None,
     frames: BlankFrameReader | None = None,
@@ -113,6 +114,8 @@ def export_overlay_video(
         draw_segmentation: Whether to include segmentation contours.
         draw_bounding_boxes: Whether to include each identity's bounding box (v8+
             pose files only).
+        draw_landmarks: Whether to include the arena landmarks (corners, lixit and
+            food hopper) the pose file records.
         label_overlay: Labels and/or predictions to mark next to each identity,
             or ``None`` to draw no label markers.
         codec: FourCC codec string passed to ``cv2.VideoWriter``, or ``None`` to use
@@ -232,6 +235,7 @@ def export_overlay_video(
                         draw_pose=draw_pose,
                         draw_segmentation=draw_segmentation,
                         draw_bounding_boxes=draw_bounding_boxes,
+                        draw_landmarks=draw_landmarks,
                         label_overlay=label_overlay,
                     )
                 else:

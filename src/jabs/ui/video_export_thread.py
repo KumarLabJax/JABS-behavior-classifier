@@ -31,6 +31,7 @@ class VideoExportThread(QThread):
         label_overlay: Labels and/or predictions to mark next to each identity,
             or ``None`` to draw no label markers.
         draw_bounding_boxes: Whether to include each identity's bounding box.
+        draw_landmarks: Whether to include the arena landmarks.
         frames: Solid-color frames to draw over instead of reading ``video_path``,
             for pose data with no video (see :func:`export_overlay_video`).
     """
@@ -54,6 +55,7 @@ class VideoExportThread(QThread):
         draw_pose: bool = True,
         label_overlay: LabelMarkerOverlay | None = None,
         draw_bounding_boxes: bool = False,
+        draw_landmarks: bool = False,
         frames: BlankFrameReader | None = None,
     ) -> None:
         super().__init__(parent=parent)
@@ -64,6 +66,7 @@ class VideoExportThread(QThread):
         self._draw_pose = draw_pose
         self._label_overlay = label_overlay
         self._draw_bounding_boxes = draw_bounding_boxes
+        self._draw_landmarks = draw_landmarks
         self._frames = frames
         self._should_terminate = False
 
@@ -85,6 +88,7 @@ class VideoExportThread(QThread):
                 draw_pose=self._draw_pose,
                 draw_segmentation=self._draw_segmentation,
                 draw_bounding_boxes=self._draw_bounding_boxes,
+                draw_landmarks=self._draw_landmarks,
                 label_overlay=self._label_overlay,
                 frames=self._frames,
                 progress_callback=lambda written, _total: self.update_progress.emit(written),

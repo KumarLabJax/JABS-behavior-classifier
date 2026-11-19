@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from jabs.overlay_drawing import pose_has_bounding_boxes
+from jabs.overlay_drawing import pose_has_bounding_boxes, pose_has_landmarks
 from jabs.ui.dialogs import MessageDialog
 from jabs.ui.dialogs.video_export_options_dialog import VideoExportOptionsDialog
 from jabs.ui.video_export_thread import VideoExportThread
@@ -34,11 +34,13 @@ class OverlayChoice:
         pose: Draw the pose keypoints and skeleton.
         segmentation: Draw segmentation contours (when the pose file has them).
         bounding_boxes: Draw bounding boxes (when the pose file has them).
+        landmarks: Draw the arena landmarks (when the pose file records any).
     """
 
     pose: bool
     segmentation: bool
     bounding_boxes: bool
+    landmarks: bool
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,13 @@ class OverlayExporter(QtCore.QObject):
                 else "This pose file has no bounding boxes (optional, pose version 8 or newer)"
             ),
             offer_bounding_boxes=True,
+            draw_landmarks=overlays.landmarks,
+            landmarks_unavailable=(
+                None
+                if pose_has_landmarks(pose_est)
+                else "This pose file has no arena landmarks (corners, lixit or food hopper)"
+            ),
+            offer_landmarks=True,
             offer_labels=False,
         )
         if options.exec() != QtWidgets.QDialog.DialogCode.Accepted:
@@ -228,6 +237,7 @@ class OverlayExporter(QtCore.QObject):
             parent=self._window,
             draw_pose=options.draw_pose,
             draw_bounding_boxes=options.draw_bounding_boxes,
+            draw_landmarks=options.draw_landmarks,
             frames=source.frames,
         )
         self._video_export_thread = thread
@@ -302,6 +312,7 @@ class OverlayExporter(QtCore.QObject):
             draw_pose=overlays.pose,
             draw_segmentation=overlays.segmentation,
             draw_bounding_boxes=overlays.bounding_boxes,
+            draw_landmarks=overlays.landmarks,
         )
 
     def _start_dir(self, source: ExportSource) -> Path:

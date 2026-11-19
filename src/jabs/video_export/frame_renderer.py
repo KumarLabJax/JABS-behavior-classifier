@@ -4,8 +4,8 @@ Shared by the GUI's "Export Frame", the GUI's "Export Video with Overlays", and
 ``jabs-cli export-video``, so an overlay looks the same whichever asked for it. They
 do not ask for the same ones: only the video export passes a label marker overlay.
 Every overlay is painted with the shared drawing in :mod:`jabs.overlay_drawing`, in the
-order the player paints them: segmentation contours, then the pose keypoints and
-skeleton, then the per-identity label and prediction markers. Bounding boxes, which
+order the player paints them: segmentation contours, then the arena landmarks, then the
+pose keypoints and skeleton, then the per-identity label and prediction markers. Bounding boxes, which
 the player paints after the markers, are drawn before them here so the caption banner
 that goes with the markers stays on top.
 
@@ -35,10 +35,13 @@ from jabs.overlay_drawing import (
     draw_label_marker,
     label_marker_color,
     native_label_marker_sizes,
+    native_landmark_sizes,
     native_pose_sizes,
     native_segmentation_line_width,
     pose_has_bounding_boxes,
+    pose_has_landmarks,
 )
+from jabs.overlay_drawing import draw_landmarks as paint_landmarks
 
 from .caption import draw_overlay_caption
 
@@ -56,6 +59,7 @@ def render_overlay_frame(
     draw_pose: bool = True,
     draw_segmentation: bool = True,
     draw_bounding_boxes: bool = False,
+    draw_landmarks: bool = False,
     label_overlay: LabelMarkerOverlay | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Draw the requested overlays onto one frame.
@@ -74,6 +78,8 @@ def render_overlay_frame(
         draw_bounding_boxes: Whether to draw each identity's bounding box and ID.
             Ignored when the pose file has no bounding boxes (before v8, or v8+
             generated without them).
+        draw_landmarks: Whether to draw the arena landmarks (corners, lixit and
+            food hopper). Ignored when the pose file records none of them.
         label_overlay: Labels and/or predictions to mark next to each identity,
             with the caption explaining them, or ``None`` to draw no label markers.
 
@@ -91,7 +97,15 @@ def render_overlay_frame(
 
     bounding_boxes = draw_bounding_boxes and pose_has_bounding_boxes(pose_est)
 
-    if not segmentation and not draw_pose and not bounding_boxes and label_overlay is None:
+    landmarks = draw_landmarks and pose_has_landmarks(pose_est)
+
+    if (
+        not segmentation
+        and not landmarks
+        and not draw_pose
+        and not bounding_boxes
+        and label_overlay is None
+    ):
         return img
 
     # QImage wraps this buffer, so painting below writes straight into `img`. Painting
@@ -119,6 +133,16 @@ def render_overlay_frame(
                     line_width=native_segmentation_line_width(width, height),
                     active=True,
                 )
+
+        if landmarks:
+            point_radius, landmark_line_width = native_landmark_sizes(width, height)
+            paint_landmarks(
+                painter,
+                pose_est,
+                to_output=to_native,
+                point_radius=point_radius,
+                line_width=landmark_line_width,
+            )
 
         if draw_pose:
             keypoint_size, line_width = native_pose_sizes(width, height)

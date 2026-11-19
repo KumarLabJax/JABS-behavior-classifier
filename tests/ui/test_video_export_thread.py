@@ -116,11 +116,13 @@ def test_overlay_choices_are_passed_through(monkeypatch, tmp_path: Path) -> None
         False,
         draw_pose=False,
         label_overlay=overlay,
+        draw_landmarks=True,
     ).run()
 
     assert captured["draw_segmentation"] is False
     assert captured["draw_pose"] is False
     assert captured["label_overlay"] is overlay
+    assert captured["draw_landmarks"] is True
 
 
 def test_parent_keeps_its_positional_slot(tmp_path: Path) -> None:
@@ -152,3 +154,4 @@ def test_defaults_draw_pose_and_no_label_markers(monkeypatch, tmp_path: Path) ->
     assert captured["draw_pose"] is True
     assert captured["draw_segmentation"] is True
     assert captured["label_overlay"] is None
+    assert captured["draw_landmarks"] is False
