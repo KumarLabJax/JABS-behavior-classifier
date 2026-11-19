@@ -1,11 +1,13 @@
 """Tests for writing pose files."""
 
+import dataclasses
 import json
 
 import h5py
 import numpy as np
 import pytest
 
+from jabs.io.internal.pose_file import read_component, validate
 from jabs.io.internal.pose_file.schema import validate_manifest, validate_provenance
 from jabs.io.internal.pose_file.types import Component, PoseFile
 from jabs.io.internal.pose_file.writer import write_pose_file
@@ -111,3 +113,21 @@ def test_nan_is_written_not_a_sentinel(tmp_path, sample_pose_file):
         points = h5["/jabs/pose/points"][()]
     assert np.isnan(points).any()
     assert not (points == 0).all(axis=-1).any(), "a zero coordinate would be ambiguous"
+
+
+def test_float16_round_trip(tmp_path, sample_pose_file):
+    """A float16 component with NaN survives a write and read unchanged."""
+    values = np.array([0.5, np.nan, -1.25, 2.0], dtype=np.float16)
+    c = Component(
+        id="org.example.lab.x",
+        axes=("frame",),
+        data=values,
+        missing={"policy": "nan"},
+    )
+    pf = dataclasses.replace(sample_pose_file, components=(*sample_pose_file.components, c))
+    path = tmp_path / "a_pose.h5"
+    write_pose_file(pf, path)
+    assert [f for f in validate(path) if f.severity == "error"] == []
+    read = read_component(path, "org.example.lab.x")
+    assert read.dtype == np.float16
+    np.testing.assert_array_equal(read, values)

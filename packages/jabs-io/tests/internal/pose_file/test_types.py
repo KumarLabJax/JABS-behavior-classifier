@@ -105,3 +105,14 @@ def test_skeleton_rejects_out_of_range_edge():
     """An edge cannot name a keypoint the skeleton does not have."""
     with pytest.raises(ValueError, match="edge"):
         Skeleton(body_parts=("NOSE", "TAIL"), edges=((0, 5),))
+
+
+def test_float16_component_accepts_nan_policy():
+    """A float16 payload is a float payload, so it may declare a nan missing-policy."""
+    c = Component(
+        id="org.example.lab.x",
+        axes=("frame",),
+        data=np.zeros(4, np.float16),
+        missing={"policy": "nan"},
+    )
+    assert c.dtype == "float16"

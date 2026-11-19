@@ -88,6 +88,7 @@
     },
     "dtype": {
       "enum": [
+        "float16",
         "float32",
         "float64",
         "int8",
@@ -465,6 +466,7 @@
             "properties": {
               "dtype": {
                 "enum": [
+                  "float16",
                   "float32",
                   "float64"
                 ]
@@ -675,6 +677,7 @@
             "properties": {
               "dtype": {
                 "enum": [
+                  "float16",
                   "float32",
                   "float64"
                 ]
