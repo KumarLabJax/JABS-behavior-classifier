@@ -126,8 +126,10 @@ def inspect_legacy(path: Path) -> LegacyLayout:
             lacks a dataset v4 introduced, has other than 12 keypoints, has
             datasets whose shapes disagree, names other than one identity per
             ``external_identity_mapping`` entry, has a ``version`` that is not
-            a list of whole numbers, or has a malformed dynamic object. The
-            message names the path.
+            a list of whole numbers, or has a malformed dynamic object (datasets
+            that disagree on the sample count, counts above its object axis,
+            or sample frames out of order or past the last frame). The message
+            names the path.
     """
     with h5py.File(path, "r") as h5:
         _check_paths(path, h5)
@@ -137,9 +139,10 @@ def inspect_legacy(path: Path) -> LegacyLayout:
             raise LegacyConversionError(
                 f"{path}: not a pose_est_v4 or later file; missing poseest/{', poseest/'.join(missing)}"
             )
-        if pose["points"].ndim != 4:
+        shape = pose["points"].shape
+        if len(shape) != 4 or shape[3] != 2:
             raise LegacyConversionError(
-                f"{path}: poseest/points has shape {pose['points'].shape}; expected 4 axes"
+                f"{path}: poseest/points has shape {shape}; expected (frame, instance, 12, 2)"
             )
         frames, instances, keypoints = pose["points"].shape[:3]
         if keypoints != KEYPOINTS:
@@ -156,7 +159,7 @@ def inspect_legacy(path: Path) -> LegacyLayout:
         empty_lixit = "lixit" in statics and statics["lixit"].size == 0
         dynamics = h5.get("dynamic_objects", {})
         for name in dynamics:
-            _check_dynamic_object(path, dynamics[name])
+            _check_dynamic_object(path, dynamics[name], int(frames))
 
         identity = _identity(pose)
         names = pose.get("external_identity_mapping")
@@ -290,17 +293,62 @@ def _version(path: Path, pose: h5py.Group) -> tuple[int, ...]:
     return tuple(int(v) for v in stored)
 
 
-def _check_dynamic_object(path: Path, group: h5py.Group) -> None:
-    """Refuse a dynamic object the v7 reader would skip or misread."""
+def _check_dynamic_object(path: Path, group: h5py.Group, frames: int) -> None:
+    """Refuse a dynamic object the v7 reader would skip or misread.
+
+    Its three datasets hold one entry per sample, so they must agree on the
+    sample count; each count must fit the object axis of ``points``; and the
+    sample frames must be in order and within the video, as the output's
+    ``frame_index`` must be.
+    """
     name = group.name.lstrip("/")
     missing = [member for member in _DYNAMIC_DATASETS if member not in group]
     if missing:
         raise LegacyConversionError(f"{path}: {name} is missing {', '.join(missing)}")
-    points = group["points"]
+    points, counts, indices = group["points"], group["counts"], group["sample_indices"]
     if points.ndim not in (3, 4):
         raise LegacyConversionError(
             f"{path}: {name}/points has ndim {points.ndim}; expected 3 or 4"
         )
+    if points.shape[-1] != 2:
+        raise LegacyConversionError(
+            f"{path}: {name}/points has shape {points.shape}; expected 2 coordinates on its "
+            "last axis"
+        )
+    for member, dataset in (("sample_indices", indices), ("counts", counts)):
+        if dataset.ndim != 1:
+            raise LegacyConversionError(
+                f"{path}: {name}/{member} has shape {dataset.shape}; expected 1 axis"
+            )
+    if not points.shape[0] == counts.shape[0] == indices.shape[0]:
+        raise LegacyConversionError(
+            f"{path}: {name} has {indices.shape[0]} sample_indices, {counts.shape[0]} counts "
+            f"and {points.shape[0]} point samples; expected one of each per sample"
+        )
+    # Small: one value per sample. A non-integer dtype is refused when read.
+    count_values = counts[...]
+    if count_values.size and count_values.dtype.kind in "iu":
+        largest = count_values.max()
+        if largest > points.shape[1]:
+            raise LegacyConversionError(
+                f"{path}: {name}/counts holds {largest}, more than the {points.shape[1]} "
+                "objects its points have room for"
+            )
+    frame_values = indices[...]
+    if frame_values.size and frame_values.dtype.kind in "iu":
+        # Signed, so a difference of unsigned values cannot wrap.
+        steps = np.diff(frame_values.astype(np.int64))
+        if (steps < 0).any():
+            sample = int(np.flatnonzero(steps < 0)[0]) + 1
+            raise LegacyConversionError(
+                f"{path}: {name}/sample_indices decreases at sample {sample}; expected frames "
+                "in order"
+            )
+        if frame_values.max() >= frames:
+            raise LegacyConversionError(
+                f"{path}: {name}/sample_indices holds frame {frame_values.max()}, past the last "
+                f"frame, {frames - 1}"
+            )
     # Absent means "yx" (pose_est_v7.py:15-19); the v7 reader flips anything
     # else it does not know, which would be a guess.
     axis_order = attr_text(points.attrs.get("axis_order", "yx"))

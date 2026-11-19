@@ -4,15 +4,17 @@ import importlib.metadata
 import shutil
 from pathlib import Path
 
+import h5py
+import numpy as np
 import pytest
 
 from jabs.io.internal.pose_file import cli
 from jabs.io.internal.pose_file.cli import main
 from jabs.io.internal.pose_file.validate import validate
 
-from .conftest import legacy
+from .convert.conftest import legacy
 
-POSE_FORMAT = Path(__file__).parents[3] / "data" / "pose-format"
+POSE_FORMAT = Path(__file__).parents[2] / "data" / "pose-format"
 
 
 def _convert(source: Path, out: Path) -> int:
@@ -53,6 +55,29 @@ def test_convert_refusal_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "frame 100" in captured.err
     assert "Traceback" not in captured.err
     assert captured.out == ""
+    assert not out.exists()
+
+
+def test_convert_malformed_dynamic_object_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dynamic object with more counts than samples is one ``error:`` line naming it."""
+    src = tmp_path / "boli.h5"
+    shutil.copyfile(legacy("v7-dynamic-objects.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        obj = h5["dynamic_objects/fecal_boli"]
+        counts = obj["counts"][()]
+        del obj["counts"]
+        obj.create_dataset("counts", data=np.append(counts, counts[:1]))
+    out = tmp_path / "out.h5"
+
+    assert _convert(src, out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "dynamic_objects/fecal_boli" in captured.err
+    assert "Traceback" not in captured.err
     assert not out.exists()
 
 

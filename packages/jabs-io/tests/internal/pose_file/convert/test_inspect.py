@@ -147,6 +147,28 @@ def _bad_points_ndim(h5: h5py.File) -> None:
     obj.create_dataset("sample_indices", data=np.array([0, 30], dtype=np.uint32))
 
 
+def _dynamic_object(
+    points: npt.NDArray[np.generic],
+    counts: npt.NDArray[np.generic],
+    sample_indices: npt.NDArray[np.generic],
+) -> Callable[[h5py.File], None]:
+    """Return edits that add a ``fecal_boli`` dynamic object with these datasets."""
+
+    def edits(h5: h5py.File) -> None:
+        """Add the dynamic object."""
+        obj = h5.create_group("dynamic_objects/fecal_boli")
+        obj.create_dataset("points", data=points)
+        obj.create_dataset("counts", data=counts)
+        obj.create_dataset("sample_indices", data=sample_indices)
+
+    return edits
+
+
+_POINTS = np.zeros((2, 3, 2), dtype=np.uint16)
+_COUNTS = np.array([1, 2], dtype=np.uint8)
+_INDICES = np.array([0, 30], dtype=np.uint32)
+
+
 def _eleven_keypoints(h5: h5py.File) -> None:
     """Replace ``points`` and ``confidence`` with 11-keypoint versions."""
     pose = h5["poseest"]
@@ -155,6 +177,12 @@ def _eleven_keypoints(h5: h5py.File) -> None:
     del pose["points"], pose["confidence"]
     pose.create_dataset("points", data=points)
     pose.create_dataset("confidence", data=confidence)
+
+
+def _three_coordinates(h5: h5py.File) -> None:
+    """Give ``points`` three coordinates per keypoint rather than two."""
+    points = h5["poseest/points"][()]
+    _replace(h5, "points", np.concatenate([points, points[..., :1]], axis=-1))
 
 
 def _unknown_root(h5: h5py.File) -> None:
@@ -243,7 +271,43 @@ def _unknown_static_object(h5: h5py.File) -> None:
         (_delete_id_mask, "id_mask"),
         (_bad_axis_order, "axis_order"),
         (_eleven_keypoints, "12"),
+        (
+            _three_coordinates,
+            r"poseest/points has shape \(120, 3, 12, 3\); expected \(frame, instance, 12, 2\)",
+        ),
         (_bad_points_ndim, "ndim"),
+        (
+            _dynamic_object(_POINTS, _COUNTS, _INDICES[:, None]),
+            r"dynamic_objects/fecal_boli/sample_indices has shape \(2, 1\); expected 1 axis",
+        ),
+        (
+            _dynamic_object(_POINTS, _COUNTS[:, None], _INDICES),
+            r"dynamic_objects/fecal_boli/counts has shape \(2, 1\); expected 1 axis",
+        ),
+        (
+            _dynamic_object(_POINTS, np.array([1, 2, 0], dtype=np.uint8), _INDICES),
+            r"dynamic_objects/fecal_boli has 2 sample_indices, 3 counts and 2 point samples",
+        ),
+        (
+            _dynamic_object(np.zeros((3, 3, 2), dtype=np.uint16), _COUNTS, _INDICES),
+            r"dynamic_objects/fecal_boli has 2 sample_indices, 2 counts and 3 point samples",
+        ),
+        (
+            _dynamic_object(np.zeros((2, 3, 3), dtype=np.uint16), _COUNTS, _INDICES),
+            r"dynamic_objects/fecal_boli/points has shape \(2, 3, 3\); expected 2 coordinates",
+        ),
+        (
+            _dynamic_object(_POINTS, np.array([1, 4], dtype=np.uint8), _INDICES),
+            r"dynamic_objects/fecal_boli/counts holds 4, more than the 3 objects",
+        ),
+        (
+            _dynamic_object(_POINTS, _COUNTS, np.array([30, 0], dtype=np.uint32)),
+            r"dynamic_objects/fecal_boli/sample_indices decreases at sample 1",
+        ),
+        (
+            _dynamic_object(_POINTS, _COUNTS, np.array([0, 120], dtype=np.uint32)),
+            r"dynamic_objects/fecal_boli/sample_indices holds frame 120, past the last frame, 119",
+        ),
         (_unknown_root, "extras"),
         (_unknown_static_object, "static_objects/water_bottle"),
         (
@@ -271,7 +335,16 @@ def _unknown_static_object(h5: h5py.File) -> None:
         "no-id-mask",
         "axis-order",
         "eleven-keypoints",
+        "three-coordinates",
         "points-ndim",
+        "dynamic-indices-2d",
+        "dynamic-counts-2d",
+        "dynamic-counts-length",
+        "dynamic-points-length",
+        "dynamic-points-coordinates",
+        "dynamic-counts-above-objects",
+        "dynamic-indices-unsorted",
+        "dynamic-indices-past-frames",
         "unknown-root",
         "unknown-static-object",
         "id-mask-shape",

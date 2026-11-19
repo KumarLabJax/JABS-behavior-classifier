@@ -140,7 +140,8 @@ def test_no_objects() -> None:
         pytest.param(
             "sample_indices",
             np.array([0, 2**32], dtype=np.uint64),
-            r"sample_indices holds 4294967296",
+            # Inspection refuses it first, as a frame past the video's last.
+            r"sample_indices holds frame 4294967296",
             id="above-uint32",
         ),
     ],
