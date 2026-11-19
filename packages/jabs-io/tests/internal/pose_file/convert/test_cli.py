@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from jabs.io.internal.pose_file import cli
 from jabs.io.internal.pose_file.cli import main
 from jabs.io.internal.pose_file.validate import validate
 
@@ -80,6 +81,51 @@ def test_convert_onto_the_source_exits_1(
     assert captured.err.startswith("error:")
     assert "is the source" in captured.err
     assert src.read_bytes() == before
+
+
+def test_convert_into_a_missing_directory_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A destination whose directory does not exist is an ``error:`` line, not a traceback."""
+    out = tmp_path / "absent" / "out.h5"
+
+    assert _convert(legacy("v8-with-centers.h5"), out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "Traceback" not in captured.err
+    assert not out.parent.exists()
+
+
+def test_convert_error_is_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refusal whose message spans lines, as the deep check's findings do, prints as one line."""
+    deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
+    finding = deep_check.Finding(
+        deep_check.ERROR, "alternate_decodes", "first line\n  second line\nthird"
+    )
+    monkeypatch.setattr(deep_check, "validate", lambda path, deep=False: [finding])
+
+    assert _convert(legacy("v8-with-centers.h5"), tmp_path / "out.h5") == 1
+
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert err.count("\n") == 1
+    assert "first line second line third" in err
+
+
+def test_validate_findings_are_one_line_each(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A finding whose message spans lines prints as one line."""
+    deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
+    finding = deep_check.Finding(deep_check.ERROR, "manifest_schema", "bad\nmanifest:\n  here")
+    monkeypatch.setattr(cli, "validate", lambda path, deep=False: [finding])
+
+    assert main(["validate", "any.h5"]) == 1
+
+    assert capsys.readouterr().out == "error manifest_schema: bad manifest: here\n"
 
 
 @pytest.mark.parametrize(

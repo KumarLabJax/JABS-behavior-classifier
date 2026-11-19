@@ -27,6 +27,11 @@ from jabs.io.internal.pose_file.validate import validate
 _MEBIBYTE = 2**20
 
 
+def _one_line(message: object) -> str:
+    """Return a message with its line breaks and runs of whitespace collapsed to single spaces."""
+    return " ".join(str(message).split())
+
+
 def _positive_int(text: str) -> int:
     """Parse a positive integer option value."""
     try:
@@ -114,7 +119,9 @@ def _convert(args: argparse.Namespace) -> int:
             args.source, args.destination, video=video, block_bytes=args.block_mb * _MEBIBYTE
         )
     except (LegacyConversionError, OSError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        # One line per error: a deep-check refusal lists its findings on
+        # separate lines, and a reader of stderr takes one line per error.
+        print(f"error: {_one_line(error)}", file=sys.stderr)
         return 1
     print(_describe(report))
     return 0
@@ -126,7 +133,7 @@ def _validate(args: argparse.Namespace) -> int:
     # every problem comes back as a finding.
     findings = validate(args.path, deep=args.deep)
     for finding in findings:
-        print(f"{finding.severity} {finding.check}: {finding.message}")
+        print(f"{finding.severity} {finding.check}: {_one_line(finding.message)}")
     return 1 if any(finding.severity == "error" for finding in findings) else 0
 
 
