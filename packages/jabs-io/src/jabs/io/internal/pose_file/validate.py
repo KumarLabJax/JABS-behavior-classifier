@@ -22,6 +22,7 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
+from jabs.io.internal.pose_file.alternates import alternate_key
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -375,20 +376,6 @@ def _check_component(
     _check_layout(component_id, spec, node, findings)
 
 
-def _alternate_label(component_id: str, name: str) -> str:
-    """The name an alternate goes by in findings and in history entries.
-
-    Args:
-        component_id: The component that carries the alternate.
-        name: The alternate's name.
-
-    Returns:
-        ``<component id>:alternate:<name>``, the form ADR 0002 uses in an
-        ``encode`` entry's ``synthesized``.
-    """
-    return f"{component_id}:alternate:{name}"
-
-
 def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[Finding]) -> None:
     """Validate a component's alternates the way a component is validated.
 
@@ -405,7 +392,7 @@ def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[
     """
     by_id = {c["id"]: c for c in manifest["components"]}
     for alternate in spec.get("alternates", []):
-        label = _alternate_label(spec["id"], alternate["name"])
+        label = alternate_key(spec["id"], alternate["name"])
         view = {**alternate, "id": label}
         node = h5.get(alternate["path"])
         if not isinstance(node, h5py.Dataset):
@@ -485,7 +472,7 @@ def _check_alternate_names_and_paths(manifest: dict, findings: list[Finding]) ->
     for spec in manifest["components"]:
         seen: set[str] = set()
         for alternate in spec.get("alternates", []):
-            label = _alternate_label(spec["id"], alternate["name"])
+            label = alternate_key(spec["id"], alternate["name"])
             if alternate["name"] in seen:
                 findings.append(
                     Finding(
@@ -523,9 +510,7 @@ def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
     for spec in manifest["components"]:
         declared.append((spec["id"], spec["encoding"]))
         for alternate in spec.get("alternates", []):
-            declared.append(
-                (_alternate_label(spec["id"], alternate["name"]), alternate["encoding"])
-            )
+            declared.append((alternate_key(spec["id"], alternate["name"]), alternate["encoding"]))
     ragged = [(label, e) for label, e in declared if e.get("kind") == "ragged"]
     leaf_pairs = {
         (e["group_offsets"], e["instance_offsets"])
@@ -1367,7 +1352,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
     by_id = {c["id"]: c for c in manifest["components"]}
     contours = flags = None
     for spec, alternate in alternates:
-        label = _alternate_label(spec["id"], alternate["name"])
+        label = alternate_key(spec["id"], alternate["name"])
         reason = _undecodable_reason(spec, alternate, by_id)
         if reason is not None:
             findings.append(Finding(WARNING, "alternate_deep_unchecked", f"{label}: {reason}"))
@@ -1390,7 +1375,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
             Finding(
                 WARNING,
                 "alternate_deep_unchecked",
-                f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
+                f"{alternate_key(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
                 "the contours alternate's, so it cannot be decoded through them",
             )
         )
@@ -1402,7 +1387,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
                 Finding(
                     WARNING,
                     "alternate_deep_unchecked",
-                    f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
+                    f"{alternate_key(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
                     "contours alternate's offsets, and that alternate is not decodable here",
                 )
             )
@@ -1545,8 +1530,8 @@ def _compare_segmentation_alternate(
     instance_offsets = _offsets(h5, contours["encoding"]["instance_offsets"])
     contour_axis, point_axis = dense.shape[2], dense.shape[3]
 
-    points_label = _alternate_label(_CONTOURS, contours["name"])
-    flags_label = _alternate_label(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
+    points_label = alternate_key(_CONTOURS, contours["name"])
+    flags_label = alternate_key(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
     frame_bytes = max(1, int(np.prod(dense.shape[1:])) * dense.dtype.itemsize)
     block = max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes)
 

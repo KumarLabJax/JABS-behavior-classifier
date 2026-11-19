@@ -362,7 +362,7 @@ def _alternates_for(
 
 
 def _component_from(
-    spec: dict, data: np.ndarray, *, alternates: tuple[Alternate, ...] = ()
+    spec: dict, data: npt.NDArray[np.generic], *, alternates: tuple[Alternate, ...] = ()
 ) -> Component:
     """Build a Component from its manifest entry and payload.
 
