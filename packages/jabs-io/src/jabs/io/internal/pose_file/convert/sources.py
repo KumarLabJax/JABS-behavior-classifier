@@ -61,10 +61,7 @@ def pose_components(
     Raises:
         ValueError: If ``block_frames`` is not a positive multiple of 900.
     """
-    if block_frames <= 0 or block_frames % BLOCK_FRAMES:
-        raise ValueError(
-            f"block_frames must be a positive multiple of {BLOCK_FRAMES}, got {block_frames}"
-        )
+    check_block_frames(block_frames)
     frames, slots, keypoints = layout.frames, plan.slots, layout.keypoints
 
     def placed(
@@ -154,6 +151,21 @@ def pose_components(
             )
         )
     return components
+
+
+def check_block_frames(block_frames: int) -> None:
+    """Refuse a block size off the 900-frame grid.
+
+    Args:
+        block_frames: Frames per block.
+
+    Raises:
+        ValueError: If ``block_frames`` is not a positive multiple of 900.
+    """
+    if block_frames <= 0 or block_frames % BLOCK_FRAMES:
+        raise ValueError(
+            f"block_frames must be a positive multiple of {BLOCK_FRAMES}, got {block_frames}"
+        )
 
 
 def _placed_source(
