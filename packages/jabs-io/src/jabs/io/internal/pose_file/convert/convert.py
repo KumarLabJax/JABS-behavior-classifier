@@ -26,7 +26,7 @@ from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout, inspect_legacy
 from jabs.io.internal.pose_file.convert.memory import estimate_memory, require_memory
 from jabs.io.internal.pose_file.convert.objects import object_components
-from jabs.io.internal.pose_file.convert.plan import plan_placement
+from jabs.io.internal.pose_file.convert.plan import _check_extents, plan_placement
 from jabs.io.internal.pose_file.convert.provenance import (
     convert_entry,
     encode_entry,
@@ -185,7 +185,9 @@ def convert_legacy(
     block_frames = block_frames_for(layout, block_bytes)
     with h5py.File(source, "r") as h5:
         # Inspection checked a lower bound; this is the full estimate, now
-        # that the identity count and the block size are known.
+        # that the identity count and the block size are known. An identity
+        # count the plan cannot index is refused as that, not as memory.
+        _check_extents(layout)
         estimate = estimate_memory(h5, identity=layout.identity, block_frames=block_frames)
         require_memory(source, estimate, max_memory)
         # Pass 1 runs to completion first: every refusal it makes happens with

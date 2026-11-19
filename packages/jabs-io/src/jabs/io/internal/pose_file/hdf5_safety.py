@@ -39,8 +39,9 @@ def check_self_contained(h5: h5py.File) -> list[str]:
         the file is self-contained.
     """
     problems: list[str] = []
-    seen = {h5.id}
-    pending: list[h5py.Group] = [h5]
+    root = h5["/"]
+    seen = {root.id}
+    pending: list[h5py.Group] = [root]
     while pending:
         group = pending.pop()
         prefix = group.name.rstrip("/")

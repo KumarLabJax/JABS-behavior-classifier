@@ -723,3 +723,17 @@ def test_memory_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
             tracemalloc.stop()
 
     assert peaks[7200] <= 1.5 * peaks[1800] + 7200 * per_frame_allowance
+
+
+def test_an_embed_id_past_the_slot_index_is_refused_for_what_it_is(tmp_path: Path) -> None:
+    """A huge embed id is an identity count the plan cannot index, not a memory problem."""
+    src = tmp_path / "legacy.h5"
+    shutil.copyfile(legacy("v8-without-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        embed = h5["poseest/instance_embed_id"]
+        values = embed[...]
+        values[0, 0] = 2_000_000_000
+        embed[...] = values
+
+    with pytest.raises(LegacyConversionError, match="exceed the slots a plan can index"):
+        convert_legacy(src, tmp_path / "out.h5")

@@ -4,6 +4,10 @@ A reader asks what a file *contains*, never how old it is: identification is
 the ``jabs_format`` root attribute, and nothing here inspects
 ``schema_revision``.
 
+Before any document or payload is read, a file that refers to data outside
+itself (an external or soft link, external or virtual storage) is refused:
+h5py would follow the reference, and the Hub reads uploads on its own machines.
+
 Three entry points, in increasing cost. :func:`read_manifest` learns the
 contents without touching a payload. :func:`read_component` reads one
 component, optionally only a window of its frame axis. :func:`read_pose_file`
@@ -140,6 +144,9 @@ def read_manifest(path: str | Path) -> dict:
     """
     with h5py.File(path, "r") as h5:
         if attr_text(h5.attrs.get("jabs_format")) != FORMAT_ID:
+            # Describing the file reads /poseest, which may be a link.
+            if check_self_contained(h5):
+                raise NotAPoseFileError(f"{path} is not a {FORMAT_ID}")
             raise NotAPoseFileError(f"{path} is {_describe_other_format(h5)}, not a {FORMAT_ID}")
         _require_self_contained(h5, path)
         try:

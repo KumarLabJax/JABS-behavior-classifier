@@ -187,3 +187,18 @@ def test_outside_references_are_refused(tmp_path, written, kind):
     # The manifest given, so only the payload read is left to refuse it.
     with pytest.raises(PoseFileError, match=match):
         read_component(written, "jabs.pose.points", manifest=manifest)
+
+
+def test_a_non_pose_file_is_not_described_through_a_link(tmp_path):
+    """Naming a legacy file's version reads an attribute, so a link is not followed for it."""
+    secret = tmp_path / "secret.h5"
+    with h5py.File(secret, "w") as h5:
+        h5.create_group("poseest").attrs["version"] = 99
+    upload = tmp_path / "upload.h5"
+    with h5py.File(upload, "w") as h5:
+        h5["poseest"] = h5py.ExternalLink(str(secret), "/poseest")
+
+    with pytest.raises(NotAPoseFileError) as refused:
+        read_manifest(upload)
+
+    assert "v99" not in str(refused.value)

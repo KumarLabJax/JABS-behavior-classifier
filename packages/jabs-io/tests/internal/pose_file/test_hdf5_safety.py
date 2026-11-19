@@ -108,3 +108,14 @@ def test_the_public_samples_are_self_contained(name: str) -> None:
     """Real legacy files pass."""
     with h5py.File(SAMPLES / name, "r") as h5:
         assert check_self_contained(h5) == []
+
+
+def test_a_hard_link_to_the_root_is_walked_once(tmp_path: Path) -> None:
+    """A group holding the root again does not report the root's problems twice."""
+    path = tmp_path / "file.h5"
+    with h5py.File(path, "w") as h5:
+        h5["leak"] = h5py.SoftLink("/elsewhere")
+        h5.create_group("a")["root"] = h5["/"]
+
+    with h5py.File(path, "r") as h5:
+        assert check_self_contained(h5) == ["/leak is a soft link to /elsewhere"]

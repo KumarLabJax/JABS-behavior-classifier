@@ -2,7 +2,11 @@
 
 A valid file is a well-formed manifest: every component is optional, and
 consumers declare their own requirements on top. This module implements the
-ADR's validation table, and nothing more opinionated than it.
+ADR's validation table, and nothing more opinionated than it, with one
+safety rule for untrusted input ahead of it: ``self_contained``, a link or
+dataset referring to data outside the file. It runs first, before any
+document or payload is read, and the pass stops on it, since every later
+check would read through the reference.
 
 Two properties matter as much as the checks themselves. **This function
 reports, it never raises** — it is the tool aimed at untrusted and damaged
