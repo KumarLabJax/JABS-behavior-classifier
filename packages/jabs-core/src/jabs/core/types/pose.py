@@ -121,6 +121,34 @@ class SegmentationData:
 
 
 @dataclass(frozen=True)
+class SegmentationWindow:
+    """Segmentation contours for one identity over a contiguous range of frames.
+
+    Valid contours are packed first on each frame: only the first ``contour_count[i]``
+    contour slots of frame ``i`` hold a contour, and only the first
+    ``contour_length[i, c]`` points of contour ``c`` are real. Padding values are
+    unspecified and must not be read. Coordinates are in ``(x, y)`` order.
+
+    Attributes:
+        contours: Contour point positions, shape (n, C, P, 2), int32, where n is the
+            number of frames in the window, C the contour slot capacity and P the point
+            capacity of a contour.
+        contour_count: Number of valid contours on each frame, shape (n,), uint32.
+        contour_length: Number of valid points in each contour slot, shape (n, C),
+            uint32.
+        external_flag: True where the contour is an external boundary, False where it
+            is a hole, shape (n, C). None when the source has no flags.
+        start: Frame index of the first frame in the window.
+    """
+
+    contours: npt.NDArray[np.int32]
+    contour_count: npt.NDArray[np.uint32]
+    contour_length: npt.NDArray[np.uint32]
+    external_flag: npt.NDArray[np.bool_] | None
+    start: int
+
+
+@dataclass(frozen=True)
 class PoseData:
     """Canonical representation of pose estimation data.
 
