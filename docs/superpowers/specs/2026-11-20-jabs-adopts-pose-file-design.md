@@ -40,15 +40,27 @@ file's hash **and the converter version** (jabs-io version) are unchanged; the
 key is `<legacy-hash>-<jabs-io version>`, so a converter fix regenerates old
 conversions. Two workers converting the same file at once both succeed (the
 write is atomic); the second write is wasted work, which is acceptable. The video directory is never written. Without a
-`cache_dir` (one-off CLI use) the conversion goes to a temporary directory that
-is removed when the `Pose` is closed.
+`cache_dir` (viewer, one-off CLI use) conversions go to a per-user cache,
+`platformdirs.user_cache_dir("jabs")/converted/`, keyed the same way, so a file
+is converted once per machine rather than on every open.
+
+**When conversion runs.** The project scan stays metadata-only (manifest for
+unified files, `inspect_legacy` for legacy ones) and keeps its stat-token
+cache. Conversion runs in the per-video feature workers and in a background
+step with progress before the GUI first loads a video's pose; the viewer
+converts off the GUI thread. A converter refusal marks that video unusable
+with the reason; the project still opens.
 
 **v2/v3 support in the converter.** `convert_legacy` gains v2 (single mouse,
 12 keypoints, no identity datasets) and v3 (`instance_count`,
 `instance_embedding`, `instance_track_id`). jabs-vision still writes v2.
 Per ADR 0002, v2 converts to 1 slot and `identity = 1`; v3 converts to
-`identity = 0` with tracklets. **`Pose` treats every slot of an `identity = 0`
-file as an identity** (today's v3 behavior) and reports
+`identity = 0` with tracklets. v3 placement follows today's v3 reader: each
+track keeps one slot for its whole run (the free-list assignment of
+`pose_est_v3._build_identity_map`), legacy track ids are stored as `id + 1`
+because 0 means "no tracklet", and `instance_embedding` is dropped as the ADR
+says. **`Pose` treats every slot of an `identity = 0` file
+that carries `jabs.pose.tracklet_id` as an identity** (today's v3 behavior) and reports
 `has_identity_tracking = False`.
 
 **Discovery.** Every place that globs `*_pose_est_v*.h5` or derives a video
@@ -88,8 +100,8 @@ names.
 - **Replaced:** `format_major_version` and every `>= N` check (feature
   manager, read/export training, lixit/corner features, CLI, UI overlays) by
   capability properties: `has_segmentation`, `has_identity_tracking`,
-  `has_static_object(name)`, `has_bounding_boxes`, `has_social` (the file has
-  more than one slot). Features declare required capabilities instead of
+  `has_static_object(name)`, `has_bounding_boxes`, `has_social` (more than one
+  identity; tail slots do not count). Features declare required capabilities instead of
   `_min_pose`. The project-level `_min_pose_version` becomes the intersection
   of every file's capabilities; training exports write `pose_capabilities`, and
   reading an old export maps `min_pose_version` (≥3 social, ≥6 segmentation, ≥8
@@ -118,7 +130,11 @@ names.
 - Classifiers record the `FEATURE_VERSION` they were trained on. Loading one
   with a different (or no recorded) version raises a clear "retrain this
   classifier" error instead of predicting on mismatched features.
-- The convex-hull cache path mismatch is fixed while moving its code.
+- The convex-hull cache moves to `convex_hulls/<video base>/<Pose.hash>/`, which
+  the project's cleanup already removes and which a replaced pose file never
+  reuses.
+- Training exports already record `file_version`; training refuses an export
+  whose version differs, and the classifier records the data's version.
 
 ### 5. Testing
 
@@ -139,11 +155,13 @@ conversion of projects and the Hub cutover, rebasing #603.
 
 ## Risks
 
-- **Conversion time on first open** of a large legacy project. Mitigation:
-  conversion runs inside the existing per-video feature/progress workers, and
-  converted files are reused.
-- **Cache disk use**: a converted copy per legacy file. Acceptable for now; the
-  on-disk migration later removes the duplication.
+- **Conversion time on first open** of a large legacy project (measured about
+  54 s per mouse-hour of v6). Mitigation: conversion runs inside the existing
+  per-video feature/progress workers, and converted files are reused.
+- **Cache disk use**: a converted copy is 2-4x the legacy file (measured). Prune
+  removes a video's converted files, and a successful conversion removes that
+  source's copies from older jabs-io versions; the on-disk migration later
+  removes the duplication.
 - **Converter refusals** (duplicate identities, shared tracklets) on files JABS
   opens today become errors. The error names the file and the reason; such
   files are counted during the end-to-end run on real projects.
