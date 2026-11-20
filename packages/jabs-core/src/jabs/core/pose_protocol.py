@@ -159,6 +159,11 @@ class PoseLike(Protocol):
         ...
 
     @property
+    def converter_revision(self) -> int | None:
+        """Converter revision of a converted legacy pose file; None when not converted."""
+        ...
+
+    @property
     def identity_to_track(self) -> npt.NDArray[np.int32] | None:
         """``(I, F)`` int32 track ids, -1 where no track; None without tracks."""
         ...

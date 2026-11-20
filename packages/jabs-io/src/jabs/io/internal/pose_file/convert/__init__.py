@@ -16,7 +16,15 @@ from jabs.io.internal.pose_file.convert.sources import pose_components
 
 logger = logging.getLogger(__name__)
 
+# The revision of the converter's output. Bump it only when the converter's
+# output changes for some input (different values, validity, slot placement,
+# components or metadata), never for a release: JABS keys its conversion cache
+# and its feature caches of converted files on it, so a bump reconverts every
+# legacy file and recomputes their features.
+CONVERTER_REVISION: int = 1
+
 __all__ = [
+    "CONVERTER_REVISION",
     "ConversionReport",
     "LegacyConversionError",
     "LegacyLayout",

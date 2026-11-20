@@ -35,8 +35,9 @@ project 4 has one place to add embedding access.
 **Where a conversion lives.** The converter streams to a destination file and
 deep-checks it; an hour of dense segmentation does not fit comfortably in RAM.
 So "in memory" is implemented as **a converted file in the project's cache
-directory**, `<cache_dir>/converted/<video stem>.<legacy-hash>-<jabs-io version>.h5`, reused while the legacy
-file's hash **and the converter version** (jabs-io version) are unchanged; so a converter fix regenerates old conversions, and prune can find a video's
+directory**, `<cache_dir>/converted/<video stem>.<legacy-hash>-r<converter revision>.h5`, reused while the legacy
+file's hash **and the converter revision** are unchanged. The revision is jabs-io's
+`CONVERTER_REVISION`, bumped only when converter output changes (not per release), so a converter fix regenerates old conversions, and prune can find a video's
 copies by stem. Two workers converting the same file at once both succeed (the
 write is atomic); the second write is wasted work, which is acceptable. The video directory is never written. Without a
 `cache_dir` (viewer, one-off CLI use) conversions go to a per-user cache,
@@ -131,7 +132,10 @@ names.
   classifier" error instead of predicting on mismatched features.
 - The convex-hull cache moves to `convex_hulls/<video base>/<Pose.hash>/`, which
   the project's cleanup already removes and which a replaced pose file never
-  reuses.
+  reuses. For a converted file the directory is `<Pose.hash>-r<converter revision>`.
+- Feature caches of a converted file also record the converter revision
+  (`Pose.converter_revision`; None for a unified file) and are recomputed when
+  it changes, so a converter fix never serves features of an old conversion.
 - Training exports already record `file_version`; training refuses an export
   whose version differs, and the classifier records the data's version.
 
@@ -159,7 +163,7 @@ conversion of projects and the Hub cutover, rebasing #603.
   per-video feature/progress workers, and converted files are reused.
 - **Cache disk use**: a converted copy is 2-4x the legacy file (measured). Prune
   removes a video's converted files, and a successful conversion removes that
-  source's copies from older jabs-io versions; the on-disk migration later
+  source's copies from older converter revisions; the on-disk migration later
   removes the duplication.
 - **The per-user conversion cache has no eviction yet** (viewer and CLI use);
   a size cap or a `jabs-cli` cleanup command is follow-up work.

@@ -69,7 +69,8 @@ logger = logging.getLogger(__name__)
 MULTICLASS_CLASSIFIER_FILENAME = "_multiclass.pickle"
 
 # a cached conversion of a video's legacy pose file, under <cache_dir>/converted:
-# <video stem>.<40 hex digit legacy hash>-<jabs-io version>.h5
+# <video stem>.<40 hex digit legacy hash>-r<converter revision>.h5 (or, from earlier
+# JABS, -<jabs-io version>.h5)
 _CONVERTED_DIR = "converted"
 _CONVERTED_NAME = r"\.[0-9a-f]{40}-[^/\\]+\.h5"
 

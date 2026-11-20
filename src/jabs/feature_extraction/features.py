@@ -163,6 +163,8 @@ class IdentityFeatures:
     ) -> None:
         self._num_frames = pose_est.num_frames
         self._pose_hash = pose_est.hash
+        # features of a converted legacy file also depend on the converter
+        self._converter_revision = pose_est.converter_revision
         self._identity = identity
         self._identity_mask = pose_est.identity_mask(identity)
         self._op_settings = _normalize_op_settings(op_settings) if op_settings else None
@@ -317,12 +319,14 @@ class IdentityFeatures:
                     FEATURE_VERSION,
                     self._pose_hash,
                     self._distance_scale_factor,
+                    self._converter_revision,
                 )
             case CacheFormat.HDF5:
                 return HDF5FeatureCacheReader(
                     FEATURE_VERSION,
                     self._pose_hash,
                     self._distance_scale_factor,
+                    self._converter_revision,
                 )
             case _:
                 raise NotImplementedError(f"Unsupported cache format: {fmt}")
@@ -399,6 +403,7 @@ class IdentityFeatures:
             identity=self._identity,
             num_frames=self._num_frames,
             pose_hash=self._pose_hash,
+            converter_revision=self._converter_revision,
             distance_scale_factor=self._distance_scale_factor,
             avg_wall_length=avg_wall_length,
         )
@@ -425,6 +430,7 @@ class IdentityFeatures:
             identity=self._identity,
             num_frames=self._num_frames,
             pose_hash=self._pose_hash,
+            converter_revision=self._converter_revision,
             distance_scale_factor=self._distance_scale_factor,
         )
         self._writer.write_window(

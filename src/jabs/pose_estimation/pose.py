@@ -215,6 +215,8 @@ class Pose:
         source_hash: ``jabs.core.utils.hash_file`` of ``source_path``, when the
             caller already has it; computed otherwise.
         cache_dir: Optional directory to cache convex hulls in.
+        converter_revision: The converter revision that produced ``pose_path``
+            from ``source_path``, or None when the file was not converted.
 
     Raises:
         NotAPoseFileError: If ``pose_path`` is not a unified pose file.
@@ -231,8 +233,10 @@ class Pose:
         source_path: Path | None = None,
         source_hash: str | None = None,
         cache_dir: Path | None = None,
+        converter_revision: int | None = None,
     ) -> None:
         self._pose_path = pose_path
+        self._converter_revision = converter_revision
         self._path = source_path if source_path is not None else pose_path
         self._cache_dir = cache_dir
         # hashed before the reader opens, so a failure here leaks no open file
@@ -430,6 +434,11 @@ class Pose:
     def hash(self) -> str:
         """Hash of :attr:`pose_file`."""
         return self._hash
+
+    @property
+    def converter_revision(self) -> int | None:
+        """Converter revision of a converted legacy file; None for a unified file."""
+        return self._converter_revision
 
     @property
     def source_format(self) -> str:
@@ -680,11 +689,15 @@ class Pose:
         """Return the convex hull cache file of an identity, or None without a cache."""
         if self._cache_dir is None:
             return None
+        # a conversion's hulls also depend on the converter that produced it
+        key = self._hash
+        if self._converter_revision is not None:
+            key = f"{key}-r{self._converter_revision}"
         return (
             self._cache_dir
             / "convex_hulls"
             / _video_base(self._path)
-            / self._hash
+            / key
             / f"convex_hulls_{identity}.pickle"
         )
 
@@ -693,8 +706,9 @@ class Pose:
 
         Hulls use every valid keypoint except the tail ones. They are cached
         in memory and, with a cache directory, on disk under
-        ``convex_hulls/<video base>/<hash>/``, so a changed pose file never
-        reuses another file's hulls.
+        ``convex_hulls/<video base>/<hash>/`` (``<hash>-r<converter revision>``
+        for a converted legacy file), so a changed pose file, or a conversion
+        by another converter revision, never reuses another file's hulls.
 
         Args:
             identity: Identity index.
