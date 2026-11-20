@@ -254,10 +254,13 @@ class EmbeddingDescriptor:
                 "embedding window extents must be >= 0, got "
                 f"({self.window.before}, {self.window.after})"
             )
-        if self.projection is not None and self.projection.input_dim < 1:
-            raise ValueError(
-                f"embedding projection.input_dim must be >= 1, got {self.projection.input_dim}"
-            )
+        if self.projection is not None:
+            if self.projection.input_dim < 1:
+                raise ValueError(
+                    f"embedding projection.input_dim must be >= 1, got {self.projection.input_dim}"
+                )
+            _require_non_empty(self.projection.kind, "projection.kind")
+            _require_non_empty(self.projection.basis, "projection.basis")
         _require_non_empty(self.tap, "tap")
         _require_non_empty(self.pooling, "pooling")
         _require_non_empty(self.normalization, "normalization")

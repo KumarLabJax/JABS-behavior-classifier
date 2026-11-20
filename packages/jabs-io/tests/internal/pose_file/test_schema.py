@@ -133,6 +133,18 @@ def test_schema_accepts_an_embedding_entry(minimal_manifest):
             ),
             id="projection-input-dim",
         ),
+        pytest.param(
+            lambda d: d["embedding"].update(
+                projection={"kind": "", "input_dim": 768, "basis": "b"}
+            ),
+            id="projection-empty-kind",
+        ),
+        pytest.param(
+            lambda d: d["embedding"].update(
+                projection={"kind": "pca", "input_dim": 768, "basis": ""}
+            ),
+            id="projection-empty-basis",
+        ),
     ],
 )
 def test_schema_requires_descriptor_on_embedding_ids(minimal_manifest, mutate):

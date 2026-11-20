@@ -135,7 +135,7 @@ required; `projection` may be `null`.
 | `pooling` | non-empty string | how spatial positions were reduced; registered values `mask_mean`, `bbox_mean`, `grid_mean`, `token`; others allowed |
 | `window` | `{before, after}`, integers ≥ 0 | upper bound on the temporal receptive field (below) |
 | `normalization` | non-empty string | `none`, `l2`, or producer-defined |
-| `projection` | `null` or `{kind, input_dim, basis}` | a post-tap reduction, e.g. `{"kind": "pca", "input_dim": 1664, "basis": "sha256:<hex>"}`; `input_dim` ≥ 1; `dim` is then the output width |
+| `projection` | `null` or `{kind, input_dim, basis}` | a post-tap reduction, e.g. `{"kind": "pca", "input_dim": 1664, "basis": "sha256:<hex>"}`; `kind` and `basis` non-empty; `input_dim` ≥ 1; `dim` is then the output width |
 | `fingerprint` | string, `^sha256:[0-9a-f]{64}$` | as below |
 
 #### Fingerprint and canonical JSON (normative)
