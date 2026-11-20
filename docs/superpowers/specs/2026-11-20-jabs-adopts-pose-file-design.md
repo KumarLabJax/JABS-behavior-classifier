@@ -58,8 +58,9 @@ Per ADR 0002, v2 converts to 1 slot and `identity = 1`; v3 converts to
 track keeps one slot for its whole run (the free-list assignment of
 `pose_est_v3._build_identity_map`), legacy track ids are stored as `id + 1`
 because 0 means "no tracklet", and `instance_embedding` is dropped as the ADR
-says. **`Pose` treats every slot of an `identity = 0` file
-that carries `jabs.pose.tracklet_id` as an identity** (today's v3 behavior).
+says. **`Pose` treats every slot of a v3 conversion (an
+`identity = 0` file whose last convert entry's source is `pose_est_v3`) as an
+identity** (today's v3 behavior); any other `identity = 0` file has no identities.
 
 **Discovery.** Every place that globs `*_pose_est_v*.h5` or derives a video
 stem from a pose name (`pose_file_stem`, the viewer's file filter, project
