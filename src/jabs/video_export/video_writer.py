@@ -15,7 +15,7 @@ from jabs.video_reader import BlankFrameReader, VideoReader
 from .frame_renderer import render_overlay_frame
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
     from .label_marker_overlay import LabelMarkerOverlay
 
@@ -92,7 +92,7 @@ def _open_writer(
 def export_overlay_video(
     video_path: Path,
     output_path: Path,
-    pose_est: PoseEstimation,
+    pose_est: PoseLike,
     *,
     draw_pose: bool = True,
     draw_segmentation: bool = True,

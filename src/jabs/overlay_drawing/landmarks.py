@@ -15,7 +15,7 @@ from collections.abc import Callable
 import numpy as np
 from PySide6 import QtCore, QtGui
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 
 from .mapping import visible_runs
 from .scaling import native_overlay_scale
@@ -76,7 +76,7 @@ def native_landmark_sizes(width: int, height: int) -> tuple[int, int]:
 
 def draw_landmarks(
     painter: QtGui.QPainter,
-    pose: PoseEstimation,
+    pose: PoseLike,
     *,
     to_output: Callable[[float, float], tuple[int, int] | None],
     point_radius: int,

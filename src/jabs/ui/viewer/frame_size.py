@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ MAX_FRAME_DIMENSION = 8192
 FRAME_SIZE_STEP = 100
 
 
-def estimate_frame_size(pose_est: PoseEstimation) -> tuple[int, int]:
+def estimate_frame_size(pose_est: PoseLike) -> tuple[int, int]:
     """Estimate the width and height of the video a pose file was produced from.
 
     Pose files do not record the frame size, so it is taken from the largest x and y

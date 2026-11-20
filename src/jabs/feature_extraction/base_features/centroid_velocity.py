@@ -1,9 +1,9 @@
 import numpy as np
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.utils import wrap_degrees
 from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 # TODO: consider merging CentroidVelocityMag and CentroidVelocityDir into a single feature
 #   these are currently separate features in the features file, so we keep them
@@ -17,7 +17,7 @@ class CentroidVelocityDir(Feature):
     _name = "centroid_velocity_dir"
     _use_circular = True
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
@@ -47,7 +47,7 @@ class CentroidVelocityMag(Feature):
 
     _name = "centroid_velocity_mag"
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:

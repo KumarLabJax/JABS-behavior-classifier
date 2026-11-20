@@ -5,9 +5,9 @@ from collections.abc import Callable
 import numpy as np
 from PySide6 import QtCore, QtGui
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils.pose_util import gen_line_fragments
-from jabs.pose_estimation import PoseEstimation
 
 from .colors import KEYPOINT_COLOR_MAP
 from .scaling import native_overlay_scale
@@ -48,7 +48,7 @@ def native_pose_sizes(width: int, height: int) -> tuple[int, int]:
 
 def draw_identity_pose(
     painter: QtGui.QPainter,
-    pose: PoseEstimation,
+    pose: PoseLike,
     frame_index: int,
     identity: int,
     *,

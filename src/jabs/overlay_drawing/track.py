@@ -15,8 +15,8 @@ from collections.abc import Callable
 import numpy as np
 from PySide6 import QtCore, QtGui
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
-from jabs.pose_estimation import PoseEstimation
 
 from .mapping import visible_runs
 
@@ -38,7 +38,7 @@ TRACK_LINE_WIDTH = 1
 
 def draw_identity_track(
     painter: QtGui.QPainter,
-    pose: PoseEstimation,
+    pose: PoseLike,
     frame_index: int,
     identity: int,
     *,

@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.utils import validate_behavior_names
-from jabs.pose_estimation import PoseEstimation
 
 from .timeline_annotations import TimelineAnnotations
 from .track_labels import TrackLabels
@@ -152,7 +152,7 @@ class VideoLabels:
 
     def as_dict(
         self,
-        pose: PoseEstimation | None,
+        pose: PoseLike | None,
         project_metadata: dict | None = None,
         video_metadata: dict | None = None,
     ) -> dict:
@@ -162,7 +162,7 @@ class VideoLabels:
         file, so it is also what :meth:`load` consumes.
 
         Args:
-            pose: PoseEstimation for this video. Its identity mask fragments the
+            pose: PoseLike for this video. Its identity mask fragments the
                 blocks written to ``labels``, and its external identities are
                 included in the output when the pose file has them. None when
                 the pose file cannot be opened: ``labels`` then holds the
@@ -267,13 +267,13 @@ class VideoLabels:
         return label_dict
 
     @classmethod
-    def load(cls, video_label_dict: dict, pose: PoseEstimation | None = None) -> "VideoLabels":
+    def load(cls, video_label_dict: dict, pose: PoseLike | None = None) -> "VideoLabels":
         """Return a VideoLabels object initialized with data previously exported by as_dict().
 
         Args:
             video_label_dict: Dict representation of the labels, as produced by
                 :meth:`as_dict`.
-            pose: Optional PoseEstimation for the video. It is used only to map
+            pose: Optional PoseLike for the video. It is used only to map
                 timeline annotation identity indexes to their display identity;
                 when omitted, the identity index is used as its own display
                 string.

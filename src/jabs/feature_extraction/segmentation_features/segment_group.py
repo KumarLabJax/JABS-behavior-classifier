@@ -1,7 +1,7 @@
 import typing
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
-from jabs.pose_estimation import PoseEstimation
 
 from ..feature_base_class import Feature
 
@@ -24,7 +24,7 @@ class SegmentationFeatureGroup(FeatureGroup):
         HuMoments.name(): HuMoments,
     }
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__(poses, pixel_scale)
         self._moments_cache = None
         self._moments_cache_identity = None

@@ -28,9 +28,9 @@ from jabs.core.enums import (
     compile_grouping_regex,
     filename_group_key,
 )
+from jabs.core.pose_protocol import PoseLike
 from jabs.io.annotations import AnnotationStore, LocalAnnotationStore
 from jabs.pose_estimation import (
-    PoseEstimation,
     PoseOpenError,
     get_pose_path,
     open_pose_file,
@@ -880,14 +880,14 @@ class Project:
 
         return True
 
-    def load_pose_est(self, video_path: Path) -> PoseEstimation:
-        """return a PoseEstimation object for a given video path
+    def load_pose_est(self, video_path: Path) -> PoseLike:
+        """return a PoseLike object for a given video path
 
         Args:
             video_path: pathlib.Path containing location of video file
 
         Returns:
-            PoseEstimation object (PoseEstimationV2 or PoseEstimationV3)
+            PoseLike object for the video's pose file
 
         Raises:
             ValueError: if video no in project or it does not have post
@@ -902,12 +902,12 @@ class Project:
             self._paths.cache_dir,
         )
 
-    def save_annotations(self, annotations: VideoLabels, pose: PoseEstimation):
+    def save_annotations(self, annotations: VideoLabels, pose: PoseLike):
         """save state of a VideoLabels object to the project directory
 
         Args:
             annotations: VideoLabels object
-            pose: PoseEstimation, identity mask is used to account for dropped identity when generating intervals
+            pose: PoseLike, identity mask is used to account for dropped identity when generating intervals
 
         Returns:
             None
@@ -1074,7 +1074,7 @@ class Project:
 
     def save_predictions(
         self,
-        pose_est: PoseEstimation,
+        pose_est: PoseLike,
         video_name: str,
         predictions: dict[int, np.ndarray],
         probabilities: dict[int, np.ndarray],
@@ -1086,7 +1086,7 @@ class Project:
         """Save predictions for a video in the project folder.
 
         Args:
-            pose_est: PoseEstimation object for the video.
+            pose_est: PoseLike object for the video.
             video_name: name of the video these predictions correspond to.
             predictions: dict mapping identity to a 1D numpy array of predicted labels.
             probabilities: same structure as `predictions` but with floating-point values.

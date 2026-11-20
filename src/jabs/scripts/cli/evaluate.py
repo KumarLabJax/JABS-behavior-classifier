@@ -441,7 +441,7 @@ def _predict_identity(
     Args:
         classifier: Trained binary classifier.
         pose_path: Path to the pose file, used as the feature-cache key.
-        pose_est: Open ``PoseEstimation`` for that file.
+        pose_est: Open ``PoseLike`` for that file.
         identity: Identity index to classify.
         feature_dir: Feature cache directory, or None to compute without caching.
         cache_format: Feature cache format to read and write.

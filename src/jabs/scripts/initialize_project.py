@@ -40,7 +40,7 @@ DEFAULT_PROCESSES = os.cpu_count() or 1
 def generate_files_worker(params: dict) -> FeatureTimings | None:
     """worker function used for generating project feature and cache files for one video
 
-    All identities in the video are processed with the same PoseEstimation object, so
+    All identities in the video are processed with the same PoseLike object, so
     per-video work that feature groups cache on it (such as the social contact graph
     shared by every identity) is done once per video rather than once per identity.
 

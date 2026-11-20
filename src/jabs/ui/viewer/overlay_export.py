@@ -16,7 +16,7 @@ from jabs.ui.dialogs.video_export_options_dialog import VideoExportOptionsDialog
 from jabs.ui.video_export_thread import VideoExportThread
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
     from jabs.ui.player_widget import PlayerWidget
     from jabs.video_reader import BlankFrameReader
 
@@ -56,7 +56,7 @@ class ExportSource:
     """
 
     path: Path
-    pose_est: PoseEstimation | None
+    pose_est: PoseLike | None
     frames: BlankFrameReader | None = None
 
     @property

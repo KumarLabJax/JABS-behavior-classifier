@@ -1,10 +1,10 @@
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import wrap_degrees
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 # TODO: merge this with point_speeds to reduce compute
 #  since they both use keypoint gradients
@@ -31,7 +31,7 @@ class PointVelocityDirs(Feature):
     _point_index = None
     _use_circular = True
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, npt.NDArray[np.floating]]:

@@ -8,9 +8,9 @@ import numpy.typing as npt
 import pytest
 import shapely
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.base_features import CentroidVelocityDir, PointVelocityDirs
-from jabs.pose_estimation import PoseEstimation
 
 
 def test_point_velocity_dirs_per_frame_dimensions(pose_est_v5):
@@ -121,7 +121,7 @@ class _PoseLike(Protocol):
 
 
 def _pose_with_constant_motion(
-    pose_est_v5: PoseEstimation,
+    pose_est_v5: PoseLike,
     delta: tuple[float, float],
     bearing: float,
 ) -> _PoseLike:

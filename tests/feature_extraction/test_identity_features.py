@@ -11,6 +11,7 @@ import pytest
 
 import jabs.pose_estimation as pose_est_module
 from jabs.core.enums import CacheFormat
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.utils import pose_file_stem
 from jabs.feature_extraction.feature_timing import (
     GROUP_SETUP_FEATURE,
@@ -125,7 +126,7 @@ def test_identity_features_parquet_round_trip(tmp_path, pose_est_v5) -> None:
 
 
 def test_identity_features_parquet_window_round_trip(
-    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+    tmp_path: Path, pose_est_v5_short: PoseLike
 ) -> None:
     """Window features loaded from a Parquet cache must equal freshly computed values."""
     computed = _make_identity_features(
@@ -148,7 +149,7 @@ def test_identity_features_parquet_window_round_trip(
 
 def test_window_cache_readable_after_first_compute(
     tmp_path: Path,
-    pose_est_v5_short: pose_est_module.PoseEstimation,
+    pose_est_v5_short: PoseLike,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A single IdentityFeatures instance can load window features it just wrote.
@@ -195,7 +196,7 @@ def test_window_cache_readable_after_first_compute(
 
 
 def test_window_compute_after_flat_per_frame_cache_hit(
-    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+    tmp_path: Path, pose_est_v5_short: PoseLike
 ) -> None:
     """Window recompute works after per-frame flat cache access.
 
@@ -225,7 +226,7 @@ def test_window_compute_after_flat_per_frame_cache_hit(
 
 
 def test_get_features_arrays_cover_every_frame(
-    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
+    tmp_path: Path, pose_est_v5_short: PoseLike
 ) -> None:
     """get_features() returns frame-aligned arrays plus the valid-frame indexes.
 

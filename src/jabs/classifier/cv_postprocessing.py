@@ -34,7 +34,7 @@ from .inference import predict_identity
 
 if TYPE_CHECKING:
     from jabs.behavior.postprocessing import PostprocessingPipeline
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
     from jabs.project import Project
     from jabs.project.video_labels import VideoLabels
 
@@ -82,7 +82,7 @@ def _identity_labels(
     labels_obj: VideoLabels,
     identity: int,
     behavior: str,
-    pose_est: PoseEstimation,
+    pose_est: PoseLike,
 ) -> npt.NDArray[np.int8]:
     """Extract one identity's ground-truth label vector for a behavior.
 

@@ -219,7 +219,7 @@ def test_jabs_init_uses_the_canonical_default_window_size():
 def test_generate_files_worker_processes_every_identity_with_one_pose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One job computes every identity in a video using a single PoseEstimation.
+    """One job computes every identity in a video using a single PoseLike.
 
     Per-video work that feature groups cache on the pose object (e.g. the social
     contact graph) is only shared if every identity uses the same object. The worker

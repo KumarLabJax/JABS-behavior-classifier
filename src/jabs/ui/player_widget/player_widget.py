@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 from jabs.project import VideoLabels
 from jabs.video_export import render_overlay_frame
 from jabs.video_reader import BlankFrameReader, VideoReader
@@ -188,7 +188,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self.setLayout(player_layout)
 
     @property
-    def pose_est(self) -> PoseEstimation | None:
+    def pose_est(self) -> PoseLike | None:
         """Pose estimation for the loaded video, or None when no video is loaded."""
         return self._pose_est
 
@@ -294,7 +294,7 @@ class PlayerWidget(QtWidgets.QWidget):
     def load_video(
         self,
         path: Path,
-        pose_est: PoseEstimation | None = None,
+        pose_est: PoseLike | None = None,
         video_labels: VideoLabels | None = None,
     ) -> None:
         """load a new video source
@@ -308,7 +308,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         self._load_stream(VideoReader(path), path, pose_est, video_labels)
 
-    def load_blank_frames(self, frames: BlankFrameReader, pose_est: PoseEstimation) -> None:
+    def load_blank_frames(self, frames: BlankFrameReader, pose_est: PoseLike) -> None:
         """load solid-color frames, to play back pose data that has no video
 
         Args:
@@ -321,7 +321,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self,
         stream: VideoReader | BlankFrameReader,
         path: Path | None,
-        pose_est: PoseEstimation | None,
+        pose_est: PoseLike | None,
         video_labels: VideoLabels | None,
     ) -> None:
         """replace the loaded frame source and set up playback for it

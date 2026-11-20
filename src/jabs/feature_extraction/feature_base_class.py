@@ -6,8 +6,8 @@ import numpy as np
 from scipy import signal
 
 from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
-from jabs.pose_estimation import PoseEstimation
 
 
 def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
@@ -179,7 +179,7 @@ class Feature(abc.ABC):
     # if an angle feature is in a different range, the subclass needs to override this
     _circular_range: typing.ClassVar[tuple[float, float]] = (-180.0, 180.0)
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__()
         self._poses = poses
         self._pixel_scale = pixel_scale
@@ -260,7 +260,7 @@ class Feature(abc.ABC):
         Returns:
             Dict mapping each feature column name to a one-dimensional array holding
             that column's value for every frame of the video, so every array has
-            length ``PoseEstimation.num_frames``. Keypoint-derived values are nan on
+            length ``PoseLike.num_frames``. Keypoint-derived values are nan on
             frames where the identity is absent or a keypoint they depend on is
             missing, which the window and signal operations are written to tolerate.
         """

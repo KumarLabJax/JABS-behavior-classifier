@@ -4,8 +4,8 @@ import cv2
 import numpy as np
 
 from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .moment_cache import MomentInfo
@@ -18,7 +18,7 @@ class HuMoments(Feature):
     _requires = frozenset({PoseCapability.SEGMENTATION})
     _feature_names: typing.ClassVar[list[str]] = [f"hu{i}" for i in range(1, 8)]
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"):
+    def __init__(self, poses: PoseLike, pixel_scale: float, moment_cache: "MomentInfo"):
         super().__init__(poses, pixel_scale)
         self._moment_cache = moment_cache
 

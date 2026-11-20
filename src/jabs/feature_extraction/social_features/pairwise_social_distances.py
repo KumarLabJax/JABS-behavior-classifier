@@ -3,9 +3,9 @@ import typing
 import numpy as np
 
 from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .social_distance import ClosestIdentityInfo
@@ -28,7 +28,7 @@ class PairwiseSocialDistances(Feature):
     based on pose estimation data.
 
     Args:
-        poses (PoseEstimation): Pose estimation data for all subjects.
+        poses (PoseLike): Pose estimation data for all subjects.
         pixel_scale (float): Scale factor to convert pixel distances to real-world units.
         social_distance_info (ClosestIdentityInfo): Object providing closest identity information.
 
@@ -45,7 +45,7 @@ class PairwiseSocialDistances(Feature):
 
     def __init__(
         self,
-        poses: PoseEstimation,
+        poses: PoseLike,
         pixel_scale: float,
         social_distance_info: "ClosestIdentityInfo",
     ):

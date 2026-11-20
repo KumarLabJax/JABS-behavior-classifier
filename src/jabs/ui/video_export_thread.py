@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 from jabs.video_export import LabelMarkerOverlay, export_overlay_video
 from jabs.video_reader import BlankFrameReader
 
@@ -45,7 +45,7 @@ class VideoExportThread(QThread):
         self,
         video_path: Path,
         output_path: Path,
-        pose_est: PoseEstimation,
+        pose_est: PoseLike,
         draw_segmentation: bool = True,
         # `parent` keeps its position, and the overlay options added after it are
         # keyword-only: a caller passing a parent positionally would otherwise have

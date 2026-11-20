@@ -29,7 +29,7 @@ from .video_labels import VideoLabels
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
 
 def preload_worker_modules() -> None:
@@ -214,7 +214,7 @@ def convert_pose(job: PoseConversionJobSpec) -> tuple[str, str | None]:
     return job["video"], None
 
 
-def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> VideoLabels | None:
+def _load_video_labels(annotations_path: Path, pose_est: "PoseLike") -> VideoLabels | None:
     """Load VideoLabels from a JSON file if present; else None.
 
     Workers are handed a path rather than the project's annotation store, so
@@ -254,7 +254,7 @@ def _warn_on_frame_count_mismatch(
 
 def _open_pose_and_labels(
     job: _BaseFeatureLoadJobSpec,
-) -> "tuple[PoseEstimation, VideoLabels | None]":
+) -> "tuple[PoseLike, VideoLabels | None]":
     """Open pose + label resources for a job."""
     pose_est = open_pose_file(job["pose_path"], job["cache_dir"])
     _, video_frame_count = get_fps_and_nframes(str(job["video_path"]))
@@ -266,7 +266,7 @@ def _open_pose_and_labels(
 def _extract_identity_features(
     video: str,
     identity: int,
-    pose_est: "PoseEstimation",
+    pose_est: "PoseLike",
     feature_dir: Path,
     behavior_settings: dict,
     cache_format: str,

@@ -46,14 +46,14 @@ from jabs.overlay_drawing import draw_landmarks as paint_landmarks
 from .caption import draw_overlay_caption
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
     from .label_marker_overlay import LabelMarkerOverlay
 
 
 def render_overlay_frame(
     frame: npt.NDArray[np.uint8],
-    pose_est: PoseEstimation,
+    pose_est: PoseLike,
     frame_index: int,
     *,
     draw_pose: bool = True,
@@ -178,7 +178,7 @@ def render_overlay_frame(
 
 def _draw_label_markers(
     painter: QtGui.QPainter,
-    pose_est: PoseEstimation,
+    pose_est: PoseLike,
     frame_index: int,
     label_overlay: LabelMarkerOverlay,
     width: int,
