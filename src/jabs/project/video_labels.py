@@ -152,7 +152,7 @@ class VideoLabels:
 
     def as_dict(
         self,
-        pose: PoseEstimation,
+        pose: PoseEstimation | None,
         project_metadata: dict | None = None,
         video_metadata: dict | None = None,
     ) -> dict:
@@ -164,7 +164,9 @@ class VideoLabels:
         Args:
             pose: PoseEstimation for this video. Its identity mask fragments the
                 blocks written to ``labels``, and its external identities are
-                included in the output when the pose file has them.
+                included in the output when the pose file has them. None when
+                the pose file cannot be opened: ``labels`` then holds the
+                unfragmented blocks and ``external_identities`` is omitted.
             project_metadata: Optional project-level metadata to embed.
             video_metadata: Optional video-level metadata to embed.
 
@@ -248,11 +250,12 @@ class VideoLabels:
                 if len(blocks):
                     label_dict["unfragmented_labels"][identity][behavior] = blocks
 
-                blocks = labels.get_blocks(mask=pose.identity_mask(int(identity)))
+                mask = None if pose is None else pose.identity_mask(int(identity))
+                blocks = labels.get_blocks(mask=mask)
                 if len(blocks):
                     label_dict["labels"][identity][behavior] = blocks
 
-        if pose.external_identities is not None:
+        if pose is not None and pose.external_identities is not None:
             label_dict["external_identities"] = {}
             for i, identity in enumerate(pose.external_identities):
                 # require identity to be a string for serialization
