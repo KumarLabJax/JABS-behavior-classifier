@@ -77,8 +77,21 @@ def generate_files_worker(params: dict) -> FeatureTimings | None:
     return timings
 
 
-def validate_video_worker(params: dict):
-    """worker function for validating project video"""
+def validate_video_worker(params: dict) -> dict:
+    """worker function for validating project video
+
+    Checks that the video opens, that its pose file's frame count (read from the
+    pose metadata) matches the video's, and that the pose file opens. A legacy
+    pose file is converted into the project cache (``params["cache_dir"]``) when
+    it is opened as unified.
+
+    Args:
+        params: ``video``, ``project_dir`` and ``cache_dir``.
+
+    Returns:
+        ``{"video", "okay"}``, plus ``"message"`` when the video is not okay; a
+        pose file that cannot be opened is named in the message with the reason.
+    """
     vid_path = params["project_dir"] / params["video"]
 
     # make sure we can open the video
@@ -91,23 +104,30 @@ def validate_video_worker(params: dict):
             "message": "Unable to open video",
         }
 
-    # make sure the video and pose file have the same number of frames
     pose_path = jabs.pose_estimation.get_pose_path(vid_path)
-    if jabs.pose_estimation.get_frames_from_file(pose_path) != vid_frames:
-        return {
-            "video": params["video"],
-            "okay": False,
-            "message": "Video and Pose File frame counts differ",
-        }
-
-    # make sure we can initialize a PoseEstimation object from this pose file
     try:
-        _ = jabs.pose_estimation.open_pose_file(pose_path)
-    except OSError:
+        # make sure the video and pose file have the same number of frames
+        if jabs.pose_estimation.scan_pose_metadata(pose_path).frames != vid_frames:
+            return {
+                "video": params["video"],
+                "okay": False,
+                "message": "Video and Pose File frame counts differ",
+            }
+
+        # make sure the pose file can be opened
+        with jabs.pose_estimation.open_pose_file(pose_path, params["cache_dir"]):
+            pass
+    except jabs.pose_estimation.PoseOpenError as e:
         return {
             "video": params["video"],
             "okay": False,
-            "message": "Unable to open pose file",
+            "message": f"Unable to open pose file {pose_path.name}: {e.reason}",
+        }
+    except OSError as e:
+        return {
+            "video": params["video"],
+            "okay": False,
+            "message": f"Unable to open pose file {pose_path.name}: {e}",
         }
 
     return {"video": params["video"], "okay": True}
@@ -385,7 +405,11 @@ def run_initialize_project(
 
         def validation_job_producer():
             for video_name in videos:
-                yield {"video": video_name, "project_dir": project_dir}
+                yield {
+                    "video": video_name,
+                    "project_dir": project_dir,
+                    "cache_dir": project.project_paths.cache_dir,
+                }
 
         # do work in parallel (not really necessary for this test, but we already
         # have the worker pool for generating features)

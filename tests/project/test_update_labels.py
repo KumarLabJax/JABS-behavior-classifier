@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,11 +42,13 @@ def _stub_pose_reader(
     monkeypatch.setattr(
         update_pose,
         "open_pose_file",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            format_major_version=version,
-            has_bounding_boxes=True,
-            num_frames=num_frames,
-            num_identities=num_identities,
+        lambda *_args, **_kwargs: nullcontext(
+            SimpleNamespace(
+                source_format=f"pose_est_v{version}",
+                has_bounding_boxes=True,
+                num_frames=num_frames,
+                num_identities=num_identities,
+            )
         ),
     )
     monkeypatch.setattr(

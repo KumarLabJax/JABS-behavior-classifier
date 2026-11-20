@@ -108,50 +108,52 @@ def compute_features_command(
         except PoseOpenError as e:
             raise click.ClickException(str(e)) from e
 
-    if use_pixel_distances or pose_est.cm_per_pixel is None:
-        distance_unit = ProjectDistanceUnit.PIXEL
-    else:
-        distance_unit = ProjectDistanceUnit.CM
+    # the pose stays open while features are computed; close it when done
+    with pose_est:
+        if use_pixel_distances or pose_est.cm_per_pixel is None:
+            distance_unit = ProjectDistanceUnit.PIXEL
+        else:
+            distance_unit = ProjectDistanceUnit.CM
 
-    capabilities = pose_est.capabilities
-    settings = Project.settings_by_capabilities(capabilities, distance_unit=distance_unit)
+        capabilities = pose_est.capabilities
+        settings = Project.settings_by_capabilities(capabilities, distance_unit=distance_unit)
 
-    sorted_window_sizes = sorted(set(window_sizes))
-    cache_window = bool(sorted_window_sizes)
+        sorted_window_sizes = sorted(set(window_sizes))
+        cache_window = bool(sorted_window_sizes)
 
-    cache_format_enum = CacheFormat(cache_format.lower())
+        cache_format_enum = CacheFormat(cache_format.lower())
 
-    logger.info(
-        "computing features for %s (capabilities %s, %s, cache=%s)",
-        pose_file,
-        sorted(c.value for c in capabilities),
-        distance_unit.name,
-        cache_format_enum.value,
-    )
+        logger.info(
+            "computing features for %s (capabilities %s, %s, cache=%s)",
+            pose_file,
+            sorted(c.value for c in capabilities),
+            distance_unit.name,
+            cache_format_enum.value,
+        )
 
-    identities = list(pose_est.identities)
-    with console.status("Computing features...", spinner="dots") as status:
-        for curr_id in identities:
-            status.update(
-                f"Computing per-frame features for identity {curr_id} "
-                f"({identities.index(curr_id) + 1}/{len(identities)})..."
-            )
-            # Note: every feature the pose file supports is cached; filtering by
-            # the settings happens when get_features is called.
-            features = IdentityFeatures(
-                pose_file,
-                curr_id,
-                feature_dir,
-                pose_est,
-                force=force,
-                op_settings=settings,
-                cache_window=cache_window,
-                cache_format=cache_format_enum,
-                include_pose_hash=use_pose_hash,
-            )
-            for ws in sorted_window_sizes:
+        identities = list(pose_est.identities)
+        with console.status("Computing features...", spinner="dots") as status:
+            for curr_id in identities:
                 status.update(
-                    f"Computing window features (size={ws}) for identity {curr_id} "
+                    f"Computing per-frame features for identity {curr_id} "
                     f"({identities.index(curr_id) + 1}/{len(identities)})..."
                 )
-                _ = features.get_window_features(ws, force=force)
+                # Note: every feature the pose file supports is cached; filtering by
+                # the settings happens when get_features is called.
+                features = IdentityFeatures(
+                    pose_file,
+                    curr_id,
+                    feature_dir,
+                    pose_est,
+                    force=force,
+                    op_settings=settings,
+                    cache_window=cache_window,
+                    cache_format=cache_format_enum,
+                    include_pose_hash=use_pose_hash,
+                )
+                for ws in sorted_window_sizes:
+                    status.update(
+                        f"Computing window features (size={ws}) for identity {curr_id} "
+                        f"({identities.index(curr_id) + 1}/{len(identities)})..."
+                    )
+                    _ = features.get_window_features(ws, force=force)

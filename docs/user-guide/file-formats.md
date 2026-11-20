@@ -431,7 +431,7 @@ keypoint index.)
 | `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                          |
 | `external_ids`          | `list[str] \| null`       | Always                       | External identity names (e.g. cage IDs): from the pose file when it has them, otherwise the ones supplied with the `name` field in `--subjects`. `null` if neither. Identities left unnamed take their `subject_N` placeholder. |
 | `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity biological metadata keyed by identity name, for all identities. Fields: `subject_id`, `sex`, `genotype`, `strain`, `age`, `weight`, `species`, `description`. `null` if none provided. |
-| `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                                                                      |
+| `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_source_format`, and optionally `source_file_hash`.                                                                                      |
 | `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                             |
 | `dynamic_object_names`  | `list[str]`               | When dynamic objects present | Names of all dynamic object `PoseEstimation` containers.                                                                                                                                            |
 | `dynamic_object_shapes` | `dict[str, [int, int]]`   | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`. Required to reconstruct the 4-D points array on read.                                                                                  |
@@ -474,7 +474,7 @@ keypoint index.)
   },
   "metadata": {
     "source_file": "/data/session_pose_est_v7.h5",
-    "pose_format_version": 7,
+    "pose_source_format": "pose_est_v7",
     "source_file_hash": "a3f1c8..."
   },
   "static_object_names": ["corners", "lixit"],
@@ -499,7 +499,7 @@ keypoint index.)
     "subject_2": { "subject_id": "M124", "sex": "F", "genotype": "Shank3+/-" },
     "subject_3": { "subject_id": "M125", "sex": "M", "genotype": "WT" }
   },
-  "metadata": { "source_file": "...", "pose_format_version": 7 },
+  "metadata": { "source_file": "...", "pose_source_format": "pose_est_v7" },
   "static_object_names": ["corners", "lixit"],
   "dynamic_object_names": ["fecal_boli"],
   "dynamic_object_shapes": { "fecal_boli": [3, 1] },

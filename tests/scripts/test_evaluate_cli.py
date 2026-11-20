@@ -642,7 +642,7 @@ def _fake_project(
 
     def load_pose_est(video_path):
         spec = videos[Path(video_path).name]
-        pose = mock.Mock()
+        pose = mock.MagicMock()
         pose.identities = list(spec["truth"])
         pose.num_identities = len(spec["truth"])
         pose.num_frames = len(next(iter(spec["predicted"].values())))

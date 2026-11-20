@@ -29,14 +29,15 @@ from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, Predictio
 
 logger = logging.getLogger(__name__)
 
-_POSE_FILE_NAME_RE = re.compile(r"^.+_pose_est_v[0-9]+\.h5$")
+# a unified "*_pose.h5" or a legacy "*_pose_est_v<N>.h5" pose file
+_POSE_FILE_NAME_RE = re.compile(r"^.+_pose(_est_v[0-9]+)?\.h5$")
 
 # find out which classifiers are supported in this environment
 __CLASSIFIER_CHOICES = Classifier().classifier_choices()
 
 
 def _require_pose_file_name(pose_path: Path) -> None:
-    """Validate that the filename matches the canonical ``*_pose_est_vN.h5`` pattern.
+    """Validate that the filename is a unified ``*_pose.h5`` or legacy ``*_pose_est_vN.h5`` name.
 
     Raises:
         ValueError: If the filename does not match the canonical pose-file
@@ -214,75 +215,75 @@ def classify_pose(
         class_names = None
         behavior_key = behavior
 
-    pose_est = open_pose_file(input_pose_file)
-    pose_stem = pose_file_stem(input_pose_file)
+    with open_pose_file(input_pose_file) as pose_est:
+        pose_stem = pose_file_stem(input_pose_file)
 
-    n_identities = pose_est.num_identities
-    n_frames = pose_est.num_frames
+        n_identities = pose_est.num_identities
+        n_frames = pose_est.num_frames
 
-    prediction_labels = np.full((n_identities, n_frames), -1, dtype=np.int8)
-    if multiclass:
-        assert class_names is not None
-        n_classes = len(class_names)
-        prediction_prob: np.ndarray = np.zeros(
-            (n_identities, n_frames, n_classes), dtype=np.float32
+        prediction_labels = np.full((n_identities, n_frames), -1, dtype=np.int8)
+        if multiclass:
+            assert class_names is not None
+            n_classes = len(class_names)
+            prediction_prob: np.ndarray = np.zeros(
+                (n_identities, n_frames, n_classes), dtype=np.float32
+            )
+        else:
+            prediction_prob = np.zeros((n_identities, n_frames), dtype=np.float32)
+
+        classifier_settings = classifier.project_settings
+
+        print(f"Classifying {input_pose_file}...")
+
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed} of {task.total} identities"),
+        ) as progress:
+            task = progress.add_task("Processing", total=n_identities)
+            for curr_id in pose_est.identities:
+                features = IdentityFeatures(
+                    input_pose_file,
+                    curr_id,
+                    feature_dir,
+                    pose_est,
+                    op_settings=classifier_settings,
+                    cache_window=cache_window,
+                    cache_format=CacheFormat.PARQUET,
+                    include_pose_hash=use_pose_hash,
+                ).get_features(classifier_settings["window_size"])
+
+                per_frame_features = pd.DataFrame(features["per_frame"])
+                window_features = pd.DataFrame(features["window"])
+                data = classifier.combine_data(per_frame_features, window_features)
+
+                if data.shape[0] > 0:
+                    prob = classifier.predict_proba(data, features["frame_indexes"])
+                    predictions, confidence = classifier.derive_predictions(prob)
+                    prediction_labels[curr_id] = predictions
+                    # Multiclass: persist full class-probability matrix (n_frames, n_classes).
+                    # Binary: persist per-frame confidence scalar.
+                    prediction_prob[curr_id] = prob if multiclass else confidence
+                progress.update(task, advance=1)
+
+        print(f"Writing predictions to {out_dir}")
+
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            sys.exit(f"Unable to create output directory: {e}")
+
+        behavior_out_path = out_dir / (pose_stem + "_behavior.h5")
+
+        PredictionManager.write_predictions(
+            behavior_key,
+            behavior_out_path,
+            prediction_labels,
+            prediction_prob,
+            pose_est,
+            classifier,
+            class_names=class_names,
         )
-    else:
-        prediction_prob = np.zeros((n_identities, n_frames), dtype=np.float32)
-
-    classifier_settings = classifier.project_settings
-
-    print(f"Classifying {input_pose_file}...")
-
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed} of {task.total} identities"),
-    ) as progress:
-        task = progress.add_task("Processing", total=n_identities)
-        for curr_id in pose_est.identities:
-            features = IdentityFeatures(
-                input_pose_file,
-                curr_id,
-                feature_dir,
-                pose_est,
-                op_settings=classifier_settings,
-                cache_window=cache_window,
-                cache_format=CacheFormat.PARQUET,
-                include_pose_hash=use_pose_hash,
-            ).get_features(classifier_settings["window_size"])
-
-            per_frame_features = pd.DataFrame(features["per_frame"])
-            window_features = pd.DataFrame(features["window"])
-            data = classifier.combine_data(per_frame_features, window_features)
-
-            if data.shape[0] > 0:
-                prob = classifier.predict_proba(data, features["frame_indexes"])
-                predictions, confidence = classifier.derive_predictions(prob)
-                prediction_labels[curr_id] = predictions
-                # Multiclass: persist full class-probability matrix (n_frames, n_classes).
-                # Binary: persist per-frame confidence scalar.
-                prediction_prob[curr_id] = prob if multiclass else confidence
-            progress.update(task, advance=1)
-
-    print(f"Writing predictions to {out_dir}")
-
-    try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        sys.exit(f"Unable to create output directory: {e}")
-
-    behavior_out_path = out_dir / (pose_stem + "_behavior.h5")
-
-    PredictionManager.write_predictions(
-        behavior_key,
-        behavior_out_path,
-        prediction_labels,
-        prediction_prob,
-        pose_est,
-        classifier,
-        class_names=class_names,
-    )
 
 
 def train(training_file: Path, classifier_type: ClassifierType | None = None) -> Classifier:

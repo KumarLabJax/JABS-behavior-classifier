@@ -40,7 +40,7 @@ def export_spy(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
     fake.VideoExportError = _FakeExportError
     fake.export_overlay_video = spy
     monkeypatch.setitem(sys.modules, _VIDEO_EXPORT, fake)
-    monkeypatch.setattr(ev, "open_pose_file", lambda path: mock.Mock(name=f"pose:{path}"))
+    monkeypatch.setattr(ev, "open_pose_file", lambda path: mock.MagicMock(name=f"pose:{path}"))
     return spy
 
 
@@ -74,7 +74,7 @@ def test_pose_file_is_discovered_beside_the_video(
     wraps long paths at the terminal width, so the filename is not reliably intact
     in what gets printed.
     """
-    loader = mock.Mock(return_value=mock.Mock())
+    loader = mock.Mock(return_value=mock.MagicMock())
     monkeypatch.setattr(ev, "open_pose_file", loader)
 
     result = _invoke(str(video))
@@ -185,7 +185,7 @@ def test_unimportable_qt_fails_gracefully(video: Path, monkeypatch: pytest.Monke
     that headless machines routinely lack. Setting the entry to None makes the import
     raise the same way a missing ``libEGL.so.1`` does.
     """
-    monkeypatch.setattr(ev, "open_pose_file", lambda path: mock.Mock())
+    monkeypatch.setattr(ev, "open_pose_file", lambda path: mock.MagicMock())
     monkeypatch.setitem(sys.modules, _VIDEO_EXPORT, None)
 
     result = _invoke(str(video))
