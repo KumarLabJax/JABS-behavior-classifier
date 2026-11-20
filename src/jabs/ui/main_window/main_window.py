@@ -399,6 +399,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.deleteLater()
         self._progress_dialog = None
 
+        # tell the user once which videos are left out of training and why
+        notice = self._project.unusable_videos_notice()
+        if notice is not None:
+            MessageDialog.warning(
+                self, "Unusable Videos", message=notice.message, details=notice.details
+            )
+
     def update_feature_availability_menus(self) -> None:
         """Enable the feature menu items the project's videos can support.
 

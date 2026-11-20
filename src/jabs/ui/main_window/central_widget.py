@@ -1114,7 +1114,10 @@ class CentralWidget(QtWidgets.QWidget):
         if self._controls.all_kfold:
             if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
                 behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
-                counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+                counts_by_behavior = {
+                    name: self._included_counts(self._project.counts(name))
+                    for name in behavior_names
+                }
                 total_steps += MultiClassClassifier.count_label_threshold(
                     counts_by_behavior=counts_by_behavior,
                     behavior_names=behavior_names,
@@ -1122,7 +1125,9 @@ class CentralWidget(QtWidgets.QWidget):
                     cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
                 )
             else:
-                project_counts = self._project.counts(self._controls.current_behavior)
+                project_counts = self._included_counts(
+                    self._project.counts(self._controls.current_behavior)
+                )
                 total_steps += self._classifier.count_label_threshold(
                     project_counts,
                     cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
@@ -1326,6 +1331,17 @@ class CentralWidget(QtWidgets.QWidget):
                 details=self._training_cv_warning,
             )
             self._training_cv_warning = None
+
+        # Labeled videos left out because their pose is unusable; computed now,
+        # since a video can become unusable while the run collects features.
+        skipped = self._project.skipped_training_notice(self._training_behaviors())
+        if skipped is not None:
+            MessageDialog.warning(
+                self,
+                "Labeled Videos Not Trained On",
+                message=skipped.message,
+                details=skipped.details,
+            )
 
         # Display training report if available
         if self._training_report_markdown:
@@ -1986,10 +2002,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_button_color()
 
     def _included_counts(self, counts: dict | None) -> dict:
-        """Return a counts dict restricted to videos not excluded from training.
+        """Return a counts dict restricted to the videos training uses.
 
-        Excluded videos are held out of the training set, so their labels must
-        not count toward the train-button enablement thresholds.
+        Excluded videos, and videos whose pose file is unusable, are held out of
+        the training set, so their labels must not count toward the
+        train-button enablement thresholds.
 
         Args:
             counts: Per-video label/bout counts keyed by video filename, or
@@ -2002,11 +2019,10 @@ class CentralWidget(QtWidgets.QWidget):
         """
         if not counts:
             return {}
-        settings_manager = self._project.settings_manager
         return {
             video: identities
             for video, identities in counts.items()
-            if not settings_manager.is_video_excluded(video)
+            if self._project.is_trainable(video)
         }
 
     def _included_project_bout_totals(self) -> tuple[int, int]:
@@ -2021,9 +2037,8 @@ class CentralWidget(QtWidgets.QWidget):
         """
         behavior_bouts = 0
         not_behavior_bouts = 0
-        settings_manager = self._project.settings_manager
         for video, video_counts in (self._counts or {}).items():
-            if settings_manager.is_video_excluded(video):
+            if not self._project.is_trainable(video):
                 continue
             for identity_counts in video_counts.values():
                 behavior_bouts += identity_counts["unfragmented_bout_counts"][0]

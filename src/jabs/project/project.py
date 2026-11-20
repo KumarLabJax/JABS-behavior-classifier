@@ -61,6 +61,7 @@ from .project_utils import to_safe_name
 from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
 from .track_labels import TrackLabels
+from .unusable_report import UnusableNotice, skipped_training_notice, unusable_videos_notice
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
@@ -201,6 +202,11 @@ def _record_source_hashes(
             changed = True
     if changed:
         pose_attribute_cache.save(cache_path, entries)
+
+
+def _has_labels(counts: Mapping[object, Mapping[str, tuple[int, int]]]) -> bool:
+    """Return whether per-identity label counts (from ``load_counts``) hold any label."""
+    return any(sum(identity["unfragmented_frame_counts"]) > 0 for identity in counts.values())
 
 
 _LABEL_SECTIONS = ("labels", "unfragmented_labels")
@@ -610,6 +616,60 @@ class Project:
                     self._unusable_videos[video],
                 )
         return usable
+
+    def is_trainable(self, video: str) -> bool:
+        """Return whether a video's labels are used for training.
+
+        A video is trained on when its pose file is usable and it is not
+        excluded from training. Label counts that decide whether training can
+        run, or that report what was trained on, count only these videos.
+
+        Args:
+            video: Video filename.
+        """
+        return self.is_usable(video) and not self._settings_manager.is_video_excluded(video)
+
+    def unusable_videos_notice(self) -> UnusableNotice | None:
+        """Summarize the unusable videos for the user, flagging those with annotations.
+
+        Returns:
+            The notice, or None when every video is usable.
+        """
+        annotated = {
+            video
+            for video in self._unusable_videos
+            if self._annotation_store.load_document(video) is not None
+        }
+        return unusable_videos_notice(self._unusable_videos, annotated)
+
+    def warn_unusable_videos(self) -> None:
+        """Log one WARNING summarizing the unusable videos, for command-line tools.
+
+        Does nothing when every video is usable.
+        """
+        notice = self.unusable_videos_notice()
+        if notice is not None:
+            logger.warning("%s", notice.as_text())
+
+    def skipped_training_notice(self, behaviors: Iterable[str]) -> UnusableNotice | None:
+        """Summarize the labeled videos a training run left out because they are unusable.
+
+        Args:
+            behaviors: The behaviors (or classes) trained.
+
+        Returns:
+            The notice, or None when no unusable video, not excluded from
+            training, has labels for any of ``behaviors``.
+        """
+        behaviors = list(behaviors)
+        skipped = [
+            video
+            for video in self._video_manager.videos
+            if not self.is_usable(video)
+            and not self._settings_manager.is_video_excluded(video)
+            and any(_has_labels(self.load_counts(video, b)) for b in behaviors)
+        ]
+        return skipped_training_notice(skipped, self._unusable_videos)
 
     def prepare_poses(self, progress: Callable[[int, int], None]) -> None:
         """Convert every usable legacy pose file that is not yet in the conversion cache.
