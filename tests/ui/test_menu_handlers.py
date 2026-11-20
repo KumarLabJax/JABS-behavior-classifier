@@ -455,8 +455,8 @@ def test_export_overlay_video_reports_segmentation_availability(
     """
     handlers, _window, player, _thread_cls, _thread = video_export_setup
     player.pose_est = MagicMock(spec=pose_class)
-    if pose_class is PoseEstimationV6:
-        player.pose_est.has_segmentation = has_segmentation
+    # every reader has has_segmentation (PoseLike); a bare spec mock would be truthy
+    player.pose_est.has_segmentation = has_segmentation
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
 
     handlers.export_overlay_video()

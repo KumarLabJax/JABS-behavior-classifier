@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 import shapely
 
-from jabs.core.abstract import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 
 
@@ -19,7 +19,7 @@ def build_identity_mask(
     An identity counts as present in a frame when at least ``min_valid_keypoints`` of
     its body keypoints are valid. The last two keypoints (``MID_TAIL`` and
     ``TIP_TAIL``) are dropped before counting, matching the body-only keypoint set
-    :meth:`PoseEstimation.get_identity_convex_hulls` builds its hulls from.
+    :meth:`PoseLike.get_identity_convex_hulls` builds its hulls from.
 
     The threshold is the caller's because it differs by pose version: v2 and v4
     require the three keypoints a convex hull needs, while v3 requires only one, so
@@ -72,7 +72,7 @@ def gen_line_fragments(
         curr_fragment = []
 
 
-def identity_centroids(poses: PoseEstimation, identity: int) -> npt.NDArray[np.float32]:
+def identity_centroids(poses: PoseLike, identity: int) -> npt.NDArray[np.float32]:
     """Compute the per-frame centroid of an identity's convex hull, in pixel units.
 
     The convex hull omits the tail keypoints, so its center is robust to dropout of any

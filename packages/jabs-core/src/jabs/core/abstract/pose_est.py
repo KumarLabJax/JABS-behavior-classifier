@@ -1,24 +1,58 @@
+import json
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from pathlib import Path
+from types import TracebackType
+from typing import Any
 
 import h5py
 import joblib
 import numpy as np
 from shapely.geometry import MultiPoint
 
+from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import source_format_from_path
 from jabs.core.pose_skeleton import (
     FULL_CONNECTED_SEGMENTS,
     MINIMUM_CONFIDENCE,
     NVSN_CONNECTED_SEGMENTS,
     KeypointIndex,
 )
-from jabs.core.types import DynamicObjectData
+from jabs.core.types import DynamicObjectData, SegmentationWindow
 from jabs.core.utils import hash_file
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["MINIMUM_CONFIDENCE", "PoseEstimation"]
+__all__ = ["MINIMUM_CONFIDENCE", "PoseEstimation", "parse_model_metadata"]
+
+
+def parse_model_metadata(raw: Any) -> dict[str, Any] | None:
+    """Parse a ``model_metadata_json`` attribute value.
+
+    Args:
+        raw: The attribute as h5py returns it: None, str, bytes, or a 0-d array
+            of either.
+
+    Returns:
+        The parsed JSON object, or None when the value is absent, empty, not
+        valid JSON, or not a JSON object.
+    """
+    if isinstance(raw, np.ndarray) and raw.shape == ():
+        raw = raw.item()
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        metadata = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Pose model_metadata_json is not valid JSON; ignoring it")
+        return None
+    if not isinstance(metadata, dict):
+        logger.warning("Pose model_metadata_json is not a JSON object; ignoring it")
+        return None
+    return metadata
 
 
 class PoseEstimation(ABC):
@@ -34,6 +68,8 @@ class PoseEstimation(ABC):
         file_path (Path): Path to the pose HDF5 file.
         cache_dir (Path | None): Optional cache directory for intermediate data.
         fps (int): Frames per second for the video.
+
+    Implements :class:`jabs.core.pose_protocol.PoseLike`.
 
     Abstract Methods:
         get_points(frame_index, identity, scale): Get points and mask for an identity in a frame.
@@ -94,6 +130,8 @@ class PoseEstimation(ABC):
         self._fps = fps
 
         self._static_objects: dict = {}
+        self._model_metadata: dict[str, Any] | None = None
+        self._model_metadata_loaded = False
         self._dynamic_objects: dict[str, DynamicObjectData] = {}
 
         # check cache version, if it doesn't match, clear the cache file for this pose file
@@ -104,6 +142,120 @@ class PoseEstimation(ABC):
                     cache_file.unlink()
                 except Exception:
                     logger.warning("Unable to delete old cache file %s", cache_file)
+
+    def close(self) -> None:
+        """Release file handles; a no-op, since legacy readers load everything on open."""
+        return None
+
+    def __enter__(self) -> "PoseEstimation":
+        """Return self, for use as a context manager."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Call :meth:`close`."""
+        self.close()
+
+    @property
+    def capabilities(self) -> frozenset[PoseCapability]:
+        """Optional data this pose provides.
+
+        ``SOCIAL`` iff there is more than one identity, ``SEGMENTATION`` iff
+        :attr:`has_segmentation`, ``BOUNDING_BOXES`` iff :attr:`has_bounding_boxes`.
+        """
+        capabilities = set()
+        if self.num_identities > 1:
+            capabilities.add(PoseCapability.SOCIAL)
+        if self.has_segmentation:
+            capabilities.add(PoseCapability.SEGMENTATION)
+        if self.has_bounding_boxes:
+            capabilities.add(PoseCapability.BOUNDING_BOXES)
+        return frozenset(capabilities)
+
+    @property
+    def has_social(self) -> bool:
+        """True when the pose has more than one identity."""
+        return self.num_identities > 1
+
+    @property
+    def has_segmentation(self) -> bool:
+        """True when segmentation data is available; overridden by readers that have it."""
+        return False
+
+    @property
+    def has_bounding_boxes(self) -> bool:
+        """True when bounding boxes are available; overridden by readers that have them."""
+        return False
+
+    def has_static_object(self, name: str) -> bool:
+        """Return True when the pose has the named static object.
+
+        Args:
+            name: Static object name, e.g. ``"lixit"``.
+        """
+        return name in self.static_objects
+
+    @property
+    def source_format(self) -> str:
+        """``"pose_est_v<N>"`` from the file name.
+
+        Falls back to :attr:`format_major_version` when the file name does not
+        follow the ``*_pose_est_v<N>.h5`` convention.
+        """
+        return source_format_from_path(self._path) or f"pose_est_v{self.format_major_version}"
+
+    @property
+    def model_metadata(self) -> dict[str, Any] | None:
+        """The parsed ``poseest`` ``model_metadata_json`` attribute, or None.
+
+        Read from the pose file on first access.
+        """
+        if not self._model_metadata_loaded:
+            with h5py.File(self._path, "r") as pose_h5:
+                raw = pose_h5["poseest"].attrs.get("model_metadata_json")
+            self._model_metadata = parse_model_metadata(raw)
+            self._model_metadata_loaded = True
+        return self._model_metadata
+
+    def segmentation_window(self, identity: int, start: int, stop: int) -> SegmentationWindow:
+        """Return an identity's segmentation contours for frames ``[start, stop)``.
+
+        Args:
+            identity: Identity index.
+            start: First frame, inclusive.
+            stop: Last frame, exclusive.
+
+        Raises:
+            NotImplementedError: Always; readers with segmentation override this.
+        """
+        raise NotImplementedError(f"{self._path.name} has no segmentation data")
+
+    def iter_segmentation(self, identity: int, block: int = 300) -> Iterator[SegmentationWindow]:
+        """Yield consecutive segmentation windows of ``block`` frames covering the file.
+
+        Args:
+            identity: Identity index.
+            block: Frames per window; the last window may be shorter.
+
+        Raises:
+            NotImplementedError: If the pose has no segmentation.
+            ValueError: If ``block`` is not positive.
+        """
+        if not self.has_segmentation:
+            raise NotImplementedError(f"{self._path.name} has no segmentation data")
+        if block <= 0:
+            raise ValueError(f"block must be positive, got {block}")
+        # validated above, on the call rather than on the first next()
+        return self._segmentation_windows(identity, block)
+
+    def _segmentation_windows(self, identity: int, block: int) -> Iterator[SegmentationWindow]:
+        """Yield the windows of :meth:`iter_segmentation`."""
+        for start in range(0, self.num_frames, block):
+            yield self.segmentation_window(identity, start, min(start + block, self.num_frames))
 
     @property
     def num_frames(self) -> int:

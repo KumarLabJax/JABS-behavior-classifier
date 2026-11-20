@@ -3,6 +3,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.exceptions import PoseHashException
@@ -63,7 +64,9 @@ class PoseEstimationV3(IdentityIndexedPoseMixin, PoseEstimation):
                     self._points = pose_grp["points"][:]
                     self._point_mask = pose_grp["point_mask"][:]
                     self._identity_mask = pose_grp["identity_mask"][:]
-                    self._identity_to_track = pose_grp["identity_to_track"][:]
+                    self._identity_to_track = pose_grp["identity_to_track"][:].astype(
+                        np.int32, copy=False
+                    )
                     self._max_instances = self._points.shape[0]
                     self._num_frames = self._points.shape[1]
                     self._identities = [*range(self._max_instances)]
@@ -154,11 +157,15 @@ class PoseEstimationV3(IdentityIndexedPoseMixin, PoseEstimation):
                     group.create_dataset("identity_to_track", data=self.identity_to_track)
 
     @property
-    def identity_to_track(self):
+    def identity_to_track(self) -> npt.NDArray[np.int32]:
         """get the identity to track mapping for the pose file
 
         will compute if it hasn't been computed yet, otherwise will return the
         cached version.
+
+        Returns:
+            ``(#identities, #frames)`` int32 track id of each identity in each
+            frame, -1 where the identity has no track.
         """
         if self._identity_to_track is None:
             self._identity_to_track = np.full(
