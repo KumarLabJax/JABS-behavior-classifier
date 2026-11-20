@@ -1,4 +1,3 @@
-import enum
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -8,12 +7,18 @@ import joblib
 import numpy as np
 from shapely.geometry import MultiPoint
 
+from jabs.core.pose_skeleton import (
+    FULL_CONNECTED_SEGMENTS,
+    MINIMUM_CONFIDENCE,
+    NVSN_CONNECTED_SEGMENTS,
+    KeypointIndex,
+)
 from jabs.core.types import DynamicObjectData
 from jabs.core.utils import hash_file
 
 logger = logging.getLogger(__name__)
 
-MINIMUM_CONFIDENCE = 0.3
+__all__ = ["MINIMUM_CONFIDENCE", "PoseEstimation"]
 
 
 class PoseEstimation(ABC):
@@ -58,63 +63,11 @@ class PoseEstimation(ABC):
             JABS identity index. None when the pose file has no external identities.
     """
 
-    class KeypointIndex(enum.IntEnum):
-        """enum defining the 12 keypoint indexes"""
-
-        NOSE = 0
-        LEFT_EAR = 1
-        RIGHT_EAR = 2
-        BASE_NECK = 3
-        LEFT_FRONT_PAW = 4
-        RIGHT_FRONT_PAW = 5
-        CENTER_SPINE = 6
-        LEFT_REAR_PAW = 7
-        RIGHT_REAR_PAW = 8
-        BASE_TAIL = 9
-        MID_TAIL = 10
-        TIP_TAIL = 11
-
-    # Connected segments to use when full 12 keypoints are available.
-    FULL_CONNECTED_SEGMENTS = (
-        (
-            KeypointIndex.LEFT_FRONT_PAW,
-            KeypointIndex.CENTER_SPINE,
-            KeypointIndex.RIGHT_FRONT_PAW,
-        ),
-        (
-            KeypointIndex.LEFT_REAR_PAW,
-            KeypointIndex.BASE_TAIL,
-            KeypointIndex.RIGHT_REAR_PAW,
-        ),
-        (
-            KeypointIndex.NOSE,
-            KeypointIndex.BASE_NECK,
-            KeypointIndex.CENTER_SPINE,
-            KeypointIndex.BASE_TAIL,
-            KeypointIndex.MID_TAIL,
-            KeypointIndex.TIP_TAIL,
-        ),
-        (
-            KeypointIndex.LEFT_EAR,
-            KeypointIndex.NOSE,
-            KeypointIndex.RIGHT_EAR,
-        ),
-    )
-
-    # Pose based on the Envision Hydra model will have fewer keypoints,
-    # so we adjust the connected segments accordingly.
-    NVSN_CONNECTED_SEGMENTS = (
-        (
-            KeypointIndex.LEFT_EAR,
-            KeypointIndex.NOSE,
-            KeypointIndex.RIGHT_EAR,
-        ),
-        (
-            KeypointIndex.NOSE,
-            KeypointIndex.BASE_TAIL,
-            KeypointIndex.TIP_TAIL,
-        ),
-    )
+    # Skeleton constants live in jabs.core.pose_skeleton; these are aliases
+    # (the same objects) kept for existing callers.
+    KeypointIndex = KeypointIndex
+    FULL_CONNECTED_SEGMENTS = FULL_CONNECTED_SEGMENTS
+    NVSN_CONNECTED_SEGMENTS = NVSN_CONNECTED_SEGMENTS
 
     _CACHE_FILE_VERSION = 1
 
