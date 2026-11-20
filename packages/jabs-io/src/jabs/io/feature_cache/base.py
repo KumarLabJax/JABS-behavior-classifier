@@ -33,6 +33,10 @@ class FeatureCacheReader(ABC):
             requested; used to detect caches built from a different pose file.
         expected_distance_scale_factor: Pixels-to-cm scale factor, or ``None``
             when not using cm units.
+        expected_converter_revision: Converter revision of the pose the
+            features are requested for (a converted legacy file), or ``None``
+            for a unified pose file; used to detect caches computed from a
+            conversion by another converter revision.
     """
 
     def __init__(
@@ -40,10 +44,12 @@ class FeatureCacheReader(ABC):
         expected_feature_version: int,
         expected_pose_hash: str,
         expected_distance_scale_factor: float | None,
+        expected_converter_revision: int | None = None,
     ) -> None:
         self._expected_feature_version = expected_feature_version
         self._expected_pose_hash = expected_pose_hash
         self._expected_distance_scale_factor = expected_distance_scale_factor
+        self._expected_converter_revision = expected_converter_revision
 
     def _validate(self, metadata: FeatureCacheMetadata) -> None:
         """Raise if metadata fails any validation check.
@@ -60,7 +66,9 @@ class FeatureCacheReader(ABC):
             FeatureVersionException: ``feature_version`` does not match
                 ``expected_feature_version``.
             PoseHashException: ``pose_hash`` does not match
-                ``expected_pose_hash``.
+                ``expected_pose_hash``, or ``converter_revision`` does not
+                match ``expected_converter_revision`` (the features came from
+                another conversion of the pose file).
             DistanceScaleException: ``distance_scale_factor`` does not match
                 ``expected_distance_scale_factor``.
         """
@@ -76,6 +84,13 @@ class FeatureCacheReader(ABC):
                 "Pose hash mismatch: expected %s, got %s",
                 self._expected_pose_hash,
                 metadata.pose_hash,
+            )
+            raise PoseHashException
+        if metadata.converter_revision != self._expected_converter_revision:
+            logger.debug(
+                "Converter revision mismatch: expected %s, got %s",
+                self._expected_converter_revision,
+                metadata.converter_revision,
             )
             raise PoseHashException
         if metadata.distance_scale_factor != self._expected_distance_scale_factor:

@@ -68,10 +68,10 @@ def test_cache_root_defaults_to_user_cache_dir(
 
 
 def test_converted_path_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``<root>/converted/<video stem>.<legacy hash>-<jabs-io version>.h5``."""
-    monkeypatch.setattr(conversion_cache, "_converter_version", lambda: "1.2.3")
+    """``<root>/converted/<video stem>.<legacy hash>-r<converter revision>.h5``."""
+    monkeypatch.setattr(conversion_cache, "_converter_revision", lambda: 7)
     path = converted_path(Path("/videos/vid_pose_est_v6.h5"), "abc", tmp_path)
-    assert path == tmp_path / "converted" / "vid.abc-1.2.3.h5"
+    assert path == tmp_path / "converted" / "vid.abc-r7.h5"
 
 
 def test_key_changes_with_legacy_bytes(legacy_v4: Path, tmp_path: Path) -> None:
@@ -83,22 +83,51 @@ def test_key_changes_with_legacy_bytes(legacy_v4: Path, tmp_path: Path) -> None:
     assert before != after
 
 
-def test_key_changes_with_converter_version(
+def test_key_changes_with_converter_revision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A new converter version (jabs-io release) changes the key."""
+    """A new converter revision (converter output changed) changes the key."""
     source = Path("vid_pose_est_v6.h5")
-    monkeypatch.setattr(conversion_cache, "_converter_version", lambda: "1.0.0")
+    monkeypatch.setattr(conversion_cache, "_converter_revision", lambda: 1)
     old = converted_path(source, "abc", tmp_path)
-    monkeypatch.setattr(conversion_cache, "_converter_version", lambda: "1.0.1")
+    monkeypatch.setattr(conversion_cache, "_converter_revision", lambda: 2)
     assert converted_path(source, "abc", tmp_path) != old
 
 
-def test_converter_version_is_jabs_io() -> None:
-    """The converter version is the installed jabs-io version."""
-    from importlib.metadata import version
+def test_converter_revision_is_jabs_io_constant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The key uses jabs-io's CONVERTER_REVISION, not the package version."""
+    from jabs.io.internal.pose_file import convert
 
-    assert conversion_cache._converter_version() == version("jabs-io")
+    assert conversion_cache._converter_revision() == convert.CONVERTER_REVISION
+    monkeypatch.setattr(convert, "CONVERTER_REVISION", 99)
+    assert conversion_cache._converter_revision() == 99
+    assert converted_path(Path("vid_pose_est_v6.h5"), "abc", Path("/c")).name == "vid.abc-r99.h5"
+
+
+def test_revision_bump_reconverts(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, convert_spy: mock.Mock
+) -> None:
+    """Bumping the revision converts again and removes the old revision's copy."""
+    cache = tmp_path / "cache"
+    digest = hash_file(legacy_v4)
+    old = converted_path(legacy_v4, digest, cache)
+    with open_unified(legacy_v4, cache) as pose:
+        assert pose.converter_revision == conversion_cache._converter_revision()
+    assert old.exists()
+    bumped = conversion_cache._converter_revision() + 1
+    monkeypatch.setattr(conversion_cache, "_converter_revision", lambda: bumped)
+    with open_unified(legacy_v4, cache) as pose:
+        assert pose.converter_revision == bumped
+    assert convert_spy.call_count == 2
+    assert converted_path(legacy_v4, digest, cache).exists()
+    assert not old.exists()
+
+
+def test_unified_file_has_no_converter_revision(tmp_path: Path) -> None:
+    """A unified file was not converted, so it has no converter revision."""
+    path = build_pose_file(tmp_path / "vid_pose.h5")
+    with open_unified(path, tmp_path / "cache") as pose:
+        assert pose.converter_revision is None
 
 
 def test_second_open_converts_zero_times(
@@ -149,9 +178,9 @@ def test_other_version_copy_removed(
     other_hash.touch()
     other_stem = converted / f"vid2.{digest}-0.0.1.h5"
     other_stem.touch()
-    monkeypatch.setattr(conversion_cache, "_converter_version", lambda: "9.9.9")
+    monkeypatch.setattr(conversion_cache, "_converter_revision", lambda: 9)
     destination = ensure_converted(legacy_v4, digest, cache)
-    assert destination == converted / f"vid.{digest}-9.9.9.h5"
+    assert destination == converted / f"vid.{digest}-r9.h5"
     assert destination.exists()
     assert not stale.exists()
     assert other_hash.exists()

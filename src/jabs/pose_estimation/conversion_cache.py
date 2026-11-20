@@ -1,13 +1,14 @@
 """The conversion cache: legacy pose files converted once, opened as ``Pose``.
 
 A legacy ``*_pose_est_v<N>.h5`` file is converted to a unified pose file at
-``<cache root>/converted/<video stem>.<legacy hash>-<jabs-io version>.h5`` and
-reused while the legacy file's bytes and the converter version are unchanged.
+``<cache root>/converted/<video stem>.<legacy hash>-r<converter revision>.h5``
+and reused while the legacy file's bytes and the converter revision
+(``jabs.io.internal.pose_file.convert.CONVERTER_REVISION``, bumped only when the
+converter's output changes) are unchanged.
 The cache root is the project's ``cache_dir``, or the per-user cache directory
 when there is none. The video directory is never written.
 """
 
-import importlib.metadata
 import logging
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from platformdirs import user_cache_dir
 
 from jabs.core.utils import hash_file, pose_file_stem
 from jabs.io.internal.pose_file import PoseFileError
+from jabs.io.internal.pose_file import convert as _convert
 from jabs.io.internal.pose_file.convert import LegacyConversionError, convert_legacy
 
 from .discovery import POSE_FILE_GLOBS, is_legacy_pose_file, is_unified_pose_file
@@ -37,9 +39,9 @@ _OPEN_ERRORS = (PoseFileError, NotImplementedError, OSError, LookupError, ValueE
 _CONVERT_ERRORS = (LegacyConversionError, LookupError, ValueError)
 
 
-def _converter_version() -> str:
-    """Return the converter's version: the installed jabs-io version."""
-    return importlib.metadata.version("jabs-io")
+def _converter_revision() -> int:
+    """Return the revision of the converter's output (jabs-io's ``CONVERTER_REVISION``)."""
+    return _convert.CONVERTER_REVISION
 
 
 def _reason(path: Path, error: Exception) -> str:
@@ -71,14 +73,16 @@ def converted_path(source: Path, source_hash: str, cache_dir: Path | None) -> Pa
         cache_dir: The project's cache directory, or None for the per-user cache.
 
     Returns:
-        ``<cache root>/converted/<video stem>.<source_hash>-<converter version>.h5``.
+        ``<cache root>/converted/<video stem>.<source_hash>-r<converter revision>.h5``.
     """
-    name = f"{pose_file_stem(source)}.{source_hash}-{_converter_version()}.h5"
+    name = f"{pose_file_stem(source)}.{source_hash}-r{_converter_revision()}.h5"
     return cache_root(cache_dir) / _CONVERTED_DIR / name
 
 
 def _remove_other_versions(destination: Path, source: Path, source_hash: str) -> None:
-    """Delete conversions of the same file (same stem and hash) by other converter versions.
+    """Delete conversions of the same file (same stem and hash) by other converter revisions.
+
+    This includes copies keyed by a jabs-io version, as earlier JABS named them.
 
     A copy that cannot be deleted (Windows blocks deleting an open file) is
     logged and left for a later prune.
@@ -200,14 +204,26 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
 
     pose_path = ensure_converted(path, source_hash, cache_dir)
     try:
-        return Pose(pose_path, source_path=path, source_hash=source_hash, cache_dir=cache_dir)
+        return Pose(
+            pose_path,
+            source_path=path,
+            source_hash=source_hash,
+            cache_dir=cache_dir,
+            converter_revision=_converter_revision(),
+        )
     except _OPEN_ERRORS as error:
         # a damaged cached copy (truncated, invalid): convert again, once
         logger.warning("Cannot open conversion %s (%s); converting again", pose_path.name, error)
     _discard(pose_path)
     pose_path = ensure_converted(path, source_hash, cache_dir)
     try:
-        return Pose(pose_path, source_path=path, source_hash=source_hash, cache_dir=cache_dir)
+        return Pose(
+            pose_path,
+            source_path=path,
+            source_hash=source_hash,
+            cache_dir=cache_dir,
+            converter_revision=_converter_revision(),
+        )
     except _OPEN_ERRORS as error:
         _discard(pose_path)
         raise PoseOpenError(path, _reason(pose_path, error)) from error
