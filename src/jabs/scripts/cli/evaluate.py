@@ -79,7 +79,6 @@ from jabs.feature_extraction import IdentityFeatures
 from jabs.project import Project
 from jabs.project.prediction_manager import PredictionManager
 from jabs.scripts.classify import load_classifier_from_pickle
-from jabs.video_reader.utilities import get_fps_and_nframes
 
 from . import evaluate_report
 from .evaluate_results import (
@@ -435,7 +434,6 @@ def _predict_identity(
     pose_est: Any,
     identity: int,
     feature_dir: Path | None,
-    fps: int,
     cache_format: Any,
 ) -> tuple[npt.NDArray[np.int8], npt.NDArray[np.floating]]:
     """Run the classifier over one identity of one pose file.
@@ -446,7 +444,6 @@ def _predict_identity(
         pose_est: Open ``PoseEstimation`` for that file.
         identity: Identity index to classify.
         feature_dir: Feature cache directory, or None to compute without caching.
-        fps: Frames per second, used for time-derived features.
         cache_format: Feature cache format to read and write.
 
     Returns:
@@ -460,7 +457,6 @@ def _predict_identity(
         identity,
         feature_dir,
         pose_est,
-        fps=fps,
         op_settings=settings,
         cache_window=True,
         cache_format=cache_format,
@@ -621,7 +617,6 @@ def run_evaluation(
     criteria: Sequence[MatchCriterion],
     plan: PostprocessingPlan | None,
     feature_dir: Path | None,
-    fps_override: int | None,
     collect_bout_records: bool,
     save_predictions_dir: Path | None = None,
     progress_callback: Any = None,
@@ -644,8 +639,6 @@ def run_evaluation(
             evaluate raw predictions only. A plan with several combinations is
             a sweep: all of them are applied to one classification pass.
         feature_dir: Feature cache directory. Defaults to the project's own.
-        fps_override: Frames per second to use for every video, skipping the
-            per-video lookup. None reads it from each video.
         collect_bout_records: Whether to build the per-bout detail rows.
         save_predictions_dir: Directory to write one prediction HDF5 file per
             video into, in the same format `jabs-classify` produces. None
@@ -725,15 +718,6 @@ def run_evaluation(
             skip_video(video, "no annotations in the project")
             continue
 
-        if fps_override is not None:
-            fps = fps_override
-        else:
-            try:
-                fps, _ = get_fps_and_nframes(project.video_manager.video_path(video))
-            except OSError as exc:
-                skip_video(video, f"cannot read frame rate: {exc}")
-                continue
-
         # accumulated across identities so the saved file matches the shape
         # jabs-classify writes: one record per video, all identities in it
         # a sweep has no single postprocessed array to save, so only the raw
@@ -750,7 +734,7 @@ def run_evaluation(
         for identity in pose_est.identities:
             try:
                 predicted, confidence = _predict_identity(
-                    classifier, pose_path, pose_est, identity, cache_dir, fps, project.cache_format
+                    classifier, pose_path, pose_est, identity, cache_dir, project.cache_format
                 )
             except Exception as exc:
                 result.skipped_videos.append((f"{video} (identity {identity})", str(exc)))
@@ -923,10 +907,7 @@ def run_evaluation(
     "--fps",
     default=None,
     type=int,
-    help=(
-        "Frames per second to assume for every video, skipping the per-video lookup. "
-        "Defaults to reading it from each video file."
-    ),
+    help="Deprecated and ignored: the frame rate is read from each pose file.",
 )
 @click.option(
     "--save-predictions",
@@ -992,6 +973,8 @@ def evaluate_command(
     per_video: bool,
 ) -> None:
     """Evaluate a trained classifier against a densely labeled JABS project."""
+    if fps is not None:
+        logger.warning("--fps is deprecated and ignored; each pose file's frame rate is used")
     console = Console()
 
     # the criterion order here is load-bearing: run_evaluation labels the
@@ -1083,7 +1066,6 @@ def evaluate_command(
             criteria=criteria,
             plan=plan,
             feature_dir=feature_dir,
-            fps_override=fps,
             collect_bout_records=csv_out is not None,
             save_predictions_dir=save_predictions,
             project=project,

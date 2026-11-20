@@ -465,6 +465,17 @@ def _invoke(tmp_path: Path, *extra: str):
     )
 
 
+def test_fps_is_deprecated_and_ignored(
+    wired, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """--fps logs a deprecation warning and is not passed to the evaluation."""
+    spy, _ = wired
+    result = _invoke(tmp_path, "--fps", "60")
+    assert result.exit_code == 0, result.output
+    assert any("--fps is deprecated" in r.getMessage() for r in caplog.records)
+    assert "fps_override" not in spy.call_args.kwargs
+
+
 def test_command_runs_and_prints_tables(wired, tmp_path: Path) -> None:
     """Command runs and prints tables."""
     result = _invoke(tmp_path)
@@ -655,7 +666,6 @@ def _fake_project(
 
     monkeypatch.setattr(evaluate_module, "Project", mock.Mock(return_value=project))
     monkeypatch.setattr(evaluate_module, "_predict_identity", predict)
-    monkeypatch.setattr(evaluate_module, "get_fps_and_nframes", lambda _p: (30, 100))
     return project
 
 
@@ -674,7 +684,6 @@ def _run(**kwargs):
         "criteria": CRITERIA,
         "plan": None,
         "feature_dir": None,
-        "fps_override": 30,
         "collect_bout_records": False,
     }
     return evaluate_module.run_evaluation(**{**defaults, **kwargs})

@@ -2,6 +2,7 @@ import typing
 
 import numpy as np
 
+from jabs.core.enums import PoseCapability
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
@@ -36,7 +37,7 @@ class PairwiseSocialDistances(Feature):
     """
 
     _name = "social_pairwise_distances"
-    _min_pose = 3
+    _requires = frozenset({PoseCapability.SOCIAL})
 
     # total number of values created by pairwise distances between the
     # subject and closest other identity for this subset of points

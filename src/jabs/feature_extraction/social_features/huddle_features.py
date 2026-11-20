@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ class HuddleFeatures(Feature):
     """
 
     _name = "huddle_features"
-    _min_pose = 3
+    _requires = frozenset({PoseCapability.SOCIAL})
 
     def __init__(
         self,

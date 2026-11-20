@@ -53,4 +53,6 @@ class Angles(Feature):
             np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0])
             - np.arctan2(a[:, 1] - b[:, 1], a[:, 0] - b[:, 0])
         )
-        return angles % 360
+        angles = angles % 360
+        # an angle just below 0 rounds to exactly 360 in the modulo; wrap it to 0
+        return np.where(angles >= 360, angles - 360, angles)

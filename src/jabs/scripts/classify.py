@@ -7,6 +7,7 @@ Todo:
 """
 
 import argparse
+import logging
 import re
 import sys
 from pathlib import Path
@@ -26,7 +27,7 @@ from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 
-DEFAULT_FPS = 30
+logger = logging.getLogger(__name__)
 
 _POSE_FILE_NAME_RE = re.compile(r"^.+_pose_est_v[0-9]+\.h5$")
 
@@ -129,7 +130,6 @@ def train_and_classify(
     training_file_path: Path,
     input_pose_file: Path,
     out_dir: Path,
-    fps: int = DEFAULT_FPS,
     feature_dir: str | None = None,
     cache_window: bool = False,
     use_pose_hash: bool = False,
@@ -144,7 +144,6 @@ def train_and_classify(
         training_file_path: Path to the training HDF5 file.
         input_pose_file: Path to the input pose HDF5 file to classify.
         out_dir: Directory to store classification output.
-        fps: Frames per second for feature extraction.
         feature_dir: Directory for feature cache. If provided, features are cached here.
         cache_window: Whether to cache window features.
         use_pose_hash: Include pose file hash as a subdirectory in the cache path.
@@ -165,7 +164,6 @@ def train_and_classify(
         input_pose_file,
         out_dir,
         classifier.behavior_name,
-        fps,
         feature_dir,
         cache_window,
         use_pose_hash=use_pose_hash,
@@ -177,7 +175,6 @@ def classify_pose(
     input_pose_file: Path,
     out_dir: Path,
     behavior: str | None = None,
-    fps: int = DEFAULT_FPS,
     feature_dir: str | None = None,
     cache_window: bool = False,
     use_pose_hash: bool = False,
@@ -197,7 +194,6 @@ def classify_pose(
         input_pose_file: Path to the input pose HDF5 file.
         out_dir: Directory to store classification output.
         behavior: Behavior name for binary classifiers. Ignored for multi-class.
-        fps: Frames per second for feature extraction.
         feature_dir: Directory for feature cache. If provided, features are cached here.
         cache_window: Whether to cache window features.
         use_pose_hash: Include pose file hash as a subdirectory in the cache path.
@@ -250,7 +246,6 @@ def classify_pose(
                 curr_id,
                 feature_dir,
                 pose_est,
-                fps=fps,
                 op_settings=classifier_settings,
                 cache_window=cache_window,
                 cache_format=CacheFormat.PARQUET,
@@ -393,9 +388,9 @@ def classify_main() -> None:
     )
     parser.add_argument(
         "--fps",
-        help=f"frames per second, default={DEFAULT_FPS}",
+        help="deprecated and ignored, the frame rate is read from the pose file",
         type=int,
-        default=DEFAULT_FPS,
+        default=None,
     )
     parser.add_argument(
         "--feature-dir",
@@ -425,6 +420,8 @@ def classify_main() -> None:
     )
 
     args = parser.parse_args(classify_args)
+    if args.fps is not None:
+        logger.warning("--fps is deprecated and ignored; the pose file's frame rate is used")
 
     out_dir = Path(args.out_dir)
     in_pose_path = Path(args.input_pose)
@@ -434,7 +431,6 @@ def classify_main() -> None:
             Path(args.training),
             in_pose_path,
             out_dir,
-            fps=args.fps,
             feature_dir=args.feature_dir,
             cache_window=not args.skip_window_cache,
             use_pose_hash=args.use_pose_hash,
@@ -471,7 +467,6 @@ def classify_main() -> None:
             in_pose_path,
             out_dir,
             behavior,
-            fps=args.fps,
             feature_dir=args.feature_dir,
             cache_window=not args.skip_window_cache,
             use_pose_hash=args.use_pose_hash,

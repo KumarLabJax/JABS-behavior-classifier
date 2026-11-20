@@ -131,7 +131,6 @@ class ClassifyThread(QThread):
 
                 video_path = self._project.video_manager.video_path(video)
                 pose_est = self._project.load_pose_est(video_path)
-                fps = pose_est.fps
 
                 predictions: dict = {}
                 probabilities: dict = {}
@@ -147,7 +146,6 @@ class ClassifyThread(QThread):
                         identity,
                         self._project.feature_dir,
                         pose_est,
-                        fps=fps,
                         op_settings=project_settings,
                         cache_format=self._project.cache_format,
                     )

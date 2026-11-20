@@ -9,23 +9,28 @@ prints a deprecation warning, translates the legacy options to their
 
 Legacy option mapping:
 
-* ``--pose-version`` is ignored. ``compute-features`` infers the pose version
-  from the pose filename (e.g. ``*_pose_est_v6.h5``).
+* ``--pose-version`` is ignored. ``compute-features`` computes the features the
+  pose file supports.
+* ``--fps`` is deprecated and ignored (a warning is logged): time-derived
+  features use the frame rate recorded in the pose file.
 * ``--use-cm-distances`` selects cm units, which is the ``compute-features``
   default when the pose file provides a pixel-to-cm scale. Without the flag,
   ``--use-pixel-distances`` is forwarded to preserve the legacy pixel default.
 * ``--window-size`` maps to a single ``-w`` value.
-* ``--fps`` and ``--use-pose-hash`` are forwarded unchanged.
+* ``--use-pose-hash`` is forwarded unchanged.
 
 The feature cache is always written in Parquet format, which is also the
 ``compute-features`` default.
 """
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from .cli.compute_features import compute_features_command
+
+logger = logging.getLogger(__name__)
 
 
 def _build_compute_features_args(args: argparse.Namespace) -> list[str]:
@@ -35,8 +40,6 @@ def _build_compute_features_args(args: argparse.Namespace) -> list[str]:
         str(args.pose_file),
         "--feature-dir",
         str(args.feature_dir),
-        "--fps",
-        str(args.fps),
     ]
 
     # the legacy script defaulted to pixel units and opted into cm; compute-features
@@ -76,7 +79,7 @@ def main():
         "--pose-version",
         type=int,
         default=None,
-        help="ignored, the pose version is inferred from the pose filename",
+        help="ignored, the features follow what the pose file contains",
     )
     parser.add_argument(
         "--feature-dir",
@@ -98,7 +101,10 @@ def main():
         help="window size for features (default none)",
     )
     parser.add_argument(
-        "--fps", type=int, default=30, help="frames per second to use for feature calculation"
+        "--fps",
+        type=int,
+        default=None,
+        help="deprecated and ignored, the frame rate is read from the pose file",
     )
     parser.add_argument(
         "--use-pose-hash",
@@ -115,9 +121,11 @@ def main():
 
     if args.pose_version is not None:
         print(
-            "--pose-version is ignored, the pose version is inferred from the pose filename.",
+            "--pose-version is ignored, the features follow what the pose file contains.",
             file=sys.stderr,
         )
+    if args.fps is not None:
+        logger.warning("--fps is deprecated and ignored; the pose file's frame rate is used")
 
     compute_features_command.main(
         _build_compute_features_args(args),

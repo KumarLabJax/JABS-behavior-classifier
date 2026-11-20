@@ -8,8 +8,10 @@ from rich.console import Console
 
 from jabs.core.enums import CacheFormat, ProjectDistanceUnit
 from jabs.feature_extraction.features import IdentityFeatures
-from jabs.pose_estimation import get_pose_file_major_version, open_pose_file
+from jabs.pose_estimation import PoseOpenError, open_pose_file
+from jabs.pose_estimation.discovery import is_pose_file
 from jabs.project import Project
+from jabs.project.feature_manager import pose_version_for_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +49,8 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--fps",
     type=click.IntRange(min=1),
-    default=30,
-    show_default=True,
-    help="Frames per second to use for feature calculation.",
+    default=None,
+    help="Deprecated and ignored: the frame rate is read from the pose file.",
 )
 @click.option(
     "--use-pose-hash",
@@ -79,35 +80,44 @@ def compute_features_command(
     feature_dir: Path,
     use_pixel_distances: bool,
     window_sizes: tuple[int, ...],
-    fps: int,
+    fps: int | None,
     use_pose_hash: bool,
     cache_format: str,
     force: bool,
 ) -> None:
     """Compute and cache JABS features for a pose file.
 
-    The pose file version is inferred from the filename (e.g. *_pose_est_v6.h5).
+    The pose file is a unified ``*_pose.h5`` or a legacy ``*_pose_est_v<N>.h5``
+    file. The features computed follow what the file contains (its capabilities
+    and static objects), and time-derived features use the frame rate it records.
     Distance units default to cm when the pose file provides a pixel-to-cm
     scale, otherwise pixel; use --use-pixel-distances to force pixel units.
     """
-    try:
-        pose_version = get_pose_file_major_version(pose_file)
-    except ValueError as e:
+    if fps is not None:
+        logger.warning("--fps is deprecated and ignored; the pose file's frame rate is used")
+
+    if not is_pose_file(pose_file):
         raise click.ClickException(
-            f"Unable to determine pose version from filename '{pose_file.name}'; "
-            "expected a name like '*_pose_est_v<N>.h5'."
-        ) from e
+            f"'{pose_file.name}' is not a pose file name; expected '*_pose.h5' or "
+            "'*_pose_est_v<N>.h5'."
+        )
 
     console = Console()
     with console.status(f"Opening pose file {pose_file.name}...", spinner="dots"):
-        pose_est = open_pose_file(pose_file)
+        try:
+            pose_est = open_pose_file(pose_file)
+        except PoseOpenError as e:
+            raise click.ClickException(str(e)) from e
 
     if use_pixel_distances or pose_est.cm_per_pixel is None:
         distance_unit = ProjectDistanceUnit.PIXEL
     else:
         distance_unit = ProjectDistanceUnit.CM
 
-    settings = Project.settings_by_pose_version(pose_version, distance_unit)
+    capabilities = pose_est.capabilities
+    settings = Project.settings_by_pose_version(
+        pose_version_for_capabilities(capabilities), distance_unit
+    )
 
     sorted_window_sizes = sorted(set(window_sizes))
     cache_window = bool(sorted_window_sizes)
@@ -115,9 +125,9 @@ def compute_features_command(
     cache_format_enum = CacheFormat(cache_format.lower())
 
     logger.info(
-        "computing features for %s (pose v%s, %s, cache=%s)",
+        "computing features for %s (capabilities %s, %s, cache=%s)",
         pose_file,
-        pose_version,
+        sorted(c.value for c in capabilities),
         distance_unit.name,
         cache_format_enum.value,
     )
@@ -129,15 +139,14 @@ def compute_features_command(
                 f"Computing per-frame features for identity {curr_id} "
                 f"({identities.index(curr_id) + 1}/{len(identities)})..."
             )
-            # Note: Features are still cached with the highest pose version.
-            # It isn't until get_features is called that filtering occurs.
+            # Note: every feature the pose file supports is cached; filtering by
+            # the settings happens when get_features is called.
             features = IdentityFeatures(
                 pose_file,
                 curr_id,
                 feature_dir,
                 pose_est,
                 force=force,
-                fps=fps,
                 op_settings=settings,
                 cache_window=cache_window,
                 cache_format=cache_format_enum,

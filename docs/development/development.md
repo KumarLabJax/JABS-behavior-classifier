@@ -484,7 +484,7 @@ To add a new feature to an existing group (e.g., a new base feature):
    
    Key requirements:
    - Set `_name` class attribute (unique identifier)
-   - Set `_min_pose` (minimum pose version required)
+   - Set `_requires` if the feature needs pose capabilities (e.g. `frozenset({PoseCapability.SOCIAL})`); the default is none
    - Implement `per_frame(identity)` returning `dict[str, np.ndarray]`
    - Optionally set `_use_circular = True` for angular features
 
@@ -540,8 +540,8 @@ Key points:
 
 **Features with Dependencies:**
 
-Features can specify minimum pose versions and required static objects via class attributes:
-- `_min_pose`: Minimum pose version (e.g., `_min_pose = 6`)
+Features can specify required pose capabilities and static objects via class attributes:
+- `_requires`: Pose capabilities every pose file must provide (`jabs.core.enums.PoseCapability`), e.g. `_requires = frozenset({PoseCapability.SOCIAL})` for features that need more than one identity
 - `_static_objects`: List of required static objects (e.g., `["water_bottle", "food_hopper"]`)
 
 See `src/jabs/feature_extraction/landmark_features/` for examples.
