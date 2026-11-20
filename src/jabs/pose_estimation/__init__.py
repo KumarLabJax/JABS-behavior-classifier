@@ -5,8 +5,9 @@ from pathlib import Path
 
 import h5py
 
-from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
+from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.exceptions import PoseHashException
+from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE
 from jabs.core.utils.static_objects import lixit_keypoint_count
 
 from .pose_est_v2 import PoseEstimationV2

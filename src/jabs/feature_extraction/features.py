@@ -8,6 +8,7 @@ import numpy.typing as npt
 import jabs.project.track_labels
 from jabs.core.enums import CacheFormat
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
 from jabs.core.utils import pose_file_stem
 from jabs.io.feature_cache import clear_cache, detect_cache_format
@@ -228,7 +229,7 @@ class IdentityFeatures:
         self._keypoint_mask = {
             "point_mask": {
                 f"point_mask {keypoint.name}": point_mask[:, keypoint.value]
-                for keypoint in PoseEstimation.KeypointIndex
+                for keypoint in KeypointIndex
             }
         }
 

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types.pose import PoseData
 from jabs.io.internal.pose import resolve_identity_subjects
 from jabs.pose_estimation import open_pose_file
@@ -80,7 +80,7 @@ def _valid_pose_data(num_identities=2, num_frames=10):
     run_conversion validates subject metadata before writing, so the write-mode
     wiring tests need real data rather than a sentinel.
     """
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     num_keypoints = len(body_parts)
     subjects = {
         f"subject_{i + 1}": {

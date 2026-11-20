@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 try:
-    from jabs.pose_estimation import PoseEstimation
     from jabs.ui.player_widget.closest_identity import HALF_FOV_DEGREES, closest_identity
 
     SKIP_UI_TESTS = False
@@ -44,14 +45,14 @@ class StubPose:
 
     def get_points(self, frame_index: int, identity: int):
         """Nose ahead of the neck on the x axis, so the subject faces +x."""
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         points = np.zeros((n_kp, 2), dtype=np.float32)
         mask = np.ones(n_kp, dtype=np.uint8)
         cx, cy = self._centers[identity]
-        points[PoseEstimation.KeypointIndex.NOSE] = (cx + 5, cy)
-        points[PoseEstimation.KeypointIndex.BASE_NECK] = (cx, cy)
+        points[KeypointIndex.NOSE] = (cx + 5, cy)
+        points[KeypointIndex.BASE_NECK] = (cx, cy)
         if not self._facing:
-            mask[PoseEstimation.KeypointIndex.NOSE] = 0
+            mask[KeypointIndex.NOSE] = 0
         return points, mask
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 try:
     from PySide6 import QtGui
 
@@ -13,7 +15,6 @@ try:
         TRACK_PAST_COLOR,
         draw_identity_track,
     )
-    from jabs.pose_estimation import PoseEstimation
 
     SKIP_UI_TESTS = False
     SKIP_REASON = ""
@@ -34,10 +35,10 @@ class StubPose:
 
     def get_identity_poses(self, identity: int):
         """Return (points, mask) for every frame, as a real pose object does."""
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         points = np.zeros((_FRAMES, n_kp, 2), dtype=np.float32)
         mask = np.ones((_FRAMES, n_kp), dtype=np.uint8)
-        nose = PoseEstimation.KeypointIndex.NOSE
+        nose = KeypointIndex.NOSE
         for frame in range(_FRAMES):
             points[frame, nose] = (10 + frame * 3, 50)
         for frame in self._masked:

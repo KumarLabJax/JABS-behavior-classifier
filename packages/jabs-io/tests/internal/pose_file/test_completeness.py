@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 import pytest
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, KeypointIndex
 from jabs.io.internal.pose_file import (
     Component,
     PoseFile,
@@ -145,7 +145,7 @@ def test_created_can_be_pinned(tmp_path, sample_pose_file):
 def test_the_jabs_skeleton_comes_from_jabs_core():
     """A hand-written copy had already drifted in case."""
     skeleton = jabs_mouse12()
-    assert skeleton.body_parts == tuple(k.name for k in PoseEstimation.KeypointIndex)
+    assert skeleton.body_parts == tuple(k.name for k in KeypointIndex)
     assert len(skeleton.body_parts) == 12
     assert JABS_MOUSE12 == "jabs.mouse12"
 
@@ -154,7 +154,7 @@ def test_the_derived_edges_cover_every_connected_segment():
     """Every adjacent pair in every polyline becomes an edge, once."""
     skeleton = jabs_mouse12()
     expected = set()
-    for segment in PoseEstimation.FULL_CONNECTED_SEGMENTS:
+    for segment in FULL_CONNECTED_SEGMENTS:
         indexes = [int(point) for point in segment]
         for start, end in itertools.pairwise(indexes):
             expected.add(frozenset((start, end)))

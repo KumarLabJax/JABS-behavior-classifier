@@ -5,11 +5,12 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 try:
     from PySide6.QtWidgets import QApplication  # noqa: F401
 
     from jabs.overlay_drawing import draw_identity_pose, native_pose_sizes
-    from jabs.pose_estimation import PoseEstimation
 
     SKIP_UI_TESTS = False
     SKIP_REASON = ""
@@ -86,7 +87,7 @@ def test_native_pose_sizes_monotonic() -> None:
 def test_draw_identity_pose_noop_when_points_missing() -> None:
     """Nothing is drawn when the identity has no pose at this frame."""
     painter = MagicMock()
-    pose = _StubPose(len(PoseEstimation.KeypointIndex), points_present=False)
+    pose = _StubPose(len(KeypointIndex), points_present=False)
 
     draw_identity_pose(
         painter,
@@ -106,7 +107,7 @@ def test_draw_identity_pose_noop_when_points_missing() -> None:
 def test_draw_identity_pose_draws_each_visible_keypoint() -> None:
     """One keypoint circle is drawn per present, in-bounds keypoint."""
     painter = MagicMock()
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
     pose = _StubPose(num_keypoints, points_present=True)
 
     draw_identity_pose(
@@ -126,7 +127,7 @@ def test_draw_identity_pose_draws_each_visible_keypoint() -> None:
 def test_draw_identity_pose_skips_points_filtered_by_transform() -> None:
     """Keypoints whose transform returns None (e.g. outside a crop) are not drawn."""
     painter = MagicMock()
-    pose = _StubPose(len(PoseEstimation.KeypointIndex), points_present=True)
+    pose = _StubPose(len(KeypointIndex), points_present=True)
 
     draw_identity_pose(
         painter,

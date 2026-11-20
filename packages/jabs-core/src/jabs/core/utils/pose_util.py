@@ -7,6 +7,7 @@ import numpy.typing as npt
 import shapely
 
 from jabs.core.abstract import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 
 
 def build_identity_mask(
@@ -41,7 +42,7 @@ def build_identity_mask(
 
 
 def gen_line_fragments(
-    connected_segments: Iterable[Iterable[PoseEstimation.KeypointIndex]],
+    connected_segments: Iterable[Iterable[KeypointIndex]],
     exclude_points: np.ndarray,
 ) -> Generator[list[int], None, None]:
     """generate line fragments from the connected segments.

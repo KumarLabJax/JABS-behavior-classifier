@@ -5,6 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import shapely
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
@@ -75,7 +76,7 @@ class CornerDistanceInfo:
             # don't scale the point coordinates by the pixel_scale value, since the
             # corners are in pixel space. we'll adjust the distance units later
             points, _ = self._poses.get_identity_poses(identity)
-            idx = PoseEstimation.KeypointIndex
+            idx = KeypointIndex
             nose = points[frames, idx.NOSE, :]
             base_neck = points[frames, idx.BASE_NECK, :]
 

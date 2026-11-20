@@ -3,12 +3,12 @@ import typing
 import cv2
 import numpy as np
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 _EXCLUDED_POINTS = [
-    PoseEstimation.KeypointIndex.MID_TAIL,
-    PoseEstimation.KeypointIndex.TIP_TAIL,
+    KeypointIndex.MID_TAIL,
+    KeypointIndex.TIP_TAIL,
 ]
 
 
@@ -52,7 +52,7 @@ class FoodHopper(Feature):
         # for each keypoint (except mid tail and tail tip), compute signed distance (measureDist=True)
         # to the polygon defined by the food hopper key points. Distance is negative if the key point
         # is outside the polygon, positive if inside, zero if it is on the edge
-        for key_point in PoseEstimation.KeypointIndex:
+        for key_point in KeypointIndex:
             # skip over the key points we don't care about
             if key_point in _EXCLUDED_POINTS:
                 continue

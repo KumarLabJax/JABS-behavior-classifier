@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.base_features import PointSpeeds
 from jabs.pose_estimation import PoseEstimation
 
@@ -13,7 +14,7 @@ def test_point_speeds_per_frame_dimensions(pose_est_v5):
     pixel_scale = pose_est_v5.cm_per_pixel
     speeds_feature = PointSpeeds(pose_est_v5, pixel_scale)
 
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
 
     for identity in range(pose_est_v5.num_identities):
         values = speeds_feature.per_frame(identity)
@@ -49,7 +50,7 @@ def test_point_speeds_feature_names(pose_est_v5):
         values = speeds_feature.per_frame(identity)
 
         # Check that each keypoint has a speed feature
-        for keypoint in PoseEstimation.KeypointIndex:
+        for keypoint in KeypointIndex:
             expected_name = f"{keypoint.name} speed"
             assert expected_name in values
 
@@ -57,14 +58,14 @@ def test_point_speeds_feature_names(pose_est_v5):
 def test_point_speeds_scaled_by_fps() -> None:
     """Test that speeds are in cm/s: scaled by both the pixel scale and the frame rate."""
     num_frames = 10
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
     fps = 30.0
     pixel_scale = 0.5
 
     # BASE_NECK moves 3 pixels in x and 4 pixels in y every frame, so 5 pixels per frame
     points = np.full((num_frames, num_keypoints, 2), np.nan, dtype=np.float64)
-    points[:, PoseEstimation.KeypointIndex.BASE_NECK, 0] = 3.0 * np.arange(num_frames)
-    points[:, PoseEstimation.KeypointIndex.BASE_NECK, 1] = 4.0 * np.arange(num_frames)
+    points[:, KeypointIndex.BASE_NECK, 0] = 3.0 * np.arange(num_frames)
+    points[:, KeypointIndex.BASE_NECK, 1] = 4.0 * np.arange(num_frames)
     point_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
 
     def _get_identity_poses(identity: int, scale: float | None = None):
@@ -89,7 +90,7 @@ def test_point_speeds_stationary_point():
     """
     # Create a mock pose with a stationary NOSE keypoint
     num_frames = 10
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
 
     mock_pose = MagicMock(spec=PoseEstimation)
     mock_pose.num_frames = num_frames
@@ -102,16 +103,16 @@ def test_point_speeds_stationary_point():
 
     # Set NOSE to be stationary at position (5, 5)
     for frame in range(num_frames):
-        points[frame, PoseEstimation.KeypointIndex.NOSE, :] = [5.0, 5.0]
+        points[frame, KeypointIndex.NOSE, :] = [5.0, 5.0]
 
     # Set BASE_NECK to move slightly so we have some non-zero speeds
     for frame in range(num_frames):
-        points[frame, PoseEstimation.KeypointIndex.BASE_NECK, :] = [frame, frame]
+        points[frame, KeypointIndex.BASE_NECK, :] = [frame, frame]
 
     # Create point mask (all valid for NOSE and BASE_NECK)
     point_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
-    point_mask[:, PoseEstimation.KeypointIndex.NOSE] = True
-    point_mask[:, PoseEstimation.KeypointIndex.BASE_NECK] = True
+    point_mask[:, KeypointIndex.NOSE] = True
+    point_mask[:, KeypointIndex.BASE_NECK] = True
 
     # Mock the get_identity_poses method
     mock_pose.get_identity_poses.return_value = (points, point_mask)

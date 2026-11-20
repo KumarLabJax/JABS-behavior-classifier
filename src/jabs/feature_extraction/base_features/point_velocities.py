@@ -1,6 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import wrap_degrees
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
@@ -52,7 +53,7 @@ class PointVelocityDirs(Feature):
         xy_deltas = np.gradient(poses, axis=0)
         angles = np.degrees(np.arctan2(xy_deltas[:, :, 1], xy_deltas[:, :, 0]))
 
-        for keypoint in PoseEstimation.KeypointIndex:
+        for keypoint in KeypointIndex:
             # subtract the animal's bearing and wrap into [-180, 180), the same way
             # CentroidVelocityDir.per_frame does
             features[f"{keypoint.name} velocity direction"] = wrap_degrees(

@@ -16,6 +16,8 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 try:
     from hdmf.backends.hdf5 import H5DataIO
     from ndx_jabs import ContourSeries, JaxAgingStudyMetaData, JaxAgingSubject, JaxStudySubject
@@ -38,7 +40,6 @@ try:
 except ImportError:
     _MULTISUBJECTS_AVAILABLE = False
 
-from jabs.core.abstract.pose_est import PoseEstimation as _JABSPoseEstimation
 from jabs.core.enums import StorageFormat
 from jabs.core.exceptions import MissingOptionalDependencyError
 from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
@@ -61,9 +62,7 @@ _JAX_AGING_SESSION_TEXT_FIELDS = ("batch", "tester")
 # Maps canonical keypoint name → its integer index in KeypointIndex.
 # Used by _sort_body_parts to recover the correct keypoint order from
 # PoseEstimationSeries names, since pynwb returns series alphabetically from HDF5.
-_KEYPOINT_ORDER: dict[str, int] = {
-    kpt.name: kpt.value for kpt in _JABSPoseEstimation.KeypointIndex
-}
+_KEYPOINT_ORDER: dict[str, int] = {kpt.name: kpt.value for kpt in KeypointIndex}
 
 
 def _sort_body_parts(names: list[str]) -> list[str]:

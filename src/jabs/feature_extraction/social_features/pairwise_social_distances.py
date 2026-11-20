@@ -2,6 +2,7 @@ import typing
 
 import numpy as np
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -12,9 +13,9 @@ if typing.TYPE_CHECKING:
 # of points to capture just the most important
 # information for social.
 _social_point_subset = [
-    PoseEstimation.KeypointIndex.NOSE,
-    PoseEstimation.KeypointIndex.BASE_NECK,
-    PoseEstimation.KeypointIndex.BASE_TAIL,
+    KeypointIndex.NOSE,
+    KeypointIndex.BASE_NECK,
+    KeypointIndex.BASE_TAIL,
 ]
 
 

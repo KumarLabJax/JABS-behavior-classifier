@@ -5,6 +5,7 @@ from collections.abc import Callable
 import numpy as np
 from PySide6 import QtCore, QtGui
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils.pose_util import gen_line_fragments
 from jabs.pose_estimation import PoseEstimation
 
@@ -94,7 +95,7 @@ def draw_identity_pose(
                 )
 
     painter.setPen(QtCore.Qt.PenStyle.NoPen)
-    for keypoint in PoseEstimation.KeypointIndex:
+    for keypoint in KeypointIndex:
         point_index = keypoint.value
         if not mask[point_index]:
             continue

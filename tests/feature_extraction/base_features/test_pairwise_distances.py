@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.base_features import PairwisePointDistances
 from jabs.pose_estimation import PoseEstimation
 
@@ -13,7 +14,7 @@ def test_pairwise_distances_per_frame_dimensions(pose_est_v5):
     pixel_scale = pose_est_v5.cm_per_pixel
     pairwise_feature = PairwisePointDistances(pose_est_v5, pixel_scale)
 
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
     # Number of unique pairs is n*(n-1)/2
     expected_num_pairs = num_keypoints * (num_keypoints - 1) // 2
 
@@ -77,12 +78,12 @@ def test_pairwise_distances_feature_names(pose_est_v5):
 def test_pairwise_distances_scaled_correctly() -> None:
     """Test that distances are converted from pixels to cm with the pixel scale."""
     num_frames = 3
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
 
     # NOSE and BASE_NECK are a 3-4-5 triangle apart (5 pixels) in every frame
     points = np.full((num_frames, num_keypoints, 2), np.nan, dtype=np.float64)
-    points[:, PoseEstimation.KeypointIndex.NOSE, :] = [0.0, 0.0]
-    points[:, PoseEstimation.KeypointIndex.BASE_NECK, :] = [3.0, 4.0]
+    points[:, KeypointIndex.NOSE, :] = [0.0, 0.0]
+    points[:, KeypointIndex.BASE_NECK, :] = [3.0, 4.0]
     point_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
 
     def _get_identity_poses(identity: int, scale: float | None = None):
@@ -141,23 +142,23 @@ def test_pairwise_distances_known_values():
 
     # Create points array: shape (num_frames, num_keypoints, 2)
     # Only populate NOSE and BASE_NECK, rest can be NaN
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
     points = np.full((3, num_keypoints, 2), np.nan, dtype=np.float32)
 
     # Set NOSE positions (keypoint index 0)
-    points[0, PoseEstimation.KeypointIndex.NOSE, :] = [0, 0]
-    points[1, PoseEstimation.KeypointIndex.NOSE, :] = [0, 0]
-    points[2, PoseEstimation.KeypointIndex.NOSE, :] = [1, 1]
+    points[0, KeypointIndex.NOSE, :] = [0, 0]
+    points[1, KeypointIndex.NOSE, :] = [0, 0]
+    points[2, KeypointIndex.NOSE, :] = [1, 1]
 
     # Set BASE_NECK positions (keypoint index 1)
-    points[0, PoseEstimation.KeypointIndex.BASE_NECK, :] = [3, 4]
-    points[1, PoseEstimation.KeypointIndex.BASE_NECK, :] = [6, 8]
-    points[2, PoseEstimation.KeypointIndex.BASE_NECK, :] = [4, 5]
+    points[0, KeypointIndex.BASE_NECK, :] = [3, 4]
+    points[1, KeypointIndex.BASE_NECK, :] = [6, 8]
+    points[2, KeypointIndex.BASE_NECK, :] = [4, 5]
 
     # Create point mask (all valid for our two keypoints)
     point_mask = np.zeros((3, num_keypoints), dtype=bool)
-    point_mask[:, PoseEstimation.KeypointIndex.NOSE] = True
-    point_mask[:, PoseEstimation.KeypointIndex.BASE_NECK] = True
+    point_mask[:, KeypointIndex.NOSE] = True
+    point_mask[:, KeypointIndex.BASE_NECK] = True
 
     # Mock the get_identity_poses method
     mock_pose.get_identity_poses.return_value = (points, point_mask)

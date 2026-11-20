@@ -200,7 +200,7 @@ class PoseEstimation(ABC):
             list of tuples, where each tuple contains the indexes of the keypoints
             that form a connected segment
         """
-        return PoseEstimation.FULL_CONNECTED_SEGMENTS
+        return FULL_CONNECTED_SEGMENTS
 
     @abstractmethod
     def identity_mask(self, identity):
@@ -322,10 +322,10 @@ class PoseEstimation(ABC):
         # fall back to use nose instead of base neck if base neck is absent from this pose file
         # (for example, 5 keypoint pose instead of 12)
         if use_nose:
-            p1_xy = points[self.KeypointIndex.NOSE.value].astype(np.float32)
+            p1_xy = points[KeypointIndex.NOSE.value].astype(np.float32)
         else:
-            p1_xy = points[self.KeypointIndex.BASE_NECK.value].astype(np.float32)
-        p2_xy = points[self.KeypointIndex.BASE_TAIL.value].astype(np.float32)
+            p1_xy = points[KeypointIndex.BASE_NECK.value].astype(np.float32)
+        p2_xy = points[KeypointIndex.BASE_TAIL.value].astype(np.float32)
         offset_xy = p1_xy - p2_xy
 
         angle_rad = np.arctan2(offset_xy[1], offset_xy[0])
@@ -338,16 +338,16 @@ class PoseEstimation(ABC):
         Equal to applying `compute_bearing` to each frame's points, computed for all
         frames at once. Frames where the identity is absent are NaN.
         """
-        use_nose = not self.get_reduced_point_mask()[self.KeypointIndex.BASE_NECK.value]
+        use_nose = not self.get_reduced_point_mask()[KeypointIndex.BASE_NECK.value]
         if use_nose:
             logger.warning("Falling back to using nose keypoint for bearing computation")
 
         # every frame at once, with the same float32 arithmetic as compute_bearing
         points, _ = self.get_identity_poses(identity)
         present = np.asarray(self.identity_mask(identity)) == 1
-        front = self.KeypointIndex.NOSE if use_nose else self.KeypointIndex.BASE_NECK
+        front = KeypointIndex.NOSE if use_nose else KeypointIndex.BASE_NECK
         offset_xy = points[present, front.value].astype(np.float32) - points[
-            present, self.KeypointIndex.BASE_TAIL.value
+            present, KeypointIndex.BASE_TAIL.value
         ].astype(np.float32)
 
         bearings = np.full(self.num_frames, np.nan, dtype=np.float32)

@@ -9,6 +9,7 @@ import pytest
 from shapely.geometry import Point
 
 import jabs.feature_extraction.landmark_features.corner as corner_module
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.pose_estimation import PoseEstimation
 
@@ -28,7 +29,7 @@ def _reference_features(
         "closest corner": np.full(n, -1, dtype=np.int8),
     }
     hulls = poses.get_identity_convex_hulls(identity)
-    idx = PoseEstimation.KeypointIndex
+    idx = KeypointIndex
     corners = corner_module.CornerDistanceInfo.sort_points_clockwise(
         poses.static_objects["corners"]
     )

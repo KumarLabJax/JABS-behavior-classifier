@@ -12,6 +12,7 @@ import numpy as np
 import numpy.typing as npt
 
 from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types.pose import PoseData, SegmentationData
 from jabs.io import save
 from jabs.io.internal.pose import (
@@ -386,7 +387,7 @@ def pose_to_pose_data(
         axis=0,
     )
 
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     edges = _segments_to_edges(pose.get_connected_segments())
 
     cm_per_pixel = getattr(pose, "cm_per_pixel", None)

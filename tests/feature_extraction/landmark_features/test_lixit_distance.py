@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 import jabs.pose_estimation
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.landmark_features import lixit
-from jabs.pose_estimation import PoseEstimation
 
 
 @pytest.fixture
@@ -207,7 +207,7 @@ def test_centroid_drives_closest_selection(fresh_pose_v5):
 
     centroids = info.get_centroids(0)  # pixel units
     points, _ = pose.get_identity_poses(0)  # pixel units
-    nose = points[:, PoseEstimation.KeypointIndex.NOSE, :]
+    nose = points[:, KeypointIndex.NOSE, :]
 
     # find a frame where nose and centroid are both valid and clearly separated
     valid = ~np.isnan(centroids).any(axis=1) & ~np.isnan(nose).any(axis=1)
@@ -267,9 +267,9 @@ def test_mouse_lixit_angle_cosines_for_known_geometry() -> None:
     nose_offsets = np.array([[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0]])
     tail_offsets = np.array([[-1.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
 
-    points = np.zeros((3, len(PoseEstimation.KeypointIndex), 2))
-    points[:, PoseEstimation.KeypointIndex.NOSE, :] = centroid_cm + nose_offsets
-    points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :] = centroid_cm + tail_offsets
+    points = np.zeros((3, len(KeypointIndex), 2))
+    points[:, KeypointIndex.NOSE, :] = centroid_cm + nose_offsets
+    points[:, KeypointIndex.BASE_TAIL, :] = centroid_cm + tail_offsets
 
     pose = MagicMock()
     pose.get_identity_poses.return_value = (points, np.ones(points.shape[:2], dtype=bool))
