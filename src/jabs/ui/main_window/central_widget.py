@@ -2349,10 +2349,32 @@ class CentralWidget(QtWidgets.QWidget):
         """Handle updates when the current search hit changes."""
         search_hit = self._search_bar_widget.current_search_hit
         if search_hit is not None and self._project is not None:
+            # an unusable video's annotations can still match a search, but it has no
+            # pose to load
+            if not self._project.is_usable(search_hit.file):
+                MessageDialog.warning(
+                    self,
+                    title="Unusable Pose File",
+                    message=f"{search_hit.file} cannot be opened because its pose file is "
+                    "unusable.",
+                    details=self._project.unusable_videos[search_hit.file],
+                )
+                return
+
             # load the video and seek to frame for the search hit
             video_to_load = self._project.video_manager.video_path(search_hit.file)
             if video_to_load != self._loaded_video:
-                self.load_video(video_to_load)
+                try:
+                    self.load_video(video_to_load)
+                except PoseOpenError as e:
+                    logger.error("Unable to open the pose file for %s", search_hit.file)
+                    MessageDialog.error(
+                        self,
+                        title="Unable to Open Pose File",
+                        message=f"Unable to open the pose file for {search_hit.file}.",
+                        details=e.reason,
+                    )
+                    return
             self._player_widget.seek_to_frame(search_hit.start_frame)
 
             # set the current identity based on the search hit
