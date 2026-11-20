@@ -17,7 +17,7 @@ from PySide6 import QtCore, QtGui
 from .scaling import native_overlay_scale
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
 logger = logging.getLogger(__name__)
 
@@ -33,25 +33,20 @@ _BASE_LINE_WIDTH = 2
 _BASE_FONT_SIZE = 14
 _BASE_TAB_PADDING = 4
 
-# The pose file's first version with bounding boxes.
-_MIN_BBOX_POSE_VERSION = 8
-
 # Latched so a full-length export logs the missing-application warning once.
 _warned_without_application = False
 
 
-def pose_has_bounding_boxes(pose: PoseEstimation) -> bool:
+def pose_has_bounding_boxes(pose: PoseLike) -> bool:
     """Return whether a pose file carries bounding boxes to draw.
 
     Args:
-        pose: Pose estimation to check.
+        pose: Pose to check.
 
     Returns:
-        True for a v8+ pose file that was generated with bounding boxes.
+        True when the pose has the ``BOUNDING_BOXES`` capability.
     """
-    return pose.format_major_version >= _MIN_BBOX_POSE_VERSION and bool(
-        getattr(pose, "has_bounding_boxes", False)
-    )
+    return bool(pose.has_bounding_boxes)
 
 
 def native_bounding_box_sizes(width: int, height: int) -> tuple[int, int, int]:
@@ -75,7 +70,7 @@ def native_bounding_box_sizes(width: int, height: int) -> tuple[int, int, int]:
 
 def draw_identity_bounding_box(
     painter: QtGui.QPainter,
-    pose: PoseEstimation,
+    pose: PoseLike,
     frame_index: int,
     identity: int,
     *,
@@ -91,7 +86,7 @@ def draw_identity_bounding_box(
 
     Args:
         painter: The painter to draw with.
-        pose: Pose estimation for the video; boxes need a v8+ pose file.
+        pose: Pose for the video; nothing is drawn without bounding boxes.
         frame_index: Frame to draw the box for.
         identity: Identity whose box is drawn.
         width: Frame width in pixels.
@@ -99,7 +94,7 @@ def draw_identity_bounding_box(
     """
     if not pose_has_bounding_boxes(pose):
         return
-    bboxes = pose.get_bounding_boxes(identity)  # type: ignore[attr-defined]
+    bboxes = pose.get_bounding_boxes(identity)
     if bboxes is None:
         return
 

@@ -194,14 +194,12 @@ class OverlayExporter(QtCore.QObject):
             draw_segmentation=overlays.segmentation,
             draw_bounding_boxes=overlays.bounding_boxes,
             segmentation_unavailable=(
-                None
-                if getattr(pose_est, "has_segmentation", False)
-                else "This pose file has no segmentation data"
+                None if pose_est.has_segmentation else "This pose file has no segmentation data"
             ),
             bounding_boxes_unavailable=(
                 None
                 if pose_has_bounding_boxes(pose_est)
-                else "This pose file has no bounding boxes (optional, pose version 8 or newer)"
+                else "This pose file has no bounding boxes"
             ),
             offer_bounding_boxes=True,
             draw_landmarks=overlays.landmarks,

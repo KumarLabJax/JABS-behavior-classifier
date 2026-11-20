@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
+
+from jabs.core.types import SegmentationWindow
+from jabs.pose_estimation import open_pose_file
+from jabs.pose_estimation.pose_est_v6 import pack_segmentation
+
+from .conftest import POSE_KINDS
 
 try:
     from PySide6 import QtGui
@@ -31,17 +39,20 @@ _SQUARE = [(10, 10), (50, 10), (50, 50), (10, 50)]
 
 
 class StubPose:
-    """Minimal pose stand-in returning canned segmentation data."""
+    """Minimal pose stand-in returning canned segmentation data, one window per request."""
 
-    def __init__(self, contours: np.ndarray | None, version: int = 6) -> None:
+    def __init__(self, contours: np.ndarray | None, has_segmentation: bool = True) -> None:
         self._contours = contours
-        self.format_major_version = version
-        self.requests: list[tuple[int, int]] = []
+        self.has_segmentation = has_segmentation
+        self.requests: list[tuple[int, int, int]] = []
 
-    def get_segmentation_data_per_frame(self, frame_index: int, identity: int):
-        """Record the request and return the canned data."""
-        self.requests.append((frame_index, identity))
-        return self._contours
+    def segmentation_window(self, identity: int, start: int, stop: int) -> SegmentationWindow:
+        """Record the request and return the canned contours packed into a window."""
+        self.requests.append((identity, start, stop))
+        if not self.has_segmentation:
+            raise NotImplementedError("no segmentation")
+        contours = self._contours if self._contours is not None else _padded()
+        return pack_segmentation(contours[np.newaxis], None, start)
 
 
 def _padded(*contours: list[tuple[int, int]], slots: int = 2, points: int = 6) -> np.ndarray:
@@ -78,18 +89,83 @@ def test_multiple_contours_are_returned_separately() -> None:
 @pytest.mark.parametrize(
     ("pose", "expected_requests"),
     [
-        (lambda: StubPose(None), [(0, 0)]),
-        (lambda: StubPose(_padded(_SQUARE), version=5), []),
-        (lambda: StubPose(np.full((2, 6, 2), -1, dtype=np.int32)), [(0, 0)]),
+        (lambda: StubPose(_padded(_SQUARE), has_segmentation=False), []),
+        (lambda: StubPose(np.full((2, 6, 2), -1, dtype=np.int32)), [(0, 0, 1)]),
     ],
-    ids=["no-segmentation-data", "pose-predates-v6", "all-padding"],
+    ids=["no-segmentation", "all-padding"],
 )
-def test_no_contours_cases(pose, expected_requests: list[tuple[int, int]]) -> None:
-    """A file without contours yields nothing, and a pre-v6 file is not even asked."""
+def test_no_contours_cases(pose, expected_requests: list[tuple[int, int, int]]) -> None:
+    """A frame without contours yields nothing, and a file without any is not even asked."""
     stub = pose()
 
     assert identity_contours(stub, 0, 0) == []
     assert stub.requests == expected_requests
+
+
+def test_contours_come_from_a_one_frame_window() -> None:
+    """The contours of a frame are read as the window ``[frame, frame + 1)``."""
+    stub = StubPose(_padded(_SQUARE))
+
+    identity_contours(stub, 7, 2)
+
+    assert stub.requests == [(2, 7, 8)]
+
+
+def test_a_hole_slot_before_a_contour_is_skipped() -> None:
+    """Packing puts valid contours first, so a gap in the legacy slots is not a contour."""
+    data = _padded([(0, 0)], _SQUARE)
+    data[0] = -1
+
+    contours = identity_contours(StubPose(data), 0, 0)
+
+    assert len(contours) == 1
+    np.testing.assert_array_equal(contours[0], np.array(_SQUARE))
+
+
+@pytest.mark.parametrize("kind", POSE_KINDS)
+def test_real_pose_contours_match_the_window(
+    segmentation_poses: dict[str, Path], kind: str
+) -> None:
+    """A legacy v6 file and its unified conversion give the window's contours."""
+    with open_pose_file(segmentation_poses[kind]) as pose:
+        identity = 0
+        window = pose.segmentation_window(identity, 0, 1)
+        count = int(window.contour_count[0])
+        assert count > 0, "fixture frame should have a contour"
+        expected = [
+            window.contours[0, c, : int(window.contour_length[0, c])] for c in range(count)
+        ]
+
+        contours = identity_contours(pose, 0, identity)
+
+    assert len(contours) == count
+    for got, want in zip(contours, expected, strict=True):
+        np.testing.assert_array_equal(got, want)
+
+
+@pytest.mark.parametrize("kind", POSE_KINDS)
+def test_real_pose_contour_is_drawn(segmentation_poses: dict[str, Path], kind: str) -> None:
+    """Drawing a real file's identity paints the first point of its contour."""
+    with open_pose_file(segmentation_poses[kind]) as pose:
+        contour = identity_contours(pose, 0, 0)[0]
+        image = QtGui.QImage(800, 800, QtGui.QImage.Format.Format_RGB888)
+        image.fill(QtGui.QColor(0, 0, 0))
+        painter = QtGui.QPainter(image)
+        try:
+            draw_identity_segmentation(
+                painter,
+                pose,
+                0,
+                0,
+                to_output=lambda x, y: (round(x), round(y)),
+                line_width=1,
+                active=True,
+            )
+        finally:
+            painter.end()
+
+    x, y = (int(v) for v in contour[0])
+    assert _painted(image, x, y)
 
 
 def test_line_width_grows_with_the_frame() -> None:

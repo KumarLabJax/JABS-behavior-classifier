@@ -67,7 +67,6 @@ def _fake_pose(
     pose = mock.Mock()
     pose.has_segmentation = segmentation
     pose.has_bounding_boxes = boxes
-    pose.format_major_version = 8 if boxes else 6
     pose.static_objects = {"corners": np.zeros((4, 2))} if landmarks else {}
     return pose
 
@@ -262,7 +261,7 @@ def test_export_video_explains_missing_segmentation_boxes_and_landmarks(
 
     kwargs = video_dialogs.options_cls.call_args.kwargs
     assert kwargs["segmentation_unavailable"]
-    assert "version 8" in kwargs["bounding_boxes_unavailable"]
+    assert kwargs["bounding_boxes_unavailable"] == "This pose file has no bounding boxes"
     assert "landmarks" in kwargs["landmarks_unavailable"]
 
 

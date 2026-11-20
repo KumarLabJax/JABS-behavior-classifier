@@ -524,6 +524,10 @@ class Project:
         is marked unusable. Unified pose files need no conversion, so a project
         of unified files does nothing here.
 
+        When a video is refused, its identities stop counting toward the project
+        and the FeatureManager is rebuilt over the videos still usable, so the
+        refused video no longer restricts the project's features.
+
         Args:
             progress: Called with ``(completed, total)`` after each legacy video.
         """
@@ -547,10 +551,26 @@ class Project:
             outcomes = (future.result() for future in as_completed(futures))
         else:
             outcomes = (convert_pose(job) for job in jobs)
+        refused: list[str] = []
         for completed, (video, reason) in enumerate(outcomes, start=1):
             if reason is not None:
                 self._mark_unusable(video, reason)
+                refused.append(video)
             progress(completed, len(jobs))
+        if refused:
+            self._drop_refused_videos(refused)
+
+    def _drop_refused_videos(self, videos: list[str]) -> None:
+        """Recompute identity counts and features after videos became unusable mid-session.
+
+        Args:
+            videos: Videos just marked unusable.
+        """
+        for video in videos:
+            self._scan_results[video]["error"] = self._unusable_videos[video]
+            self._scan_results[video]["identity_count"] = 0
+            self._video_manager.mark_unusable(video)
+        self.refresh_feature_manager()
 
     @property
     def feature_manager(self) -> FeatureManager:

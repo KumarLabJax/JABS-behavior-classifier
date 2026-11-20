@@ -85,7 +85,7 @@ def draw_landmarks(
     """Draw whichever landmarks the pose file carries, with ``painter``.
 
     A pose file that records none of them draws nothing: the static objects are
-    optional, and older pose versions have no concept of them.
+    optional.
 
     Args:
         painter: The painter to draw with.

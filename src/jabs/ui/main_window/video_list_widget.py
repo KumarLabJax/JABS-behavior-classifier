@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -13,6 +15,53 @@ logger = logging.getLogger(__name__)
 # Kept separate from the displayed text so it survives text changes (e.g. search
 # hit-count annotations) and drives the row's dimmed/italic styling.
 _EXCLUDED_ROLE = QtCore.Qt.ItemDataRole.UserRole + 1
+
+# Item data role storing why a video's pose file is unusable (str), or None when it is
+# usable. An unusable row is disabled, with the reason as its tooltip.
+_UNUSABLE_ROLE = QtCore.Qt.ItemDataRole.UserRole + 2
+
+
+@dataclass(frozen=True)
+class VideoRow:
+    """How one video is listed.
+
+    Attributes:
+        name: Video filename.
+        excluded: Whether the video is excluded from training.
+        unusable_reason: Why the video's pose file is unusable, or None when usable.
+    """
+
+    name: str
+    excluded: bool
+    unusable_reason: str | None
+
+    @property
+    def usable(self) -> bool:
+        """Whether the video can be selected and loaded."""
+        return self.unusable_reason is None
+
+    @property
+    def tooltip(self) -> str | None:
+        """Tooltip for an unusable row, None for a usable one."""
+        if self.unusable_reason is None:
+            return None
+        return f"Pose file unusable: {self.unusable_reason}"
+
+
+def video_rows(
+    videos: list[str], unusable: Mapping[str, str], is_excluded: Callable[[str], bool]
+) -> list[VideoRow]:
+    """Describe the rows of the video list.
+
+    Args:
+        videos: Video filenames, in project order.
+        unusable: Videos whose pose file is unusable, mapped to the reason.
+        is_excluded: Returns whether a video is excluded from training.
+
+    Returns:
+        One row per video, in the same order.
+    """
+    return [VideoRow(video, bool(is_excluded(video)), unusable.get(video)) for video in videos]
 
 
 class _VideoListWidget(QtWidgets.QListWidget):
@@ -182,6 +231,9 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         """
         if self._suppress_selection_event or not current:
             return
+        if current.data(_UNUSABLE_ROLE) is not None:
+            # an unusable video has no pose to load
+            return
 
         # Store the pending selection.
         self._pending_selection = current.data(QtCore.Qt.ItemDataRole.UserRole)
@@ -325,21 +377,42 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         self._classify_available = available
 
     def set_project(self, project):
-        """Update the video list with the active project's videos and select first video in list."""
+        """Fill the list with the project's videos and select the first usable one."""
         self._suppress_selection_event = True
         self._project = project
         self._file_list.clear()
         self._suppress_selection_event = False
         self._video_filter_box.clear()
 
-        for video in self._project.video_manager.videos:
-            item = QtWidgets.QListWidgetItem(video)
-            item.setData(QtCore.Qt.ItemDataRole.UserRole, video)
-            item.setData(_EXCLUDED_ROLE, self._project.settings_manager.is_video_excluded(video))
+        rows = video_rows(
+            self._project.video_manager.videos,
+            self._project.unusable_videos,
+            self._project.settings_manager.is_video_excluded,
+        )
+        for row in rows:
+            item = QtWidgets.QListWidgetItem(row.name)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, row.name)
+            item.setData(_EXCLUDED_ROLE, row.excluded)
+            item.setData(_UNUSABLE_ROLE, row.unusable_reason)
+            if not row.usable:
+                item.setFlags(
+                    item.flags()
+                    & ~QtCore.Qt.ItemFlag.ItemIsEnabled
+                    & ~QtCore.Qt.ItemFlag.ItemIsSelectable
+                )
+                item.setToolTip(row.tooltip)
             self._file_list.addItem(item)
 
-        if self._project.video_manager.videos:
-            self._file_list.setCurrentRow(0)
+        # select the first usable video; with none, nothing is loaded
+        for i in range(self._file_list.count()):
+            if self._is_selectable(self._file_list.item(i)):
+                self._file_list.setCurrentRow(i)
+                break
+
+    @staticmethod
+    def _is_selectable(item: QtWidgets.QListWidgetItem) -> bool:
+        """Return whether a row can become the current video: visible and usable."""
+        return not item.isHidden() and item.data(_UNUSABLE_ROLE) is None
 
     def select_video(self, key, suppress_event: bool = False):
         """
@@ -385,8 +458,8 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
     def select_previous_video(self) -> None:
         """Select the previous visible video in the list, if possible.
 
-        Skips over hidden items to find the last visible item before
-        the current selection.
+        Skips over hidden and unusable items to find the last selectable item
+        before the current selection.
         """
         count = self._file_list.count()
         if count == 0:
@@ -395,15 +468,15 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         # Search backwards for the previous visible item
         for i in range(current_row - 1, -1, -1):
             item = self._file_list.item(i)
-            if not item.isHidden():
+            if self._is_selectable(item):
                 self._file_list.setCurrentRow(i)
                 break
 
     def select_next_video(self) -> None:
         """Select the next visible video in the list, if possible.
 
-        Skips over hidden items to find the next visible item after
-        the current selection.
+        Skips over hidden and unusable items to find the next selectable item
+        after the current selection.
         """
         count = self._file_list.count()
         if count == 0:
@@ -412,6 +485,6 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         # Search forwards for the next visible item
         for i in range(current_row + 1, count):
             item = self._file_list.item(i)
-            if not item.isHidden():
+            if self._is_selectable(item):
                 self._file_list.setCurrentRow(i)
                 break
