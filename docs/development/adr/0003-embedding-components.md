@@ -333,9 +333,13 @@ naming the first offending row. A block that cannot be read (a corrupt chunk) is
 malformed file. A component the structural checks found unindexable (missing payload, wrong rank,
 non-float dtype) is skipped by the deep checks rather than reported twice.
 
-`jabs-io`'s `Component` enforces all six structural rules except `embedding_pair_consistent` at
-construction; the deep checks do not run there. The writer runs `validate()` on the finished file before publishing it, which adds
-the pairing rule, and the two deep checks when it is called with `deep=True`.
+`jabs-io` enforces every structural rule above at construction, before anything is written:
+`EmbeddingDescriptor` the descriptor's types (`embedding_descriptor_types`), `Component` the
+per-component rules (`embedding_id_shape`, `embedding_axes`, `embedding_descriptor_matches`,
+`embedding_storage`; `embedding_fingerprint` holds by construction, since the writer computes the
+fingerprint), and `PoseFile` the pairing rule (`embedding_pair_consistent`). The deep checks do
+not run there. The writer runs `validate()` on the finished file before publishing it, which
+re-checks all of these, and adds the two deep checks when it is called with `deep=True`.
 
 **Conformance fixtures** follow ADR 0002's one-file-per-error-check pattern: `valid-embedding.h5`
 (two named embeddings: `trunk` with float16 instance and frame kinds, `blk31` with a float32

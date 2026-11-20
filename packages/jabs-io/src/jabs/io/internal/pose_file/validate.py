@@ -25,9 +25,9 @@ import numpy.typing as npt
 from jabs.io.internal.pose_file.embeddings import (
     EMBEDDING_AXES,
     EMBEDDING_DTYPES,
-    PAIRED_FIELDS,
     compute_fingerprint,
     is_embedding_id,
+    paired_field_differences,
     parse_embedding_id,
 )
 from jabs.io.internal.pose_file.reader import attr_text
@@ -687,11 +687,7 @@ def _check_embeddings(manifest: dict, findings: list[Finding]) -> None:
     for name, kinds in sorted(by_name.items()):
         if len(kinds) < 2:
             continue
-        differing = [
-            field
-            for field in PAIRED_FIELDS
-            if kinds["instance"].get(field) != kinds["frame"].get(field)
-        ]
+        differing = paired_field_differences(kinds["instance"], kinds["frame"])
         if differing:
             findings.append(
                 Finding(

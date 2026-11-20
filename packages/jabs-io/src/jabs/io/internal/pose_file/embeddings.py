@@ -106,6 +106,23 @@ def compute_fingerprint(descriptor_json: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(fingerprinted)).hexdigest()
 
 
+def paired_field_differences(instance: dict[str, Any], frame: dict[str, Any]) -> list[str]:
+    """Name the fields an embedding's ``.instance`` and ``.frame`` descriptors disagree on.
+
+    Both kinds of one embedding must describe the same vectors, so they must
+    agree on every field in ``PAIRED_FIELDS``. A missing field compares as
+    ``None`` rather than raising, so this is safe on any manifest data.
+
+    Args:
+        instance: The ``.instance`` descriptor in its manifest form.
+        frame: The ``.frame`` descriptor in its manifest form.
+
+    Returns:
+        The differing fields, in ``PAIRED_FIELDS`` order; empty when they agree.
+    """
+    return [field for field in PAIRED_FIELDS if instance.get(field) != frame.get(field)]
+
+
 def _require_non_empty(value: str, label: str) -> None:
     """Raise ValueError when a descriptor string is empty."""
     if not value:
