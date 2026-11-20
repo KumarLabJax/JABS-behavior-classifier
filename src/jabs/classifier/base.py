@@ -13,6 +13,7 @@ subclasses satisfy structurally.
 
 from __future__ import annotations
 
+import logging
 import typing
 import warnings
 from pathlib import Path
@@ -28,6 +29,8 @@ from jabs.core.enums import ClassifierType
 from jabs.core.utils import hash_file
 
 from . import classifier_utils, factories
+
+logger = logging.getLogger(__name__)
 
 
 class UnsupportedClassifierError(ValueError):
@@ -239,6 +242,32 @@ class BaseClassifier:
         if classifier not in self._supported_classifier_choices():
             raise ValueError("Invalid Classifier Type")
         self._classifier_type = classifier
+
+    def _apply_training_file_classifier_type(
+        self, recorded_type: ClassifierType, override: ClassifierType | None
+    ) -> None:
+        """Switch to the algorithm a training file asks for, if this environment has it.
+
+        A training file records the algorithm it was exported with, and the caller
+        may override that. Either one can name an algorithm whose optional package
+        is not installed here, which is not a reason to fail the load: the
+        classifier keeps the type it was constructed with and the caller is warned,
+        so training still runs with the default algorithm.
+
+        Args:
+            recorded_type: Algorithm recorded in the training file.
+            override: Algorithm requested by the caller, taking precedence over
+                ``recorded_type``. ``None`` to use what the file recorded.
+        """
+        requested = override if override is not None else recorded_type
+        if requested in self._supported_classifiers:
+            self.set_classifier(requested)
+        else:
+            logger.warning(
+                "Specified classifier type %s is unavailable, using default: %s",
+                requested.name,
+                self.classifier_type.name,
+            )
 
     def set_dict_settings(self, settings: dict) -> None:
         """Assign classifier settings from a dictionary.
