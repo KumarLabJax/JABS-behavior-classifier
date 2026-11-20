@@ -5,8 +5,7 @@ keypoint detection quality is poor, as indicated by missing (masked-out)
 keypoints in the pose file. Intended for building targeted training datasets
 for improved pose estimation models.
 
-Pose file versions v3 and above are supported. Version v2 is not supported
-because its point-mask array has a different shape (2D instead of 3D).
+Every pose file JABS opens is supported: unified files and legacy v2-v8 files.
 
 Usage::
 
@@ -100,9 +99,6 @@ def _collect_candidates(
 
     Returns:
         List of FrameCandidate objects, unsorted.
-
-    Raises:
-        click.ClickException: If a pose file is v2 (unsupported point-mask shape).
     """
     candidates: list[FrameCandidate] = []
 
@@ -130,11 +126,6 @@ def _collect_candidates(
         # Open and validate pose file.
         pose_path = project.video_manager.get_cached_pose_path(video_name)
         pose = open_pose_file(pose_path, cache_dir=project.project_paths.cache_dir)
-        if pose.format_major_version <= 2:
-            raise click.ClickException(
-                f"Pose file for '{video_name}' is v{pose.format_major_version}. "
-                "Only v3 and above are supported (v2 has an incompatible point-mask shape)."
-            )
 
         if pose.num_identities < min_identities:
             logger.debug(
@@ -442,7 +433,7 @@ def main(
     missing keypoints per frame, and selects up to NUM_FRAMES candidates
     ranked by descending labeled-identity missing-keypoint fraction.
 
-    Pose file versions v3 and above are supported.
+    Every pose file JABS opens is supported.
     """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,

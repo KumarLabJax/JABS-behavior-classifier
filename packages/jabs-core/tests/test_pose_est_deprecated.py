@@ -46,13 +46,20 @@ def test_package_access_warns_once() -> None:
 
 
 @pytest.mark.parametrize("module", ["jabs.core.abstract", "jabs.core.abstract.pose_est"])
-def test_from_import_warns_once_at_the_import(module: str) -> None:
-    """A ``from ... import PoseEstimation`` statement warns once, attributed to itself."""
+def test_from_import_warnings_point_at_the_import(module: str) -> None:
+    """Every warning a ``from ... import PoseEstimation`` statement emits names that statement.
+
+    Importing from the package can warn twice (the import system probes the name
+    before reading it); under the default filters both collapse to one.
+    """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         exec(f"from {module} import PoseEstimation", {})
-    assert [w.category for w in caught] == [DeprecationWarning]
-    assert caught[0].filename == "<string>"
+    assert caught
+    for warning in caught:
+        assert warning.category is DeprecationWarning
+        assert warning.filename == "<string>"
+        assert warning.lineno == 1
 
 
 def test_importing_the_package_does_not_warn() -> None:

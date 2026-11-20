@@ -4,7 +4,6 @@
 is provided lazily, so that importing this package does not warn.
 """
 
-import sys
 from typing import Any
 
 __all__: list[str] = []
@@ -23,12 +22,7 @@ def __getattr__(name: str) -> Any:
         AttributeError: For any other name, so submodule imports still work.
     """
     if name == "PoseEstimation":
-        from .pose_est import _deprecated_pose_estimation, _PoseEstimation
+        from .pose_est import _deprecated_pose_estimation
 
-        # ``from jabs.core.abstract import PoseEstimation`` first probes the name
-        # with hasattr() inside the import system, then reads it; warn on the read
-        # only, so the statement warns once.
-        if sys._getframe(1).f_code.co_filename.startswith("<frozen importlib"):
-            return _PoseEstimation
         return _deprecated_pose_estimation(stacklevel=2)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
