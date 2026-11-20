@@ -147,7 +147,11 @@ def _alternate_layout(alternate: Alternate) -> dict:
 def _create_options(layout: dict, *, shuffle: bool = False) -> dict:
     """The ``create_dataset`` storage options that produce a layout.
 
-    Derived from the layout the manifest records, so the two cannot disagree.
+    Derived from the layout the manifest records, so the storage, chunk shape
+    and compression it records are the ones the dataset gets. The layout does
+    not record shuffle: that is a filter the writer adds to compressed ragged
+    payloads, and the layout schema has no field for it, so options rebuilt
+    from a manifest alone produce unshuffled chunks.
 
     Args:
         layout: The layout from :func:`_layout_for` or :func:`_alternate_layout`.
