@@ -25,7 +25,7 @@ usage: jabs-classify classify [-h] [--random-forest | --xgboost]
 
 optional arguments:
   -h, --help            show this help message and exit
-  --fps FPS             frames per second, default=30
+  --fps FPS             deprecated and ignored, the frame rate is read from the pose file
   --feature-dir FEATURE_DIR
                         Feature cache dir. If present, look here for features before computing.
                         If features need to be computed, they will be saved here.
@@ -78,7 +78,7 @@ optionally override the classifier specified in the training file:
 
 > Note: CatBoost (`--catboost`) and LightGBM (`--lightgbm`) are only offered when JABS is installed with the `extra-classifiers` extra. See [Choosing a Classifier Type](classifier-types.md).
 
-> Note: fps parameter is used to specify the frames per second (used for scaling time unit for speed and velocity features from "per frame" to "per second").
+> Note: `--fps` is deprecated and ignored (a warning is logged). Speed and velocity features are scaled from "per frame" to "per second" with the frame rate recorded in the pose file, or 30 when the file records none.
 
 ## jabs-features
 
@@ -89,11 +89,11 @@ The legacy options map onto the new command as follows:
 | `jabs-features` | `jabs-cli compute-features` |
 | --- | --- |
 | `--pose-file` | `--pose-file` (unchanged) |
-| `--pose-version` | Ignored. The pose version is inferred from the pose filename (e.g. `*_pose_est_v6.h5`). |
+| `--pose-version` | Ignored. The features computed follow what the pose file contains. |
 | `--feature-dir` | `--feature-dir` (unchanged) |
 | `--use-cm-distances` | Not needed. Distances default to cm when the pose file provides a pixel-to-cm scale. Omitting `--use-cm-distances` maps to `--use-pixel-distances`, preserving the legacy pixel default. |
 | `--window-size N` | `-w N` (repeatable for multiple window sizes) |
-| `--fps` | `--fps` (unchanged) |
+| `--fps` | Ignored, with a deprecation warning. The frame rate is read from the pose file. |
 | `--use-pose-hash` | `--use-pose-hash` (unchanged) |
 
 ## jabs-cli
@@ -162,7 +162,7 @@ jabs-cli export-video [OPTIONS] <video_path>
 
 - `<video_path>`: Path to the video to render. Required.
 - `--output`, `-o`: Output video path. Defaults to `<video>_overlay.mp4` beside the source video.
-- `--pose-file`: Pose file to use. Defaults to the highest-version `_pose_est_v*.h5` file found beside the video.
+- `--pose-file`: Pose file to use. Defaults to the `<video>_pose.h5` file beside the video, else the highest-version `<video>_pose_est_v*.h5`.
 - `--segmentation` / `--no-segmentation`: Whether to include segmentation contours alongside the pose skeleton. Defaults to `--segmentation`. Segmentation needs a pose file that actually contains it: version 6 or newer *and* generated with segmentation, which is optional even in v6+. When the pose file has none, the command reports that and exports the pose overlay only. Use `--no-segmentation` to get a pose-only video from a file that does have it.
 - `--landmarks` / `--no-landmarks`: Whether to include the arena landmarks (corners, lixit and food hopper) that pose v5+ files can record. Defaults to `--no-landmarks`. Ignored when the pose file records none.
 - `--codec`: FourCC codec for the output. By default the export uses `avc1` (H.264), which produces much smaller files, and falls back to `mp4v` when this OpenCV build lacks H.264. Naming a codec uses only that codec, and the export fails if the writer cannot be opened with it.
@@ -229,15 +229,15 @@ The `jabs-cli compute-features` command computes and caches JABS features for a 
 
 ```bash
 jabs-cli compute-features --pose-file <POSE_FILE> --feature-dir <FEATURE_DIR> [--use-pixel-distances]
-                          [-w WINDOW_SIZE] [--fps FPS] [--use-pose-hash]
+                          [-w WINDOW_SIZE] [--use-pose-hash]
                           [--cache-format {hdf5,parquet}] [--force]
 ```
 
-- `--pose-file <POSE_FILE>`: Pose file to compute features for. The pose version is inferred from the filename (e.g. `*_pose_est_v6.h5`).
+- `--pose-file <POSE_FILE>`: Pose file to compute features for, a unified `*_pose.h5` or a legacy `*_pose_est_v<N>.h5` file. The features computed follow what the file contains (more than one identity for social features, segmentation for segmentation features, static objects for landmark features).
 - `--feature-dir <FEATURE_DIR>`: Directory to write output features.
 - `--use-pixel-distances`: Force pixel distance units. By default, cm units are used when the pose file provides a pixel-to-cm scale, and pixel units otherwise.
 - `-w`, `--window-size <N>`: Window size for window features. Repeat to compute multiple window sizes (e.g. `-w 5 -w 10`). Omit to compute per-frame features only.
-- `--fps <FPS>`: Frames per second used to scale time-based features from "per frame" to "per second". Default: `30`.
+- `--fps <FPS>`: Deprecated and ignored (a warning is logged). Time-based features are scaled from "per frame" to "per second" with the frame rate recorded in the pose file, or 30 when it records none.
 - `--use-pose-hash`: Include the pose file hash as a subdirectory level in the feature cache path (e.g. `<feature-dir>/<video>/<pose-hash>/<identity>`). Use this when building a shared feature cache for multiple pipelines where video filenames may collide.
 - `--cache-format {hdf5,parquet}`: Storage format for the feature cache. Default: `parquet`.
 - `--force`: Recompute features and overwrite the cache even when a valid cache exists.
@@ -248,9 +248,9 @@ jabs-cli compute-features --pose-file <POSE_FILE> --feature-dir <FEATURE_DIR> [-
 # Per-frame features only
 jabs-cli compute-features --pose-file session_pose_est_v6.h5 --feature-dir /path/to/features
 
-# Per-frame plus two window sizes, at 60 fps
+# Per-frame plus two window sizes
 jabs-cli compute-features --pose-file session_pose_est_v6.h5 --feature-dir /path/to/features \
-    -w 5 -w 10 --fps 60
+    -w 5 -w 10
 
 # Shared cache across pipelines, forcing recomputation
 jabs-cli compute-features --pose-file session_pose_est_v6.h5 --feature-dir /shared/features \
@@ -906,7 +906,7 @@ jabs-cli evaluate DIRECTORY --classifier CLASSIFIER \
 - `--iou-threshold FLOAT`: Intersection-over-union two bouts must reach to match under the IoU criterion. Defaults to `0.5`. Must be greater than 0 and at most 1.
 - `--max-sweep-combinations N`: Ceiling on the number of parameter combinations a swept config may expand to (default 256). See [Sweeping postprocessing parameters](#sweeping-postprocessing-parameters).
 - `--feature-dir DIR`: Feature cache directory. Defaults to the project's own feature cache.
-- `--fps FPS`: Frames per second to assume for every video, skipping the per-video lookup. Defaults to reading it from each video file.
+- `--fps FPS`: Deprecated and ignored (a warning is logged). Each pose file's frame rate is used.
 - `--save-predictions DIR`: Write one prediction HDF5 file per video into this directory, in the same format [`jabs-classify classify`](#classify-command) produces (see [Saving predictions](#saving-predictions)).
 - `--out-dir DIR`: Write all three output files into this directory using generated, timestamped filenames.
 - `--json-out FILE`, `--csv-out FILE`, `--report-out FILE`: Write individual outputs to explicit paths.

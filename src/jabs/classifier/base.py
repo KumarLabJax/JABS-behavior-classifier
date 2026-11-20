@@ -53,6 +53,89 @@ class UnsupportedClassifierError(ValueError):
         super().__init__(f"{message}: {detail}" if detail else message)
 
 
+class ClassifierFeatureVersionError(ValueError):
+    """Raised when a classifier or its training data belongs to another feature version.
+
+    Classifiers record the ``FEATURE_VERSION`` of the features they were trained
+    on. Predicting with features computed by a different version is meaningless,
+    so a classifier with another (or no recorded) version must be retrained, and
+    exported training data from another version must be re-exported.
+
+    Attributes:
+        found: The feature version recorded, or None when none was recorded.
+        expected: The feature version of this JABS installation.
+    """
+
+    def __init__(self, message: str, found: int | None, expected: int) -> None:
+        self.found = found
+        self.expected = expected
+        super().__init__(message)
+
+
+def _current_feature_version() -> int:
+    """Return this installation's ``FEATURE_VERSION``.
+
+    Imported lazily: ``jabs.feature_extraction`` is heavy and pulls in modules
+    that import ``jabs.classifier``.
+    """
+    from jabs.feature_extraction import FEATURE_VERSION
+
+    return FEATURE_VERSION
+
+
+def _describe_version(version: int | None) -> str:
+    """Return a phrase naming a recorded feature version for error messages."""
+    return "no recorded feature version" if version is None else f"feature version {version}"
+
+
+def check_classifier_feature_version(classifier: typing.Any, path: Path) -> None:
+    """Refuse a loaded classifier trained on features from another feature version.
+
+    Args:
+        classifier: The unpickled classifier.
+        path: The file it was loaded from, named in the error.
+
+    Raises:
+        ClassifierFeatureVersionError: If the classifier records no feature
+            version or one other than this installation's ``FEATURE_VERSION``.
+    """
+    expected = _current_feature_version()
+    found = getattr(classifier, "_feature_version", None)
+    if found != expected:
+        raise ClassifierFeatureVersionError(
+            f"The classifier in {Path(path).name} was trained with {_describe_version(found)}, "
+            f"but this JABS computes feature version {expected}. "
+            f"Its features no longer match; retrain the classifier.",
+            found,
+            expected,
+        )
+
+
+def check_training_data_feature_version(file_version: int | None) -> int:
+    """Refuse exported training data written with another feature version.
+
+    Args:
+        file_version: The export's ``file_version`` attribute (None when absent).
+
+    Returns:
+        The data's feature version, which equals this installation's.
+
+    Raises:
+        ClassifierFeatureVersionError: If ``file_version`` differs from
+            ``FEATURE_VERSION`` or is missing.
+    """
+    expected = _current_feature_version()
+    if file_version != expected:
+        raise ClassifierFeatureVersionError(
+            f"The training data was exported with {_describe_version(file_version)}, but this "
+            f"JABS computes feature version {expected}. Open the project with this JABS, "
+            f"re-export the training data, and retrain the classifier from the new export.",
+            file_version,
+            expected,
+        )
+    return file_version
+
+
 # packages providing classifier algorithms that may be missing from an environment: the
 # extra-classifiers packages, plus xgboost, which can be unimportable on some platforms
 _OPTIONAL_CLASSIFIER_PACKAGES = frozenset(
@@ -166,6 +249,8 @@ class BaseClassifier:
         self._classifier: typing.Any = None
         self._project_settings: dict | None = None
         self._feature_names: list[str] | None = None
+        # FEATURE_VERSION of the features this classifier was trained on; set by train()
+        self._feature_version: int | None = None
         self._n_jobs = n_jobs
         self._version = self._VERSION
 
@@ -376,6 +461,28 @@ class BaseClassifier:
         # rank on the raw values; rounding first would tie small importances
         return [(feature, round(importance, 2)) for feature, importance in ranked[:limit]]
 
+    @staticmethod
+    def _training_feature_version(data: dict) -> int:
+        """Return the feature version of training data, refusing exports from another one.
+
+        Data collected from a project carries no ``file_version`` key and has the
+        current ``FEATURE_VERSION``. Data loaded from an export carries the
+        export's ``file_version``, which must equal the current one.
+
+        Args:
+            data: The training data dict passed to ``train``.
+
+        Returns:
+            The feature version to record on the trained classifier.
+
+        Raises:
+            ClassifierFeatureVersionError: If the data was exported with another
+                feature version or records none.
+        """
+        if "file_version" in data:
+            return check_training_data_feature_version(data["file_version"])
+        return _current_feature_version()
+
     def reset_persistence_identity(self) -> None:
         """Clear the recorded file identity (path, hash, source).
 
@@ -436,6 +543,8 @@ class BaseClassifier:
         Raises:
             UnsupportedClassifierError: If the classifier uses an algorithm
                 that is not available in this environment.
+            ClassifierFeatureVersionError: If the classifier was trained on
+                another feature version (or records none) and must be retrained.
             ValueError: If the file is not an instance of ``cls`` or was trained
                 with an incompatible sklearn or JABS version.
         """
@@ -453,6 +562,8 @@ class BaseClassifier:
         if c._classifier_type not in cls._supported_classifier_choices():
             raise UnsupportedClassifierError(c._classifier_type.value)
 
+        check_classifier_feature_version(c, path)
+
         if c._classifier_file is None:
             c._record_persistence_identity(path, "pickle")
 
@@ -467,6 +578,8 @@ class BaseClassifier:
         Raises:
             UnsupportedClassifierError: If the classifier uses an algorithm
                 that is not available in this environment.
+            ClassifierFeatureVersionError: If the classifier was trained on
+                another feature version (or records none) and must be retrained.
             ValueError: If the file is not an instance of this class or was saved
                 with a different version.
         """
@@ -483,6 +596,8 @@ class BaseClassifier:
 
         if c._classifier_type not in self._supported_classifiers:
             raise UnsupportedClassifierError(c._classifier_type.value)
+
+        check_classifier_feature_version(c, path)
 
         for attr in self._PERSISTED_REQUIRED:
             setattr(self, attr, getattr(c, attr))

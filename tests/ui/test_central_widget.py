@@ -812,3 +812,46 @@ def test_search_hit_whose_pose_fails_to_open_is_reported(monkeypatch):
 
     assert dialog.error.call_args.kwargs["details"] == "disk full"
     stub._player_widget.seek_to_frame.assert_not_called()
+
+
+def _stale_classifier_stub() -> SimpleNamespace:
+    """Stand-in for _load_cached_classifier whose saved classifier must be retrained."""
+    error = central_widget_module.ClassifierFeatureVersionError(
+        "trained with feature version 19; retrain the classifier", 19, 20
+    )
+    stub = SimpleNamespace(
+        _project=SimpleNamespace(
+            load_classifier=MagicMock(side_effect=error),
+            settings_manager=SimpleNamespace(classifier_mode=ClassifierMode.BINARY),
+        ),
+        _classifier=SimpleNamespace(classifier_name="Random Forest"),
+        behavior="Walk",
+        _unsupported_classifier_warned=set(),
+        _ensure_classifier_for_mode=MagicMock(),
+        _reset_classifier=MagicMock(),
+        _update_classifier_controls=MagicMock(),
+        _set_classify_enabled=MagicMock(),
+    )
+    stub._claim_saved_classifier_warning = lambda: CentralWidget._claim_saved_classifier_warning(
+        stub
+    )
+    stub._warn_stale_classifier = lambda e: CentralWidget._warn_stale_classifier(stub, e)
+    return stub
+
+
+def test_stale_classifier_is_reset_and_the_user_told_to_retrain(monkeypatch):
+    """A classifier from another feature version is dropped and a retrain dialog shown once."""
+    dialog = MagicMock()
+    monkeypatch.setattr(central_widget_module, "MessageDialog", dialog)
+    monkeypatch.setattr(
+        central_widget_module.QtCore.QTimer, "singleShot", lambda _ms, _ctx, fn: fn()
+    )
+    stub = _stale_classifier_stub()
+
+    CentralWidget._load_cached_classifier(stub)
+    CentralWidget._load_cached_classifier(stub)
+
+    stub._reset_classifier.assert_called()
+    stub._set_classify_enabled.assert_called_with(False)
+    dialog.warning.assert_called_once()
+    assert "retrain" in dialog.warning.call_args.args[2]

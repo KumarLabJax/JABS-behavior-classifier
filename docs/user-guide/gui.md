@@ -151,11 +151,11 @@ Clicking the video or moving the mouse off the video frame will dismiss the slid
   - **Features→CM Units:** toggle using CM or pixel units (Warning! Changing this will require features to be re-calculated)
   - **Features→Enable Window Features:** toggle using statistical window features
   - **Features→Enable Signal Features:** toggle using fft-based window features
-  - **Features→Enable Social Features:** toggle using social features (v3+ projects)
+  - **Features→Enable Social Features:** toggle using social features (projects whose pose files all have more than one identity)
   - **Features→Enable Corners Features:** toggle using arena corner features (v5+ projects with arena corner static object)
   - **Features→Enable Lixit Features:** toggle using lixit features (v5+ projects with lixit static object)
   - **Features→Enable Food_hopper Features:** toggle using food hopper features (v5+ projects with food hopper static object)
-  - **Features→Enable Segmentation Features:** toggle using segmentation features (v6+ projects)
+  - **Features→Enable Segmentation Features:** toggle using segmentation features (projects whose pose files all have segmentation)
 - **Window:** Menu for managing JABS windows.
   - **Window→Minimize:** Minimize the main window (⌘M on macOS, Ctrl+M on other platforms)
   - **Window→Zoom:** Toggle between normal and maximized window state

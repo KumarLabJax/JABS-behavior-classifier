@@ -1,9 +1,12 @@
 """Unit tests for jabs.scripts.classify helpers."""
 
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
+from jabs.classifier import ClassifierFeatureVersionError, MultiClassClassifier
+from jabs.scripts import classify
 from jabs.scripts.classify import _require_pose_file_name
 
 
@@ -76,3 +79,19 @@ def test_classify_fps_is_deprecated_and_ignored(
 
     assert "fps" not in train_and_classify.call_args.kwargs
     assert any("--fps is deprecated" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("multiclass", [False, True], ids=["binary", "multi"])
+def test_training_on_an_old_export_exits_with_the_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, multiclass: bool
+) -> None:
+    """A training file from another feature version ends the command with a message."""
+    error = ClassifierFeatureVersionError("re-export the training data and retrain", 19, 20)
+    owner = MultiClassClassifier if multiclass else classify.Classifier
+    monkeypatch.setattr(owner, "from_training_file", mock.Mock(side_effect=error))
+    trainer = classify.train_multiclass if multiclass else classify.train
+
+    with pytest.raises(SystemExit) as raised:
+        trainer(tmp_path / "old_training.h5")
+
+    assert "retrain" in str(raised.value.code)

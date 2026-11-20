@@ -71,6 +71,7 @@ class MultiClassClassifier(BaseClassifier):
         "_behavior_names",
         "_classifier_type",
         "_feature_names",
+        "_feature_version",
     )
     _PERSISTED_OPTIONAL: ClassVar[tuple[str, ...]] = ("_project_settings",)
 
@@ -166,17 +167,22 @@ class MultiClassClassifier(BaseClassifier):
             - ``settings``: dict with ``symmetric_behavior`` (bool) and
               ``balance_labels`` (bool), both default False
             - ``feature_names``: explicit list of feature column names
+            - ``file_version``: feature version of an exported training file;
+              absent for data collected from a project
 
         Args:
             data: Training data dictionary (see above).
             random_seed: Optional random seed for reproducibility.
 
         Raises:
+            ClassifierFeatureVersionError: If ``data`` was exported with another
+                feature version.
             ValueError: If required keys are missing from ``data``.
         """
         for key in ("per_frame", "window", "labels_by_behavior"):
             if key not in data:
                 raise ValueError(f"Missing required key in training data: '{key}'")
+        feature_version = self._training_feature_version(data)
 
         settings = data.get("settings", self._project_settings or {})
         # Persist the effective training settings so downstream classification
@@ -220,6 +226,7 @@ class MultiClassClassifier(BaseClassifier):
             warnings.simplefilter("ignore", category=FutureWarning)
             self._classifier = clf.fit(cleaned, multiclass_labels)
 
+        self._feature_version = feature_version
         self.reset_persistence_identity()
         logger.info("MultiClassClassifier trained on %d behaviors", len(self._behavior_names))
 
@@ -330,6 +337,7 @@ class MultiClassClassifier(BaseClassifier):
                 "per_frame": loaded["per_frame"],
                 "window": loaded["window"],
                 "labels_by_behavior": loaded["labels_by_behavior"],
+                "file_version": loaded["file_version"],
             },
             random_seed=loaded["training_seed"],
         )

@@ -1063,14 +1063,24 @@ class Project:
             True if load is successful and False if the file does not exist.
 
         Raises:
+            ClassifierFeatureVersionError: If the saved classifier was trained on
+                another feature version; it is logged and re-raised so the caller
+                can tell the user to retrain.
             ValueError: If binary mode is active and no behavior name is provided.
         """
+        # Imported here rather than at module scope because jabs.classifier
+        # imports jabs.project, so a top-level import would be circular.
+        from jabs.classifier import ClassifierFeatureVersionError
+
         classifier_path = self._classifier_path(behavior)
         try:
             classifier.load(classifier_path)
             return True
         except OSError:
             return False
+        except ClassifierFeatureVersionError as e:
+            logger.warning("Saved classifier %s must be retrained: %s", classifier_path, e)
+            raise
 
     def save_predictions(
         self,
@@ -1991,24 +2001,35 @@ class Project:
         """
         # Imported here rather than at module scope because jabs.classifier
         # imports jabs.project, so a top-level import would be circular.
-        from jabs.classifier import MultiClassClassifier
+        from jabs.classifier import ClassifierFeatureVersionError, MultiClassClassifier
 
         # update behavior name inside the saved multi-class classifier
         classifier_path = self._paths.classifier_dir / MULTICLASS_CLASSIFIER_FILENAME
         new_classifier_file: str | None = None
         new_classifier_hash: str | None = None
+        classifier: MultiClassClassifier | None = None
         if classifier_path.exists():
-            classifier = MultiClassClassifier.from_pickle(classifier_path)
-            if old_name in classifier.behavior_names:
-                classifier.rename_behavior(old_name, new_name)
-                # The pickle's contents changed, so drop the stale file identity
-                # and let save() record a hash matching the rewritten file.
-                classifier.reset_persistence_identity()
-                classifier.save(classifier_path)
-                # Capture the rewritten pickle's identity so per-video prediction
-                # metadata can be repointed at the renamed classifier file.
-                new_classifier_file = classifier.classifier_file
-                new_classifier_hash = classifier.classifier_hash
+            try:
+                classifier = MultiClassClassifier.from_pickle(classifier_path)
+            except ClassifierFeatureVersionError as e:
+                # a stale classifier can't be used anyway; leave it for the user to
+                # retrain rather than failing the rename
+                logger.warning(
+                    "Not renaming %r in %s, which must be retrained: %s",
+                    old_name,
+                    classifier_path,
+                    e,
+                )
+        if classifier is not None and old_name in classifier.behavior_names:
+            classifier.rename_behavior(old_name, new_name)
+            # The pickle's contents changed, so drop the stale file identity
+            # and let save() record a hash matching the rewritten file.
+            classifier.reset_persistence_identity()
+            classifier.save(classifier_path)
+            # Capture the rewritten pickle's identity so per-video prediction
+            # metadata can be repointed at the renamed classifier file.
+            new_classifier_file = classifier.classifier_file
+            new_classifier_hash = classifier.classifier_hash
 
         # update the class_names dataset inside each video's prediction group
         safe_multiclass_name = to_safe_name(MULTICLASS_PREDICTION_KEY)
