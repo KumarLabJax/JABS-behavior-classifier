@@ -3,6 +3,7 @@ import typing
 import cv2
 import numpy as np
 
+from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -14,6 +15,7 @@ class HuMoments(Feature):
     """Feature for the hu image moments of the segmentation contours."""
 
     _name = "hu_moments"
+    _requires = frozenset({PoseCapability.SEGMENTATION})
     _feature_names: typing.ClassVar[list[str]] = [f"hu{i}" for i in range(1, 8)]
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"):
