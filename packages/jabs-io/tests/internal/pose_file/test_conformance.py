@@ -41,6 +41,7 @@ INVALID = {
     "invalid-coord-declarations.h5": "manifest_schema",
     "invalid-dangling-mask.h5": "mask_reference",
     "invalid-duplicate-component-id.h5": "component_id_unique",
+    "invalid-external-link.h5": "self_contained",
     "invalid-frame-axis-length.h5": "frame_axis_length",
     "invalid-frame-count.h5": "dimensions_match_video",
     "invalid-identity-exceeds-slot.h5": "identity_le_slot",

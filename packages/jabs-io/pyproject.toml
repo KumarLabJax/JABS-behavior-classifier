@@ -48,6 +48,9 @@ docs = [
   "mkdocs>=1.6.1",
 ]
 
+[project.scripts]
+jabs-pose-file = "jabs.io.internal.pose_file.cli:main"
+
 [project.urls]
 Repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 Issues = "https://github.com/KumarLabJax/JABS-behavior-classifier/issues"

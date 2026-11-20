@@ -111,3 +111,18 @@ def test_nan_is_written_not_a_sentinel(tmp_path, sample_pose_file):
         points = h5["/jabs/pose/points"][()]
     assert np.isnan(points).any()
     assert not (points == 0).all(axis=-1).any(), "a zero coordinate would be ambiguous"
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_provenance_is_refused(tmp_path, sample_pose_file, value):
+    """NaN and infinity are not strict JSON, so a document holding one is not written."""
+    from dataclasses import replace
+
+    provenance = replace(sample_pose_file.provenance, extra={"x.y": {"v": value}})
+    pose_file = replace(sample_pose_file, provenance=provenance)
+    path = tmp_path / "a_pose.h5"
+    path.write_bytes(b"an earlier file")
+    with pytest.raises(ValueError, match="provenance is not strict JSON"):
+        write_pose_file(pose_file, path)
+    assert path.read_bytes() == b"an earlier file"
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []

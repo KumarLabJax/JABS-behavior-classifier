@@ -1,5 +1,8 @@
 """Shared fixtures for pose file format tests."""
 
+from pathlib import Path
+
+import h5py
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -199,3 +202,49 @@ def sample_pose_file() -> PoseFile:
 def sample_pose_file_no_dimensions() -> PoseFile:
     """The same file with unknown frame dimensions, as a legacy conversion has."""
     return build_sample_pose_file(width=None, height=None)
+
+
+# The ways an HDF5 file can hold data that is not in the file itself, each
+# with the words the refusal names it by.
+OUTSIDE_KINDS = {
+    "external-link": "external link",
+    "soft-link": "soft link",
+    "external-storage": "external storage",
+    "virtual-dataset": "virtual dataset",
+}
+
+# What the outside file holds: a reader that followed a reference would get it.
+SECRET = np.arange(24, dtype=np.float32)
+
+
+def add_outside_reference(h5: h5py.File, path: str, kind: str, outside: Path) -> None:
+    """Put one reference to data outside the file at ``path``.
+
+    Args:
+        h5: The file, open for writing.
+        path: Where to put it; for a soft link, the link's target must exist.
+        kind: A key of ``OUTSIDE_KINDS``. A soft link points at ``/`` + the
+            first existing root member, so it stays inside the file and is
+            still refused: a soft link can dangle or loop.
+        outside: A directory for the outside files.
+    """
+    secret = outside / "secret.h5"
+    if not secret.exists():
+        with h5py.File(secret, "w") as other:
+            other.create_dataset("data", data=SECRET)
+    if kind == "external-link":
+        h5[path] = h5py.ExternalLink(str(secret), "/data")
+    elif kind == "soft-link":
+        h5[path] = h5py.SoftLink("/" + next(iter(h5)))
+    elif kind == "external-storage":
+        raw = outside / "secret.bin"
+        raw.write_bytes(SECRET.tobytes())
+        h5.create_dataset(
+            path, shape=SECRET.shape, dtype=SECRET.dtype, external=[(str(raw), 0, SECRET.nbytes)]
+        )
+    elif kind == "virtual-dataset":
+        layout = h5py.VirtualLayout(shape=SECRET.shape, dtype=SECRET.dtype)
+        layout[...] = h5py.VirtualSource(str(secret), "data", shape=SECRET.shape)
+        h5.create_virtual_dataset(path, layout)
+    else:
+        raise ValueError(f"unknown kind {kind!r}")

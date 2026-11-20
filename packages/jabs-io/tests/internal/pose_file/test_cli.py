@@ -1,0 +1,278 @@
+"""The ``jabs-pose-file`` command converts and validates, and exits with a meaningful code."""
+
+import importlib.metadata
+import shutil
+from pathlib import Path
+
+import h5py
+import numpy as np
+import pytest
+
+from jabs.io.internal.pose_file import cli
+from jabs.io.internal.pose_file.cli import main
+from jabs.io.internal.pose_file.convert import memory
+from jabs.io.internal.pose_file.validate import validate
+
+from .conftest import add_outside_reference
+from .convert.conftest import legacy
+
+POSE_FORMAT = Path(__file__).parents[2] / "data" / "pose-format"
+
+
+def _convert(source: Path, out: Path) -> int:
+    """Run ``convert`` with the video facts the legacy file does not record."""
+    return main(
+        ["convert", str(source), str(out), "--width", "800", "--height", "800", "--fps", "30"]
+    )
+
+
+def test_convert_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """``convert`` writes a valid file, reports it on stdout and exits 0."""
+    out = tmp_path / "out.h5"
+
+    assert _convert(legacy("v8-edge-cases.h5"), out) == 0
+
+    assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
+    captured = capsys.readouterr()
+    assert str(out) in captured.out
+    assert captured.err == ""
+
+
+def test_convert_block_mb(tmp_path: Path) -> None:
+    """``--block-mb`` is accepted and the result is still valid."""
+    out = tmp_path / "out.h5"
+
+    assert main(["convert", str(legacy("v8-with-centers.h5")), str(out), "--block-mb", "1"]) == 0
+    assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
+
+
+def test_convert_max_memory_gb(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """``--max-memory-gb`` caps the estimate in GiB: a tiny cap refuses in one line, 1 converts."""
+    out = tmp_path / "out.h5"
+    source = str(legacy("v8-with-centers.h5"))
+
+    assert main(["convert", source, str(out), "--max-memory-gb", "0.0001"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "estimated" in captured.err
+    assert f"({int(0.0001 * 2**30)} bytes)" in captured.err
+    assert not out.exists()
+
+    assert main(["convert", source, str(out), "--max-memory-gb", "1"]) == 0
+    assert out.exists()
+
+
+def test_convert_refusal_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A refusal prints one ``error:`` line naming the frame, with no traceback."""
+    out = tmp_path / "out.h5"
+
+    assert _convert(legacy("v8-duplicate-embed.h5"), out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "frame 100" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+    assert not out.exists()
+
+
+def test_convert_external_link_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A legacy file linking outside itself is one ``error:`` line naming the link."""
+    src = tmp_path / "legacy.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        del h5["poseest/bbox"]
+        add_outside_reference(h5, "poseest/bbox", "external-link", tmp_path)
+    out = tmp_path / "out.h5"
+
+    assert _convert(src, out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "/poseest/bbox is an external link" in captured.err
+    assert not out.exists()
+
+
+def test_convert_malformed_dynamic_object_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dynamic object with more counts than samples is one ``error:`` line naming it."""
+    src = tmp_path / "boli.h5"
+    shutil.copyfile(legacy("v7-dynamic-objects.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        obj = h5["dynamic_objects/fecal_boli"]
+        counts = obj["counts"][()]
+        del obj["counts"]
+        obj.create_dataset("counts", data=np.append(counts, counts[:1]))
+    out = tmp_path / "out.h5"
+
+    assert _convert(src, out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "dynamic_objects/fecal_boli" in captured.err
+    assert "Traceback" not in captured.err
+    assert not out.exists()
+
+
+def test_convert_attributes_over_the_cap_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Legacy attributes over the cap are one ``error:`` line naming the attribute."""
+    monkeypatch.setattr(memory, "MAX_ATTRIBUTE_BYTES", 4096)
+    src = tmp_path / "attributes.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        for index in range(80):
+            h5["poseest"].attrs[f"note{index:02d}"] = "x" * 64
+    out = tmp_path / "out.h5"
+
+    assert _convert(src, out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "legacy attributes" in captured.err
+    assert "Traceback" not in captured.err
+    assert not out.exists()
+
+
+def test_convert_missing_source_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A source that cannot be opened is an ``error:`` line, not a traceback."""
+    assert _convert(tmp_path / "absent.h5", tmp_path / "out.h5") == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "Traceback" not in captured.err
+
+
+def test_convert_onto_the_source_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Converting a file onto itself is refused with an ``error:`` line, leaving it as it was."""
+    src = tmp_path / "v8-with-centers.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    before = src.read_bytes()
+
+    assert _convert(src, src) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "is the source" in captured.err
+    assert src.read_bytes() == before
+
+
+def test_convert_into_a_missing_directory_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A destination whose directory does not exist is an ``error:`` line, not a traceback."""
+    out = tmp_path / "absent" / "out.h5"
+
+    assert _convert(legacy("v8-with-centers.h5"), out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "Traceback" not in captured.err
+    assert not out.parent.exists()
+
+
+def test_convert_error_is_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refusal whose message spans lines, as the deep check's findings do, prints as one line."""
+    deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
+    finding = deep_check.Finding(
+        deep_check.ERROR, "alternate_decodes", "first line\n  second line\nthird"
+    )
+    monkeypatch.setattr(deep_check, "validate", lambda path, deep=False, **_: [finding])
+
+    assert _convert(legacy("v8-with-centers.h5"), tmp_path / "out.h5") == 1
+
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert err.count("\n") == 1
+    assert "first line second line third" in err
+
+
+def test_validate_findings_are_one_line_each(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A finding whose message spans lines prints as one line."""
+    deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
+    finding = deep_check.Finding(deep_check.ERROR, "manifest_schema", "bad\nmanifest:\n  here")
+    monkeypatch.setattr(cli, "validate", lambda path, deep=False, **_: [finding])
+
+    assert main(["validate", "any.h5"]) == 1
+
+    assert capsys.readouterr().out == "error manifest_schema: bad manifest: here\n"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--block-mb", "0"],
+        ["--block-mb", "1.5"],
+        ["--width", "-800"],
+        ["--height", "0"],
+        ["--fps", "0"],
+        ["--fps", "nan"],
+        ["--fps", "thirty"],
+        ["--max-memory-gb", "0"],
+        ["--max-memory-gb", "-1"],
+        ["--max-memory-gb", "inf"],
+    ],
+)
+def test_convert_usage_errors_exit_2(tmp_path: Path, extra: list[str]) -> None:
+    """A malformed option is a usage error: argparse exits 2 before anything is read."""
+    with pytest.raises(SystemExit) as raised:
+        main(["convert", str(legacy("v8-edge-cases.h5")), str(tmp_path / "out.h5"), *extra])
+    assert raised.value.code == 2
+    assert not (tmp_path / "out.h5").exists()
+
+
+def test_missing_subcommand_exits_2() -> None:
+    """The command needs a subcommand."""
+    with pytest.raises(SystemExit) as raised:
+        main([])
+    assert raised.value.code == 2
+
+
+def test_validate_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """``validate`` exits 0 on a converted file and 1 on one with an error, naming it."""
+    out = tmp_path / "out.h5"
+    assert _convert(legacy("v8-edge-cases.h5"), out) == 0
+    capsys.readouterr()
+
+    assert main(["validate", str(out), "--deep"]) == 0
+    assert "error" not in capsys.readouterr().out
+
+    assert main(["validate", str(POSE_FORMAT / "invalid-mask-dtype.h5")]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert any("error mask_reference:" in line for line in lines)
+
+
+@pytest.mark.parametrize("name", ["invalid-not-hdf5.h5", "invalid-not-a-pose-file.h5"])
+def test_validate_non_pose_file_exits_1(name: str, capsys: pytest.CaptureFixture[str]) -> None:
+    """A file that is not HDF5, or not a pose file, prints its findings and exits 1."""
+    assert main(["validate", str(POSE_FORMAT / name)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out.startswith("error ")
+    assert "Traceback" not in captured.err
+
+
+def test_console_script_is_declared() -> None:
+    """The package declares ``jabs-pose-file`` as a console script."""
+    try:
+        importlib.metadata.distribution("jabs-io")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("jabs-io is not installed with metadata")
+
+    scripts = importlib.metadata.entry_points(group="console_scripts")
+    matches = [ep for ep in scripts if ep.name == "jabs-pose-file"]
+    assert [ep.value for ep in matches] == ["jabs.io.internal.pose_file.cli:main"]

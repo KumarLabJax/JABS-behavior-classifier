@@ -2,7 +2,11 @@
 
 A valid file is a well-formed manifest: every component is optional, and
 consumers declare their own requirements on top. This module implements the
-ADR's validation table, and nothing more opinionated than it.
+ADR's validation table, and nothing more opinionated than it, with one
+safety rule for untrusted input ahead of it: ``self_contained``, a link or
+dataset referring to data outside the file. It runs first, before any
+document or payload is read, and the pass stops on it, since every later
+check would read through the reference.
 
 Two properties matter as much as the checks themselves. **This function
 reports, it never raises** — it is the tool aimed at untrusted and damaged
@@ -22,6 +26,7 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
+from jabs.io.internal.pose_file.hdf5_safety import check_self_contained
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -122,6 +127,30 @@ def _check_root(h5: h5py.File, findings: list[Finding]) -> bool:
             )
         )
     return True
+
+
+def _check_self_contained(h5: h5py.File, findings: list[Finding]) -> bool:
+    """Report every link or dataset that refers to data outside the file.
+
+    Runs before anything else is read: every later check reads datasets, and
+    h5py would follow an external link or read external storage to do so.
+
+    Args:
+        h5: The open file.
+        findings: Accumulator.
+
+    Returns:
+        True when the file is self-contained and can be checked further.
+    """
+    try:
+        problems = check_self_contained(h5)
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+        problems = [f"the file's links cannot be walked: {error}"]
+    for problem in problems:
+        findings.append(
+            Finding(ERROR, "self_contained", f"{problem}; refusing to read through it")
+        )
+    return not problems
 
 
 def _int_attr(value: object) -> int | None:
@@ -1735,6 +1764,8 @@ def validate(
     with handle as h5:
         if not _check_root(h5, findings):
             return findings
+        if not _check_self_contained(h5, findings):
+            return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))
         manifest, provenance = _check_documents(h5, findings)
         if manifest is None:
             return findings

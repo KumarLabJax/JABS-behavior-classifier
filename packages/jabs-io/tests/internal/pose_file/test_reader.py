@@ -16,6 +16,8 @@ from jabs.io.internal.pose_file.reader import (
 )
 from jabs.io.internal.pose_file.writer import write_pose_file
 
+from .conftest import OUTSIDE_KINDS, add_outside_reference
+
 
 @pytest.fixture
 def written(tmp_path, sample_pose_file):
@@ -167,3 +169,36 @@ def test_a_file_whose_declarations_disagree_is_a_pose_file_error():
     """
     with pytest.raises(PoseFileError, match="no_such_mask"):
         read_pose_file(FIXTURES / "invalid-dangling-mask.h5")
+
+
+@pytest.mark.parametrize("kind", sorted(OUTSIDE_KINDS))
+def test_outside_references_are_refused(tmp_path, written, kind):
+    """Every entry point refuses a file with data outside it, naming the path and kind."""
+    manifest = read_manifest(written)
+    with h5py.File(written, "r+") as h5:
+        del h5["/jabs/pose/confidence"]
+        add_outside_reference(h5, "/jabs/pose/confidence", kind, tmp_path)
+
+    match = f"/jabs/pose/confidence is .*{OUTSIDE_KINDS[kind]}"
+    with pytest.raises(PoseFileError, match=match):
+        read_pose_file(written)
+    with pytest.raises(PoseFileError, match=match):
+        read_manifest(written)
+    # The manifest given, so only the payload read is left to refuse it.
+    with pytest.raises(PoseFileError, match=match):
+        read_component(written, "jabs.pose.points", manifest=manifest)
+
+
+def test_a_non_pose_file_is_not_described_through_a_link(tmp_path):
+    """Naming a legacy file's version reads an attribute, so a link is not followed for it."""
+    secret = tmp_path / "secret.h5"
+    with h5py.File(secret, "w") as h5:
+        h5.create_group("poseest").attrs["version"] = 99
+    upload = tmp_path / "upload.h5"
+    with h5py.File(upload, "w") as h5:
+        h5["poseest"] = h5py.ExternalLink(str(secret), "/poseest")
+
+    with pytest.raises(NotAPoseFileError) as refused:
+        read_manifest(upload)
+
+    assert "v99" not in str(refused.value)

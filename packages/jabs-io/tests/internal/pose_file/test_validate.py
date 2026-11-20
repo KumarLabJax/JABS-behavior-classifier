@@ -9,6 +9,8 @@ import pytest
 from jabs.io.internal.pose_file.validate import validate
 from jabs.io.internal.pose_file.writer import write_pose_file
 
+from .conftest import OUTSIDE_KINDS, add_outside_reference
+
 
 def _rewrite_manifest(path, mutate):
     """Replace the manifest in a written file, leaving the arrays untouched."""
@@ -138,3 +140,25 @@ def test_findings_are_readable(written):
     finding = next(f for f in validate(written) if f.check == "dtype_shape_match")
     assert finding.severity == "error"
     assert "jabs.pose.points" in finding.message
+
+
+@pytest.mark.parametrize("kind", sorted(OUTSIDE_KINDS))
+@pytest.mark.parametrize("where", ["/attachments/leak", "/jabs/pose/confidence"])
+def test_outside_references_are_self_contained_errors(tmp_path, written, kind, where):
+    """Data outside the file is one self_contained error, and stops the pass.
+
+    Nothing after it runs, since any later read could follow the reference.
+    Replacing a declared payload shows that: the payload is not then also
+    reported as missing or misshapen.
+    """
+    with h5py.File(written, "r+") as h5:
+        if where in h5:
+            del h5[where]
+        add_outside_reference(h5, where, kind, tmp_path)
+
+    findings = validate(written, deep=True)
+
+    assert [f.check for f in findings] == ["self_contained"]
+    assert findings[0].severity == "error"
+    assert where in findings[0].message
+    assert OUTSIDE_KINDS[kind] in findings[0].message
