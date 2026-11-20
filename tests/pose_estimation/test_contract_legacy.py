@@ -1,4 +1,9 @@
-"""PoseLike contract tests for the legacy pose readers (the bridge API)."""
+"""PoseLike contract tests for the legacy pose readers (the bridge API).
+
+Tests marked ``legacy_reader`` run the legacy readers. The rest open their files
+with ``open_pose_file``, which in the test session converts legacy files and
+opens them as ``Pose``.
+"""
 
 import json
 from collections.abc import Iterator
@@ -29,6 +34,8 @@ _EXPECTED_CAPABILITIES = {
 }
 
 
+# Only legacy_reader tests use this fixture, so it always opens the legacy reader;
+# test_contract_unified.py checks the same goldens on Pose.
 @pytest.fixture(scope="module", params=SAMPLE_VERSIONS, ids=lambda v: f"v{v}")
 def sample_pose(request: pytest.FixtureRequest) -> Iterator[tuple[int, PoseLike]]:
     """Open each sample legacy pose file once per module."""
@@ -37,12 +44,14 @@ def sample_pose(request: pytest.FixtureRequest) -> Iterator[tuple[int, PoseLike]
         yield version, pose
 
 
+@pytest.mark.legacy_reader
 def test_legacy_readers_satisfy_protocol(sample_pose: tuple[int, PoseLike]) -> None:
     """Every legacy reader is structurally a PoseLike."""
     _, pose = sample_pose
     assert isinstance(pose, PoseLike)
 
 
+@pytest.mark.legacy_reader
 def test_legacy_matches_golden(sample_pose: tuple[int, PoseLike]) -> None:
     """The legacy readers match the recorded contract goldens."""
     version, pose = sample_pose
@@ -51,18 +60,21 @@ def test_legacy_matches_golden(sample_pose: tuple[int, PoseLike]) -> None:
     check_pose_contract(pose, load_golden(path))
 
 
+@pytest.mark.legacy_reader
 def test_capabilities(sample_pose: tuple[int, PoseLike]) -> None:
     """Capability sets follow identities, segmentation and bounding boxes."""
     version, pose = sample_pose
     assert pose.capabilities == _EXPECTED_CAPABILITIES[version]
 
 
+@pytest.mark.legacy_reader
 def test_source_format_from_filename(sample_pose: tuple[int, PoseLike]) -> None:
     """source_format comes from the filename, not the file's version attribute."""
     version, pose = sample_pose
     assert pose.source_format == f"pose_est_v{version}"
 
 
+@pytest.mark.legacy_reader
 def test_identity_to_track(sample_pose: tuple[int, PoseLike]) -> None:
     """Only v3 has tracks: (identities, frames) int32, -1 where no track."""
     version, pose = sample_pose
@@ -122,6 +134,7 @@ def _trimmed_contours(frame_seg: npt.NDArray[np.integer]) -> list[npt.NDArray[np
     return [c[np.all(c != -1, axis=1)].astype(np.int32) for c in frame_seg if np.any(c != -1)]
 
 
+@pytest.mark.legacy_reader
 def test_iter_segmentation_agrees_with_get_segmentation_data() -> None:
     """Concatenated iter_segmentation blocks hold the same valid contours as the raw data."""
     pose = open_pose_file(sample_path(6))

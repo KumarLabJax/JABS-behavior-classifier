@@ -150,3 +150,8 @@ module-name = "jabs"
 # fails on cross-package test-module name collisions, which is why CI runs each
 # suite separately. Explicit path arguments override this default.
 testpaths = ["tests"]
+markers = [
+  # tests of the legacy PoseEstimationV* readers; tests/conftest.py runs them with
+  # JABS_FORCE_UNIFIED unset. Deleted with the legacy readers.
+  "legacy_reader: exercises a legacy pose reader; runs with JABS_FORCE_UNIFIED unset",
+]

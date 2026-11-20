@@ -34,7 +34,11 @@ SEGMENTATION_SOURCE = Path(__file__).parents[1] / "data" / "sample_pose_est_v6.h
 SIZE = 800
 FRAMES = 3
 
-CASES = ("legacy", "legacy-forced-unified", "unified")
+CASES = (
+    pytest.param("legacy", marks=pytest.mark.legacy_reader),
+    "legacy-forced-unified",
+    "unified",
+)
 
 
 @pytest.fixture(scope="session")
