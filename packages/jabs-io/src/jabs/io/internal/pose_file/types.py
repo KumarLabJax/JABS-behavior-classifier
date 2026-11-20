@@ -638,21 +638,29 @@ class PoseFile:
         one offsets dataset share the whole pair. And alternates naming the
         same offset paths, under any names, must share one
         :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`, or the
-        writer would have two different arrays to write at one path.
-        Parent/child path collisions are the writer's check.
+        writer would have two different arrays to write at one path. As the
+        validator requires of the written file, a group-level alternate names
+        the same offsets as a leaf-level one, and ``instance_offsets`` has
+        ``frame*slot+1`` entries; both are checked here from shapes alone, so a
+        block source is never consumed for a file the validator would then
+        refuse. Parent/child path collisions are the writer's check.
 
         Raises:
             ValueError: If an alternate's missing reference is undeclared or
                 does not align, a path is claimed twice, alternates of one name
                 name different offset paths, an offsets path appears in two
-                different pairs, or one pair of offset paths is declared by two
-                different indexes.
+                different pairs, one pair of offset paths is declared by two
+                different indexes, instance_offsets has the wrong length, or a
+                group-level alternate has no leaf-level partner.
         """
         by_id = {component.id: component for component in self.components}
         owners = {component.path: component.id for component in self.components}
         indexes: dict[tuple[str, str], tuple[str, object]] = {}
         first: dict[str, tuple[str, tuple[str, str]]] = {}
         partners: dict[str, tuple[str, tuple[str, str]]] = {}
+        expected_instances = self.dimensions["frame"] * self.dimensions["slot"] + 1
+        leaf_offsets: set[tuple[str, str]] = set()
+        group_level: list[tuple[str, tuple[str, str]]] = []
         for component in self.components:
             for alternate in component.alternates:
                 label = alternate_key(component.id, alternate.name)
@@ -685,6 +693,23 @@ class PoseFile:
                         f"{offsets[1]} through different RaggedIndex objects; alternates "
                         "naming the same offsets must share one"
                     )
+                # The shape alone, so a block source is not read.
+                instances = index.instance_offsets.shape[0]
+                if instances != expected_instances:
+                    raise ValueError(
+                        f"{label}: instance_offsets at {offsets[1]} has {instances} entries, "
+                        f"expected frame*slot+1 = {expected_instances}"
+                    )
+                if alternate.level == "leaf":
+                    leaf_offsets.add(offsets)
+                else:
+                    group_level.append((label, offsets))
+        for label, offsets in group_level:
+            if offsets not in leaf_offsets:
+                raise ValueError(
+                    f"{label}: a group-level alternate must name the same two offset datasets "
+                    f"as a leaf-level alternate in this file; none names {offsets}"
+                )
 
     def _freeze(self) -> None:
         """Replace the validated mappings with read-only views.

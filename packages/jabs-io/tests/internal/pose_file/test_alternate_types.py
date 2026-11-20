@@ -502,3 +502,50 @@ def test_an_offsets_dataset_has_one_partner(group_path: str, instance_path: str)
             contours_alternates=(contours, copy),
             flag_alternates=(_flags_alternate(seg, index),),
         )
+
+
+def _never_read() -> Iterable[tuple[int, npt.NDArray[np.generic]]]:
+    raise AssertionError("a block source was read")
+
+
+def _unread(array: npt.NDArray[np.generic]) -> BlockSource:
+    """A block source of the array's shape and dtype that fails if it is read."""
+    return BlockSource(array.shape, array.dtype, _never_read)
+
+
+@pytest.mark.parametrize("streamed", [False, True], ids=["in-memory", "block-source"])
+def test_a_group_level_alternate_needs_a_leaf_level_partner(streamed: bool) -> None:
+    """The validator's ragged_group_pairing, checked before anything is written.
+
+    Otherwise the write streams every block source and is then refused by the
+    post-write validation.
+    """
+    seg = ragged_segmentation()
+    index = _index(seg)
+    if streamed:
+        index = RaggedIndex(
+            group_offsets_path=index.group_offsets_path,
+            instance_offsets_path=index.instance_offsets_path,
+            group_offsets=_unread(seg["contour_offsets"]),
+            instance_offsets=_unread(seg["instance_offsets"]),
+        )
+    data = _unread(seg["flags"]) if streamed else seg["flags"]
+    flags = _flags_alternate(seg, index, data=data)
+    with pytest.raises(ValueError, match="leaf-level"):
+        _segmentation_file(seg, flag_alternates=(flags,))
+
+
+@pytest.mark.parametrize("streamed", [False, True], ids=["in-memory", "block-source"])
+def test_instance_offsets_cover_every_frame_and_slot(streamed: bool) -> None:
+    """``len(instance_offsets) == frame*slot + 1``, from the shape alone."""
+    seg = ragged_segmentation()
+    short = seg["instance_offsets"][:-1]
+    index = RaggedIndex(
+        group_offsets_path=f"{PREFIX}/contour_offsets",
+        instance_offsets_path=f"{PREFIX}/instance_offsets",
+        group_offsets=_unread(seg["contour_offsets"]) if streamed else seg["contour_offsets"],
+        instance_offsets=_unread(short) if streamed else short,
+    )
+    data = _unread(seg["points"]) if streamed else seg["points"]
+    with pytest.raises(ValueError, match=r"frame\*slot\+1"):
+        _segmentation_file(seg, contours_alternates=(_contours_alternate(seg, index, data=data),))
