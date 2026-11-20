@@ -89,4 +89,5 @@ def test_all_masked_v4_has_no_identities(tmp_path: Path, monkeypatch: pytest.Mon
     with open_unified(path, tmp_path / "cache") as pose:
         assert pose.identities == []
         assert pose.num_identities == 0
-    assert open_pose_file(path).identities == []
+    with open_pose_file(path) as legacy:
+        assert legacy.identities == []

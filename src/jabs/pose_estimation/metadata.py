@@ -163,7 +163,8 @@ def scan_pose_metadata(path: Path) -> PoseMetadata:
 
     Raises:
         PoseOpenError: If the name follows neither pattern, or the file cannot
-            be read, is not a pose file, or would be refused by the converter.
+            be read, is not a pose file, is malformed, or would be refused by
+            the converter.
     """
     try:
         if is_unified_pose_file(path):
@@ -175,6 +176,9 @@ def scan_pose_metadata(path: Path) -> PoseMetadata:
         PoseFileError,
         NotImplementedError,
         OSError,
+        # a malformed manifest or attribute that passes the schema
+        LookupError,
+        ValueError,
     ) as error:
         raise PoseOpenError(path, _reason(path, error)) from error
     raise PoseOpenError(

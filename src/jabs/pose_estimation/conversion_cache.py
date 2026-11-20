@@ -28,6 +28,10 @@ __all__ = ["cache_root", "converted_path", "ensure_converted", "open_unified"]
 _APP_NAME = "jabs"
 _CONVERTED_DIR = "converted"
 
+# what opening a pose file raises for a file it cannot read; LookupError and
+# ValueError cover a malformed manifest that still passes the schema
+_OPEN_ERRORS = (PoseFileError, NotImplementedError, OSError, LookupError, ValueError)
+
 
 def _converter_version() -> str:
     """Return the converter's version: the installed jabs-io version."""
@@ -87,12 +91,41 @@ def _remove_other_versions(destination: Path, source: Path, source_hash: str) ->
             logger.debug("Removed stale conversion %s", path.name)
 
 
+def _discard(path: Path) -> None:
+    """Delete a cached conversion, logging (not raising) when it cannot be deleted."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as error:
+        logger.warning("Could not remove conversion %s: %s", path.name, error)
+
+
+def _check_unchanged(source: Path, source_hash: str, destination: Path) -> None:
+    """Discard a fresh conversion when the source no longer has the hash it is keyed by.
+
+    Raises:
+        PoseOpenError: If the source changed (or became unreadable) during conversion.
+    """
+    try:
+        unchanged = hash_file(source) == source_hash
+    except OSError as error:
+        _discard(destination)
+        raise PoseOpenError(source, f"cannot read after converting: {error}") from error
+    if not unchanged:
+        _discard(destination)
+        raise PoseOpenError(source, "changed while it was being converted; open it again")
+
+
 def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> Path:
     """Return the cached conversion of a legacy pose file, converting it if missing.
 
     Two processes converting the same file at once both succeed: the write is
     atomic, and when the final replace fails because the other process's copy
     is in the way (Windows), that copy is used.
+
+    After a conversion the source is hashed again; if it changed while it was
+    being converted, the conversion is discarded rather than kept under a key
+    that no longer matches the file, and the call fails. Opening the file again
+    converts its new content.
 
     Args:
         source: The legacy pose file.
@@ -103,8 +136,8 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
         The converted unified pose file.
 
     Raises:
-        PoseOpenError: If the converter refuses the file or it cannot be
-            converted or written.
+        PoseOpenError: If the converter refuses the file, it cannot be
+            converted or written, or it changed while being converted.
     """
     destination = converted_path(source, source_hash, cache_dir)
     if destination.exists():
@@ -114,6 +147,7 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
         destination.parent.mkdir(parents=True, exist_ok=True)
         logger.info("Converting %s to %s", source, destination)
         convert_legacy(source, destination)
+        _check_unchanged(source, source_hash, destination)
     except LegacyConversionError as error:
         raise PoseOpenError(source, _reason(source, error)) from error
     except OSError as error:
@@ -128,7 +162,9 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
     """Open a pose file as ``Pose``, converting a legacy file through the cache.
 
     The user's file is hashed once; the hash keys the conversion and is the
-    returned ``Pose.hash``.
+    returned ``Pose.hash``. A cached conversion that cannot be opened (a
+    truncated or invalid file) is deleted and converted again, once. A unified
+    file is never deleted.
 
     Args:
         path: A unified ``*_pose.h5`` or legacy ``*_pose_est_v<N>.h5`` file.
@@ -151,8 +187,22 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
         source_hash = hash_file(path)
     except OSError as error:
         raise PoseOpenError(path, f"cannot read: {error}") from error
-    pose_path = ensure_converted(path, source_hash, cache_dir) if legacy else path
+    if not legacy:
+        try:
+            return Pose(path, source_hash=source_hash, cache_dir=cache_dir)
+        except _OPEN_ERRORS as error:
+            raise PoseOpenError(path, _reason(path, error)) from error
+
+    pose_path = ensure_converted(path, source_hash, cache_dir)
     try:
         return Pose(pose_path, source_path=path, source_hash=source_hash, cache_dir=cache_dir)
-    except (PoseFileError, NotImplementedError, OSError) as error:
+    except _OPEN_ERRORS as error:
+        # a damaged cached copy (truncated, invalid): convert again, once
+        logger.warning("Cannot open conversion %s (%s); converting again", pose_path.name, error)
+    _discard(pose_path)
+    pose_path = ensure_converted(path, source_hash, cache_dir)
+    try:
+        return Pose(pose_path, source_path=path, source_hash=source_hash, cache_dir=cache_dir)
+    except _OPEN_ERRORS as error:
+        _discard(pose_path)
         raise PoseOpenError(path, _reason(pose_path, error)) from error

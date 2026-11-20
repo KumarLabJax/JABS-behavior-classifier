@@ -3,6 +3,7 @@ import getpass
 import gzip
 import json
 import logging
+import re
 import shutil
 from collections.abc import Callable, Collection, Iterable, Mapping
 from collections.abc import Set as AbstractSet
@@ -30,9 +31,11 @@ from jabs.core.enums import (
 from jabs.io.annotations import AnnotationStore, LocalAnnotationStore
 from jabs.pose_estimation import (
     PoseEstimation,
+    PoseOpenError,
     get_pose_path,
     open_pose_file,
 )
+from jabs.pose_estimation.discovery import is_legacy_pose_file
 
 from . import pose_attribute_cache
 from .feature_cache_status import (
@@ -43,10 +46,12 @@ from .feature_manager import FeatureManager
 from .parallel_workers import (
     BinaryFeatureLoadJobSpec,
     MulticlassFeatureLoadJobSpec,
+    PoseConversionJobSpec,
     VideoScanJobSpec,
     VideoScanResult,
     collect_binary_labeled_features,
     collect_multiclass_labeled_features,
+    convert_pose,
     scan_video_metadata,
 )
 from .prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
@@ -61,6 +66,11 @@ from .video_manager import VideoManager
 logger = logging.getLogger(__name__)
 
 MULTICLASS_CLASSIFIER_FILENAME = "_multiclass.pickle"
+
+# a cached conversion of a video's legacy pose file, under <cache_dir>/converted:
+# <video stem>.<40 hex digit legacy hash>-<jabs-io version>.h5
+_CONVERTED_DIR = "converted"
+_CONVERTED_NAME = r"\.[0-9a-f]{40}-[^/\\]+\.h5"
 
 if TYPE_CHECKING:
     from jabs.classifier import ClassifierProtocol
@@ -469,8 +479,78 @@ class Project:
 
     @property
     def unusable_videos(self) -> dict[str, str]:
-        """Videos whose pose file could not be scanned, mapped to the reason."""
+        """Videos whose pose file cannot be scanned or converted, mapped to the reason."""
         return self._unusable_videos
+
+    def is_usable(self, video: str) -> bool:
+        """Return whether a video's pose file can be used.
+
+        An unusable video stays in the project (and is listed by the video
+        manager) but is skipped by training, classification and prediction.
+
+        Args:
+            video: Video filename.
+
+        Returns:
+            False when the video's pose file could not be scanned or converted.
+        """
+        return video not in self._unusable_videos
+
+    def _mark_unusable(self, video: str, reason: str) -> None:
+        """Record a video whose pose file cannot be used, logging a WARNING."""
+        self._unusable_videos[video] = reason
+        logger.warning("%s is unusable: %s", video, reason)
+
+    def _usable(self, videos: Iterable[str]) -> list[str]:
+        """Return the usable videos among ``videos``, logging a WARNING for each one skipped."""
+        usable = []
+        for video in videos:
+            if self.is_usable(video):
+                usable.append(video)
+            else:
+                logger.warning(
+                    "Skipping %s: its pose file is unusable: %s",
+                    video,
+                    self._unusable_videos[video],
+                )
+        return usable
+
+    def prepare_poses(self, progress: Callable[[int, int], None]) -> None:
+        """Convert every usable legacy pose file that is not yet in the conversion cache.
+
+        Conversion otherwise happens the first time a video's pose is opened;
+        running this first moves that cost into the process pool (when the
+        project has one) ahead of use. A video whose pose cannot be converted
+        is marked unusable. Unified pose files need no conversion, so a project
+        of unified files does nothing here.
+
+        Args:
+            progress: Called with ``(completed, total)`` after each legacy video.
+        """
+        jobs: list[PoseConversionJobSpec] = []
+        for video in self._video_manager.videos:
+            if not self.is_usable(video):
+                continue
+            pose_path = self._video_manager.get_cached_pose_path(video)
+            if is_legacy_pose_file(pose_path):
+                jobs.append(
+                    PoseConversionJobSpec(
+                        video=video, pose_path=pose_path, cache_dir=self._paths.cache_dir
+                    )
+                )
+        if not jobs:
+            return
+
+        logger.info("Preparing %d legacy pose files", len(jobs))
+        if self._process_pool is not None:
+            futures = [self._process_pool.submit(convert_pose, job) for job in jobs]
+            outcomes = (future.result() for future in as_completed(futures))
+        else:
+            outcomes = (convert_pose(job) for job in jobs)
+        for completed, (video, reason) in enumerate(outcomes, start=1):
+            if reason is not None:
+                self._mark_unusable(video, reason)
+            progress(completed, len(jobs))
 
     @property
     def feature_manager(self) -> FeatureManager:
@@ -627,7 +707,8 @@ class Project:
             to_check = list(self._video_manager.videos)
 
         missing: list[str] = []
-        for video in to_check:
+        # an unusable video is never trained or classified, so needs no features
+        for video in filter(self.is_usable, to_check):
             status = self._feature_cache_status.get(video)
             if status is None:
                 status = self.refresh_feature_cache_status(video)
@@ -680,7 +761,10 @@ class Project:
         Includes:
           - all files under features/<video base name>/** (recursive)
           - all files under cache/convex_hulls/<video base name>/** (recursive)
-          - cache/<video base name>_pose_est_v*_cache.h5
+          - cache/<video base name>_pose_est_v*_cache.h5 (old pose reader caches)
+          - cache/converted/<video base name>.<hash>-<version>.h5 (converted
+            legacy pose files in the project cache; the per-user cache is not
+            touched)
           - predictions/<video base name>.h5
           - annotations/<video base name>.json
 
@@ -712,9 +796,18 @@ class Project:
                     if p.is_file():
                         paths.append(p)
 
-            # Cached pose files: cache/<base>_pose_est_v*_cache.h5
+            # Caches of the old pose readers: cache/<base>_pose_est_v*_cache.h5
             for p in self._paths.cache_dir.glob(f"{base}_pose_est_v*_cache.h5"):
                 paths.append(p)
+
+            # Converted legacy pose files: cache/converted/<base>.<hash>-<version>.h5,
+            # matched exactly so video "a" does not claim video "a.2"'s copies
+            converted_name = re.compile(re.escape(base) + _CONVERTED_NAME)
+            converted_dir = self._paths.cache_dir / _CONVERTED_DIR
+            if converted_dir.is_dir():
+                for p in converted_dir.iterdir():
+                    if converted_name.fullmatch(p.name):
+                        paths.append(p)
 
         # Predictions file: predictions/<base>.h5
         prediction = self._paths.prediction_dir / f"{base}.h5"
@@ -1203,6 +1296,9 @@ class Project:
             should_terminate_callable: Called between submissions and completions,
                 if provided; should raise on user-requested cancellation.
 
+        A video whose pose file cannot be opened (``PoseOpenError``) is marked
+        unusable and left out of the results instead of failing the run.
+
         Returns:
             Dict keyed by video name. Callers reorder by their canonical
             ``videos`` list for deterministic concatenation.
@@ -1218,9 +1314,13 @@ class Project:
                 video_name = future_to_video[future]
                 try:
                     res = future.result()
+                except PoseOpenError as e:
+                    self._mark_unusable(video_name, e.reason)
+                    res = None
                 except Exception as e:
                     raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
-                results_by_video[video_name] = res
+                if res is not None:
+                    results_by_video[video_name] = res
                 if progress_callable:
                     progress_callable()
         else:
@@ -1229,11 +1329,15 @@ class Project:
                     should_terminate_callable()
                 try:
                     res = worker_fn(job)
+                except PoseOpenError as e:
+                    self._mark_unusable(job["video"], e.reason)
+                    res = None
                 except Exception as e:
                     raise RuntimeError(
                         f"Feature collection failed for video: {job['video']}"
                     ) from e
-                results_by_video[job["video"]] = res
+                if res is not None:
+                    results_by_video[job["video"]] = res
                 if progress_callable:
                     progress_callable()
 
@@ -1442,8 +1546,14 @@ class Project:
                 "excluded_groups": set(),
             }, {}
 
+        usable_videos = self._usable(videos)
+        if progress_callable:
+            # progress counts every video; a skipped one is done already
+            for _ in range(len(videos) - len(usable_videos)):
+                progress_callable()
+
         jobs: list[BinaryFeatureLoadJobSpec] = []
-        for video in videos:
+        for video in usable_videos:
             if should_terminate_callable:
                 should_terminate_callable()
             job: BinaryFeatureLoadJobSpec = {
@@ -1557,8 +1667,14 @@ class Project:
                 "excluded_groups": set(),
             }, {}
 
+        usable_videos = self._usable(videos)
+        if progress_callable:
+            # progress counts every video; a skipped one is done already
+            for _ in range(len(videos) - len(usable_videos)):
+                progress_callable()
+
         jobs: list[MulticlassFeatureLoadJobSpec] = []
-        for video in videos:
+        for video in usable_videos:
             if should_terminate_callable:
                 should_terminate_callable()
             job: MulticlassFeatureLoadJobSpec = {

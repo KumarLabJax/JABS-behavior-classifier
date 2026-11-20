@@ -5,6 +5,8 @@ import shutil
 from pathlib import Path
 from unittest import mock
 
+import h5py
+import numpy as np
 import pytest
 
 from jabs.core.utils import hash_file
@@ -112,9 +114,18 @@ def test_second_open_converts_zero_times(
 def test_open_unified_hashes_the_source_once(
     legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The user's file is hashed once per open; the hash is Pose.hash."""
+    """An open of a cached conversion hashes the user's file once; the hash is Pose.hash.
+
+    The open that converts hashes it a second time, after converting, to catch
+    a file that changed while it was being converted.
+    """
     spy = mock.Mock(wraps=conversion_cache.hash_file)
     monkeypatch.setattr(conversion_cache, "hash_file", spy)
+    with open_unified(legacy_v4, tmp_path / "cache"):
+        pass
+    assert spy.call_args_list == [mock.call(legacy_v4), mock.call(legacy_v4)]
+
+    spy.reset_mock()
     with open_unified(legacy_v4, tmp_path / "cache") as pose:
         assert pose.hash == hash_file(legacy_v4)
         assert pose.pose_file == legacy_v4
@@ -262,3 +273,102 @@ def test_user_cache_used_without_cache_dir(
     with open_unified(legacy_v4) as pose:
         assert pose.num_frames > 0
     assert len(list((user_cache / "converted").glob("vid.*.h5"))) == 1
+
+
+def test_corrupt_cached_conversion_is_reconverted(
+    legacy_v4: Path,
+    tmp_path: Path,
+    convert_spy: mock.Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A truncated cached conversion is deleted and converted again, once."""
+    cache = tmp_path / "cache"
+    with open_unified(legacy_v4, cache) as pose:
+        expected_frames = pose.num_frames
+    cached = converted_path(legacy_v4, hash_file(legacy_v4), cache)
+    data = cached.read_bytes()
+    cached.write_bytes(data[: len(data) // 2])
+
+    with (
+        caplog.at_level(logging.WARNING, logger=conversion_cache.__name__),
+        open_unified(legacy_v4, cache) as pose,
+    ):
+        assert pose.num_frames == expected_frames
+    assert convert_spy.call_count == 2
+    assert cached.stat().st_size > len(data) // 2
+    assert any(r.levelno == logging.WARNING and cached.name in r.message for r in caplog.records)
+
+
+def test_conversion_that_cannot_be_opened_twice_is_pose_open_error(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the reconversion cannot be opened either, PoseOpenError; no copy is left."""
+    convert = mock.Mock(side_effect=lambda source, destination: destination.write_bytes(b"junk"))
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
+    cache = tmp_path / "cache"
+    with pytest.raises(PoseOpenError) as info:
+        open_unified(legacy_v4, cache)
+    assert info.value.path == legacy_v4
+    assert convert.call_count == 2
+    assert not converted_path(legacy_v4, hash_file(legacy_v4), cache).exists()
+
+
+def test_broken_unified_file_is_never_deleted(tmp_path: Path) -> None:
+    """A unified file the user has that cannot be opened is reported, not deleted."""
+    path = tmp_path / "vid_pose.h5"
+    path.write_bytes(b"not hdf5")
+    with pytest.raises(PoseOpenError):
+        open_unified(path, tmp_path / "cache")
+    assert path.read_bytes() == b"not hdf5"
+
+
+def test_replaced_legacy_file_is_reconverted(
+    legacy_v4: Path, tmp_path: Path, convert_spy: mock.Mock
+) -> None:
+    """New legacy bytes give a new key: a new conversion, a new hash, the new data."""
+    cache = tmp_path / "cache"
+    with open_unified(legacy_v4, cache) as pose:
+        old_hash = pose.hash
+        identity = pose.identities[0]
+        old_points, _ = pose.get_identity_poses(identity)
+        old_points = old_points.copy()
+    old_copy = converted_path(legacy_v4, old_hash, cache)
+
+    # replace the file with different valid content: every keypoint moves
+    replacement = tmp_path / "replacement_pose_est_v4.h5"
+    shutil.copyfile(legacy_v4, replacement)
+    with h5py.File(replacement, "a") as h5:
+        points = h5["poseest/points"]
+        points[...] = points[...] // 2
+    shutil.copyfile(replacement, legacy_v4)
+
+    with open_unified(legacy_v4, cache) as pose:
+        assert pose.hash != old_hash
+        assert pose.hash == hash_file(legacy_v4)
+        new_points, _ = pose.get_identity_poses(identity)
+        assert not np.array_equal(new_points, old_points, equal_nan=True)
+    assert convert_spy.call_count == 2
+    new_copy = converted_path(legacy_v4, hash_file(legacy_v4), cache)
+    assert convert_spy.call_args.args[1] == new_copy
+    assert new_copy != old_copy
+
+
+def test_source_changed_during_conversion_is_discarded(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source rewritten while it converts is refused; nothing is kept under the stale key."""
+    real_convert = conversion_cache.convert_legacy
+
+    def convert_then_change_source(source: Path, destination: Path) -> None:
+        real_convert(source, destination)
+        with source.open("ab") as f:
+            f.write(b"\0")
+
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert_then_change_source)
+    cache = tmp_path / "cache"
+    digest = hash_file(legacy_v4)
+    with pytest.raises(PoseOpenError, match="changed") as info:
+        ensure_converted(legacy_v4, digest, cache)
+    assert info.value.path == legacy_v4
+    assert not converted_path(legacy_v4, digest, cache).exists()
+    assert not list((cache / "converted").glob("*.h5"))

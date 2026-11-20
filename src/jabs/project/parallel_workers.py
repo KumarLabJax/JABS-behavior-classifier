@@ -15,8 +15,10 @@ import pandas as pd
 import jabs.feature_extraction as fe
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
+from jabs.core.utils import hash_file
 from jabs.io.annotations import read_document
 from jabs.pose_estimation import PoseOpenError, open_pose_file
+from jabs.pose_estimation.conversion_cache import ensure_converted
 from jabs.pose_estimation.metadata import scan_pose_metadata
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps_and_nframes
@@ -175,6 +177,41 @@ def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
         capabilities=sorted(c.value for c in metadata.capabilities),
         error=None,
     )
+
+
+class PoseConversionJobSpec(TypedDict):
+    """A legacy pose file to convert into the conversion cache ahead of use."""
+
+    video: str
+    pose_path: Path
+    cache_dir: Path | None
+
+
+def convert_pose(job: PoseConversionJobSpec) -> tuple[str, str | None]:
+    """Convert one legacy pose file into the conversion cache, unless it is there.
+
+    A refusal does not raise, so one bad file does not abort the batch: the
+    reason is returned for the project to mark the video unusable.
+
+    This function is stateless and picklable so it can be dispatched to
+    process-pool workers.
+
+    Args:
+        job: The video, its legacy pose file and the project's cache directory.
+
+    Returns:
+        ``(video, None)`` when the conversion is cached, else ``(video, reason)``.
+    """
+    pose_path = job["pose_path"]
+    try:
+        try:
+            source_hash = hash_file(pose_path)
+        except OSError as error:
+            raise PoseOpenError(pose_path, f"cannot read: {error}") from error
+        ensure_converted(pose_path, source_hash, job["cache_dir"])
+    except PoseOpenError as error:
+        return job["video"], error.reason
+    return job["video"], None
 
 
 def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> VideoLabels | None:

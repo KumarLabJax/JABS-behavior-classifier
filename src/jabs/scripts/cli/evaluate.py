@@ -705,6 +705,11 @@ def run_evaluation(
                 progress_callback(remaining)
 
     for video in project.video_manager.videos:
+        if not project.is_usable(video):
+            reason = f"pose file is unusable: {project.unusable_videos[video]}"
+            skip_video(video, reason)
+            logger.warning("Skipping %s: %s", video, reason)
+            continue
         try:
             pose_path = project.video_manager.get_cached_pose_path(video)
             pose_est = project.load_pose_est(project.video_manager.video_path(video))

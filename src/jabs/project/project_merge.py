@@ -1,4 +1,5 @@
 import enum
+import logging
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -7,6 +8,8 @@ from jabs.pose_estimation import get_pose_path, open_pose_file
 
 if TYPE_CHECKING:
     from .project import Project
+
+logger = logging.getLogger(__name__)
 
 
 class MergeStrategy(enum.IntEnum):
@@ -37,13 +40,22 @@ def unique_videos(project1: "Project", project2: "Project") -> tuple[set[str], s
     return unique_to_project1, unique_to_project2
 
 
+def _unusable_reason(video: str, *projects: "Project") -> str | None:
+    """Return why a video's pose file is unusable in any of the projects, or None."""
+    for project in projects:
+        if not project.is_usable(video):
+            return project.unusable_videos[video]
+    return None
+
+
 def merge_projects(destination: "Project", source: "Project", strategy: MergeStrategy) -> None:
     """Merges the source project into the destination project using the specified strategy.
 
     This function copies unique videos and pose files from the source to the destination,
     adds behaviors unique to the source project to the destination project, and merges
     or adds annotations for each video from the source project into the destination project
-    according to the given merge strategy.
+    according to the given merge strategy. Annotations of a video whose pose
+    file is unusable in either project are not merged (a WARNING is logged).
 
     Args:
         destination (Project): The project to merge into (destination).
@@ -80,6 +92,15 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
 
     # for each video in source, load the annotations and merge them into the destination project
     for video in source.video_manager.videos:
+        # labels are saved through the pose's identities, which an unusable pose
+        # file cannot provide
+        reason = _unusable_reason(video, source, destination)
+        if reason is not None:
+            logger.warning(
+                "Skipping annotation merge for %s: its pose file is unusable: %s", video, reason
+            )
+            continue
+
         source_labels = source.video_manager.load_video_labels(video)
 
         # if there are no labels for this video in the source project, skip it
