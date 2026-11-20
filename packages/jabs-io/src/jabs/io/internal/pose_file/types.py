@@ -27,6 +27,7 @@ from jabs.io.internal.pose_file.embeddings import (
     EMBEDDING_DTYPES,
     EmbeddingDescriptor,
     is_embedding_id,
+    paired_field_differences,
     parse_embedding_id,
 )
 
@@ -651,6 +652,7 @@ class PoseFile:
             self._check_sparse_reference(component, by_id)
             self._check_missing_reference(component, by_id)
         self._check_alternates()
+        self._check_embedding_pairs()
 
         self._freeze()
 
@@ -784,6 +786,34 @@ class PoseFile:
                 raise ValueError(
                     f"{label}: length reference {other.id!r} has values outside "
                     f"[0, {bound}], the axis it bounds"
+                )
+
+    def _check_embedding_pairs(self) -> None:
+        """Require an embedding's ``.instance`` and ``.frame`` to describe the same vectors.
+
+        Checked at construction so the writer cannot emit a file that the
+        validator's ``embedding_pair_consistent`` rule would then reject.
+
+        Raises:
+            ValueError: If the two descriptors of one embedding differ in any
+                paired field.
+        """
+        by_name: dict[str, dict[str, EmbeddingDescriptor]] = {}
+        for component in self.components:
+            parsed = parse_embedding_id(component.id)
+            if parsed is not None and component.embedding is not None:
+                name, kind = parsed
+                by_name.setdefault(name, {})[kind] = component.embedding
+        for name, kinds in sorted(by_name.items()):
+            if len(kinds) < 2:
+                continue
+            differing = paired_field_differences(
+                kinds["instance"].to_json(), kinds["frame"].to_json()
+            )
+            if differing:
+                raise ValueError(
+                    f"jabs.embedding.{name}: the instance and frame descriptors differ in "
+                    f"{differing}, so they do not describe the same vectors"
                 )
 
     def _check_alternates(self) -> None:

@@ -22,10 +22,11 @@ from jabs.io.internal.pose_file.embeddings import (
     compute_fingerprint,
     is_embedding_id,
     list_embeddings,
+    paired_field_differences,
     parse_embedding_id,
 )
 
-from .conftest import build_pose_file_with_embeddings
+from .conftest import build_embedding_component, build_pose_file_with_embeddings
 
 DATA = Path(__file__).parents[2] / "data" / "pose-format"
 
@@ -344,6 +345,26 @@ def test_embedding_from_block_source(tmp_path):
     assert restored.embedding == original.embedding
     assert restored.data.dtype == np.float16
     np.testing.assert_array_equal(restored.data, rows)
+
+
+def test_paired_field_differences_names_each_differing_field():
+    """Only PAIRED_FIELDS count; pooling, name and kind may differ between the kinds."""
+    instance = _descriptor().to_json()
+    frame = _descriptor(kind="frame", pooling="grid_mean").to_json()
+    assert paired_field_differences(instance, frame) == []
+    other = _descriptor(
+        kind="frame", tap="trunk.other", window=TemporalWindow(4, 9), normalization="l2"
+    ).to_json()
+    assert paired_field_differences(instance, other) == ["tap", "window", "normalization"]
+
+
+def test_a_pose_file_with_a_mismatched_pair_cannot_be_constructed():
+    """The pairing rule is checked when the PoseFile is built, before any write."""
+    sample = build_pose_file_with_embeddings()
+    mismatched = build_embedding_component("trunk", "frame", tap="trunk.other")
+    components = tuple(mismatched if c.id == _FRAME else c for c in sample.components)
+    with pytest.raises(ValueError, match=r"jabs\.embedding\.trunk.*\['tap'\]"):
+        dataclasses.replace(sample, components=components)
 
 
 def _written_with_manifest(tmp_path, mutate) -> list:
