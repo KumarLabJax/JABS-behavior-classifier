@@ -9,8 +9,10 @@ These are ``pose_est_v7`` and ``v8`` files, the input the legacy converter
 reads, built for the cases the public samples in the repository root's
 ``tests/data`` lack: dynamic objects, v8 with and without
 ``instance_id_center``, every placement edge case, and files the converter must
-refuse; and one ``pose_est_v2`` file, a single animal with no instance axis,
-whose confidences cross the validity threshold and leave one frame empty.
+refuse; one ``pose_est_v2`` file, a single animal with no instance axis,
+whose confidences cross the validity threshold and leave one frame empty; and
+one ``pose_est_v3`` file, tracks that start, end and come back, compacted to
+the front of the instance axis each frame.
 Each file carries one case, and a refusal file carries no other refusal, so a
 test that expects one fails for the reason it names.
 
@@ -337,6 +339,70 @@ def write_v2(path: Path, *, frames: int = V2_FRAMES) -> None:
         pose.create_dataset("confidence", data=confidence)
 
 
+# v3-tracklets.h5: 40 frames of tracks, (legacy track id, first frame, last
+# frame) per run, in the order they start. Track 0 is a real id; track 7 runs
+# twice, and track 9 starts the frame after track 7's first run ends.
+V3_FRAMES = 40
+V3_INSTANCES = 5
+V3_RUNS = ((0, 0, 19), (5, 0, 39), (7, 5, 14), (9, 15, 29), (11, 22, 39), (7, 25, 34))
+# (frame, track): in instance_count, but with every confidence 0.
+V3_UNOCCUPIED = (10, 5)
+# A frame whose first instance past instance_count holds a stale copy of the
+# previous frame's instance there, confidences and track id included.
+V3_STALE_FRAME = 20
+
+
+def write_v3(path: Path) -> None:
+    """Write a ``pose_est_v3`` file: tracks compacted to the front of the instance axis.
+
+    As the public v3 samples store it: ``points`` ``(F, N, 12, 2)`` ``uint16``
+    ``(y, x)``, ``confidence`` and ``instance_embedding`` ``(F, N, 12)``
+    ``float32``, ``instance_count`` ``(F,)`` ``uint8``, ``instance_track_id``
+    ``(F, N)`` ``uint32``, and ``version`` ``[3, 0]``. Each frame lists the
+    tracks of ``V3_RUNS`` present in it, in run order, at instances
+    ``0..instance_count - 1``; a track's instance shifts down when an earlier
+    one ends. Past ``instance_count`` everything is 0, except at
+    ``V3_STALE_FRAME``.
+
+    Args:
+        path: The file to write. It is overwritten.
+    """
+    rng = np.random.default_rng(SEED)
+    shape = (V3_FRAMES, V3_INSTANCES)
+    points = np.zeros((*shape, KEYPOINTS, 2), dtype=np.uint16)
+    confidence = np.zeros((*shape, KEYPOINTS), dtype=np.float32)
+    count = np.zeros(V3_FRAMES, dtype=np.uint8)
+    track = np.zeros(shape, dtype=np.uint32)
+    for frame in range(V3_FRAMES):
+        present = [t for t, first, last in V3_RUNS if first <= frame <= last]
+        count[frame] = len(present)
+        track[frame, : len(present)] = present
+    used = np.arange(V3_INSTANCES) < count[:, np.newaxis]
+    points[..., 0] = rng.integers(*Y_RANGE, (*shape, KEYPOINTS))
+    points[..., 1] = rng.integers(*X_RANGE, (*shape, KEYPOINTS))
+    confidence[used] = rng.uniform(0.01, 1.0, (int(used.sum()), KEYPOINTS))
+    points[~used] = 0
+    frame, unoccupied = V3_UNOCCUPIED
+    (instance,) = np.flatnonzero(track[frame, : count[frame]] == unoccupied)
+    confidence[frame, instance] = 0
+    points[frame, instance] = 0
+    stale, previous = V3_STALE_FRAME, V3_STALE_FRAME - 1
+    end = count[stale]
+    points[stale, end] = points[previous, end]
+    confidence[stale, end] = confidence[previous, end]
+    track[stale, end] = track[previous, end]
+    embedding = rng.standard_normal((*shape, KEYPOINTS)).astype(np.float32)
+
+    with h5py.File(path, "w") as h5:
+        pose = h5.create_group("poseest")
+        pose.attrs["version"] = np.array([3, 0], dtype=np.uint16)
+        pose.create_dataset("points", data=points)
+        pose.create_dataset("confidence", data=confidence)
+        pose.create_dataset("instance_count", data=count)
+        pose.create_dataset("instance_embedding", data=embedding)
+        pose.create_dataset("instance_track_id", data=track)
+
+
 def _bbox(
     points: npt.NDArray[np.uint16], occupied: npt.NDArray[np.bool_]
 ) -> npt.NDArray[np.float32]:
@@ -597,6 +663,7 @@ def main(out: Path = HERE) -> None:
         out / "v7-bad-dynamic-object.h5", **small, version=V7, seg=False, edits=_bad_dynamic_object
     )
     write_v2(out / "v2-single.h5")
+    write_v3(out / "v3-tracklets.h5")
 
     for path in sorted(out.glob("*.h5")):
         print(f"{path.name:28s} {path.stat().st_size / 1024:6.1f} KiB")

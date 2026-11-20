@@ -72,9 +72,9 @@ def _parser() -> argparse.ArgumentParser:
 
     convert = commands.add_parser(
         "convert",
-        help="convert a legacy pose_est_v2 or v4..v8 file to a jabs.pose-file",
+        help="convert a legacy pose_est_v2..v8 file to a jabs.pose-file",
         description=(
-            "Convert a legacy pose_est_v2 or v4..v8 HDF5 file to a jabs.pose-file. The legacy "
+            "Convert a legacy pose_est_v2..v8 HDF5 file to a jabs.pose-file. The legacy "
             "file is only read; the output is written atomically and deep-checked."
         ),
     )

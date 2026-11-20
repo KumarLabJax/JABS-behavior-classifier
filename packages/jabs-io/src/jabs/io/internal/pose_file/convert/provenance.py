@@ -22,7 +22,7 @@ import numpy as np
 from jabs.io.internal.pose_file.convert import memory
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
-from jabs.io.internal.pose_file.convert.plan import PlacementPlan
+from jabs.io.internal.pose_file.convert.plan import TRACKLET_ID_OFFSET, PlacementPlan
 from jabs.io.internal.pose_file.convert.sources import CONFIDENCE_THRESHOLD
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12
@@ -219,7 +219,8 @@ def convert_entry(
     ``longterm_seg_id``; ``tracklet_splits`` has ``id``, ``from``,
     ``first_frame`` and ``last_frame``. It also holds ``point_valid``'s
     threshold, ``legacy_attributes``, ``tracklet_id_none`` when the file has
-    tracklets, and ``model_metadata_json`` when the file has one.
+    tracklets, ``tracklet_id_offset`` for a ``pose_est_v3`` file, whose track
+    ids are stored plus it, and ``model_metadata_json`` when the file has one.
 
     Args:
         h5: The open legacy file, for its attributes.
@@ -281,9 +282,12 @@ def convert_entry(
         "legacy_attributes": legacy_attributes(h5),
     }
     if plan.tracklet_id is not None:
-        # The id that means no tracklet: legacy tracklet 0 and every
-        # unoccupied (frame, slot) carry it.
+        # The id that means no tracklet: every unoccupied (frame, slot)
+        # carries it, and from v4 on so does legacy tracklet 0.
         extra["tracklet_id_none"] = 0
+    if layout.placed_by_track:
+        # v3 track 0 is a track, so every v3 track id is stored plus this.
+        extra["tracklet_id_offset"] = TRACKLET_ID_OFFSET
     if "model_metadata_json" in h5["poseest"].attrs:
         # Recorded whole, as legacy_attributes records it; legacy_attributes
         # above has already refused a value with no JSON form.
