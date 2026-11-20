@@ -10,6 +10,7 @@ import pytest
 
 from jabs.io.internal.pose_file import cli
 from jabs.io.internal.pose_file.cli import main
+from jabs.io.internal.pose_file.convert import memory
 from jabs.io.internal.pose_file.validate import validate
 
 from .conftest import add_outside_reference
@@ -113,6 +114,28 @@ def test_convert_malformed_dynamic_object_exits_1(
     assert captured.err.startswith("error:")
     assert captured.err.count("\n") == 1
     assert "dynamic_objects/fecal_boli" in captured.err
+    assert "Traceback" not in captured.err
+    assert not out.exists()
+
+
+def test_convert_attributes_over_the_cap_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Legacy attributes over the cap are one ``error:`` line naming the attribute."""
+    monkeypatch.setattr(memory, "MAX_ATTRIBUTE_BYTES", 4096)
+    src = tmp_path / "attributes.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        for index in range(80):
+            h5["poseest"].attrs[f"note{index:02d}"] = "x" * 64
+    out = tmp_path / "out.h5"
+
+    assert _convert(src, out) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert captured.err.count("\n") == 1
+    assert "legacy attributes" in captured.err
     assert "Traceback" not in captured.err
     assert not out.exists()
 

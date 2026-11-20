@@ -9,9 +9,15 @@ import h5py
 import numpy as np
 import pytest
 
-from jabs.io.internal.pose_file.convert import convert_legacy, inspect_legacy
+from jabs.io.internal.pose_file.convert import (
+    LegacyConversionError,
+    convert_legacy,
+    inspect_legacy,
+    memory,
+)
 from jabs.io.internal.pose_file.convert.provenance import (
     _json_value,
+    legacy_attributes,
     legacy_scale,
     source_format,
 )
@@ -225,3 +231,131 @@ def test_model_metadata_json_text_is_kept(tmp_path: Path) -> None:
     with h5py.File(out, "r") as h5:
         (entry, *_) = json.loads(h5["provenance"][()])["history"]
     assert entry["extra"]["model_metadata_json"] == '{"model": "hrnet"}'
+
+
+# A cap small enough that the attributes over it fit in an object header.
+_SMALL_CAP = 4096
+
+
+def _spy_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record the name of every attribute whose value is read; ``get`` reads through it too."""
+    read: list[str] = []
+    original = h5py.AttributeManager.__getitem__
+
+    def spy(self: h5py.AttributeManager, name: str) -> object:
+        read.append(name)
+        return original(self, name)
+
+    monkeypatch.setattr(h5py.AttributeManager, "__getitem__", spy)
+    return read
+
+
+def test_an_attribute_over_the_cap_is_refused_unread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An attribute declaring more than the cap is refused from its metadata, never read."""
+    monkeypatch.setattr(memory, "MAX_ATTRIBUTE_BYTES", _SMALL_CAP)
+    src = tmp_path / "big.h5"
+    with h5py.File(src, "w") as h5:
+        h5.create_group("poseest").attrs["huge"] = np.zeros(_SMALL_CAP // 8 + 1)
+    read = _spy_reads(monkeypatch)
+
+    with h5py.File(src, "r") as h5, pytest.raises(LegacyConversionError) as refused:
+        legacy_attributes(h5)
+
+    message = str(refused.value)
+    assert str(src) in message
+    assert "'huge'" in message
+    assert "poseest" in message
+    assert f"{_SMALL_CAP} bytes" in message
+    assert "huge" not in read
+
+
+def test_many_small_attributes_over_the_cap_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cap is on the attributes in total, across every object in the file."""
+    monkeypatch.setattr(memory, "MAX_ATTRIBUTE_BYTES", _SMALL_CAP)
+    src = tmp_path / "many.h5"
+    with h5py.File(src, "w") as h5:
+        for group in ("a", "b"):
+            attrs = h5.create_group(group).attrs
+            for index in range(40):
+                attrs[f"note{index:02d}"] = "x" * 64
+    with h5py.File(src, "r") as h5, pytest.raises(LegacyConversionError) as refused:
+        legacy_attributes(h5)
+
+    message = str(refused.value)
+    # Each object's own attributes are under the cap; only the total is over it.
+    assert "of b" in message
+    assert f"{_SMALL_CAP} bytes" in message
+
+
+def test_references_expanding_over_the_cap_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """References stored in 8 bytes each, expanded to long paths, are refused at the cap."""
+    monkeypatch.setattr(memory, "MAX_ATTRIBUTE_BYTES", _SMALL_CAP)
+    src = tmp_path / "references.h5"
+    with h5py.File(src, "w") as h5:
+        target = h5.create_group("g" * 200)
+        references = np.array([target.ref] * 64, dtype=h5py.ref_dtype)
+        h5.create_group("poseest").attrs.create("targets", references, dtype=h5py.ref_dtype)
+        # Stored small: only the expansion is over the cap.
+        assert h5["poseest"].attrs.get_id("targets").get_storage_size() < _SMALL_CAP
+
+    with h5py.File(src, "r") as h5, pytest.raises(LegacyConversionError) as refused:
+        legacy_attributes(h5)
+
+    assert "'targets'" in str(refused.value)
+
+
+def test_attributes_under_the_cap_are_recorded(tmp_path: Path) -> None:
+    """The reference file of the test above records under the default cap."""
+    src = tmp_path / "references.h5"
+    with h5py.File(src, "w") as h5:
+        target = h5.create_group("g" * 200)
+        references = np.array([target.ref] * 64, dtype=h5py.ref_dtype)
+        h5.create_group("poseest").attrs.create("targets", references, dtype=h5py.ref_dtype)
+
+    with h5py.File(src, "r") as h5:
+        recorded = legacy_attributes(h5)
+
+    assert recorded["poseest"]["targets"] == [f"<reference:/{'g' * 200}>"] * 64
+
+
+def test_a_large_attribute_is_refused_before_inspection_reads_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Attributes the converter reads first, such as the scale, are checked before they are read."""
+    monkeypatch.setattr(memory, "MAX_ATTRIBUTE_BYTES", _SMALL_CAP)
+    src = tmp_path / "scale.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        h5["poseest"].attrs["cm_per_pixel"] = np.zeros(_SMALL_CAP // 8 + 1)
+    out = tmp_path / "out.h5"
+    read = _spy_reads(monkeypatch)
+
+    with pytest.raises(LegacyConversionError, match="'cm_per_pixel'"):
+        convert_legacy(src, out)
+
+    assert "cm_per_pixel" not in read
+    assert not out.exists()
+
+
+def test_attributes_over_the_cap_in_total_write_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A conversion refused for its attributes' total leaves no destination."""
+    monkeypatch.setattr(memory, "MAX_ATTRIBUTE_BYTES", _SMALL_CAP)
+    src = tmp_path / "many.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        for index in range(80):
+            h5["poseest"].attrs[f"note{index:02d}"] = "x" * 64
+    out = tmp_path / "out.h5"
+
+    with pytest.raises(LegacyConversionError, match="legacy attributes"):
+        convert_legacy(src, out)
+
+    assert not out.exists()

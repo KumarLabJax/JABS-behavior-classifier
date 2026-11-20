@@ -17,6 +17,9 @@ samples, a real 108,000-frame v8 file and v6-width synthetics of up to
 A second, independent check refuses a large dataset whose declared size is
 far beyond what it stores: data that was never written. It catches what the
 estimate does not count, such as a retired dataset the conversion never reads.
+
+A third refuses an attribute declaring more than ``MAX_ATTRIBUTE_BYTES``, from
+its metadata, before inspection or the scale reads any attribute's value.
 """
 
 import logging
@@ -38,6 +41,12 @@ STORAGE_RATIO_FLOOR = 2**30
 # only storage that was never written, or a filter no legacy writer uses,
 # goes past this.
 STORAGE_RATIO = 2000
+
+# The cap on the legacy attributes, in total, that the conversion records
+# verbatim in its history (``provenance.legacy_attributes``). Real files hold
+# a few kilobytes; dense attribute storage lets a crafted one hold gigabytes,
+# and an array of object references expands to one path string per element.
+MAX_ATTRIBUTE_BYTES = 16 * 2**20
 
 # The poseest datasets read in frame blocks, by pass 1, pass 2 or inspection.
 _FRAME_DATASETS = (
@@ -205,6 +214,62 @@ def check_storage(path: Path, h5: h5py.File) -> None:
     h5.visititems(visit)
     if found:
         raise LegacyConversionError(found[0])
+
+
+def check_attributes(path: Path, h5: h5py.File) -> None:
+    """Refuse an attribute whose declared size alone is above ``MAX_ATTRIBUTE_BYTES``.
+
+    Only metadata is read, so it runs before anything reads an attribute's
+    value. Attributes are never compressed, so a value read once this passes
+    is at most the cap, or for a variable-length string, which declares only
+    its pointer, the file's size; ``provenance.legacy_attributes`` then caps
+    what they expand to. Run only on a file already checked to be
+    self-contained: the walk visits hard links only then.
+
+    Args:
+        path: The legacy file, for the message.
+        h5: The open legacy file.
+
+    Raises:
+        LegacyConversionError: If an attribute declares more than
+            ``MAX_ATTRIBUTE_BYTES``. The message names its object and name.
+    """
+    found: list[str] = []
+
+    def visit(name: str, obj: h5py.HLObject) -> None:
+        if found:
+            return
+        for key in obj.attrs:
+            declared = attribute_bytes(obj.attrs, key)
+            if declared > MAX_ATTRIBUTE_BYTES:
+                found.append(
+                    f"{path}: attribute {key!r} of {name} declares {declared} bytes; refusing "
+                    f"legacy attributes over the cap of {MAX_ATTRIBUTE_BYTES} bytes, which "
+                    "the conversion records verbatim"
+                )
+                return
+
+    visit("/", h5)
+    h5.visititems(visit)
+    if found:
+        raise LegacyConversionError(found[0])
+
+
+def attribute_bytes(attrs: h5py.AttributeManager, key: str) -> int:
+    """Return an attribute's declared size in bytes, from its metadata, without reading it.
+
+    A variable-length string declares the size of its pointer, not its text,
+    and an empty (null) attribute 0.
+
+    Args:
+        attrs: The attributes of one object.
+        key: The attribute's name.
+
+    Returns:
+        Its value count times its item size.
+    """
+    attribute = attrs.get_id(key)
+    return 0 if attribute.shape is None else math.prod(attribute.shape) * attribute.dtype.itemsize
 
 
 def _values(dataset: h5py.Dataset) -> int:

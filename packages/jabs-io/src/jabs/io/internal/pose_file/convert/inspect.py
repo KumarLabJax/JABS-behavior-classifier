@@ -24,6 +24,7 @@ import numpy as np
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.memory import (
+    check_attributes,
     check_storage,
     estimate_memory,
     require_memory,
@@ -133,7 +134,8 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
     """Identify a legacy ``pose_est_v4``..``v8`` file by its contents.
 
     Shapes and attributes are checked before any data is read: first that
-    the file is self-contained, then its paths and shapes, then, with
+    the file is self-contained, then its paths, that no attribute declares
+    more than ``memory.MAX_ATTRIBUTE_BYTES``, then its shapes, then, with
     ``max_memory``, a lower bound on the conversion's memory, and that no
     large dataset declares far more than it stores. Only then are the embed
     ids and dynamic objects read.
@@ -152,8 +154,8 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
     Raises:
         LegacyConversionError: If the file has a link other than a hard link,
             or a dataset with external or virtual storage (checked first,
-            before anything is read), holds a path outside the catalog,
-            lacks a dataset v4 introduced, has other than 12 keypoints, has
+            before anything is read), holds a path outside the catalog, has
+            an attribute declaring more than 16 MiB, lacks a dataset v4 introduced, has other than 12 keypoints, has
             datasets whose shapes disagree, names other than one identity per
             ``external_identity_mapping`` entry, or has a malformed dynamic
             object (datasets that disagree on the sample count, counts above
@@ -170,6 +172,8 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
                 f"{path}: refusing a file with data outside it: " + "; ".join(outside)
             )
         _check_paths(path, h5)
+        # Before any attribute is read: version, axis_order and the scale are.
+        check_attributes(path, h5)
         pose = h5["poseest"]
         missing = [name for name in _REQUIRED if name not in pose]
         if missing:

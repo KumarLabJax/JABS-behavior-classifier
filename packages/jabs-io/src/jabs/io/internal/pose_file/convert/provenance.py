@@ -10,14 +10,16 @@ them all.
 
 import base64
 import hashlib
+import json
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import h5py
 import numpy as np
 
+from jabs.io.internal.pose_file.convert import memory
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan
@@ -65,6 +67,13 @@ def legacy_attributes(h5: h5py.File) -> dict[str, dict]:
     ``{"base64": "<the stored bytes, base64>"}``, so the bytes are kept
     exactly; that object is the only one a value can hold, and marks it.
 
+    The attributes are capped at ``memory.MAX_ATTRIBUTE_BYTES`` (16 MiB) in
+    total, measured as their JSON text plus their names: each attribute's
+    declared size is checked against what is left before its value is read,
+    and its JSON size, which counts the expansion of references to paths and
+    of bytes to base64, is added once it is converted. A reference's path is
+    counted as it is resolved, so an array of them stops at the cap.
+
     Args:
         h5: The open legacy file.
 
@@ -75,25 +84,55 @@ def legacy_attributes(h5: h5py.File) -> dict[str, dict]:
 
     Raises:
         LegacyConversionError: If an attribute cannot be read or has a kind
-            with no JSON form, such as a compound value, naming its path and
-            name.
+            with no JSON form, such as a compound value, or if the attributes
+            pass ``memory.MAX_ATTRIBUTE_BYTES``, naming the attribute's path
+            and name (and the cap).
     """
     found: dict[str, dict] = {}
+    cap = memory.MAX_ATTRIBUTE_BYTES
+    # The JSON bytes recorded so far, and those of the value being converted.
+    total = 0
+    pending = 0
+
+    def too_large(name: str, key: str, why: str) -> LegacyConversionError:
+        """Return the refusal naming the attribute where the cap was crossed."""
+        return LegacyConversionError(
+            f"{h5.filename}: attribute {key!r} of {name} {why}; refusing legacy attributes "
+            f"over the cap of {cap} bytes in total, which the conversion records verbatim"
+        )
+
+    def spend(size: int) -> None:
+        """Count part of a value as it expands; raise once the total passes the cap."""
+        nonlocal pending
+        pending += size
+        if total + pending > cap:
+            raise _OverCap
 
     def collect(name: str, obj: h5py.HLObject) -> None:
         """Record one object's attributes, if it has any."""
+        nonlocal total, pending
         if not len(obj.attrs):
             return
         values = {}
         for key in obj.attrs:
+            declared = memory.attribute_bytes(obj.attrs, key)
+            if declared > cap - total:
+                raise too_large(name, key, f"declares {declared} bytes")
+            pending = 0
             try:
-                values[key] = _json_value(obj.attrs[key], h5)
+                value = _json_value(obj.attrs[key], h5, spend)
+            except _OverCap:
+                raise too_large(name, key, "expands past the cap") from None
             except (TypeError, ValueError, OSError) as error:
                 # Leaving it out would lose it for good once the Hub deletes
                 # the original.
                 raise LegacyConversionError(
                     f"{h5.filename}: attribute {key!r} of {name} cannot be recorded: {error}"
                 ) from error
+            total += len(json.dumps(value, allow_nan=False)) + len(key)
+            if total > cap:
+                raise too_large(name, key, f"takes them to {total} bytes")
+            values[key] = value
         found[name] = values
 
     collect("/", h5)
@@ -310,12 +349,25 @@ def _join(names: list[str]) -> str:
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def _json_value(value: object, h5: h5py.File | None) -> object:
-    """Return an HDF5 attribute value as strict JSON; raise TypeError when it has no JSON form."""
+class _OverCap(Exception):
+    """A value's expansion passed ``memory.MAX_ATTRIBUTE_BYTES``."""
+
+
+def _json_value(
+    value: object, h5: h5py.File | None, spend: Callable[[int], None] | None = None
+) -> object:
+    """Return an HDF5 attribute value as strict JSON; raise TypeError when it has no JSON form.
+
+    ``spend``, when given, is called with each reference's path length as it
+    is resolved, so a caller can stop an array of them at a cap.
+    """
     if isinstance(value, h5py.Empty):
         return None
     if isinstance(value, h5py.Reference):
-        return _reference(value, h5)
+        text = _reference(value, h5)
+        if spend is not None:
+            spend(len(text))
+        return text
     # np.bytes_ is a bytes subclass.
     if isinstance(value, bytes):
         return _text(bytes(value))
@@ -342,13 +394,13 @@ def _json_value(value: object, h5: h5py.File | None) -> object:
             raise TypeError(f"a compound value of dtype {value.dtype} has no JSON form")
         # A 0-d array's tolist() is a scalar, not a list; an object array's
         # holds the objects (strings, references), converted in turn.
-        return _json_value(value.tolist(), h5)
+        return _json_value(value.tolist(), h5, spend)
     if isinstance(value, np.void):
         raise TypeError(f"a compound value of dtype {value.dtype} has no JSON form")
     if isinstance(value, np.generic):
-        return _json_value(value.item(), h5)
+        return _json_value(value.item(), h5, spend)
     if isinstance(value, list | tuple):
-        return [_json_value(item, h5) for item in value]
+        return [_json_value(item, h5, spend) for item in value]
     raise TypeError(f"a value of type {type(value).__name__} has no JSON form")
 
 
