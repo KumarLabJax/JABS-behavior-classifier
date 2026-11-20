@@ -66,15 +66,8 @@ def test_legacy_file_opens_and_conversion_validates(
     assert [f for f in findings if f.severity == "error"] == []
 
 
-def test_all_masked_v4_has_no_identities(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A v4 file whose instances are all masked, though confident, has no identities.
-
-    Without ``instance_id_center`` the identity count comes from valid embed ids,
-    and there are none, so the conversion has identity = 0. It keeps the v4
-    tracklets, which must not turn its slots into identities (only a v3
-    conversion's do). The legacy v4 reader agrees.
-    """
-    monkeypatch.delenv("JABS_FORCE_UNIFIED", raising=False)
+def _write_all_masked_v4(path: Path) -> Path:
+    """Write a v4 file whose instances are all masked, keeping their confidences."""
     gen = _generator()
 
     def mask_everything(h5: h5py.File) -> None:
@@ -82,12 +75,29 @@ def test_all_masked_v4_has_no_identities(tmp_path: Path, monkeypatch: pytest.Mon
         del h5["poseest/instance_id_center"]
         h5["poseest/id_mask"][...] = True
 
-    path = tmp_path / "vid_pose_est_v4.h5"
     gen.write_legacy(path, **gen.SMALL, version=(4, 0), seg=False, edits=mask_everything)
     with h5py.File(path, "r") as h5:
         assert h5["poseest/confidence"][()].max() > 0
+    return path
+
+
+def test_all_masked_v4_has_no_identities(tmp_path: Path) -> None:
+    """A v4 file whose instances are all masked, though confident, has no identities.
+
+    Without ``instance_id_center`` the identity count comes from valid embed ids,
+    and there are none, so the conversion has identity = 0. It keeps the v4
+    tracklets, which must not turn its slots into identities (only a v3
+    conversion's do).
+    """
+    path = _write_all_masked_v4(tmp_path / "vid_pose_est_v4.h5")
     with open_unified(path, tmp_path / "cache") as pose:
         assert pose.identities == []
         assert pose.num_identities == 0
-    with open_pose_file(path) as legacy:
+
+
+@pytest.mark.legacy_reader
+def test_all_masked_v4_legacy_reader_agrees(tmp_path: Path) -> None:
+    """The legacy v4 reader also finds no identities in an all-masked v4 file."""
+    path = _write_all_masked_v4(tmp_path / "vid_pose_est_v4.h5")
+    with open_pose_file(path, tmp_path) as legacy:
         assert legacy.identities == []

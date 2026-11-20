@@ -14,6 +14,9 @@ from jabs.pose_estimation import (
 )
 from jabs.pose_estimation.identity_indexed_pose import IdentityIndexedPoseMixin
 
+# the identity-indexed mixin is a legacy reader internal
+pytestmark = pytest.mark.legacy_reader
+
 _NUM_IDENTITIES = 2
 _NUM_FRAMES = 3
 _NUM_KEYPOINTS = 12

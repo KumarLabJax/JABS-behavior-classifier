@@ -24,7 +24,10 @@ _SAMPLE_V6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.
 _BLOCK = 7
 
 
-@pytest.fixture(scope="module", params=["legacy_v6", "unified"])
+@pytest.fixture(
+    scope="module",
+    params=[pytest.param("legacy_v6", marks=pytest.mark.legacy_reader), "unified"],
+)
 def pose(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Iterator:
     """The sample v6 file through the legacy V6 reader and through ``Pose``."""
     root = tmp_path_factory.mktemp(request.param)

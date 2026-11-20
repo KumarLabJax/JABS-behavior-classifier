@@ -12,7 +12,7 @@ import pytest
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
 from jabs.io.annotations import LocalAnnotationStore, write_document
-from jabs.pose_estimation.pose_est_v5 import PoseEstimationV5
+from jabs.pose_estimation.conversion_cache import open_unified
 from jabs.project.parallel_workers import (
     VideoScanJobSpec,
     VideoScanResult,
@@ -290,7 +290,7 @@ def test_scan_video_metadata_lixit_matches_the_pose_reader(
     has_lixit: bool,
     lixit_keypoints: int,
 ) -> None:
-    """An empty lixit dataset is reported the way PoseEstimationV5 treats it: absent.
+    """An empty lixit dataset is reported the way the pose reader treats it: absent.
 
     A project whose scan reported a lixit the pose reader drops would offer the
     lixit landmark features in the GUI while LandmarkFeatureGroup never enables
@@ -319,9 +319,9 @@ def test_scan_video_metadata_lixit_matches_the_pose_reader(
     assert result["lixit_keypoints"] == lixit_keypoints
 
     # the pose reader is the authority the scan has to agree with
-    pose_est = PoseEstimationV5(pose_path)
-    assert ("lixit" in pose_est.static_objects) is has_lixit
-    assert pose_est.num_lixit_keypoints == lixit_keypoints
+    with open_unified(pose_path, tmp_path / "cache") as pose_est:
+        assert ("lixit" in pose_est.static_objects) is has_lixit
+        assert pose_est.num_lixit_keypoints == lixit_keypoints
 
 
 # ---------------------------------------------------------------------------

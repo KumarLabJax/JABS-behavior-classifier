@@ -103,6 +103,7 @@ def test_open_pose_file_unified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         assert pose.pose_file == path
 
 
+@pytest.mark.legacy_reader
 def test_open_pose_file_legacy_uses_legacy_reader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

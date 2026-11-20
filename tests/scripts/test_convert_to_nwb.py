@@ -330,6 +330,7 @@ def unified_v6(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return unified
 
 
+@pytest.mark.legacy_reader
 def test_pose_to_pose_data_builds_segmentation():
     """A v6 pose file's contours reach PoseData, identity-ordered and unflipped.
 
@@ -471,6 +472,7 @@ def test_cli_segmentation_flag_forwarded(monkeypatch, tmp_path, flag, expected):
     assert run_mock.call_args.kwargs["segmentation"] is expected
 
 
+@pytest.mark.legacy_reader
 def test_unused_contour_slots_are_not_marked_external():
     """The -1 that the v6 reader leaves in unused flag slots must not read as True.
 

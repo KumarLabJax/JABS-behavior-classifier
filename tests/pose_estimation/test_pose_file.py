@@ -32,41 +32,38 @@ def tmpdir_with_pose_files():
 
 
 @pytest.fixture(scope="module")
-def pose_est_v3(tmpdir_with_pose_files):
-    """Fixture for PoseEstimationV3 object."""
-    return jabs.pose_estimation.open_pose_file(tmpdir_with_pose_files / "sample_pose_est_v3.h5")
-
-
-@pytest.fixture(scope="module")
 def pose_est_v4(tmpdir_with_pose_files):
-    """Fixture for PoseEstimationV4 object."""
+    """The sample v4 file, opened with open_pose_file (as Pose: legacy files are converted)."""
     return jabs.pose_estimation.open_pose_file(tmpdir_with_pose_files / "sample_pose_est_v4.h5")
 
 
 @pytest.fixture(scope="module")
 def pose_est_v5(tmpdir_with_pose_files):
-    """Fixture for PoseEstimationV5 object."""
+    """The sample v5 file, opened with open_pose_file (as Pose: legacy files are converted)."""
     return jabs.pose_estimation.open_pose_file(tmpdir_with_pose_files / "sample_pose_est_v5.h5")
 
 
-def test_open_pose_est_v3(pose_est_v3):
-    """test that open_pose_file can open a V3 pose file"""
-    assert isinstance(pose_est_v3, jabs.pose_estimation.PoseEstimationV3)
-    assert pose_est_v3.format_major_version == 3
+@pytest.mark.legacy_reader
+@pytest.mark.parametrize(
+    ("pose_file", "reader", "version"),
+    [
+        ("sample_pose_est_v3.h5", "PoseEstimationV3", 3),
+        ("sample_pose_est_v4.h5", "PoseEstimationV4", 4),
+        ("sample_pose_est_v5.h5", "PoseEstimationV5", 5),
+    ],
+    ids=["v3", "v4", "v5"],
+)
+def test_open_pose_est_legacy_reader(
+    tmpdir_with_pose_files: Path, tmp_path: Path, pose_file: str, reader: str, version: int
+) -> None:
+    """open_pose_file opens a legacy file with the reader for its version."""
+    pose = jabs.pose_estimation.open_pose_file(tmpdir_with_pose_files / pose_file, tmp_path)
+    assert isinstance(pose, getattr(jabs.pose_estimation, reader))
+    assert pose.format_major_version == version
 
 
-def test_open_pose_est_v4(pose_est_v4):
-    """test that open_pose_file can open a V4 pose file"""
-    assert isinstance(pose_est_v4, jabs.pose_estimation.PoseEstimationV4)
-    assert pose_est_v4.format_major_version == 4
-
-
-def test_open_pose_est_v5(pose_est_v5):
-    """test that open_pose_file can open a V5 pose file"""
-    assert isinstance(pose_est_v5, jabs.pose_estimation.PoseEstimationV5)
-    assert pose_est_v5.format_major_version == 5
-
-    # the test v5 pose file has 'corners' in static objects dataset
+def test_v5_static_corners(pose_est_v5) -> None:
+    """the sample v5 file's corners come back as (4, 2) (spec §2 row "Static objects")"""
     static_objs = pose_est_v5.static_objects
     assert "corners" in static_objs
     assert static_objs["corners"].shape == (4, 2)
@@ -155,12 +152,11 @@ def test_get_points_out_of_range(pose_est_v4):
         _, _ = pose_est_v4.get_points(1000000, 0)
 
 
-def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files):
-    """test that an unmasked instance_embed_id value of 0 raises PoseIdEmbeddingException
+def _corrupt_v4_embed_id(tmpdir_with_pose_files: Path) -> tuple[Path, int, int]:
+    """Copy the sample v4 file with one unmasked instance_embed_id set to 0.
 
-    instance_embed_id values are 1-based. A value of 0 on unmasked (id_mask ==
-    False) data would wrap around when 1 is subtracted to build a 0-based
-    identity index.
+    Returns:
+        The corrupt copy, the corrupted frame, and the identity the instance had.
     """
     corrupt_path = tmpdir_with_pose_files / "corrupt_pose_est_v4.h5"
     shutil.copy(tmpdir_with_pose_files / "sample_pose_est_v4.h5", corrupt_path)
@@ -170,11 +166,46 @@ def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files):
         instance_embed_id = f["poseest/instance_embed_id"][:]
         # find an unmasked entry and corrupt it to 0
         frame, instance = np.argwhere(id_mask == 0)[0]
+        identity = int(instance_embed_id[frame, instance]) - 1
         instance_embed_id[frame, instance] = 0
         f["poseest/instance_embed_id"][:] = instance_embed_id
+    return corrupt_path, int(frame), identity
+
+
+def test_v4_zero_instance_embed_id_is_a_tail_slot(tmpdir_with_pose_files, tmp_path) -> None:
+    """an unmasked instance_embed_id of 0 no longer refuses the file
+
+    The converter places such an instance in a tail slot, and tail slots never
+    become JABS identities (spec §2 row "Slots iterated"); the legacy v4 reader
+    raised PoseIdEmbeddingException instead.
+    """
+    corrupt_path, frame, identity = _corrupt_v4_embed_id(tmpdir_with_pose_files)
+    pose = jabs.pose_estimation.open_pose_file(corrupt_path, tmp_path)
+    clean = jabs.pose_estimation.open_pose_file(
+        tmpdir_with_pose_files / "sample_pose_est_v4.h5", tmp_path
+    )
+    assert pose.identities == clean.identities
+    assert pose.num_frames == clean.num_frames
+    # the instance left its identity on that frame and went nowhere JABS iterates
+    assert clean.identity_mask(identity)[frame]
+    assert not pose.identity_mask(identity)[frame]
+    for other in pose.identities:
+        if other != identity:
+            np.testing.assert_array_equal(pose.identity_mask(other), clean.identity_mask(other))
+
+
+@pytest.mark.legacy_reader
+def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files, tmp_path):
+    """test that an unmasked instance_embed_id value of 0 raises PoseIdEmbeddingException
+
+    instance_embed_id values are 1-based. A value of 0 on unmasked (id_mask ==
+    False) data would wrap around when 1 is subtracted to build a 0-based
+    identity index.
+    """
+    corrupt_path, _, _ = _corrupt_v4_embed_id(tmpdir_with_pose_files)
 
     with pytest.raises(PoseIdEmbeddingException):
-        jabs.pose_estimation.open_pose_file(corrupt_path)
+        jabs.pose_estimation.open_pose_file(corrupt_path, tmp_path)
 
 
 def test_v4_read_from_cache(tmpdir_with_pose_files):
@@ -220,6 +251,7 @@ def test_v4_read_from_cache(tmpdir_with_pose_files):
         assert np.all(mask == mask_cached)
 
 
+@pytest.mark.legacy_reader
 @pytest.mark.parametrize(
     "pose_file",
     ["sample_pose_est_v3.h5", "sample_pose_est_v4.h5"],
@@ -262,6 +294,7 @@ def test_stale_cache_file_version_is_regenerated(
     assert pose_from_regenerated_cache.num_frames == pose.num_frames
 
 
+@pytest.mark.legacy_reader
 def test_segmentation_data_by_identity_is_an_identity_first_view():
     """get_segmentation_data_by_identity returns every identity's contours without copying."""
     pose = jabs.pose_estimation.open_pose_file(
@@ -278,6 +311,7 @@ def test_segmentation_data_by_identity_is_an_identity_first_view():
         assert np.shares_memory(all_contours[identity], pose.get_segmentation_data(identity))
 
 
+@pytest.mark.legacy_reader
 def test_segmentation_data_by_identity_is_none_without_segmentation(monkeypatch):
     """A pose file with no seg_data has nothing to hand out."""
     pose = jabs.pose_estimation.open_pose_file(
