@@ -273,3 +273,55 @@ class EmbeddingDescriptor:
             normalization=data["normalization"],
             projection=None if projection is None else Projection(**projection),
         )
+
+
+@dataclass(frozen=True)
+class EmbeddingInfo:
+    """A summary of one embedding component, as a file's manifest declares it.
+
+    Attributes:
+        name: The ``<name>`` segment of the component id.
+        kind: ``"instance"`` or ``"frame"``.
+        dim: Length of the feature axis, from the descriptor.
+        fingerprint: The fingerprint the manifest records.
+        component_id: The full component id.
+    """
+
+    name: str
+    kind: str
+    dim: int
+    fingerprint: str
+    component_id: str
+
+
+def list_embeddings(manifest: dict[str, Any]) -> list[EmbeddingInfo]:
+    """List the embeddings a manifest declares.
+
+    Name and kind come from the component id; dim and fingerprint from its
+    descriptor. The fingerprint is the stored one, not recomputed: checking it
+    is the validator's job. A ``jabs.embedding.*`` id that does not parse is
+    not listed.
+
+    Args:
+        manifest: A schema-validated manifest, as ``read_manifest`` returns it.
+
+    Returns:
+        One entry per well-formed embedding component, sorted by ``(name, kind)``.
+    """
+    infos = []
+    for spec in manifest["components"]:
+        parsed = parse_embedding_id(spec["id"])
+        if parsed is None:
+            continue
+        name, kind = parsed
+        descriptor = spec["embedding"]
+        infos.append(
+            EmbeddingInfo(
+                name=name,
+                kind=kind,
+                dim=descriptor["dim"],
+                fingerprint=descriptor["fingerprint"],
+                component_id=spec["id"],
+            )
+        )
+    return sorted(infos, key=lambda info: (info.name, info.kind))

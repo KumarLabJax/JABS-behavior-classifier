@@ -24,11 +24,26 @@ makes the baseline encoding the mandatory one and ``ragged`` and ``rle``
 optional. ``ragged`` alternates (:class:`Alternate`, :class:`RaggedIndex`) are
 written and read, but not decoded in Python. A :class:`BlockSource` lets a
 writer stream a component's data to disk a block at a time.
+
+An embedding component (``jabs.embedding.<name>.instance`` or ``.frame``)
+carries learned feature vectors described by an :class:`EmbeddingDescriptor`;
+:func:`list_embeddings` summarizes those a manifest declares, and two
+embeddings whose fingerprints (:func:`compute_fingerprint`) are equal are
+directly comparable.
 """
 
 from jabs.io.internal.pose_file.adapter import PoseFileHDF5Adapter
 from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex
 from jabs.io.internal.pose_file.blocks import BlockSource
+from jabs.io.internal.pose_file.embeddings import (
+    EmbeddingDescriptor,
+    EmbeddingInfo,
+    EmbeddingModel,
+    Projection,
+    TemporalWindow,
+    compute_fingerprint,
+    list_embeddings,
+)
 from jabs.io.internal.pose_file.manifest import (
     ParsedManifest,
     build_manifest,
@@ -73,6 +88,9 @@ __all__ = [
     "Attachment",
     "BlockSource",
     "Component",
+    "EmbeddingDescriptor",
+    "EmbeddingInfo",
+    "EmbeddingModel",
     "Finding",
     "HistoryEntry",
     "NotAPoseFileError",
@@ -80,13 +98,17 @@ __all__ = [
     "PoseFile",
     "PoseFileError",
     "PoseFileHDF5Adapter",
+    "Projection",
     "Provenance",
     "ProvenanceRecord",
     "RaggedIndex",
     "Skeleton",
+    "TemporalWindow",
     "VideoInfo",
     "build_manifest",
     "build_provenance",
+    "compute_fingerprint",
+    "list_embeddings",
     "parse_manifest",
     "parse_provenance",
     "read_component",
