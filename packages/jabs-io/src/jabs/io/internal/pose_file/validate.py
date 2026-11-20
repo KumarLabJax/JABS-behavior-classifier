@@ -648,12 +648,38 @@ def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
             )
 
 
+def _descriptor_non_integers(descriptor: dict) -> list[str]:
+    """The descriptor's integer fields that hold a float or a bool.
+
+    JSON Schema counts ``9.0`` as an integer, but it serializes, and so
+    hashes, differently from ``9``. The schema already rejects a bool; it is
+    listed here too so the rule does not depend on that.
+
+    Args:
+        descriptor: A schema-validated embedding descriptor.
+
+    Returns:
+        The offending fields' dotted names, in a fixed order.
+    """
+    window = descriptor["window"]
+    integers = {
+        "dim": descriptor["dim"],
+        "window.before": window["before"],
+        "window.after": window["after"],
+    }
+    projection = descriptor["projection"]
+    if projection is not None:
+        integers["projection.input_dim"] = projection["input_dim"]
+    return [label for label, value in integers.items() if isinstance(value, bool | float)]
+
+
 def _check_embeddings(manifest: dict, findings: list[Finding]) -> None:
     """Validate every component in the ``jabs.embedding.`` namespace.
 
     The schema guarantees each such component carries a descriptor; these
-    rules check that the descriptor agrees with the id, the payload and its
-    own fingerprint, and that an embedding's ``.instance`` and ``.frame``
+    rules check that the descriptor's integers are real integers, that it
+    agrees with the id, the payload and its own fingerprint, and that an
+    embedding's ``.instance`` and ``.frame``
     components describe the same vectors. A component whose id does not
     parse reports only that: its name and kind are unknown, so nothing else
     about it can be checked against them.
@@ -716,16 +742,29 @@ def _check_embeddings(manifest: dict, findings: list[Finding]) -> None:
                 )
             )
 
-        computed = compute_fingerprint(descriptor)
-        if computed != descriptor["fingerprint"]:
+        mistyped = _descriptor_non_integers(descriptor)
+        if mistyped:
             findings.append(
                 Finding(
                     ERROR,
-                    "embedding_fingerprint",
-                    f"{component_id}: fingerprint is {descriptor['fingerprint']}, but the "
-                    f"descriptor hashes to {computed}",
+                    "embedding_descriptor_types",
+                    f"{component_id}: {mistyped} must be integers, written without a decimal "
+                    "point, so the descriptor has one canonical form",
                 )
             )
+        else:
+            # A mistyped descriptor has no canonical form, so its fingerprint
+            # is not checked: the type finding already says what to fix.
+            computed = compute_fingerprint(descriptor)
+            if computed != descriptor["fingerprint"]:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "embedding_fingerprint",
+                        f"{component_id}: fingerprint is {descriptor['fingerprint']}, but the "
+                        f"descriptor hashes to {computed}",
+                    )
+                )
 
         # A duplicate id overwrites the earlier entry here; component_id_unique
         # already reports the duplicate.

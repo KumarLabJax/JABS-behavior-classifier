@@ -44,6 +44,7 @@ INVALID = {
     "invalid-duplicate-component-id.h5": "component_id_unique",
     "invalid-embedding-axes.h5": "embedding_axes",
     "invalid-embedding-descriptor-elsewhere.h5": "manifest_schema",
+    "invalid-embedding-descriptor-float.h5": "embedding_descriptor_types",
     "invalid-embedding-descriptor-missing.h5": "manifest_schema",
     "invalid-embedding-dim.h5": "embedding_descriptor_matches",
     "invalid-embedding-dtype.h5": "embedding_storage",

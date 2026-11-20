@@ -199,6 +199,75 @@ def test_descriptor_rejects(overrides):
         _descriptor(**overrides)
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"dim": 4.0},
+        {"dim": True},
+        {"dim": "4"},
+        {"window": TemporalWindow(9.0, 9)},  # type: ignore[arg-type]
+        {"window": TemporalWindow(9, 9.0)},  # type: ignore[arg-type]
+        {"window": TemporalWindow(False, 9)},
+        {"window": TemporalWindow(9, np.bool_(True))},  # type: ignore[arg-type]
+        {"projection": Projection("pca", 768.0, "b")},  # type: ignore[arg-type]
+        {"projection": Projection("pca", True, "b")},
+        {"name": 1},
+        {"kind": None},
+        {"model": EmbeddingModel(1, _WEIGHTS)},  # type: ignore[arg-type]
+        {"model": EmbeddingModel("vit", 1)},  # type: ignore[arg-type]
+        {"tap": 1},
+        {"pooling": b"mask_mean"},
+        {"normalization": None},
+        {"projection": Projection(1, 768, "b")},  # type: ignore[arg-type]
+        {"projection": Projection("pca", 768, None)},  # type: ignore[arg-type]
+    ],
+    ids=[
+        "dim-float",
+        "dim-bool",
+        "dim-str",
+        "window-before-float",
+        "window-after-float",
+        "window-before-bool",
+        "window-after-numpy-bool",
+        "projection-input-dim-float",
+        "projection-input-dim-bool",
+        "name",
+        "kind",
+        "model-name",
+        "model-weights",
+        "tap",
+        "pooling",
+        "normalization",
+        "projection-kind",
+        "projection-basis",
+    ],
+)
+def test_descriptor_rejects_wrong_types(overrides):
+    """Integers must be real ints and strings real strings, so the fingerprint is unambiguous."""
+    with pytest.raises(ValueError):
+        _descriptor(**overrides)
+
+
+def test_descriptor_coerces_numpy_integers():
+    """NumPy integers are stored as plain ints, so the descriptor serializes and hashes."""
+    descriptor = _descriptor(
+        dim=np.int64(4),
+        window=TemporalWindow(np.int32(9), np.uint16(9)),  # type: ignore[arg-type]
+        projection=Projection("pca", np.int64(768), "b"),  # type: ignore[arg-type]
+    )
+    integers = (
+        descriptor.dim,
+        descriptor.window.before,
+        descriptor.window.after,
+        descriptor.projection.input_dim,
+    )
+    assert all(type(value) is int for value in integers)
+    assert descriptor == _descriptor(
+        window=TemporalWindow(9, 9), projection=Projection("pca", 768, "b")
+    )
+    assert json.loads(canonical_json(descriptor.to_json()))["dim"] == 4
+
+
 def test_descriptor_is_frozen():
     """Descriptors are immutable."""
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -300,6 +369,44 @@ def test_a_descriptor_naming_another_embedding_is_an_error(tmp_path, field, valu
         tmp_path, lambda m: _entry(m, _INSTANCE)["embedding"].update({field: value})
     )
     assert {f.check for f in errors} == {"embedding_descriptor_matches"}
+
+
+def _project(manifest: dict, instance_input_dim: float) -> None:
+    """Give both trunk embeddings a projection, the instance one with the given width.
+
+    768.0 equals 768 in Python, so the pair still agrees, and the frame
+    descriptor is re-fingerprinted, so only the type rule fires.
+    """
+    for component_id, input_dim in ((_INSTANCE, instance_input_dim), (_FRAME, 768)):
+        descriptor = _entry(manifest, component_id)["embedding"]
+        descriptor["projection"] = {"kind": "pca", "input_dim": input_dim, "basis": "b"}
+        descriptor["fingerprint"] = compute_fingerprint(descriptor)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda m: _entry(m, _INSTANCE)["embedding"].update(dim=8.0), id="dim"),
+        pytest.param(
+            lambda m: _entry(m, _INSTANCE)["embedding"]["window"].update(before=9.0),
+            id="window-before",
+        ),
+        pytest.param(
+            lambda m: _entry(m, _INSTANCE)["embedding"]["window"].update(after=9.0),
+            id="window-after",
+        ),
+        pytest.param(lambda m: _project(m, 768.0), id="projection-input-dim"),
+    ],
+)
+def test_a_float_where_an_integer_belongs_is_an_error(tmp_path, mutate):
+    """JSON Schema counts 9.0 as an integer, but it hashes differently from 9.
+
+    The stale fingerprint is not reported as well: the descriptor has no
+    canonical form to hash until its types are right.
+    """
+    errors = _written_with_manifest(tmp_path, mutate)
+    assert [f.check for f in errors] == ["embedding_descriptor_types"]
+    assert _INSTANCE in errors[0].message
 
 
 def test_an_embedding_without_the_nan_policy_is_an_error(tmp_path):

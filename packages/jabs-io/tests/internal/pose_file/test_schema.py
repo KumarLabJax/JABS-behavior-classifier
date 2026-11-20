@@ -143,6 +143,34 @@ def test_schema_requires_descriptor_on_embedding_ids(minimal_manifest, mutate):
     assert validate_manifest(minimal_manifest) != []
 
 
+# The largest integer an IEEE 754 double holds exactly, so JCS writes it as Python does.
+_MAX_SAFE_INTEGER = 2**53 - 1
+
+
+def _set_projection(entry: dict, input_dim: int) -> None:
+    """Give an embedding entry a projection with the given input width."""
+    entry["embedding"]["projection"] = {"kind": "pca", "input_dim": input_dim, "basis": "b"}
+
+
+@pytest.mark.parametrize(
+    "set_integer",
+    [
+        pytest.param(lambda d, v: d["embedding"].update(dim=v), id="dim"),
+        pytest.param(lambda d, v: d["embedding"]["window"].update(before=v), id="window-before"),
+        pytest.param(lambda d, v: d["embedding"]["window"].update(after=v), id="window-after"),
+        pytest.param(_set_projection, id="projection-input-dim"),
+    ],
+)
+def test_schema_bounds_descriptor_integers_at_2_53(minimal_manifest, set_integer):
+    """Descriptor integers stop at 2^53 - 1, so every one serializes the same under JCS."""
+    entry = _embedding_entry()
+    set_integer(entry, _MAX_SAFE_INTEGER)
+    minimal_manifest["components"].append(entry)
+    assert validate_manifest(minimal_manifest) == []
+    set_integer(entry, _MAX_SAFE_INTEGER + 1)
+    assert validate_manifest(minimal_manifest) != []
+
+
 def test_schema_accepts_a_projection(minimal_manifest):
     """A complete projection object validates."""
     entry = _embedding_entry()

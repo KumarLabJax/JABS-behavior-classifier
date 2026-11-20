@@ -15,9 +15,12 @@ canonical form is unambiguous.
 
 import hashlib
 import json
+import operator
 import re
 from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
 
 EMBEDDING_PREFIX: str = "jabs.embedding."
 EMBEDDING_KINDS: frozenset[str] = frozenset({"instance", "frame"})
@@ -109,6 +112,36 @@ def _require_non_empty(value: str, label: str) -> None:
         raise ValueError(f"embedding {label} must be a non-empty string")
 
 
+def _require_str(value: object, label: str) -> None:
+    """Raise ValueError when a descriptor string field holds something else."""
+    if not isinstance(value, str):
+        raise ValueError(f"embedding {label} must be a string, got {type(value).__name__}")
+
+
+def _as_int(value: object, label: str) -> int:
+    """Return a descriptor integer as a plain int.
+
+    NumPy integers are converted; anything else that is not exactly an int
+    (a float, even an integral one, or a bool) is rejected, because it would
+    serialize differently and change the fingerprint.
+
+    Args:
+        value: The field's value.
+        label: The field's name, for the error message.
+
+    Returns:
+        The value as an ``int``.
+
+    Raises:
+        ValueError: If the value is not an integer, or is a bool.
+    """
+    if isinstance(value, np.integer):
+        value = operator.index(value)
+    if type(value) is not int:
+        raise ValueError(f"embedding {label} must be an int, got {type(value).__name__}")
+    return value
+
+
 @dataclass(frozen=True)
 class EmbeddingModel:
     """The model that produced an embedding.
@@ -179,9 +212,13 @@ class EmbeddingDescriptor:
     def __post_init__(self) -> None:
         """Validate the descriptor.
 
+        NumPy integers are stored as plain ints.
+
         Raises:
-            ValueError: If any field is out of range or malformed.
+            ValueError: If any field has the wrong type, is out of range or is
+                malformed.
         """
+        self._check_types()
         if not _NAME_RE.fullmatch(self.name):
             raise ValueError(f"embedding name {self.name!r} is not a valid id segment")
         if self.kind not in EMBEDDING_KINDS:
@@ -207,6 +244,43 @@ class EmbeddingDescriptor:
         _require_non_empty(self.tap, "tap")
         _require_non_empty(self.pooling, "pooling")
         _require_non_empty(self.normalization, "normalization")
+
+    def _check_types(self) -> None:
+        """Require real strings and ints, converting NumPy integers in place.
+
+        Raises:
+            ValueError: If a string field is not a string, or an integer field
+                is a float, a bool or not a number.
+        """
+        projection = self.projection
+        strings = {
+            "name": self.name,
+            "kind": self.kind,
+            "model.name": self.model.name,
+            "model.weights": self.model.weights,
+            "tap": self.tap,
+            "pooling": self.pooling,
+            "normalization": self.normalization,
+        }
+        if projection is not None:
+            strings |= {"projection.kind": projection.kind, "projection.basis": projection.basis}
+        for label, value in strings.items():
+            _require_str(value, label)
+
+        # Frozen, so coerced values are set through object.__setattr__.
+        object.__setattr__(self, "dim", _as_int(self.dim, "dim"))
+        window = TemporalWindow(
+            _as_int(self.window.before, "window.before"),
+            _as_int(self.window.after, "window.after"),
+        )
+        object.__setattr__(self, "window", window)
+        if projection is not None:
+            projection = Projection(
+                projection.kind,
+                _as_int(projection.input_dim, "projection.input_dim"),
+                projection.basis,
+            )
+            object.__setattr__(self, "projection", projection)
 
     @property
     def fingerprint(self) -> str:

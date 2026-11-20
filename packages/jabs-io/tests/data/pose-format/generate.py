@@ -1205,6 +1205,13 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
             ),
         ),
         ("invalid-embedding-pair.h5", embedding, _descriptor(f"{TRUNK}.frame", tap="trunk.other")),
+        # 9.0 passes the schema's integer type but hashes differently from 9;
+        # the fingerprint is recomputed over the float form so only the type rule fires.
+        (
+            "invalid-embedding-descriptor-float.h5",
+            embedding,
+            _descriptor(f"{BLK31}.instance", window={"before": 9.0, "after": 4}),
+        ),
         (
             "invalid-embedding-descriptor-missing.h5",
             embedding,
