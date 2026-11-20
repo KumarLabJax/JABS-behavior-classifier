@@ -235,3 +235,19 @@ def test_merge_projects_unique_labeled_video_falls_back_to_direct_pose_path(tmp_
     dest.load_pose_est.assert_called_once()
     dest.video_manager.get_cached_pose_path.assert_not_called()
     dest.save_annotations.assert_called_once_with(src_labels, dest_pose)
+
+
+def test_merge_projects_skips_annotations_of_unusable_videos(mock_projects_with_labels, caplog):
+    """A video unusable in either project has no annotations merged; a WARNING names it."""
+    dest, src, _, _ = mock_projects_with_labels
+    dest.unusable_videos = {}
+    src.unusable_videos = {"video1.mp4": "converter refused it"}
+    for project in (dest, src):
+        project.is_usable.side_effect = lambda v, p=project: v not in p.unusable_videos
+
+    with caplog.at_level("WARNING", logger="jabs.project.project_merge"):
+        merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    saved = [c.args[0].filename for c in dest.save_annotations.call_args_list]
+    assert "video1.mp4" not in saved
+    assert any("video1.mp4" in r.getMessage() for r in caplog.records)

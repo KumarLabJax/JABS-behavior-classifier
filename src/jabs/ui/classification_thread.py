@@ -1,3 +1,4 @@
+import logging
 import time
 
 import numpy as np
@@ -8,6 +9,7 @@ from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.classifier.inference import predict_identity
 from jabs.core.enums import ClassifierMode
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
+from jabs.pose_estimation import PoseOpenError
 from jabs.project import Project
 
 from .classify_strategy import (
@@ -16,6 +18,8 @@ from .classify_strategy import (
     MultiClassClassifyStrategy,
 )
 from .exceptions import ThreadTerminatedError
+
+logger = logging.getLogger(__name__)
 
 
 class ClassifyThread(QThread):
@@ -130,7 +134,22 @@ class ClassifyThread(QThread):
                 check_termination_requested()
 
                 video_path = self._project.video_manager.video_path(video)
-                pose_est = self._project.load_pose_est(video_path)
+                pose_est = None
+                if self._project.is_usable(video):
+                    try:
+                        pose_est = self._project.load_pose_est(video_path)
+                    except PoseOpenError as error:
+                        logger.warning("Skipping %s: %s", video, error.reason)
+                else:
+                    logger.warning(
+                        "Skipping %s: its pose file is unusable: %s",
+                        video,
+                        self._project.unusable_videos[video],
+                    )
+                if pose_est is None:
+                    self._tasks_complete += 1
+                    self.update_progress.emit(self._tasks_complete)
+                    continue
 
                 predictions: dict = {}
                 probabilities: dict = {}

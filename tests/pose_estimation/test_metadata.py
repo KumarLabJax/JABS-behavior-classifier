@@ -1,6 +1,7 @@
 """scan_pose_metadata: metadata-only scan of unified and legacy pose files."""
 
 import dataclasses
+import json
 import shutil
 from pathlib import Path
 
@@ -200,3 +201,21 @@ def test_unknown_name_raises_pose_open_error(tmp_path: Path) -> None:
     shutil.copyfile(sample_path(4), path)
     with pytest.raises(PoseOpenError):
         scan_pose_metadata(path)
+
+
+def test_malformed_manifest_raises_pose_open_error(tmp_path: Path) -> None:
+    """A manifest that passes the schema but breaks the scan (a 1-D lixit) is a PoseOpenError."""
+    path = build_pose_file(
+        tmp_path / "vid_pose.h5", static_objects={"lixit": np.zeros((1, 3, 2), dtype=np.float32)}
+    )
+    with h5py.File(path, "a") as h5:
+        manifest = json.loads(h5["manifest"][()])
+        for spec in manifest["components"]:
+            if spec["id"].endswith("lixit"):
+                spec["shape"] = [1]
+        del h5["manifest"]
+        h5["manifest"] = json.dumps(manifest)
+    with pytest.raises(PoseOpenError) as excinfo:
+        scan_pose_metadata(path)
+    assert excinfo.value.path == path
+    assert excinfo.value.reason

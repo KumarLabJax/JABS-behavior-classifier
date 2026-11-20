@@ -246,6 +246,12 @@ class FakeClassifyingProject:
             fps=30,
         )
 
+        self.unusable_videos: dict[str, str] = {}
+
+    def is_usable(self, video: str) -> bool:
+        """Return whether the video is usable (not in ``unusable_videos``)."""
+        return video not in self.unusable_videos
+
     def load_pose_est(self, _video_path) -> SimpleNamespace:
         """Return the fixed pose-estimation stand-in."""
         return self._pose

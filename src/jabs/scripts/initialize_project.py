@@ -158,7 +158,8 @@ def compute_project_features(
     """Compute features for all identities in the project.
 
     Work is split into one job per video, so parallelism is limited to the number of
-    videos in the project.
+    videos in the project. Videos whose pose file is unusable are skipped with a
+    warning.
 
     Args:
         project: Project to compute features for.
@@ -172,9 +173,19 @@ def compute_project_features(
         Feature compute times merged across all identities if ``collect_timings`` is
         set, otherwise None.
     """
+    videos = []
+    for video in project.video_manager.videos:
+        if project.is_usable(video):
+            videos.append(video)
+        else:
+            logger.warning(
+                "Skipping %s: its pose file is unusable: %s",
+                video,
+                project.unusable_videos[video],
+            )
 
     def feature_job_producer():
-        for video in project.video_manager.videos:
+        for video in videos:
             yield {
                 "video": video,
                 "project": project,
@@ -186,7 +197,7 @@ def compute_project_features(
 
     timings = FeatureTimings() if collect_timings else None
     with Progress() as progress:
-        task = progress.add_task(" Computing Features", total=len(project.video_manager.videos))
+        task = progress.add_task(" Computing Features", total=len(videos))
         for result in pool.imap_unordered(generate_files_worker, feature_job_producer()):
             if timings is not None and result is not None:
                 timings.merge(result)

@@ -711,6 +711,25 @@ def test_run_evaluation_compares_every_identity(monkeypatch: pytest.MonkeyPatch)
     assert metrics.detected_truth_bouts == 2
 
 
+def test_run_evaluation_skips_unusable_videos(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A video whose pose file is unusable is skipped with its reason, never opened."""
+    project = _fake_project(
+        monkeypatch,
+        {
+            "a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}},
+            "b.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [0, 0, 0, 0]}},
+        },
+    )
+    project.unusable_videos = {"b.mp4": "converter refused it"}
+    project.is_usable.side_effect = lambda video: video not in project.unusable_videos
+    result = _run()
+
+    assert result.videos == ["a.mp4"]
+    assert result.skipped_videos == [("b.mp4", "pose file is unusable: converter refused it")]
+    opened = [Path(c.args[0]).name for c in project.load_pose_est.call_args_list]
+    assert opened == ["a.mp4"]
+
+
 def test_run_evaluation_records_the_classifier_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     """Report metadata comes from the passed-in classifier."""
     _fake_project(monkeypatch, {"a.mp4": {"truth": {0: [1, 0]}, "predicted": {0: [1, 0]}}})
