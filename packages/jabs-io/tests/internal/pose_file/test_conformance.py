@@ -98,6 +98,8 @@ INVALID = {
 # Files that pass every structural check and fail only the opt-in deep check.
 DEEP_INVALID = {
     "invalid-alternate-disagrees.h5": "alternate_decodes",
+    "invalid-embedding-partial-nan.h5": "embedding_rows_whole",
+    "invalid-embedding-unoccupied.h5": "embedding_unoccupied_nan",
 }
 
 
