@@ -326,8 +326,10 @@ and patterns in the table above, and `float16` passes the dtype and `nan`-policy
 
 **The deep checks read every embedding row**, which costs as much as reading the payload, so they
 run only under `validate(path, deep=True)`, alongside ADR 0002's alternate-decode check. Each
-embedding (and `slot_occupied` with it) is read in blocks of 1,024 frames, so a multi-gigabyte
-embedding never sits in memory at once. Each rule reports at most one finding per component,
+embedding is read in pieces bounded by the same byte budget as ADR 0002's alternate deep check
+(payload plus its NaN mask): whole frames while they fit, and a single frame a slice of the
+feature axis at a time when it alone exceeds the budget. A multi-gigabyte embedding, or a file
+whose declared shape is hostile, never forces a large allocation. Each rule reports at most one finding per component,
 naming the first offending row. A block that cannot be read (a corrupt chunk) is reported as
 `file_readable` and ends that component's deep check; `validate()` still never raises on a
 malformed file. A component the structural checks found unindexable (missing payload, wrong rank,
@@ -406,11 +408,7 @@ consumer could not rely on it, and comparability would fall back to the name.
 2. **Promoting the pose-file API out of `internal`.** Everything here lives in
    `jabs.io.internal.pose_file`. JABS adopting the format and ViT SPAL writing it will both depend
    on it; when to promote it to a public `jabs.io` API is open.
-3. **Deep-check block size in frames rather than bytes.** The embedding deep check reads 1,024
-   frames at a time, while ADR 0002's alternate deep check sizes its blocks in bytes. A frame of a
-   wide, many-slot embedding is tens of kilobytes, so a block stays in the tens of megabytes, but
-   a byte budget would bound memory for any shape.
-4. **Should read-back freeze layouts?** Carrying a recorded layout forward preserves a producer's
+3. **Should read-back freeze layouts?** Carrying a recorded layout forward preserves a producer's
    choice across a round trip, at the cost described under Storage layout when the data changes
    shape or dtype. The alternatives are to freeze only when the payload is unchanged, or to never
    carry layouts forward and require the caller to restate them.

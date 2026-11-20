@@ -533,7 +533,9 @@ def test_deep_check_reads_float16_in_blocks(
     so a message naming frame 0 would mean the block offset was dropped, and a
     check that stopped at the last whole block would miss it.
     """
-    monkeypatch.setattr(validate_module, "_DEEP_FRAME_BLOCK", 3)
+    # One frame of the D=8 float16 frame embedding costs 8 * (2 + 1) = 24 bytes
+    # (payload plus NaN mask), so a 72-byte budget reads three frames at a time.
+    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 72)
     component = build_embedding_component("trunk", "frame", frames=10)
     rows = np.array(component.data, copy=True)
     assert rows.dtype == np.float16
@@ -563,10 +565,52 @@ def test_deep_check_reads_float16_in_blocks(
     assert "jabs.embedding.trunk.frame" in errors[0].message
     assert "frame 9" in errors[0].message
     # Only the row check reads the payload, and only in bounded frame slices.
-    assert all(isinstance(key, slice) for key in reads), reads
-    spans = [range(10)[key] for key in reads]
+    assert all(isinstance(key, tuple) and isinstance(key[0], slice) for key in reads), reads
+    spans = [range(10)[key[0]] for key in reads]
     assert all(len(span) <= 3 for span in spans), reads
     assert sorted(frame for span in spans for frame in span) == list(range(10))
+
+
+def test_deep_check_slices_the_feature_axis_when_one_frame_exceeds_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A declared shape wider than the budget is read a feature slice at a time, not whole.
+
+    One frame of the D=8 float16 frame embedding costs 24 bytes with its mask;
+    a 9-byte budget fits three features, so each read covers one frame and at
+    most three features, and a NaN in the last feature is still counted.
+    """
+    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 9)
+    component = build_embedding_component("trunk", "frame", frames=4)
+    rows = np.array(component.data, copy=True)
+    rows[2, 7] = np.nan
+    pose_file = PoseFile(
+        dimensions={"frame": 4, "slot": 1, "identity": 1},
+        video=VideoInfo(frame_count=4),
+        components=(dataclasses.replace(component, data=rows),),
+    )
+    path = tmp_path / "wide.h5"
+    write_pose_file(pose_file, path)
+
+    payload_path = component.path
+    reads: list[tuple] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(self: h5py.Dataset, key: object) -> object:
+        if self.name == payload_path:
+            reads.append(key)
+        return original_getitem(self, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    errors = _row_errors(path, "embedding_rows_whole")
+
+    assert len(errors) == 1
+    assert "frame 2" in errors[0].message
+    assert "1 of 8" in errors[0].message
+    assert reads, "the payload was never read"
+    for key in reads:
+        frames, features = range(4)[key[0]], range(8)[key[-1]]
+        assert len(frames) == 1 and len(features) <= 3, key
 
 
 def test_deep_check_reports_an_unreadable_embedding_payload(
