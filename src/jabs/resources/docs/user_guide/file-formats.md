@@ -2,6 +2,29 @@
 
 This section documents the format of JABS output files that may be needed for downstream analysis.
 
+## Pose Files
+
+JABS reads two kinds of pose file, found beside each video by name:
+
+- **Unified pose file**, `<video name>_pose.h5`: one self-describing HDF5 format for every
+  pose source (see `docs/development/adr/0002-unified-pose-file-format.md` in the JABS
+  repository). It records its own capabilities (identities, segmentation, bounding boxes,
+  landmarks) and, when known, the video's frame rate and `cm_per_pixel`.
+- **Legacy pose files**, `<video name>_pose_est_v<N>.h5` with N from 2 to 8. JABS converts
+  a legacy file to the unified format when it opens it, and reads the converted copy. The
+  legacy file is never modified. In a project, converted copies are kept in
+  `jabs/cache/converted/`; outside a project (the viewer, `jabs-classify`,
+  `jabs-cli compute-features`) they are kept in a per-user cache directory.
+
+When a video has both, the unified file is used; among legacy files, the highest version is
+used. A legacy file the converter refuses (for example one that gives two animals the same
+identity in one frame) cannot be used; in a project, its video is marked unusable and left
+out of training and classification.
+
+Feature and prediction files identify the pose they were made from by the hash
+of the file beside the video (the legacy file, for a converted one), so they stay valid
+while that file is unchanged.
+
 ## Prediction File
 
 An inference file represents the predicted classes for each identity present in one video file.
@@ -28,7 +51,7 @@ predictions/
 ```
 
 predicted_class_postprocessed is only present if postprocessing was applied after prediction (e.g. stitching, minimum bout length filtering, etc).
-identity_to_track is only present for predictions using Pose File Version 3 or earlier.
+identity_to_track is only present for predictions using a version 3 pose file (or a unified file converted from one), whose identities are tracks.
 
 ### Attributes
 
@@ -79,7 +102,7 @@ This dataset contains the probability (0.0-1.0) of each prediction. If there is 
 - dtype: 32-bit integer
 - shape: #identities x #frames
 
-This dataset is only present when using version 3 of the JABS pose estimation format. It maps each JABS-assigned identity back to the original track ID from the pose file at each frame. -1 indicates the identity does not map to a track for that frame. For Pose File Version 4 and greater, JABS uses the identity assignment contained in the pose file, and identity_to_track is omitted from the prediction file.
+This dataset is only present when using version 3 of the JABS pose estimation format (or a unified pose file converted from one). It maps each JABS-assigned identity back to the original track ID from the pose file at each frame. -1 indicates the identity does not map to a track for that frame. For pose files with long-term identities (legacy version 4 and greater, and unified files that record identities), JABS uses the identity assignment contained in the pose file, and identity_to_track is omitted from the prediction file.
 
 ## Feature File
 
@@ -101,7 +124,7 @@ The root file contains the following attributes:
 - identity: identity value from the original pose value
 - num_frames: number of frames in the video
 - pose_hash: blake2b hash of pose file
-- version: feature version used when generating this feature file
+- version: feature version used when generating this feature file. JABS recomputes a feature file whose version differs from its own.
 
 ### Per-Frame Feature Names
 

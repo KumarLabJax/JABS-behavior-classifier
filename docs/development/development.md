@@ -451,8 +451,8 @@ IdentityFeatures (per identity/video)
 
 2. **`FeatureGroup`** subclasses organize related features:
    - `BaseFeatureGroup`: Core features (angles, distances, velocities) - always available
-   - `SocialFeatureGroup`: Multi-animal social features (requires pose v3+)
-   - `SegmentationFeatureGroup`: Spatial segmentation features (requires pose v6+)
+   - `SocialFeatureGroup`: Multi-animal social features (requires `PoseCapability.SOCIAL`: more than one identity)
+   - `SegmentationFeatureGroup`: Spatial segmentation features (requires `PoseCapability.SEGMENTATION`)
    - `LandmarkFeatureGroup`: Static object/landmark features (extended features)
 
 3. **`Feature`** subclasses compute actual feature values:
@@ -472,7 +472,7 @@ _FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGro
 _EXTENDED_FEATURE_MODULES = [LandmarkFeatureGroup]
 ```
 
-When `IdentityFeatures` is instantiated, it automatically creates instances of all applicable feature groups based on the pose file version.
+When `IdentityFeatures` is instantiated, it automatically creates instances of all applicable feature groups based on the pose capabilities (`Pose.has_social`, `Pose.has_segmentation`, and the static objects the file holds).
 
 ##### Adding a New Individual Feature
 
@@ -588,8 +588,8 @@ Project opened
         └── IdentityFeatures.__init__(pose_est, identity=0)
             ├── Create FeatureGroup instances
             │   ├── BaseFeatureGroup(pose_est, pixel_scale)
-            │   ├── SocialFeatureGroup(pose_est, pixel_scale)  [if pose v3+]
-            │   └── SegmentationFeatureGroup(pose_est, pixel_scale)  [if pose v6+]
+            │   ├── SocialFeatureGroup(pose_est, pixel_scale)  [if SOCIAL]
+            │   └── SegmentationFeatureGroup(pose_est, pixel_scale)  [if SEGMENTATION]
             │
             └── Load or compute per-frame features (EAGERLY, during __init__)
                 ├── PATH 1: Cache hit → __load_from_file()
@@ -741,6 +741,11 @@ FEATURE_VERSION = N + 1
    ```
 5. New features are computed and cached with the new version
 6. Users see one-time delay as all features are recomputed
+7. Saved classifiers trained on the old version are refused: every classifier records the
+   `FEATURE_VERSION` it was trained on (`_feature_version`), and `load()`/`from_pickle()` raise
+   `ClassifierFeatureVersionError` (a `ValueError`, in `jabs.classifier`) when the recorded
+   version is missing or differs. Training from an exported training file likewise refuses an
+   export whose `file_version` differs. The user has to retrain (and re-export training data).
 
 **Additional cache invalidation mechanisms:**
 
@@ -786,7 +791,7 @@ operate on the nested feature dict *before* it is converted to a DataFrame and p
 classifier. This means the cache never needs to be invalidated when the user changes which feature
 groups are enabled.
 
-Features that were never computed (e.g., social features when using a pre-v3 pose file) are simply
+Features that were never computed (e.g., social features when the pose file has only one identity) are simply
 absent from both the cache and the nested dict.
 
 **Column ordering**

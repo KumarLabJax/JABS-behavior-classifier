@@ -16,6 +16,7 @@ import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import (
     Classifier,
+    ClassifierFeatureVersionError,
     MultiClassClassifier,
     UnsupportedClassifierError,
     factories,
@@ -272,7 +273,7 @@ class CentralWidget(QtWidgets.QWidget):
         # project-wide counts for the reserved "None" background track, used to
         # source the negative-class row of the label summary in multi-class mode
         self._none_counts = None
-        # behaviors whose saved classifier was already reported as unsupported, so
+        # behaviors whose saved classifier was already reported as unusable, so
         # the warning is shown once per project rather than on every behavior change
         self._unsupported_classifier_warned: set[str] = set()
         self._bouts_behavior = 0
@@ -2275,6 +2276,10 @@ class CentralWidget(QtWidgets.QWidget):
             )
             self._reset_classifier()
             self._warn_unsupported_classifier(e)
+        except ClassifierFeatureVersionError as e:
+            logger.warning("saved classifier must be retrained: %s", e)
+            self._reset_classifier()
+            self._warn_stale_classifier(e)
         except Exception as e:
             logger.error(
                 "failed to load classifier, it will need to be retrained: %s", e, exc_info=True
@@ -2295,6 +2300,45 @@ class CentralWidget(QtWidgets.QWidget):
         self._classifier = Classifier(self._controls.classifier_type, n_jobs=-1)
         self._ensure_classifier_for_mode()
 
+    def _claim_saved_classifier_warning(self) -> str | None:
+        """Claim the one warning allowed per saved classifier, and name that classifier.
+
+        Returns:
+            The HTML subject naming the saved classifier, or None when a warning
+            about it was already shown for this project.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            key = "multi-class classifier"
+            subject = "The saved multi-class classifier"
+        else:
+            key = self.behavior
+            subject = f"The saved classifier for <b>{html.escape(self.behavior)}</b>"
+        if key in self._unsupported_classifier_warned:
+            return None
+        self._unsupported_classifier_warned.add(key)
+        return subject
+
+    def _warn_stale_classifier(self, error: ClassifierFeatureVersionError) -> None:
+        """Tell the user the saved classifier was trained on other features and must be retrained.
+
+        Shown at most once per behavior per project, deferred like
+        :meth:`_warn_unsupported_classifier`.
+
+        Args:
+            error: The error raised while loading the saved classifier.
+        """
+        subject = self._claim_saved_classifier_warning()
+        if subject is None:
+            return
+        message = (
+            f"{subject} was trained with features from an earlier version of JABS, "
+            f"so it could not be loaded. You will need to retrain it before you can "
+            f"classify.<br><br>{html.escape(str(error))}"
+        )
+        QtCore.QTimer.singleShot(
+            0, self, lambda: MessageDialog.warning(self, "Retrain Classifier", message)
+        )
+
     def _warn_unsupported_classifier(self, error: UnsupportedClassifierError) -> None:
         """Tell the user the saved classifier can't be used and must be retrained.
 
@@ -2304,15 +2348,9 @@ class CentralWidget(QtWidgets.QWidget):
         Args:
             error: The error raised while loading the saved classifier.
         """
-        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            key = "multi-class classifier"
-            subject = "The saved multi-class classifier"
-        else:
-            key = self.behavior
-            subject = f"The saved classifier for <b>{html.escape(self.behavior)}</b>"
-        if key in self._unsupported_classifier_warned:
+        subject = self._claim_saved_classifier_warning()
+        if subject is None:
             return
-        self._unsupported_classifier_warned.add(key)
 
         saved_type = f" ({html.escape(error.classifier_name)})" if error.classifier_name else ""
         # the error names an optional type by its package or by its display name

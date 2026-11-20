@@ -18,7 +18,7 @@ import pandas as pd
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn
 
-from jabs.classifier import Classifier, MultiClassClassifier
+from jabs.classifier import Classifier, ClassifierFeatureVersionError, MultiClassClassifier
 from jabs.classifier.base import unpickle_classifier
 from jabs.core.constants import APP_NAME, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierType
@@ -109,12 +109,18 @@ def train_multiclass(
 
     Returns:
         Trained ``MultiClassClassifier`` instance.
+
+    Raises:
+        SystemExit: If the training file was exported with another feature version.
     """
     console = Console()
     with console.status("Training multi-class classifier...", spinner="dots"):
-        classifier = MultiClassClassifier.from_training_file(
-            training_file, classifier_type=classifier_type
-        )
+        try:
+            classifier = MultiClassClassifier.from_training_file(
+                training_file, classifier_type=classifier_type
+            )
+        except ClassifierFeatureVersionError as e:
+            sys.exit(f"Unable to train from {training_file}: {e}")
     classifier_settings = classifier.project_settings
 
     print("Training multi-class classifier for:", ", ".join(classifier.behavior_names))
@@ -301,10 +307,18 @@ def train(training_file: Path, classifier_type: ClassifierType | None = None) ->
 
     Returns:
         Trained ``Classifier`` instance.
+
+    Raises:
+        SystemExit: If the training file was exported with another feature version.
     """
     console = Console()
     with console.status("Training classifier...", spinner="dots"):
-        classifier = Classifier.from_training_file(training_file, classifier_type=classifier_type)
+        try:
+            classifier = Classifier.from_training_file(
+                training_file, classifier_type=classifier_type
+            )
+        except ClassifierFeatureVersionError as e:
+            sys.exit(f"Unable to train from {training_file}: {e}")
     classifier_settings = classifier.project_settings
 
     print("Training classifier for:", classifier.behavior_name)

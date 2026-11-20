@@ -600,6 +600,9 @@ Multiple skeletons are legal in one file, and each keypoint component names the 
 `PoseEstimation.NVSN_CONNECTED_SEGMENTS` — the reduced skeleton for the Envision Hydra model —
 is the case that already exists.
 
+> **Note (2026-11):** `PoseEstimation` has since been removed. `FULL_CONNECTED_SEGMENTS`,
+> `NVSN_CONNECTED_SEGMENTS` and `KeypointIndex` now live in `jabs.core.pose_skeleton`.
+
 ### Encodings
 
 Each component kind declares a **baseline** encoding. A conforming reader must implement the
@@ -1293,6 +1296,13 @@ about the HDF5 layout, and `validate()` warns when it disagrees with the file.
 | v4–v8 | the rules below; write `jabs.mouse12` explicitly; carry embeddings, centers, tracklets and bbox forward; segmentation as the dense baseline with `contour_count` / `contour_length` computed from the `-1` padding |
 | v2 | single animal → one slot; `slot_occupied` derived from confidence > 0 |
 | v3 | tracklets only: `tracklet_id` populated, `dimensions.identity = 0`, no long-term identity. The file is valid and honest; JABS declines it for identity-requiring work |
+
+> **Note (2026-11, JABS adopts the unified pose file):** v3 conversion is the one exception to
+> "the converter never reads `instance_count`": it reads `poseest/instance_count` from a v3 file,
+> because only the first `instance_count` instances of a frame hold tracks. Each concurrent
+> track gets its own slot for its whole run (a free slot is assigned when the track starts and
+> released when it ends, as the v3 reader did), legacy track ids are stored as `id + 1`, and JABS
+> treats every slot of a v3 conversion as an identity rather than declining the file.
 
 **v4–v8 rules.** Each of these was measured against real files, and each is a place where a
 plausible converter goes wrong:

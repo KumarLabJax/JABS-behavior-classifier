@@ -8,21 +8,54 @@ A JABS project is a directory of video files and their corresponding pose estima
 
 ```text
 VIDEO_1.avi
-VIDEO_1_pose_est_v3.h5
+VIDEO_1_pose.h5
 VIDEO_2.avi
-VIDEO_2_pose_est_v3.h5
+VIDEO_2_pose.h5
 VIDEO_3.avi
-VIDEO_3_pose_est_v3.h5
+VIDEO_3_pose_est_v6.h5
 VIDEO_4.avi
-VIDEO_4_pose_est_v3.h5
-VIDEO_5.avi
-VIDEO_5_pose_est_v3.h5
-VIDEO_6.avi
-VIDEO_6_pose_est_v3.h5
-VIDEO_7.avi
-VIDEO_7_pose_est_v3.h5
+VIDEO_4_pose_est_v6.h5
 jabs/
 ```
+
+### Pose Files
+
+Each video needs a pose file beside it, named after the video in one of two ways:
+
+| Name | Format |
+|---|---|
+| `<video name>_pose.h5` | The unified JABS pose file. |
+| `<video name>_pose_est_v<N>.h5`, N = 2 to 8 | A legacy pose file, one format per version. |
+
+A project can mix the two. When a video has both, the unified file is used; among legacy
+files, the highest version is used. Files whose names start with `._` (macOS metadata
+files) are ignored.
+
+JABS reads legacy files by converting them to the unified format. Nothing beside the
+video is written or renamed: the converted copy is stored in the project's `jabs/cache`
+directory, made once and reused until the legacy file (or the converter, after a JABS
+upgrade) changes. Opening a large legacy project for the first time can take a while as
+its files are converted, and the converted copies take extra disk space (typically two to
+four times the legacy file). Deleting `jabs/cache` is safe; files are converted again
+when needed.
+
+#### Unusable videos
+
+If a pose file cannot be read or converted, for example because it is damaged or because
+the converter refuses it (two animals given the same identity in one frame, or one track
+shared by two animals), the project still opens. That video is marked unusable, with the
+reason, and is left out of training and classification. Fix or replace the pose file and
+reopen the project to use the video again.
+
+#### What a project can use
+
+Which features a project offers depends on what every pose file in it provides:
+
+- **Social features** need more than one identity in a pose file. A project offers them
+  only when every usable video has more than one identity.
+- **Segmentation features** need segmentation data in every pose file.
+- **Landmark features** need the landmark (for example arena corners, food hopper or
+  lixit) in every pose file.
 
 ## Initialization & jabs-init
 
@@ -160,9 +193,13 @@ This directory contains archived labels. These are compressed files (gzip) conta
 
 Files cached by JABS to speed up performance. Some of these files may not be portable, so this directory should be deleted if a JABS project is copied to a different platform.
 
+The `jabs/cache/converted` subdirectory holds the unified copies of the project's legacy pose files (see [Pose Files](#pose-files)). They are named `<video name>.<legacy file hash>-<converter version>.h5`; a copy made by an older converter is replaced the next time the video is used.
+
 ### jabs/classifiers
 
 This directory contains trained classifiers. Currently, these are stored in Python Pickle files and should be considered non-portable. While non-portable, these files can be used alongside `jabs-classify classify --classifier` for CLI-based prediction on the same machine as the gui running the training.
+
+Each classifier records the feature version it was trained with. When an upgrade of JABS changes the features (the feature version increases), classifiers trained with the earlier version cannot be loaded: JABS tells you to retrain them, and `jabs-classify` refuses them with the same message. Training data exported with an earlier feature version must likewise be exported again from the project before it can be used to train. Your labels are not affected, so retraining needs no relabeling.
 
 ### jabs/features
 

@@ -15,6 +15,7 @@ from jabs.classifier.protocols import ClassifierProtocol
 from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode, PoseCapability, ProjectDistanceUnit
 from jabs.core.utils import hash_file, hide_stderr
+from jabs.feature_extraction import FEATURE_VERSION
 from jabs.pose_estimation.conversion_cache import ensure_converted
 from jabs.project import Project, VideoLabels
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
@@ -688,7 +689,10 @@ def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path:
 
     # save a real multi-class classifier under the reserved filename
     classifier_path = project.classifier_dir / "_multiclass.pickle"
-    MultiClassClassifier(["Walk", "Run"]).save(classifier_path)
+    classifier = MultiClassClassifier(["Walk", "Run"])
+    # an untrained classifier records no feature version; stamp the current one
+    classifier._feature_version = FEATURE_VERSION
+    classifier.save(classifier_path)
 
     # write a prediction file holding the shared multi-class class_names dataset
     # plus stale classifier metadata referencing the pre-rename pickle
