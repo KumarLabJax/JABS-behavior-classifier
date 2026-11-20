@@ -396,7 +396,9 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
     if isinstance(data, BlockSource):
         # Create the dataset empty at the declared shape and fill it a block at
         # a time, so the whole array is never in memory. The layout is the same
-        # as for an in-memory array: it depends only on the id and the shape.
+        # as for an in-memory array: it depends on the id, the shape, any
+        # requested_layout and, for an embedding, the dtype's itemsize -- never
+        # on where the data comes from.
         source, data = data, None
         options.update(shape=source.shape, dtype=source.dtype)
 

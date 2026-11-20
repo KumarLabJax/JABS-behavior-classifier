@@ -22,6 +22,14 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
+from jabs.io.internal.pose_file.embeddings import (
+    EMBEDDING_AXES,
+    EMBEDDING_DTYPES,
+    PAIRED_FIELDS,
+    compute_fingerprint,
+    is_embedding_id,
+    parse_embedding_id,
+)
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -542,6 +550,106 @@ def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
                     "ragged_group_pairing",
                     f"{label}: a group-level ragged payload must name the same two offset "
                     "datasets as a leaf-level one in this file",
+                )
+            )
+
+
+def _check_embeddings(manifest: dict, findings: list[Finding]) -> None:
+    """Validate every component in the ``jabs.embedding.`` namespace.
+
+    The schema guarantees each such component carries a descriptor; these
+    rules check that the descriptor agrees with the id, the payload and its
+    own fingerprint, and that an embedding's ``.instance`` and ``.frame``
+    components describe the same vectors. A component whose id does not
+    parse reports only that: its name and kind are unknown, so nothing else
+    about it can be checked against them.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_name: dict[str, dict[str, dict]] = {}
+    for spec in manifest["components"]:
+        component_id = spec["id"]
+        if not is_embedding_id(component_id):
+            continue
+        parsed = parse_embedding_id(component_id)
+        if parsed is None:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_id_shape",
+                    f"{component_id}: an embedding id must be "
+                    "jabs.embedding.<name>.instance or jabs.embedding.<name>.frame",
+                )
+            )
+            continue
+        name, kind = parsed
+        descriptor = spec["embedding"]
+
+        expected_axes = list(EMBEDDING_AXES[kind])
+        if list(spec["axes"]) != expected_axes:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_axes",
+                    f"{component_id}: a {kind} embedding has axes {expected_axes}, "
+                    f"not {spec['axes']}",
+                )
+            )
+
+        feature_length = spec["shape"][-1] if spec["shape"] else None
+        names_differ = (descriptor["name"], descriptor["kind"]) != (name, kind)
+        if names_differ or descriptor["dim"] != feature_length:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_descriptor_matches",
+                    f"{component_id}: descriptor says {descriptor['name']}.{descriptor['kind']} "
+                    f"with dim {descriptor['dim']}, but the id is {name}.{kind} and the feature "
+                    f"axis is {feature_length}",
+                )
+            )
+
+        if spec["dtype"] not in EMBEDDING_DTYPES or spec["missing"] != {"policy": "nan"}:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_storage",
+                    f"{component_id}: an embedding is stored as one of "
+                    f"{sorted(EMBEDDING_DTYPES)} with missing policy nan, not {spec['dtype']} "
+                    f"with {spec['missing']}",
+                )
+            )
+
+        computed = compute_fingerprint(descriptor)
+        if computed != descriptor["fingerprint"]:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_fingerprint",
+                    f"{component_id}: fingerprint is {descriptor['fingerprint']}, but the "
+                    f"descriptor hashes to {computed}",
+                )
+            )
+
+        by_name.setdefault(name, {})[kind] = descriptor
+
+    for name, kinds in sorted(by_name.items()):
+        if len(kinds) < 2:
+            continue
+        differing = [
+            field
+            for field in PAIRED_FIELDS
+            if kinds["instance"].get(field) != kinds["frame"].get(field)
+        ]
+        if differing:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_pair_consistent",
+                    f"jabs.embedding.{name}: the instance and frame descriptors differ in "
+                    f"{differing}, so they do not describe the same vectors",
                 )
             )
 
@@ -1675,6 +1783,7 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
         _check_sparse_index_values(h5, manifest, findings)
         _check_alternate_names_and_paths(manifest, findings)
         _check_ragged_pairing(manifest, findings)
+        _check_embeddings(manifest, findings)
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)
