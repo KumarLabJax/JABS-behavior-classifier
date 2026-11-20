@@ -153,10 +153,13 @@ and so in fingerprint, but nothing requires that, and a producer may record the 
 for both.
 
 The descriptor may contain only objects, arrays, strings, integers, booleans and `null`: **no
-floating-point numbers**. Under that restriction the canonical form is RFC 8785 (JCS), which for
-these values is exactly Python's form below. The equivalence holds because every key is a fixed
-ASCII key from the schema (so Python's code-point sort and JCS's UTF-16 sort agree) and every
-integer stays within ±2^53 (so it serializes identically as an IEEE 754 double):
+floating-point numbers**, and an integer field holds a JSON integer written without a decimal
+point (`9`, never `9.0`; JSON Schema accepts `9.0` as an integer, so `validate()` reports it as
+`embedding_descriptor_types`). Under that restriction the canonical form is RFC 8785 (JCS), which
+for these values is exactly Python's form below. The equivalence holds because every key is a
+fixed ASCII key from the schema (so Python's code-point sort and JCS's UTF-16 sort agree) and
+every integer is at most 2^53 - 1, a bound the schema enforces as each integer field's `maximum`
+(so it serializes identically as an IEEE 754 double):
 
 ```python
 json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -311,7 +314,8 @@ parse ids. It reports the stored fingerprint; checking it is `validate()`'s job.
 | `embedding_axes` | axes are exactly `[frame, slot, feature]` (instance) or `[frame, feature]` (frame) | error |
 | `embedding_descriptor_matches` | the descriptor's `name` and `kind` equal the id's, and `dim` equals the feature-axis length | error |
 | `embedding_storage` | dtype is `float16` or `float32`, and `missing` is exactly `{"policy": "nan"}` | error |
-| `embedding_fingerprint` | the stored `fingerprint` equals the one recomputed from the descriptor | error |
+| `embedding_descriptor_types` | `dim`, `window.before`, `window.after` and `projection.input_dim` hold no float (even an integral one such as `9.0`) or bool | error |
+| `embedding_fingerprint` | the stored `fingerprint` equals the one recomputed from the descriptor; not checked for a component that fails `embedding_descriptor_types`, which has no canonical form | error |
 | `embedding_pair_consistent` | when `<name>.instance` and `<name>.frame` both exist, their `dim`, `model`, `tap`, `window`, `normalization` and `projection` are equal | error |
 | `embedding_rows_whole` | **opt-in deep check:** no row is partially NaN | error when requested |
 | `embedding_unoccupied_nan` | **opt-in deep check:** when `jabs.pose.slot_occupied` exists, every per-instance row where it is false is all-NaN | error when requested |
