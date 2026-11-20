@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -36,6 +37,7 @@ class ShapeDescriptors(Feature):
     """
 
     _name = "shape_descriptor"
+    _requires = frozenset({PoseCapability.SEGMENTATION})
     # TODO: we're discarding centroid angle and ellipse-fit angle (theta)
     # These need to be handled similar to other angle terms (circular statistics)
 

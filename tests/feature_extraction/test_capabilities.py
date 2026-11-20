@@ -35,6 +35,18 @@ def test_social_feature_unsupported_without_social(feature_class: type) -> None:
     assert feature_class.is_supported(_SOCIAL, set())
 
 
+@pytest.mark.parametrize("feature_class", list(SegmentationFeatureGroup._features.values()))
+def test_segmentation_feature_unsupported_without_segmentation(feature_class: type) -> None:
+    """Every segmentation feature requires SEGMENTATION."""
+    assert not feature_class.is_supported(_SOCIAL, set())
+    assert feature_class.is_supported(frozenset({PoseCapability.SEGMENTATION}), set())
+
+
+def test_segmentation_group_supports_nothing_without_segmentation() -> None:
+    """The segmentation group reports no supported features without SEGMENTATION."""
+    assert SegmentationFeatureGroup.get_supported_feature_modules(_NONE, set()) == []
+
+
 def test_social_feature_requires_social() -> None:
     """Social features declare SOCIAL as their requirement."""
     assert ClosestDistances._requires == _SOCIAL
