@@ -62,12 +62,6 @@ VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
 # sits in memory at once. A block is at least one frame.
 DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
 
-# The deep check reads each embedding this many frames at a time. A frame of
-# the largest plausible embedding (a few thousand features for each of a
-# handful of slots) is tens of kilobytes, so a block stays in the tens of
-# megabytes.
-_DEEP_FRAME_BLOCK: int = 1024
-
 _SLOT_OCCUPIED = "jabs.pose.slot_occupied"
 
 # The alternates this revision defines, by name and component, with the level
@@ -1920,6 +1914,49 @@ def _row_position(index: tuple[int, ...], first: int) -> str:
     return f"frame {frame}, slot {int(index[1])}"
 
 
+def _embedding_read_plan(shape: tuple[int, ...], itemsize: int) -> tuple[int, int]:
+    """How many frames, and how many features at a time, one deep-check read covers.
+
+    Each element costs its own bytes plus one byte of NaN mask. Whole frames
+    are read while they fit ``DEEP_CHECK_BLOCK_BYTES``; when a single frame
+    does not, one frame is read a slice of the feature axis at a time.
+
+    Args:
+        shape: The embedding payload's shape; ``frame`` first, ``feature`` last.
+        itemsize: Bytes per payload element.
+
+    Returns:
+        ``(frames_per_block, features_per_slice)``, each at least 1.
+    """
+    rows_per_frame = max(1, int(np.prod(shape[1:-1], dtype=np.int64)))
+    dim = max(1, int(shape[-1]))
+    element_bytes = itemsize + 1
+    frame_bytes = rows_per_frame * dim * element_bytes
+    if frame_bytes <= DEEP_CHECK_BLOCK_BYTES:
+        return max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes), dim
+    return 1, max(1, DEEP_CHECK_BLOCK_BYTES // (rows_per_frame * element_bytes))
+
+
+def _nan_counts(node: h5py.Dataset, first: int, last: int, step: int) -> np.ndarray:
+    """Count NaN features per row for frames ``[first, last)``, reading ``step`` features at a time.
+
+    Args:
+        node: The embedding payload.
+        first: First frame.
+        last: One past the last frame.
+        step: Features per read.
+
+    Returns:
+        Counts with the payload's shape minus the feature axis.
+    """
+    dim = node.shape[-1]
+    counts = np.zeros((last - first, *node.shape[1:-1]), dtype=np.int64)
+    for start in range(0, dim, step):
+        piece = np.asarray(node[first:last, ..., start : min(dim, start + step)])
+        counts += np.isnan(piece).sum(axis=-1)
+    return counts
+
+
 def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
     """The opt-in deep check on embedding rows.
 
@@ -1930,7 +1967,10 @@ def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]
     ``slot_occupied`` nothing says which slots are empty, and that rule is
     skipped.
 
-    Each embedding is read ``_DEEP_FRAME_BLOCK`` frames at a time. Only
+    Each embedding is read in pieces of at most ``DEEP_CHECK_BLOCK_BYTES``
+    (payload plus its NaN mask): whole frames when they fit, and a frame's
+    feature axis in slices when one frame alone exceeds the budget, so the
+    declared shape of an untrusted file cannot force a large allocation. Only
     components whose id parses are read, and only payloads the structural
     pass could index; each rule reports at most one finding per component,
     naming the first offending row. A block that cannot be read (a corrupt
@@ -1957,13 +1997,13 @@ def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]
             _slot_occupied_node(h5, by_id, node.shape[:2]) if kind == "instance" else None
         )
 
-        block = _DEEP_FRAME_BLOCK
+        block, step = _embedding_read_plan(node.shape, node.dtype.itemsize)
         dim = node.shape[-1]
         rows_whole, unoccupied_nan = True, occupied_node is not None
         for first in range(0, node.shape[0], block):
             last = min(node.shape[0], first + block)
             try:
-                nan = np.isnan(np.asarray(node[first:last]))
+                nan_count = _nan_counts(node, first, last, step)
                 empty = (
                     ~np.asarray(occupied_node[first:last])
                     if unoccupied_nan and occupied_node is not None
@@ -1981,7 +2021,6 @@ def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]
                     )
                 )
                 break
-            nan_count = nan.sum(axis=-1)
             if rows_whole:
                 partial = np.argwhere((nan_count != 0) & (nan_count != dim))
                 if partial.size:
