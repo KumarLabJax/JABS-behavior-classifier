@@ -11,11 +11,14 @@ from click.testing import CliRunner
 
 import jabs.scripts.cli.cli as cli_module
 from jabs.core.constants import FINAL_TRAIN_SEED, MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierMode, ClassifierType
+from jabs.core.enums import ClassifierMode, ClassifierType, PoseCapability
+from jabs.feature_extraction import FEATURE_VERSION
 from jabs.project import export_training_data, export_training_data_multiclass
 from jabs.project.read_training import load_multiclass_training_data
 from jabs.project.track_labels import TrackLabels
 from jabs.scripts.cli.cli import cli
+
+_CAPS = frozenset({PoseCapability.SOCIAL, PoseCapability.SEGMENTATION})
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,7 +71,7 @@ def _make_multiclass_project(tmp_path: Path, behavior_names: list[str]) -> Magic
         classifier_mode=ClassifierMode.MULTICLASS,
         behavior_names=behavior_names,
     )
-    project.feature_manager = SimpleNamespace(min_pose_version=6)
+    project.feature_manager = SimpleNamespace(capabilities=_CAPS)
     return project
 
 
@@ -84,13 +87,14 @@ def test_multiclass_export_attrs(tmp_path: Path) -> None:
     behavior_names = ["Walk", "Run"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.RANDOM_FOREST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.RANDOM_FOREST
     )
 
     with h5py.File(out, "r") as f:
         assert f.attrs["classifier_mode"] == "multiclass"
         assert f.attrs["classifier_type"] == ClassifierType.RANDOM_FOREST.value
-        assert f.attrs["min_pose_version"] == 6
+        assert list(f.attrs["pose_capabilities"]) == ["segmentation", "social"]
+        assert "min_pose_version" not in f.attrs
         assert f.attrs["training_seed"] == FINAL_TRAIN_SEED
 
 
@@ -101,7 +105,7 @@ def test_multiclass_export_class_names(tmp_path: Path) -> None:
     behavior_names = ["Walk", "Run"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.RANDOM_FOREST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.RANDOM_FOREST
     )
 
     with h5py.File(out, "r") as f:
@@ -119,7 +123,7 @@ def test_multiclass_export_label_datasets(tmp_path: Path) -> None:
     behavior_names = ["Walk", "Run"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.RANDOM_FOREST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.RANDOM_FOREST
     )
 
     with h5py.File(out, "r") as f:
@@ -138,7 +142,7 @@ def test_multiclass_export_group_mapping(tmp_path: Path) -> None:
     behavior_names = ["Walk"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.RANDOM_FOREST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.RANDOM_FOREST
     )
 
     with h5py.File(out, "r") as f:
@@ -152,7 +156,7 @@ def test_multiclass_export_no_behavior_names_attr(tmp_path: Path) -> None:
 
     project = _make_multiclass_project(tmp_path, ["Walk"])
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.RANDOM_FOREST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.RANDOM_FOREST
     )
 
     with h5py.File(out, "r") as f:
@@ -169,7 +173,7 @@ def test_load_multiclass_training_data_roundtrip(tmp_path: Path) -> None:
     behavior_names = ["Walk", "Run"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.RANDOM_FOREST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.RANDOM_FOREST
     )
 
     loaded, group_mapping = load_multiclass_training_data(out)
@@ -179,6 +183,8 @@ def test_load_multiclass_training_data_roundtrip(tmp_path: Path) -> None:
     assert set(loaded["labels_by_behavior"].keys()) == {MULTICLASS_NONE_BEHAVIOR, "Walk", "Run"}
     assert loaded["classifier_type"] == ClassifierType.RANDOM_FOREST
     assert loaded["training_seed"] == FINAL_TRAIN_SEED
+    assert loaded["pose_capabilities"] == _CAPS
+    assert loaded["file_version"] == FEATURE_VERSION
     assert isinstance(loaded["per_frame"], pd.DataFrame)
     assert isinstance(loaded["window"], pd.DataFrame)
     assert loaded["per_frame"].shape[0] == loaded["window"].shape[0]
@@ -205,9 +211,9 @@ def test_load_multiclass_rejects_binary_file(tmp_path: Path) -> None:
     binary_project.settings_manager = SimpleNamespace(
         get_behavior=lambda _: {"window_size": 5, "balance_labels": False},
     )
-    binary_project.feature_manager = SimpleNamespace(min_pose_version=6)
+    binary_project.feature_manager = SimpleNamespace(capabilities=_CAPS)
 
-    binary_out = export_training_data(binary_project, "Walk", 6, ClassifierType.RANDOM_FOREST)
+    binary_out = export_training_data(binary_project, "Walk", _CAPS, ClassifierType.RANDOM_FOREST)
 
     with pytest.raises(ValueError, match="not a multi-class training file"):
         load_multiclass_training_data(binary_out)
@@ -225,7 +231,7 @@ def test_multiclass_from_training_file_roundtrip(tmp_path: Path) -> None:
     behavior_names = ["Walk", "Run"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.RANDOM_FOREST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.RANDOM_FOREST
     )
 
     clf = MultiClassClassifier.from_training_file(out)
@@ -275,7 +281,7 @@ def test_cli_multiclass_does_not_require_behavior(
     behavior_names = ["Walk", "Run"]
     project = _make_multiclass_project(tmp_path, behavior_names)
     project.settings_manager.classifier_mode = ClassifierMode.MULTICLASS
-    project.feature_manager.min_pose_version = 6
+    project.feature_manager.capabilities = _CAPS
 
     out_path = tmp_path / "mc.h5"
     export = MagicMock(return_value=out_path)
@@ -296,7 +302,7 @@ def test_cli_multiclass_does_not_require_behavior(
 
     assert result.exit_code == 0, result.output
     assert "Exported training data" in result.output
-    export.assert_called_once_with(project, 6, ClassifierType.RANDOM_FOREST, out_file=out_path)
+    export.assert_called_once_with(project, _CAPS, ClassifierType.RANDOM_FOREST, out_file=out_path)
 
 
 def test_multiclass_from_training_file_falls_back_when_type_unavailable(
@@ -312,7 +318,7 @@ def test_multiclass_from_training_file_falls_back_when_type_unavailable(
 
     project = _make_multiclass_project(tmp_path, ["Walk", "Run"])
     out = export_training_data_multiclass(
-        project, pose_version=6, classifier_type=ClassifierType.CATBOOST
+        project, capabilities=_CAPS, classifier_type=ClassifierType.CATBOOST
     )
     available = factories.supported_classifier_types(multiclass=True) - {ClassifierType.CATBOOST}
     monkeypatch.setattr(

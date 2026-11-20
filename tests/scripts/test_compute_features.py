@@ -91,7 +91,7 @@ def test_default_cm_when_pose_has_scale(tmp_path: Path) -> None:
     pose = _fake_pose(cm_per_pixel=0.05)
     with (
         patch(f"{MODULE}.open_pose_file", return_value=pose),
-        patch(f"{MODULE}.Project.settings_by_pose_version") as mock_settings,
+        patch(f"{MODULE}.Project.settings_by_capabilities") as mock_settings,
         patch(f"{MODULE}.IdentityFeatures") as mock_features_cls,
     ):
         mock_settings.return_value = {"social": False}
@@ -107,7 +107,7 @@ def test_default_cm_when_pose_has_scale(tmp_path: Path) -> None:
             ],
         )
     assert result.exit_code == 0, result.output
-    mock_settings.assert_called_once_with(6, ProjectDistanceUnit.CM)
+    mock_settings.assert_called_once_with(pose.capabilities, distance_unit=ProjectDistanceUnit.CM)
     mock_features_cls.assert_called_once()
 
 
@@ -117,7 +117,7 @@ def test_default_pixel_when_pose_lacks_scale(tmp_path: Path) -> None:
     pose = _fake_pose(cm_per_pixel=None)
     with (
         patch(f"{MODULE}.open_pose_file", return_value=pose),
-        patch(f"{MODULE}.Project.settings_by_pose_version") as mock_settings,
+        patch(f"{MODULE}.Project.settings_by_capabilities") as mock_settings,
         patch(f"{MODULE}.IdentityFeatures"),
     ):
         mock_settings.return_value = {"social": False}
@@ -133,7 +133,9 @@ def test_default_pixel_when_pose_lacks_scale(tmp_path: Path) -> None:
             ],
         )
     assert result.exit_code == 0, result.output
-    mock_settings.assert_called_once_with(6, ProjectDistanceUnit.PIXEL)
+    mock_settings.assert_called_once_with(
+        pose.capabilities, distance_unit=ProjectDistanceUnit.PIXEL
+    )
 
 
 def test_use_pixel_distances_overrides_cm_default(tmp_path: Path) -> None:
@@ -142,7 +144,7 @@ def test_use_pixel_distances_overrides_cm_default(tmp_path: Path) -> None:
     pose = _fake_pose(cm_per_pixel=0.05)
     with (
         patch(f"{MODULE}.open_pose_file", return_value=pose),
-        patch(f"{MODULE}.Project.settings_by_pose_version") as mock_settings,
+        patch(f"{MODULE}.Project.settings_by_capabilities") as mock_settings,
         patch(f"{MODULE}.IdentityFeatures"),
     ):
         mock_settings.return_value = {"social": False}
@@ -159,7 +161,9 @@ def test_use_pixel_distances_overrides_cm_default(tmp_path: Path) -> None:
             ],
         )
     assert result.exit_code == 0, result.output
-    mock_settings.assert_called_once_with(6, ProjectDistanceUnit.PIXEL)
+    mock_settings.assert_called_once_with(
+        pose.capabilities, distance_unit=ProjectDistanceUnit.PIXEL
+    )
 
 
 def test_identity_features_invoked_with_expected_args(tmp_path: Path) -> None:
@@ -172,7 +176,7 @@ def test_identity_features_invoked_with_expected_args(tmp_path: Path) -> None:
     fake_features = MagicMock()
     with (
         patch(f"{MODULE}.open_pose_file", return_value=pose),
-        patch(f"{MODULE}.Project.settings_by_pose_version", return_value=settings),
+        patch(f"{MODULE}.Project.settings_by_capabilities", return_value=settings),
         patch(f"{MODULE}.IdentityFeatures", return_value=fake_features) as mock_features_cls,
     ):
         runner = CliRunner()
@@ -215,7 +219,7 @@ def test_window_sizes_iterated_dedup_sorted(tmp_path: Path) -> None:
     fake_features = MagicMock()
     with (
         patch(f"{MODULE}.open_pose_file", return_value=pose),
-        patch(f"{MODULE}.Project.settings_by_pose_version", return_value={"social": False}),
+        patch(f"{MODULE}.Project.settings_by_capabilities", return_value={"social": False}),
         patch(f"{MODULE}.IdentityFeatures", return_value=fake_features) as mock_features_cls,
     ):
         runner = CliRunner()
@@ -254,7 +258,7 @@ def test_force_flag_forwarded(tmp_path: Path) -> None:
     fake_features = MagicMock()
     with (
         patch(f"{MODULE}.open_pose_file", return_value=pose),
-        patch(f"{MODULE}.Project.settings_by_pose_version", return_value={"social": False}),
+        patch(f"{MODULE}.Project.settings_by_capabilities", return_value={"social": False}),
         patch(f"{MODULE}.IdentityFeatures", return_value=fake_features) as mock_features_cls,
     ):
         runner = CliRunner()
@@ -279,21 +283,18 @@ def test_force_flag_forwarded(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("capabilities", "version"),
-    [
-        (frozenset(), 5),
-        (frozenset({PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}), 6),
-    ],
+    "capabilities",
+    [frozenset(), frozenset({PoseCapability.SOCIAL, PoseCapability.SEGMENTATION})],
 )
 def test_settings_follow_pose_capabilities(
-    tmp_path: Path, capabilities: frozenset[PoseCapability], version: int
+    tmp_path: Path, capabilities: frozenset[PoseCapability]
 ) -> None:
     """Default settings come from the pose capabilities, for a unified file too."""
     pose_file = _make_pose_file(tmp_path, "session_pose.h5")
     pose = _fake_pose(capabilities=capabilities)
     with (
         patch(f"{MODULE}.open_pose_file", return_value=pose),
-        patch(f"{MODULE}.Project.settings_by_pose_version") as mock_settings,
+        patch(f"{MODULE}.Project.settings_by_capabilities") as mock_settings,
         patch(f"{MODULE}.IdentityFeatures"),
     ):
         mock_settings.return_value = {"social": False}
@@ -302,7 +303,7 @@ def test_settings_follow_pose_capabilities(
             ["compute-features", "--pose-file", str(pose_file), "--feature-dir", str(tmp_path)],
         )
     assert result.exit_code == 0, result.output
-    mock_settings.assert_called_once_with(version, ProjectDistanceUnit.PIXEL)
+    mock_settings.assert_called_once_with(capabilities, distance_unit=ProjectDistanceUnit.PIXEL)
 
 
 def test_fps_is_deprecated_and_ignored(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -310,7 +311,7 @@ def test_fps_is_deprecated_and_ignored(tmp_path: Path, caplog: pytest.LogCapture
     pose_file = _make_pose_file(tmp_path)
     with (
         patch(f"{MODULE}.open_pose_file", return_value=_fake_pose()),
-        patch(f"{MODULE}.Project.settings_by_pose_version", return_value={"social": False}),
+        patch(f"{MODULE}.Project.settings_by_capabilities", return_value={"social": False}),
         patch(f"{MODULE}.IdentityFeatures") as mock_features_cls,
     ):
         result = CliRunner().invoke(

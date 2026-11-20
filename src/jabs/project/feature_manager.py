@@ -1,4 +1,3 @@
-from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING
 
 import jabs.feature_extraction as feature_extraction
@@ -9,30 +8,6 @@ from .video_manager import VideoManager
 
 if TYPE_CHECKING:
     from .parallel_workers import VideoScanResult
-
-# legacy pose versions standing in for capabilities where callers still take one
-_SEGMENTATION_POSE_VERSION = 6
-_POSE_VERSION = 5
-
-
-def pose_version_for_capabilities(capabilities: AbstractSet[PoseCapability]) -> int:
-    """Return the legacy pose version to pass where a caller still takes one.
-
-    Deprecated: only for callers not yet moved to capabilities (project default
-    settings, training exports). Those gate social on ``>= 3``, static objects on
-    ``>= 5`` (static objects are also checked by name) and segmentation on
-    ``>= 6``, so the version is 6 with ``SEGMENTATION``, else 5. Without
-    ``SOCIAL`` no social features are computed, whatever the version says.
-
-    Args:
-        capabilities: Pose capabilities.
-
-    Returns:
-        6 when ``SEGMENTATION`` is among the capabilities, else 5.
-    """
-    if PoseCapability.SEGMENTATION in capabilities:
-        return _SEGMENTATION_POSE_VERSION
-    return _POSE_VERSION
 
 
 class FeatureManager:
@@ -114,7 +89,6 @@ class FeatureManager:
         self._capabilities: frozenset[PoseCapability] = (
             frozenset.intersection(*capability_sets) if capability_sets else frozenset()
         )
-        self._has_usable_videos = bool(capability_sets)
 
         # Static objects are those present in ALL videos
         self._static_objects = (
@@ -201,20 +175,6 @@ class FeatureManager:
             when there are none.
         """
         return self._capabilities
-
-    @property
-    def min_pose_version(self) -> int:
-        """Deprecated: a pose version standing in for :attr:`capabilities`.
-
-        See :func:`pose_version_for_capabilities`. Kept for project default
-        settings and training exports until they take capabilities.
-
-        Returns:
-            0 without usable videos, else the version for :attr:`capabilities`.
-        """
-        if not self._has_usable_videos:
-            return 0
-        return pose_version_for_capabilities(self._capabilities)
 
     @property
     def static_objects(self) -> set[str]:

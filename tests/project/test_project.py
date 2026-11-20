@@ -15,6 +15,7 @@ from jabs.classifier.protocols import ClassifierProtocol
 from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode, PoseCapability, ProjectDistanceUnit
 from jabs.core.utils import hash_file, hide_stderr
+from jabs.pose_estimation.conversion_cache import ensure_converted
 from jabs.project import Project, VideoLabels
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 from jabs.project.project_utils import to_safe_name
@@ -241,8 +242,6 @@ def test_load_defers_video_frame_check_by_default(project_with_data):
 def test_project_capabilities(project_with_data):
     """dummy project's v3 and v4 pose files are both social, neither has segmentation"""
     assert project_with_data.feature_manager.capabilities == frozenset({PoseCapability.SOCIAL})
-    # deprecated stand-in for the capabilities: 5 without segmentation
-    assert project_with_data.feature_manager.min_pose_version == 5
 
 
 def test_can_use_social_true(project_with_data):
@@ -1097,7 +1096,6 @@ def test_refresh_feature_manager_recomputes_capabilities(tmp_path: Path) -> None
     assert project.feature_manager.capabilities == frozenset(
         {PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}
     )
-    assert project.feature_manager.min_pose_version == 6
     assert project.feature_manager.can_use_segmentation_features
     assert project.feature_manager.can_use_social_features
     assert project.feature_manager.is_cm_unit
@@ -1117,7 +1115,7 @@ def test_refresh_feature_manager_matches_reopening_the_project(tmp_path: Path) -
 
     reopened = Project(project_dir, enable_session_tracker=False)
 
-    assert project.feature_manager.min_pose_version == reopened.feature_manager.min_pose_version
+    assert project.feature_manager.capabilities == reopened.feature_manager.capabilities
     assert project.feature_manager.static_objects == reopened.feature_manager.static_objects
     assert project.feature_manager.is_cm_unit == reopened.feature_manager.is_cm_unit
     assert (
@@ -1133,11 +1131,13 @@ def test_refresh_feature_manager_matches_reopening_the_project(tmp_path: Path) -
     [(ProjectDistanceUnit.CM, True), (ProjectDistanceUnit.PIXEL, False)],
     ids=["cm", "pixel"],
 )
-def test_settings_by_pose_version_cm_units_is_bool(
+def test_settings_by_capabilities_cm_units_is_bool(
     distance_unit: ProjectDistanceUnit, expected: bool
 ) -> None:
     """The defaults store cm_units as a bool, the same type the GUI writes."""
-    cm_units = Project.settings_by_pose_version(6, distance_unit)["cm_units"]
+    cm_units = Project.settings_by_capabilities(frozenset(), distance_unit=distance_unit)[
+        "cm_units"
+    ]
 
     assert type(cm_units) is bool
     assert cm_units is expected
@@ -1176,6 +1176,103 @@ def test_refresh_feature_manager_reads_no_pose_files(tmp_path: Path) -> None:
 
     project.refresh_feature_manager()
 
-    assert project.feature_manager.min_pose_version == 6
+    assert project.feature_manager.capabilities == frozenset(
+        {PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}
+    )
     assert project.feature_manager.is_cm_unit
     assert project.feature_manager.static_objects == {"corners"}
+
+
+@pytest.mark.parametrize(
+    ("capabilities", "social", "segmentation"),
+    [
+        (frozenset(), False, False),
+        (frozenset({PoseCapability.SOCIAL}), True, False),
+        (frozenset({PoseCapability.SEGMENTATION}), False, True),
+        (
+            frozenset(
+                {
+                    PoseCapability.SOCIAL,
+                    PoseCapability.SEGMENTATION,
+                    PoseCapability.BOUNDING_BOXES,
+                }
+            ),
+            True,
+            True,
+        ),
+    ],
+    ids=["none", "social", "segmentation", "all"],
+)
+def test_settings_by_capabilities_follow_capabilities(
+    capabilities: frozenset[PoseCapability], social: bool, segmentation: bool
+) -> None:
+    """Social and segmentation defaults are on exactly when the capability is present."""
+    settings = Project.settings_by_capabilities(capabilities)
+
+    assert settings["social"] is social
+    assert settings["segmentation"] is segmentation
+
+
+def test_settings_by_capabilities_static_objects_by_name() -> None:
+    """A static object default is on when the object is present, whatever the capabilities."""
+    settings = Project.settings_by_capabilities(frozenset(), {"lixit"})
+
+    assert settings["static_objects"]["lixit"] is True
+    assert settings["static_objects"]["corners"] is False
+
+
+def _single_and_multi_identity_project(tmp_path: Path, include_single: bool = True) -> Project:
+    """Build a project from a unified multi-identity file and a legacy single-identity one.
+
+    ``video1`` has a unified ``*_pose.h5`` converted from the v6 sample (four
+    identities, segmentation, corners, a cm scale). ``video2`` has the legacy v2
+    sample, a single mouse with no segmentation.
+    """
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    test_data_dir = Path(__file__).parent.parent / "data"
+
+    legacy = tmp_path / "src" / "video1_pose_est_v6.h5"
+    legacy.parent.mkdir()
+    shutil.copyfile(test_data_dir / "sample_pose_est_v6.h5", legacy)
+    converted = ensure_converted(legacy, hash_file(legacy), tmp_path / "cache")
+    (project_dir / "video1.avi").touch()
+    shutil.copyfile(converted, project_dir / "video1_pose.h5")
+
+    if include_single:
+        (project_dir / "video2.avi").touch()
+        shutil.copyfile(
+            test_data_dir / "sample_pose_est_v2.h5", project_dir / "video2_pose_est_v2.h5"
+        )
+
+    return Project(project_dir, enable_session_tracker=False)
+
+
+def test_mixed_identity_project_settings_follow_capability_intersection(
+    tmp_path: Path,
+) -> None:
+    """A single-identity video removes SOCIAL from the whole project and its defaults.
+
+    The legacy pose version of the single-identity video does not matter: the
+    project's capabilities are the intersection over every usable video.
+    """
+    project = _single_and_multi_identity_project(tmp_path)
+
+    assert project.unusable_videos == {}
+    assert project.feature_manager.capabilities == frozenset()
+    assert not project.feature_manager.can_use_social_features
+    defaults = project.get_project_defaults()
+    assert defaults["social"] is False
+    assert defaults["segmentation"] is False
+
+
+def test_multi_identity_project_alone_has_social(tmp_path: Path) -> None:
+    """Without the single-identity video, the unified file alone gives SOCIAL."""
+    project = _single_and_multi_identity_project(tmp_path, include_single=False)
+
+    assert project.feature_manager.capabilities == frozenset(
+        {PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}
+    )
+    defaults = project.get_project_defaults()
+    assert defaults["social"] is True
+    assert defaults["segmentation"] is True

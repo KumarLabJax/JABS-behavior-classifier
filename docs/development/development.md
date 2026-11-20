@@ -445,7 +445,7 @@ IdentityFeatures (per identity/video)
 
 1. **`IdentityFeatures`** (in `features.py`) is the top-level class that manages all features for a single identity in a video.
    - Instantiated with pose data, identity, and project directory
-   - Automatically loads/creates all relevant `FeatureGroup` instances based on pose version
+   - Automatically loads/creates all relevant `FeatureGroup` instances based on the pose capabilities
    - Handles caching of computed features (HDF5 or Parquet, see [Feature Version Management and Cache Invalidation](#feature-version-management-and-cache-invalidation))
    - Provides methods like `get_per_frame()` and `get_window_features()`
 
@@ -458,14 +458,14 @@ IdentityFeatures (per identity/video)
 3. **`Feature`** subclasses compute actual feature values:
    - Each implements `per_frame(identity)` to compute per-frame values
    - Inherits `window()` method for temporal window operations
-   - Can specify required pose version and dependencies
+   - Can specify required pose capabilities and dependencies
 
 ##### Feature Registration
 
 Feature groups are registered in `src/jabs/feature_extraction/features.py`:
 
 ```python
-# Core feature groups (always loaded if pose version supports them)
+# Core feature groups (always loaded if the pose capabilities support them)
 _FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGroup]
 
 # Extended feature groups (optional, loaded separately)
@@ -631,7 +631,7 @@ Project opened
 - **Cache bypasses Feature creation**: When loading from cache, Feature instances are never created - just numpy arrays loaded from the cache
 - **Memory efficiency**: Feature instances don't persist; only the computed numpy arrays are kept in memory
 - **Caching**: Expensive computations are cached to disk (HDF5 or Parquet files) and loaded once
-- **Flexibility**: Feature groups can be enabled/disabled based on pose version
+- **Flexibility**: Feature groups can be enabled/disabled based on pose capabilities
 - **Stateless features**: Each time Features are instantiated, they compute fresh values without carrying state
 
 ##### Feature Version Management and Cache Invalidation

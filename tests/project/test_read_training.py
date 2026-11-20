@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from jabs.core.enums import ClassifierType, ProjectDistanceUnit
+from jabs.core.enums import ClassifierType, PoseCapability, ProjectDistanceUnit
+from jabs.feature_extraction import FEATURE_VERSION
 from jabs.project import export_training_data
 from jabs.project.read_training import load_training_data
 
@@ -55,7 +56,7 @@ def test_load_training_data_decodes_group_mapping(tmp_path: Path) -> None:
             2: {"video": "vid_c.mp4", "identity": 2},
         },
     )
-    out = export_training_data(project, "Walk", 6, ClassifierType.RANDOM_FOREST)
+    out = export_training_data(project, "Walk", frozenset(), ClassifierType.RANDOM_FOREST)
 
     _, group_mapping = load_training_data(out)
 
@@ -80,7 +81,7 @@ def test_load_training_data_uses_filename_pattern_label(tmp_path: Path) -> None:
             },
         },
     )
-    out = export_training_data(project, "Walk", 6, ClassifierType.RANDOM_FOREST)
+    out = export_training_data(project, "Walk", frozenset(), ClassifierType.RANDOM_FOREST)
 
     _, group_mapping = load_training_data(out)
 
@@ -114,7 +115,7 @@ def test_load_training_data_reads_distance_unit_from_settings(
         {0: {"video": "vid_a.mp4", "identity": 0}},
         behavior_settings={"window_size": 5, "cm_units": cm_units},
     )
-    out = export_training_data(project, "Walk", 6, ClassifierType.RANDOM_FOREST)
+    out = export_training_data(project, "Walk", frozenset(), ClassifierType.RANDOM_FOREST)
 
     features, _ = load_training_data(out)
 
@@ -133,10 +134,96 @@ def test_load_training_data_prefers_legacy_distance_unit_attr(tmp_path: Path) ->
         {0: {"video": "vid_a.mp4", "identity": 0}},
         behavior_settings={"window_size": 5, "cm_units": False},
     )
-    out = export_training_data(project, "Walk", 6, ClassifierType.RANDOM_FOREST)
+    out = export_training_data(project, "Walk", frozenset(), ClassifierType.RANDOM_FOREST)
     with h5py.File(out, "r+") as h5:
         h5.attrs["distance_unit"] = ProjectDistanceUnit.CM.name
 
     features, _ = load_training_data(out)
 
     assert features["distance_unit"] == ProjectDistanceUnit.CM
+
+
+@pytest.mark.parametrize(
+    "capabilities",
+    [
+        frozenset(),
+        frozenset({PoseCapability.SOCIAL}),
+        frozenset(
+            {PoseCapability.SOCIAL, PoseCapability.SEGMENTATION, PoseCapability.BOUNDING_BOXES}
+        ),
+    ],
+    ids=["none", "social", "all"],
+)
+def test_pose_capabilities_round_trip(
+    tmp_path: Path, capabilities: frozenset[PoseCapability]
+) -> None:
+    """The export stores sorted capability values and the reader returns them."""
+    project = _make_binary_project(tmp_path, {0: {"video": "vid_a.mp4", "identity": 0}})
+    out = export_training_data(project, "Walk", capabilities, ClassifierType.RANDOM_FOREST)
+
+    with h5py.File(out, "r") as h5:
+        stored = [v.decode() if isinstance(v, bytes) else v for v in h5.attrs["pose_capabilities"]]
+        assert "min_pose_version" not in h5.attrs
+    assert stored == sorted(c.value for c in capabilities)
+
+    features, _ = load_training_data(out)
+
+    assert features["pose_capabilities"] == capabilities
+    assert "min_pose_version" not in features
+
+
+@pytest.mark.parametrize(
+    ("min_pose_version", "expected"),
+    [
+        (2, frozenset()),
+        (3, frozenset({PoseCapability.SOCIAL})),
+        (5, frozenset({PoseCapability.SOCIAL})),
+        (6, frozenset({PoseCapability.SOCIAL, PoseCapability.SEGMENTATION})),
+        (
+            8,
+            frozenset(
+                {
+                    PoseCapability.SOCIAL,
+                    PoseCapability.SEGMENTATION,
+                    PoseCapability.BOUNDING_BOXES,
+                }
+            ),
+        ),
+    ],
+)
+def test_old_export_min_pose_version_maps_to_capabilities(
+    tmp_path: Path, min_pose_version: int, expected: frozenset[PoseCapability]
+) -> None:
+    """An export from an older release records a pose version; it maps to capabilities."""
+    project = _make_binary_project(tmp_path, {0: {"video": "vid_a.mp4", "identity": 0}})
+    out = export_training_data(project, "Walk", frozenset(), ClassifierType.RANDOM_FOREST)
+    with h5py.File(out, "r+") as h5:
+        del h5.attrs["pose_capabilities"]
+        h5.attrs["min_pose_version"] = min_pose_version
+
+    features, _ = load_training_data(out)
+
+    assert features["pose_capabilities"] == expected
+
+
+def test_load_training_data_returns_file_version(tmp_path: Path) -> None:
+    """The feature version the export was written with is returned with the data."""
+    project = _make_binary_project(tmp_path, {0: {"video": "vid_a.mp4", "identity": 0}})
+    out = export_training_data(project, "Walk", frozenset(), ClassifierType.RANDOM_FOREST)
+    with h5py.File(out, "r+") as h5:
+        h5.attrs["file_version"] = 19
+
+    features, _ = load_training_data(out)
+
+    assert features["file_version"] == 19
+    assert type(features["file_version"]) is int
+
+
+def test_load_training_data_file_version_is_current_for_new_exports(tmp_path: Path) -> None:
+    """A fresh export records the current FEATURE_VERSION."""
+    project = _make_binary_project(tmp_path, {0: {"video": "vid_a.mp4", "identity": 0}})
+    out = export_training_data(project, "Walk", frozenset(), ClassifierType.RANDOM_FOREST)
+
+    features, _ = load_training_data(out)
+
+    assert features["file_version"] == FEATURE_VERSION

@@ -11,7 +11,6 @@ from jabs.feature_extraction.features import IdentityFeatures
 from jabs.pose_estimation import PoseOpenError, open_pose_file
 from jabs.pose_estimation.discovery import is_pose_file
 from jabs.project import Project
-from jabs.project.feature_manager import pose_version_for_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -115,9 +114,7 @@ def compute_features_command(
         distance_unit = ProjectDistanceUnit.CM
 
     capabilities = pose_est.capabilities
-    settings = Project.settings_by_pose_version(
-        pose_version_for_capabilities(capabilities), distance_unit
-    )
+    settings = Project.settings_by_capabilities(capabilities, distance_unit=distance_unit)
 
     sorted_window_sizes = sorted(set(window_sizes))
     cache_window = bool(sorted_window_sizes)
