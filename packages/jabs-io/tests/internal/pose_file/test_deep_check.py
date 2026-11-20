@@ -527,16 +527,17 @@ def _row_errors(path: Path, check: str) -> list[Finding]:
 def test_deep_check_reads_float16_in_blocks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A partly NaN row in a later frame block is found, and named by its absolute frame.
+    """Rows are read a block at a time, and a bad row in the last, partial block is named.
 
-    With three frames per block, frame 7 is the second row of the third block,
-    so a message naming frame 1 would mean the block offset was dropped.
+    With ten frames and three per block, frame 9 is alone in the fourth block,
+    so a message naming frame 0 would mean the block offset was dropped, and a
+    check that stopped at the last whole block would miss it.
     """
     monkeypatch.setattr(validate_module, "_DEEP_FRAME_BLOCK", 3)
     component = build_embedding_component("trunk", "frame", frames=10)
     rows = np.array(component.data, copy=True)
     assert rows.dtype == np.float16
-    rows[7, 2] = np.nan
+    rows[9, 2] = np.nan
     pose_file = PoseFile(
         dimensions={"frame": 10, "slot": 1, "identity": 1},
         video=VideoInfo(frame_count=10),
@@ -544,12 +545,53 @@ def test_deep_check_reads_float16_in_blocks(
     )
     path = tmp_path / "blocks.h5"
     write_pose_file(pose_file, path)
-
     assert _checks(validate(path), "error") == []
+
+    payload_path = component.path
+    reads: list[object] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(self: h5py.Dataset, key: object) -> object:
+        if self.name == payload_path:
+            reads.append(key)
+        return original_getitem(self, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
     errors = _row_errors(path, "embedding_rows_whole")
+
     assert len(errors) == 1
     assert "jabs.embedding.trunk.frame" in errors[0].message
-    assert "frame 7" in errors[0].message
+    assert "frame 9" in errors[0].message
+    # Only the row check reads the payload, and only in bounded frame slices.
+    assert all(isinstance(key, slice) for key in reads), reads
+    spans = [range(10)[key] for key in reads]
+    assert all(len(span) <= 3 for span in spans), reads
+    assert sorted(frame for span in spans for frame in span) == list(range(10))
+
+
+def test_deep_check_reports_an_unreadable_embedding_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row block that cannot be read is an error finding, not an exception."""
+    pose_file = build_pose_file_with_embeddings()
+    path = tmp_path / "unreadable.h5"
+    write_pose_file(pose_file, path)
+    assert _checks(validate(path, deep=True), "error") == []
+
+    payload_path = pose_file.component(EMBEDDING_INSTANCE).path
+    original_getitem = h5py.Dataset.__getitem__
+
+    def failing_getitem(self: h5py.Dataset, key: object) -> object:
+        if self.name == payload_path:
+            raise OSError("Can't synchronously read data (corrupt chunk)")
+        return original_getitem(self, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", failing_getitem)
+    errors = _checks(validate(path, deep=True), "error")
+
+    assert [f.check for f in errors] == ["file_readable"]
+    assert EMBEDDING_INSTANCE in errors[0].message
+    assert "corrupt chunk" in errors[0].message
 
 
 def _with_instance_rows(
@@ -573,7 +615,10 @@ def _fill_empty_slot(rows: npt.NDArray[np.float16]) -> None:
 
 
 def test_instance_embedding_without_slot_occupied_is_not_checked(tmp_path: Path) -> None:
-    """Without jabs.pose.slot_occupied, nothing says which slots are empty, so no row is held to it."""
+    """Without jabs.pose.slot_occupied, nothing says which slots are empty.
+
+    So no row is held to the unoccupied-slot rule.
+    """
     with_vector = _with_instance_rows(build_pose_file_with_embeddings(), _fill_empty_slot)
     without_occupancy = dataclasses.replace(
         with_vector,
