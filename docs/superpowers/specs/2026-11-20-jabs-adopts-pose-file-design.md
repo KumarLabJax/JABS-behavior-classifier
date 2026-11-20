@@ -35,10 +35,9 @@ project 4 has one place to add embedding access.
 **Where a conversion lives.** The converter streams to a destination file and
 deep-checks it; an hour of dense segmentation does not fit comfortably in RAM.
 So "in memory" is implemented as **a converted file in the project's cache
-directory**, `<cache_dir>/converted/<key>.h5`, reused while the legacy
-file's hash **and the converter version** (jabs-io version) are unchanged; the
-key is `<legacy-hash>-<jabs-io version>`, so a converter fix regenerates old
-conversions. Two workers converting the same file at once both succeed (the
+directory**, `<cache_dir>/converted/<video stem>.<legacy-hash>-<jabs-io version>.h5`, reused while the legacy
+file's hash **and the converter version** (jabs-io version) are unchanged; so a converter fix regenerates old conversions, and prune can find a video's
+copies by stem. Two workers converting the same file at once both succeed (the
 write is atomic); the second write is wasted work, which is acceptable. The video directory is never written. Without a
 `cache_dir` (viewer, one-off CLI use) conversions go to a per-user cache,
 `platformdirs.user_cache_dir("jabs")/converted/`, keyed the same way, so a file
@@ -60,8 +59,7 @@ track keeps one slot for its whole run (the free-list assignment of
 `pose_est_v3._build_identity_map`), legacy track ids are stored as `id + 1`
 because 0 means "no tracklet", and `instance_embedding` is dropped as the ADR
 says. **`Pose` treats every slot of an `identity = 0` file
-that carries `jabs.pose.tracklet_id` as an identity** (today's v3 behavior) and reports
-`has_identity_tracking = False`.
+that carries `jabs.pose.tracklet_id` as an identity** (today's v3 behavior).
 
 **Discovery.** Every place that globs `*_pose_est_v*.h5` or derives a video
 stem from a pose name (`pose_file_stem`, the viewer's file filter, project
@@ -99,7 +97,7 @@ names.
   `identity_index_to_display`, `get_bounding_boxes`.
 - **Replaced:** `format_major_version` and every `>= N` check (feature
   manager, read/export training, lixit/corner features, CLI, UI overlays) by
-  capability properties: `has_segmentation`, `has_identity_tracking`,
+  capability properties: `has_segmentation`,
   `has_static_object(name)`, `has_bounding_boxes`, `has_social` (more than one
   identity; tail slots do not count). Features declare required capabilities instead of
   `_min_pose`. The project-level `_min_pose_version` becomes the intersection
@@ -109,7 +107,7 @@ names.
 - **Deleted:** `packages/jabs-core/src/jabs/core/abstract/pose_est.py`'s
   `PoseEstimation`, `src/jabs/pose_estimation/pose_est_v2.py`…`v8.py`,
   `identity_indexed_pose.py` if nothing else uses it.
-- **Moved:** `KeypointIndex`, `FULL_CONNECTED_SEGMENTS` and `MINIMUM_CONFIDENCE`
+- **Moved:** `KeypointIndex`, `FULL_CONNECTED_SEGMENTS`, `NVSN_CONNECTED_SEGMENTS` and `MINIMUM_CONFIDENCE`
   to a neutral jabs-core module (`jabs.core.pose_skeleton`). Their users outside
   `src/jabs` move with them: `jabs-io` (`pose_file/skeletons.py`), `jabs-vision`
   (`cli/pose.py`, which still writes v2) and `jabs-core` (`utils/pose_util.py`,
@@ -162,6 +160,8 @@ conversion of projects and the Hub cutover, rebasing #603.
   removes a video's converted files, and a successful conversion removes that
   source's copies from older jabs-io versions; the on-disk migration later
   removes the duplication.
+- **The per-user conversion cache has no eviction yet** (viewer and CLI use);
+  a size cap or a `jabs-cli` cleanup command is follow-up work.
 - **Converter refusals** (duplicate identities, shared tracklets) on files JABS
   opens today become errors. The error names the file and the reason; such
   files are counted during the end-to-end run on real projects.
