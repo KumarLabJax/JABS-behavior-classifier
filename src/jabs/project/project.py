@@ -21,6 +21,7 @@ from jabs.core.enums import (
     CacheFormat,
     ClassifierMode,
     CrossValidationGroupingStrategy,
+    PoseCapability,
     ProjectDistanceUnit,
     compile_grouping_regex,
     filename_group_key,
@@ -28,7 +29,6 @@ from jabs.core.enums import (
 from jabs.io.annotations import AnnotationStore, LocalAnnotationStore
 from jabs.pose_estimation import (
     PoseEstimation,
-    get_pose_file_major_version,
     get_pose_path,
     open_pose_file,
 )
@@ -76,6 +76,8 @@ def _is_str_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+_CAPABILITY_VALUES = frozenset(c.value for c in PoseCapability)
+
 # Pose-derived fields cached per video, mapped to a predicate validating the
 # cached value's type (matching the corresponding VideoScanResult field). An
 # entry is trusted only when it carries a matching token and pose filename plus
@@ -87,6 +89,9 @@ _POSE_CACHE_FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
     "static_objects": _is_str_list,
     "lixit_keypoints": _is_int,
     "has_cm_per_pixel": lambda value: isinstance(value, bool),
+    "capabilities": lambda value: (
+        _is_str_list(value) and all(item in _CAPABILITY_VALUES for item in value)
+    ),
 }
 
 
@@ -122,6 +127,8 @@ def _scan_result_from_pose_cache(video: str, entry: dict) -> VideoScanResult:
         static_objects=list(entry["static_objects"]),
         lixit_keypoints=entry["lixit_keypoints"],
         has_cm_per_pixel=entry["has_cm_per_pixel"],
+        capabilities=list(entry["capabilities"]),
+        error=None,
     )
 
 
@@ -135,6 +142,7 @@ def _pose_cache_entry(result: VideoScanResult, pose_file: str, token: str) -> di
         "static_objects": list(result["static_objects"]),
         "lixit_keypoints": result["lixit_keypoints"],
         "has_cm_per_pixel": result["has_cm_per_pixel"],
+        "capabilities": list(result["capabilities"]),
     }
 
 
@@ -223,6 +231,12 @@ class Project:
         self._scan_results: dict[str, VideoScanResult] = self._run_video_scan(
             enable_video_check, process_pool
         )
+        # Videos whose pose file could not be scanned, mapped to the reason.
+        self._unusable_videos: dict[str, str] = {}
+        for video, result in sorted(self._scan_results.items()):
+            if result["error"] is not None:
+                self._unusable_videos[video] = result["error"]
+                logger.warning("%s is unusable: %s", video, result["error"])
         self._video_manager = VideoManager(
             self._paths,
             self._settings_manager,
@@ -267,8 +281,10 @@ class Project:
 
         Discovers videos and their pose files, then dispatches one
         :func:`~jabs.project.parallel_workers.scan_video_metadata` worker per
-        video. Workers open each HDF5 file exactly once and return everything
-        :class:`VideoManager` and :class:`FeatureManager` need at load time.
+        video. Workers read pose metadata only (no keypoint data) and return
+        everything :class:`VideoManager` and :class:`FeatureManager` need at
+        load time. A pose file that cannot be scanned gives a result whose
+        ``error`` holds the reason instead of aborting the scan.
 
         When ``process_pool`` is ``None`` (e.g. CLI scripts), workers run
         sequentially — still reduces HDF5 opens compared to the legacy path.
@@ -294,13 +310,11 @@ class Project:
             except ValueError:
                 # Missing pose file — VideoManager._validate_pose_files will report it.
                 continue
-            major_version = get_pose_file_major_version(pose_path)
             jobs.append(
                 VideoScanJobSpec(
                     video=video,
                     video_path=video_path,
                     pose_path=pose_path,
-                    pose_major_version=major_version,
                     scan_frame_counts=enable_video_check,
                 )
             )
@@ -390,11 +404,13 @@ class Project:
         if to_scan:
             results.update(self._scan_jobs(to_scan, process_pool))
 
+        # A video whose scan failed is not cached, so it is rescanned next time.
         updated = {
             job["video"]: _pose_cache_entry(
                 results[job["video"]], job["pose_path"].name, tokens[job["video"]]
             )
             for job in jobs
+            if results[job["video"]]["error"] is None
         }
         if to_scan or set(updated) != set(cached):
             pose_attribute_cache.save(cache_path, updated)
@@ -449,6 +465,11 @@ class Project:
     def prediction_manager(self) -> PredictionManager:
         """get the prediction manager for this project"""
         return self._prediction_manager
+
+    @property
+    def unusable_videos(self) -> dict[str, str]:
+        """Videos whose pose file could not be scanned, mapped to the reason."""
+        return self._unusable_videos
 
     @property
     def feature_manager(self) -> FeatureManager:

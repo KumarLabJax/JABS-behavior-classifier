@@ -259,6 +259,9 @@ class VideoManager:
         """
         err = False
         for v in self._videos:
+            if scan_results[v]["error"] is not None:
+                # unusable pose file: reported by Project.unusable_videos
+                continue
             pose_frames = scan_results[v]["hdf5_frame_count"]
             vid_frames = scan_results[v]["video_frame_count"]
             if vid_frames is None:

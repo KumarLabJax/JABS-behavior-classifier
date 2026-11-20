@@ -1,11 +1,12 @@
 """Persistent cache of per-video pose attributes to skip the load-time pose scan.
 
-The project-load scan opens every pose HDF5 file to read a handful of small,
-intrinsic attributes (frame count, identity count, static objects, lixit
-keypoint count, cm-per-pixel flag). Those values change only when the pose file
-itself changes, so they are cached in ``jabs/cache/pose_attribute_cache.json``
-keyed by video filename and gated by a cheap ``stat`` token of the pose file. A
-subsequent load then rescans only the videos whose pose file is new or changed.
+The project-load scan reads a handful of small, intrinsic attributes from every
+pose file's metadata (frame count, identity count, static objects, lixit
+keypoint count, cm-per-pixel flag, capabilities). Those values change only
+when the pose file itself changes, so they are cached in
+``jabs/cache/pose_attribute_cache.json`` keyed by video filename and gated by a
+cheap ``stat`` token of the pose file. A subsequent load then rescans only the
+videos whose pose file is new or changed.
 
 The cache is an optimization only: a missing, unreadable, or schema-mismatched
 cache simply triggers a full rescan, and a failed write is logged and ignored.
@@ -22,7 +23,9 @@ logger = logging.getLogger(__name__)
 # 2: an empty static_objects/lixit dataset is no longer reported as a usable
 #    "lixit" static object, so entries written by version 1 can name a lixit the
 #    pose readers drop.
-SCHEMA_VERSION = 2
+# 3: entries carry the file's capabilities, and are written for unified pose
+#    files too, from a metadata-only scan.
+SCHEMA_VERSION = 3
 
 
 def pose_token(pose_path: Path) -> str:

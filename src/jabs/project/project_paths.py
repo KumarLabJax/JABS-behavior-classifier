@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from jabs.core.utils import find_video_files
+from jabs.pose_estimation.discovery import POSE_FILE_GLOBS, is_pose_file
 
 
 class ProjectPaths:
@@ -125,7 +126,9 @@ class ProjectPaths:
             # must not make a directory look like a project. find_video_files
             # applies the same rule to the video files.
             has_pose = any(
-                p for p in self._pose_dir.glob("*_pose_est_v*.h5") if not p.name.startswith(".")
+                is_pose_file(p)
+                for pattern in POSE_FILE_GLOBS
+                for p in self._pose_dir.glob(pattern)
             )
             if not has_video or not has_pose:
                 raise ValueError(

@@ -9,16 +9,15 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-import h5py
 import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
-from jabs.core.utils.static_objects import lixit_keypoint_count
 from jabs.io.annotations import read_document
-from jabs.pose_estimation import open_pose_file
+from jabs.pose_estimation import PoseOpenError, open_pose_file
+from jabs.pose_estimation.metadata import scan_pose_metadata
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps_and_nframes
 
@@ -37,7 +36,7 @@ def preload_worker_modules() -> None:
     Intended to be passed as the ``initializer`` for the application
     ``ProcessPoolManager``. A worker must import this module to resolve this
     reference, and importing it (with its transitive dependencies) pulls in the
-    heavy stack workers need: numpy, pandas and h5py directly, plus
+    heavy stack workers need: numpy and pandas directly, plus
     ``jabs.feature_extraction`` (which brings in scipy) and the pose/video
     readers (which bring in OpenCV). Doing that once at pool warm-up means the
     first project-load scan and the first training run don't pay the import
@@ -92,7 +91,7 @@ class MulticlassFeatureResult(TypedDict):
 class VideoScanJobSpec(TypedDict):
     """Specification for a single-video metadata scan job.
 
-    All fields needed by :func:`scan_video_metadata` to open one HDF5 file
+    All fields needed by :func:`scan_video_metadata` to scan one pose file
     and collect everything :class:`~jabs.project.video_manager.VideoManager`
     and :class:`~jabs.project.feature_manager.FeatureManager` require at
     project-load time.
@@ -101,12 +100,15 @@ class VideoScanJobSpec(TypedDict):
     video: str
     video_path: Path
     pose_path: Path
-    pose_major_version: int
     scan_frame_counts: bool
 
 
 class VideoScanResult(TypedDict):
-    """Per-video metadata collected by :func:`scan_video_metadata`."""
+    """Per-video metadata collected by :func:`scan_video_metadata`.
+
+    When the pose file cannot be scanned, ``error`` holds the reason and the
+    other pose fields are zero or empty.
+    """
 
     video: str
     hdf5_frame_count: int
@@ -115,45 +117,22 @@ class VideoScanResult(TypedDict):
     static_objects: list[str]
     lixit_keypoints: int
     has_cm_per_pixel: bool
-
-
-def _get_identity_count(pose_h5: "h5py.File", major_version: int) -> int:
-    """Read identity count from an open HDF5 file without loading keypoint data.
-
-    Args:
-        pose_h5: Open h5py File object for a pose estimation HDF5 file.
-        major_version: Pose file major version (from filename).
-
-    Returns:
-        Number of identities encoded in the pose file.
-    """
-    if major_version <= 2:
-        return 1
-    pose_grp = pose_h5["poseest"]
-    if major_version == 3:
-        # Shape is (n_frames, n_instances, n_keypoints, 2); shape read only.
-        return pose_grp["points"].shape[1]
-    # V4+: prefer instance_id_center (shape attribute only, no data load).
-    if "instance_id_center" in pose_grp:
-        return pose_grp["instance_id_center"].shape[0]
-    # Fallback: compute max identity from instance_embed_id (smaller dataset).
-    if "instance_embed_id" in pose_grp and "id_mask" in pose_grp:
-        id_mask = pose_grp["id_mask"][:]
-        instance_embed_id = pose_grp["instance_embed_id"][:]
-        if instance_embed_id.shape[1] > 0:
-            valid = id_mask == 0
-            if valid.any():
-                return int(instance_embed_id[valid].max())
-    return 0
+    capabilities: list[str]
+    error: str | None
 
 
 def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
-    """Collect per-video metadata by opening each HDF5 pose file exactly once.
+    """Collect per-video metadata without reading any keypoint data.
 
     Reads everything :class:`~jabs.project.video_manager.VideoManager` and
     :class:`~jabs.project.feature_manager.FeatureManager` need at project-load
-    time - frame counts, identity count, static objects, lixit keypoints, and
-    distance-unit attributes - in a single ``h5py.File`` open.
+    time - frame count, identity count, static objects, lixit keypoints,
+    distance-unit availability and capabilities - through
+    :func:`~jabs.pose_estimation.metadata.scan_pose_metadata`, for unified and
+    legacy pose files alike.
+
+    A pose file that cannot be scanned does not raise: the result carries the
+    reason in ``error`` so the project can open and mark the video unusable.
 
     This function is stateless and picklable so it can be dispatched to
     :class:`~jabs.core.utils.process_pool_manager.ProcessPoolManager` workers.
@@ -162,49 +141,39 @@ def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
         job: Scan job specification, including paths and options.
 
     Returns:
-        Per-video metadata collected from the pose HDF5 file (and optionally
-        the video file when ``scan_frame_counts`` is ``True``).
+        Per-video metadata collected from the pose file (and optionally the
+        video file when ``scan_frame_counts`` is ``True``).
     """
     video = job["video"]
-    video_path = job["video_path"]
-    pose_path = job["pose_path"]
-    major_version = job["pose_major_version"]
-    scan_frame_counts = job["scan_frame_counts"]
-
-    with h5py.File(pose_path, "r") as pose_h5:
-        hdf5_frame_count: int = pose_h5["poseest"]["points"].shape[0]
-        identity_count: int = _get_identity_count(pose_h5, major_version)
-
-        # Static objects are only present in V5+.
-        static_objects: list[str] = []
-        if major_version >= 5 and "static_objects" in pose_h5:
-            static_objects = list(pose_h5["static_objects"].keys())
-
-        # Lixit keypoint count (0 if no lixit present). An empty lixit dataset is
-        # not a usable static object -- the v5+ readers drop it -- so it is dropped
-        # here too, otherwise the project would advertise lixit landmark features
-        # that no pose file can produce.
-        lixit_keypoints: int = 0
-        if "lixit" in static_objects:
-            lixit_keypoints = lixit_keypoint_count(pose_h5["static_objects"]["lixit"].shape)
-            if lixit_keypoints == 0:
-                static_objects.remove("lixit")
-
-        # Distance unit: check for cm_per_pixel in poseest group attributes.
-        has_cm_per_pixel: bool = pose_h5["poseest"].attrs.get("cm_per_pixel") is not None
+    try:
+        metadata = scan_pose_metadata(job["pose_path"])
+    except PoseOpenError as error:
+        return VideoScanResult(
+            video=video,
+            hdf5_frame_count=0,
+            video_frame_count=None,
+            identity_count=0,
+            static_objects=[],
+            lixit_keypoints=0,
+            has_cm_per_pixel=False,
+            capabilities=[],
+            error=error.reason,
+        )
 
     video_frame_count: int | None = None
-    if scan_frame_counts:
-        video_frame_count = VideoReader.get_nframes_from_file(video_path)
+    if job["scan_frame_counts"]:
+        video_frame_count = VideoReader.get_nframes_from_file(job["video_path"])
 
     return VideoScanResult(
         video=video,
-        hdf5_frame_count=hdf5_frame_count,
+        hdf5_frame_count=metadata.frames,
         video_frame_count=video_frame_count,
-        identity_count=identity_count,
-        static_objects=static_objects,
-        lixit_keypoints=lixit_keypoints,
-        has_cm_per_pixel=has_cm_per_pixel,
+        identity_count=metadata.num_identities,
+        static_objects=list(metadata.static_objects),
+        lixit_keypoints=metadata.lixit_keypoints,
+        has_cm_per_pixel=metadata.cm_per_pixel is not None,
+        capabilities=sorted(c.value for c in metadata.capabilities),
+        error=None,
     )
 
 
