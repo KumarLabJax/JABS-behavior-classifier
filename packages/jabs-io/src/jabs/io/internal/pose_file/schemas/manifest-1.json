@@ -741,7 +741,8 @@
               "additionalProperties": false,
               "properties": {
                 "kind": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 "input_dim": {
                   "type": "integer",
@@ -749,7 +750,8 @@
                   "maximum": 9007199254740991
                 },
                 "basis": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 }
               }
             }

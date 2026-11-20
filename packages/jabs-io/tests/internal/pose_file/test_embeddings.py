@@ -174,6 +174,8 @@ def test_is_embedding_id(component_id, expected):
         {"pooling": ""},
         {"normalization": ""},
         {"projection": Projection("pca", 0, "sha256:" + "a" * 64)},
+        {"projection": Projection("", 768, "sha256:" + "a" * 64)},
+        {"projection": Projection("pca", 768, "")},
     ],
     ids=[
         "name-uppercase",
@@ -192,6 +194,8 @@ def test_is_embedding_id(component_id, expected):
         "pooling",
         "normalization",
         "projection-input-dim",
+        "projection-kind",
+        "projection-basis",
     ],
 )
 def test_descriptor_rejects(overrides):
