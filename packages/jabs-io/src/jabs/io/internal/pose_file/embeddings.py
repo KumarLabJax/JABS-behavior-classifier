@@ -1,11 +1,12 @@
-"""Embedding component descriptors for the JABS pose file format (ADR 0002).
+"""Embedding component descriptors for the JABS pose file format (ADR 0003).
 
 An embedding component carries a learned feature vector per frame (``frame``
 kind) or per frame and slot (``instance`` kind) under the id
 ``jabs.embedding.<name>.<kind>``. Its manifest entry records an
 :class:`EmbeddingDescriptor` saying which model produced it and how, plus a
 fingerprint of everything that determines the vectors' meaning. Two
-embeddings with equal fingerprints are directly comparable.
+embeddings are directly comparable only when both their kind and their
+fingerprint are equal: the fingerprint omits the kind.
 
 The fingerprint is the SHA-256 of the canonical JSON of the descriptor's
 manifest form minus ``name``, ``kind`` and ``fingerprint``. The descriptor
@@ -377,7 +378,7 @@ class EmbeddingInfo:
         name: The ``<name>`` segment of the component id.
         kind: ``"instance"`` or ``"frame"``.
         dim: Length of the feature axis, from the descriptor.
-        fingerprint: The fingerprint the manifest records.
+        fingerprint: The fingerprint the manifest records, unverified.
         component_id: The full component id.
     """
 
@@ -392,9 +393,11 @@ def list_embeddings(manifest: dict[str, Any]) -> list[EmbeddingInfo]:
     """List the embeddings a manifest declares.
 
     Name and kind come from the component id; dim and fingerprint from its
-    descriptor. The fingerprint is the stored one, not recomputed: checking it
-    is the validator's job. A ``jabs.embedding.*`` id that does not parse is
-    not listed.
+    descriptor. The fingerprint is the one the manifest stores, reported
+    unverified: it is not recomputed, so a stale or forged value is passed
+    through. Run :func:`validate` on the file (its ``embedding_fingerprint``
+    check) before using a fingerprint as a cache or comparability key. A
+    ``jabs.embedding.*`` id that does not parse is not listed.
 
     Args:
         manifest: A schema-validated manifest, as ``read_manifest`` returns it.

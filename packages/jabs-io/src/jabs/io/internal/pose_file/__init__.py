@@ -27,9 +27,9 @@ writer stream a component's data to disk a block at a time.
 
 An embedding component (``jabs.embedding.<name>.instance`` or ``.frame``)
 carries learned feature vectors described by an :class:`EmbeddingDescriptor`;
-:func:`list_embeddings` summarizes those a manifest declares, and two
-embeddings whose fingerprints (:func:`compute_fingerprint`) are equal are
-directly comparable.
+:func:`list_embeddings` summarizes those a manifest declares (ADR 0003). Two
+embeddings are directly comparable only when both their kind and their
+fingerprint (:func:`compute_fingerprint`) are equal.
 """
 
 from jabs.io.internal.pose_file.adapter import PoseFileHDF5Adapter
