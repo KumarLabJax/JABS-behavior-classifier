@@ -85,6 +85,31 @@ def alternate_key(component_id: str, name: str) -> str:
     return f"{component_id}:alternate:{name}"
 
 
+def check_hdf5_path(owner: str, path: str) -> None:
+    """Refuse a dataset path that is not absolute or not canonical.
+
+    HDF5 folds repeated slashes and ignores a trailing one, so
+    ``/a//b`` and ``/a/b/`` name the dataset at ``/a/b`` while comparing
+    unequal to it. Every path check that compares strings -- the writer's
+    collision check, offset sharing -- relies on one spelling per dataset.
+
+    Args:
+        owner: Names what the path belongs to, for the error message.
+        path: The HDF5 path.
+
+    Raises:
+        ValueError: If the path is not absolute, has an empty segment, or
+            ends in a slash.
+    """
+    if not path.startswith("/"):
+        raise ValueError(f"{owner}: path must be absolute, got {path!r}")
+    if "//" in path or path.endswith("/"):
+        raise ValueError(
+            f"{owner}: path {path!r} has an empty segment or a trailing slash; HDF5 reads it "
+            "as another spelling of a different path"
+        )
+
+
 @dataclass(frozen=True)
 class Skeleton:
     """A named keypoint set and the edges that connect it.
@@ -169,9 +194,8 @@ class Attachment:
     content_type: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate that the path is absolute."""
-        if not self.path.startswith("/"):
-            raise ValueError(f"attachment path must be absolute, got {self.path!r}")
+        """Validate that the path is absolute and canonical."""
+        check_hdf5_path("attachment", self.path)
 
 
 @dataclass(frozen=True, eq=False)
@@ -239,6 +263,8 @@ class Component:
                 f"invalid component id {self.id!r}: expected lowercase, dot-separated, "
                 "at least two segments"
             )
+        if self.stored_path is not None:
+            check_hdf5_path(self.id, self.stored_path)
         segments = self.id.split(".")
         if segments[0] != RESERVED_NAMESPACE and len(segments) < 3:
             raise ValueError(

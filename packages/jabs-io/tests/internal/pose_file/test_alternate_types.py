@@ -434,3 +434,35 @@ def test_a_component_without_alternates_has_no_alternates_key() -> None:
     """Existing manifests stay byte-identical."""
     manifest = build_manifest(_segmentation_file(ragged_segmentation()))
     assert all("alternates" not in entry for entry in manifest["components"])
+
+
+# HDF5 folds "a//b" into "a/b" and ignores a trailing slash, so a path spelled
+# either way aliases another while comparing unequal to it as a string.
+ALIASING_PATHS = [
+    pytest.param("/jabs/segmentation//ragged/contours", id="double-slash"),
+    pytest.param(f"{PREFIX}/contours/", id="trailing-slash"),
+    pytest.param("relative/contours", id="relative"),
+]
+
+
+@pytest.mark.parametrize("path", ALIASING_PATHS)
+def test_an_alternate_path_must_be_canonical(path: str) -> None:
+    """``/jabs/segmentation//ragged/contours`` beside ``.../ragged/contours`` is one dataset."""
+    seg = ragged_segmentation()
+    with pytest.raises(ValueError, match="path"):
+        _contours_alternate(seg, _index(seg), path=path)
+
+
+@pytest.mark.parametrize("field", ["group_offsets_path", "instance_offsets_path"])
+@pytest.mark.parametrize("path", ALIASING_PATHS)
+def test_an_offsets_path_must_be_canonical(field: str, path: str) -> None:
+    """The offsets are datasets too, and alias the same way."""
+    seg = ragged_segmentation()
+    fields = {
+        "group_offsets_path": f"{PREFIX}/contour_offsets",
+        "instance_offsets_path": f"{PREFIX}/instance_offsets",
+        "group_offsets": seg["contour_offsets"],
+        "instance_offsets": seg["instance_offsets"],
+    }
+    with pytest.raises(ValueError, match="path"):
+        RaggedIndex(**{**fields, field: path})

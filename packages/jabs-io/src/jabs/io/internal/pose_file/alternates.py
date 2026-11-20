@@ -22,7 +22,7 @@ from types import MappingProxyType
 import numpy as np
 
 from jabs.io.internal.pose_file.blocks import ComponentData
-from jabs.io.internal.pose_file.types import DTYPE_NAMES, dtype_name
+from jabs.io.internal.pose_file.types import DTYPE_NAMES, check_hdf5_path, dtype_name
 
 # The schema's alternateName: one lowercase segment, no dots, because the name
 # is a key a reader looks an encoding up by rather than a namespaced id.
@@ -32,12 +32,6 @@ ALTERNATE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$")
 RAGGED_LEVELS = ("leaf", "group")
 
 _OFFSET_DTYPE = np.dtype("uint64")
-
-
-def _check_path(owner: str, path: str) -> None:
-    """Refuse a path that is not absolute, as the schema's hdf5Path is."""
-    if not path.startswith("/"):
-        raise ValueError(f"{owner}: path must be absolute, got {path!r}")
 
 
 @dataclass(frozen=True, eq=False)
@@ -69,7 +63,7 @@ class RaggedIndex:
         """Validate the paths and that both offsets are 1-D ``uint64``."""
         for name in ("group_offsets", "instance_offsets"):
             path = getattr(self, f"{name}_path")
-            _check_path(f"ragged {name}", path)
+            check_hdf5_path(f"ragged {name}", path)
             # Shape and dtype only: a block source's values are not in memory,
             # and reading them would consume the blocks the writer needs.
             offsets = getattr(self, name)
@@ -140,7 +134,7 @@ class Alternate:
         label = f"alternate {self.name!r}"
         if self.level not in RAGGED_LEVELS:
             raise ValueError(f"{label}: level must be one of {RAGGED_LEVELS}, got {self.level!r}")
-        _check_path(label, self.path)
+        check_hdf5_path(label, self.path)
         if self.data.ndim == 0:
             # Both levels index the payload along its first axis: leaf items
             # through group_offsets, groups through instance_offsets.
