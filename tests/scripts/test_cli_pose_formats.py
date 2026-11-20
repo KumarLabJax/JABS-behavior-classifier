@@ -219,10 +219,13 @@ def test_sample_pose_intervals_refuses_a_unified_file(
     assert list(out_dir.iterdir()) == []
 
 
-def test_jabs_init_reports_a_refused_pose_file(
+def test_jabs_init_reports_a_refused_pose_file_and_computes_the_others(
     tmp_path: Path, make_pose_file: PoseFileFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """jabs-init names a video whose pose file cannot be opened and exits 1."""
+    """A refused pose file does not stop jabs-init: the other videos get features.
+
+    The refused file is named at the end and the exit status is 1.
+    """
     # threads, not processes: spawning workers would dominate the test's run time
     monkeypatch.setattr(initialize_project, "Pool", ThreadPool)
     project_dir = tmp_path / "project"
@@ -231,14 +234,23 @@ def test_jabs_init_reports_a_refused_pose_file(
     (project_dir / "bad_pose_est_v8.h5").write_bytes(REFUSED_SOURCE.read_bytes())
     write_video(project_dir / "bad.avi")
 
-    result = CliRunner().invoke(
-        initialize_project.main, ["-p", "1", "--skip-feature-generation", str(project_dir)]
-    )
+    # the project scan already marks the refused legacy file unusable
+    scanned = Project(project_dir, enable_session_tracker=False)
+    assert not scanned.is_usable("bad.avi")
+    assert scanned.is_usable("good.avi")
+
+    result = CliRunner().invoke(initialize_project.main, ["-p", "1", "-w", "2", str(project_dir)])
 
     assert result.exit_code == 1, result.output
-    assert "bad.avi" in result.output
-    assert "bad_pose_est_v8.h5" in result.output
-    assert "good.avi" not in result.output.split("errors were encountered")[-1]
+    report = result.output.split("could not be opened")[-1]
+    assert "bad.avi" in report
+    assert "bad_pose_est_v8.h5" in report
+    assert "good.avi" not in report
+    feature_dir = scanned.feature_dir
+    assert sorted(p.name for p in (feature_dir / "good").iterdir()) == [
+        str(i) for i in range(IDENTITIES)
+    ]
+    assert not (feature_dir / "bad").exists()
 
 
 def test_jabs_init_accepts_a_unified_pose_file(

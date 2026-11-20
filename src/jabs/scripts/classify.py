@@ -29,8 +29,9 @@ from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, Predictio
 
 logger = logging.getLogger(__name__)
 
-# a unified "*_pose.h5" or a legacy "*_pose_est_v<N>.h5" pose file
-_POSE_FILE_NAME_RE = re.compile(r"^.+_pose(_est_v[0-9]+)?\.h5$")
+# a unified "*_pose.h5" or a legacy "*_pose_est_v<N>.h5" pose file; a hidden file
+# (such as a macOS "._*" AppleDouble sidecar) is not one, as in is_pose_file
+_POSE_FILE_NAME_RE = re.compile(r"^(?!\.).+_pose(_est_v[0-9]+)?\.h5$")
 
 # find out which classifiers are supported in this environment
 __CLASSIFIER_CHOICES = Classifier().classifier_choices()
