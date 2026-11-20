@@ -346,12 +346,17 @@ class PoseLike(Protocol):
     def iter_segmentation(self, identity: int, block: int = 300) -> Iterator[SegmentationWindow]:
         """Yield consecutive segmentation windows covering every frame.
 
+        Both errors below are raised on the call, not on the first ``next()``.
+        ``Pose`` also validates ``identity`` on the call; the legacy readers
+        raise for an out-of-range identity only when the first window is read.
+
         Args:
             identity: Identity index.
             block: Frames per window; the last window may be shorter.
 
         Raises:
             NotImplementedError: If the source has no segmentation.
-            ValueError: If ``block`` is not positive.
+            ValueError: If ``block`` is not positive, or (``Pose``, on the call;
+                legacy readers, lazily) the identity is out of range.
         """
         ...
