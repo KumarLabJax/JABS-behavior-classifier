@@ -35,8 +35,11 @@ project 4 has one place to add embedding access.
 **Where a conversion lives.** The converter streams to a destination file and
 deep-checks it; an hour of dense segmentation does not fit comfortably in RAM.
 So "in memory" is implemented as **a converted file in the project's cache
-directory**, `<cache_dir>/converted/<legacy-hash>.h5`, reused while the legacy
-file's hash is unchanged. The video directory is never written. Without a
+directory**, `<cache_dir>/converted/<key>.h5`, reused while the legacy
+file's hash **and the converter version** (jabs-io version) are unchanged; the
+key is `<legacy-hash>-<jabs-io version>`, so a converter fix regenerates old
+conversions. Two workers converting the same file at once both succeed (the
+write is atomic); the second write is wasted work, which is acceptable. The video directory is never written. Without a
 `cache_dir` (one-off CLI use) the conversion goes to a temporary directory that
 is removed when the `Pose` is closed.
 
@@ -86,8 +89,16 @@ names.
 - **Deleted:** `packages/jabs-core/src/jabs/core/abstract/pose_est.py`'s
   `PoseEstimation`, `src/jabs/pose_estimation/pose_est_v2.py`…`v8.py`,
   `identity_indexed_pose.py` if nothing else uses it.
-- **Moved:** `KeypointIndex` to `jabs.core.enums` (or another neutral module);
-  `pose_file/skeletons.py` imports it from there.
+- **Moved:** `KeypointIndex`, `FULL_CONNECTED_SEGMENTS` and `MINIMUM_CONFIDENCE`
+  to a neutral jabs-core module (`jabs.core.pose_skeleton`). Their users outside
+  `src/jabs` move with them: `jabs-io` (`pose_file/skeletons.py`), `jabs-vision`
+  (`cli/pose.py`, which still writes v2) and `jabs-core` (`utils/pose_util.py`,
+  whose `identity_centroids` takes the new `Pose` via a Protocol in jabs-core).
+- **jabs-core is published:** `jabs.core.abstract.PoseEstimation` stays for one
+  release as a deprecated name that only carries those constants and warns
+  (`DeprecationWarning`) on import; its abstract methods are removed.
+- `update_pose` (swaps a project's pose set) uses `find_pose_file`, so it accepts
+  unified files; it never writes into pose files.
 
 ### 4. Caches, hashes and classifiers
 
