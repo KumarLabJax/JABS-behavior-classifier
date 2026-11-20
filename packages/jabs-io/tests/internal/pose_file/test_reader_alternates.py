@@ -178,3 +178,34 @@ def test_an_offsets_dataset_with_two_partners_is_refused_on_read() -> None:
     assert "ragged_offsets_pairing" in {f.check for f in validate(path)}
     with pytest.raises(PoseFileError, match="one partner"):
         read_pose_file(path)
+
+
+def _reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record the name of every dataset whose values are read."""
+    names: list[str] = []
+    original = h5py.Dataset.__getitem__
+
+    def spy(self: h5py.Dataset, key: object) -> object:
+        names.append(self.name)
+        return original(self, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", spy)
+    return names
+
+
+def test_a_read_without_alternates_reads_none_of_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Read-only callers skip the alternates' payloads and offsets entirely."""
+    reads = _reads(monkeypatch)
+    pose_file = read_pose_file(FIXTURE, alternates=False)
+    assert all(component.alternates == () for component in pose_file.components)
+    assert not [name for name in reads if name.startswith(PREFIX)]
+    # The baseline is still read, so the spy is seeing the reads.
+    assert "/jabs/segmentation/contours" in reads
+
+
+def test_a_read_keeps_alternates_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default keeps a read-then-write lossless, so it reads them."""
+    reads = _reads(monkeypatch)
+    pose_file = read_pose_file(FIXTURE)
+    assert _component(pose_file, CONTOURS_ID).alternates
+    assert f"{PREFIX}/contour_offsets" in reads

@@ -454,7 +454,7 @@ def read_component(
         return dataset[selector]
 
 
-def read_pose_file(path: str | Path) -> PoseFile:
+def read_pose_file(path: str | Path, *, alternates: bool = True) -> PoseFile:
     """Read a whole pose file.
 
     Alternates come back on their components. They are derived from the
@@ -465,14 +465,21 @@ def read_pose_file(path: str | Path) -> PoseFile:
 
     Args:
         path: The pose file.
+        alternates: Read every alternate's payload and offsets onto its
+            component. The default keeps a read-then-write lossless. Reading
+            them costs as much again as the baselines they copy -- roughly
+            double a segmentation file's read I/O and peak memory -- so a
+            read-only caller passes False and gets components with
+            ``alternates=()``, and nothing under an alternate's paths is read.
 
     Returns:
-        The file's contents, including alternates, attachments and namespaced
-        extras, so that writing the result back loses nothing.
+        The file's contents, including attachments and namespaced extras, and
+        alternates unless ``alternates`` is False, so that writing the result
+        of a default read back loses nothing.
 
     Raises:
-        NotImplementedError: If a component's encoding cannot be decoded, or
-            an alternate's cannot be modeled.
+        NotImplementedError: If a component's encoding cannot be decoded, or,
+            when reading alternates, an alternate's cannot be modeled.
         PoseFileError: If the file disagrees with its own manifest, or its
             declarations disagree with one another.
         NotAPoseFileError: If the file is not a ``jabs.pose-file``.
@@ -504,9 +511,9 @@ def read_pose_file(path: str | Path) -> PoseFile:
             _check_decodable(spec)
             _check_skeleton(manifest, spec)
             payload = _payload(_dataset_for(h5, spec), spec)
-            alternates = _alternates_for(h5, spec, indexes)
+            carried = _alternates_for(h5, spec, indexes) if alternates else ()
             try:
-                components.append(_component_from(spec, payload, alternates=alternates))
+                components.append(_component_from(spec, payload, alternates=carried))
             except ValueError as error:
                 raise PoseFileError(f"{path}: {spec['id']}: {error}") from error
 
