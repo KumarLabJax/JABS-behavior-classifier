@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import pickle
 import shutil
 from concurrent.futures import ThreadPoolExecutor
@@ -17,7 +18,7 @@ from jabs.core.utils import hash_file
 from jabs.io.internal.pose_file.convert import LegacyConversionError
 from jabs.pose_estimation import PoseOpenError, conversion_cache
 from jabs.pose_estimation.conversion_cache import converted_path
-from jabs.project import Project
+from jabs.project import Project, parallel_workers
 from jabs.project import project as project_module
 from jabs.project.parallel_workers import PoseConversionJobSpec, convert_pose
 
@@ -242,11 +243,13 @@ def test_conversion_job_and_outcome_pickle(legacy_project: Path) -> None:
         video="a.avi",
         pose_path=legacy_project / "a_pose_est_v2.h5",
         cache_dir=_cache_dir(legacy_project),
+        known_hash=None,
     )
     worker, job_copy = pickle.loads(pickle.dumps((convert_pose, job)))
     assert worker is convert_pose
     outcome = worker(job_copy)
-    assert pickle.loads(pickle.dumps(outcome)) == ("a.avi", None)
+    source_hash = hash_file(legacy_project / "a_pose_est_v2.h5")
+    assert pickle.loads(pickle.dumps(outcome)) == ("a.avi", None, source_hash)
 
 
 def test_derived_files_include_converted_and_legacy_caches(legacy_project: Path) -> None:
@@ -358,9 +361,9 @@ def test_prepare_poses_raising_part_way_still_refreshes_refused_videos(
 ) -> None:
     """An error after a refusal still drops the refused video's identities and features."""
 
-    def refuse_a_then_fail(job: PoseConversionJobSpec) -> tuple[str, str | None]:
+    def refuse_a_then_fail(job: PoseConversionJobSpec) -> tuple[str, str | None, None]:
         if job["video"] == "a.avi":
-            return job["video"], "refused"
+            return job["video"], "refused", None
         raise RuntimeError("worker died")
 
     monkeypatch.setattr(project_module, "convert_pose", refuse_a_then_fail)
@@ -375,3 +378,81 @@ def test_prepare_poses_raising_part_way_still_refreshes_refused_videos(
     assert project.video_manager.get_video_identity_count("a.avi") == 0
     assert project.total_project_identities == b_identities
     assert PoseCapability.SOCIAL in project.feature_manager.capabilities
+
+
+@pytest.fixture
+def hash_spy(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
+    """Record every file hashed by conversion, wherever it is hashed."""
+    spy = mock.Mock(wraps=hash_file)
+    monkeypatch.setattr(parallel_workers, "hash_file", spy)
+    monkeypatch.setattr(conversion_cache, "hash_file", spy)
+    return spy
+
+
+def _hashed(spy: mock.Mock) -> set[str]:
+    """Return the names of the files a hash spy saw."""
+    return {Path(c.args[0]).name for c in spy.call_args_list}
+
+
+def test_prepare_poses_skips_hashing_unchanged_converted_files(
+    legacy_project: Path, hash_spy: mock.Mock
+) -> None:
+    """A second open with nothing changed hashes no legacy file."""
+    _open(legacy_project).prepare_poses(lambda i, n: None)
+    project = _open(legacy_project)
+    hash_spy.reset_mock()
+
+    project.prepare_poses(lambda i, n: None)
+
+    assert hash_spy.call_count == 0
+
+
+def test_prepare_poses_rehashes_a_touched_file_only(
+    legacy_project: Path, hash_spy: mock.Mock
+) -> None:
+    """A changed stat token re-hashes that file; an added video does not re-hash the others."""
+    _open(legacy_project).prepare_poses(lambda i, n: None)
+    a_pose = legacy_project / "a_pose_est_v2.h5"
+    st = a_pose.stat()
+    os.utime(a_pose, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    _add_video(legacy_project, "c.avi", DATA_DIR / "sample_pose_est_v4.h5", "c_pose_est_v4.h5")
+    project = _open(legacy_project)
+    hash_spy.reset_mock()
+
+    project.prepare_poses(lambda i, n: None)
+
+    assert "b_pose_est_v3.h5" not in _hashed(hash_spy)
+    assert {"a_pose_est_v2.h5", "c_pose_est_v4.h5"} <= _hashed(hash_spy)
+
+    hash_spy.reset_mock()
+    _open(legacy_project).prepare_poses(lambda i, n: None)
+    assert hash_spy.call_count == 0
+
+
+def test_prepare_poses_rehashes_when_the_conversion_is_missing(
+    legacy_project: Path, hash_spy: mock.Mock
+) -> None:
+    """A recorded hash is trusted only while its conversion exists."""
+    _open(legacy_project).prepare_poses(lambda i, n: None)
+    shutil.rmtree(_cache_dir(legacy_project) / "converted")
+    project = _open(legacy_project)
+    hash_spy.reset_mock()
+
+    project.prepare_poses(lambda i, n: None)
+
+    assert {"a_pose_est_v2.h5", "b_pose_est_v3.h5"} <= _hashed(hash_spy)
+    assert all(project.is_usable(v) for v in ("a.avi", "b.avi"))
+
+
+def test_prepare_poses_reconverts_after_a_revision_bump(
+    legacy_project: Path, monkeypatch: pytest.MonkeyPatch, convert_spy: mock.Mock
+) -> None:
+    """A recorded hash does not stop a new converter revision from converting again."""
+    _open(legacy_project).prepare_poses(lambda i, n: None)
+    assert convert_spy.call_count == 2
+    bumped = conversion_cache._converter_revision() + 1
+    monkeypatch.setattr(conversion_cache, "_converter_revision", lambda: bumped)
+
+    _open(legacy_project).prepare_poses(lambda i, n: None)
+
+    assert convert_spy.call_count == 4
