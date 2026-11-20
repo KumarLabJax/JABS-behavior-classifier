@@ -1348,7 +1348,9 @@ def _check_attachments(h5: h5py.File, manifest: dict, findings: list[Finding]) -
     root.visititems(note_undeclared)
 
 
-def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+def _check_alternates_decode(
+    h5: h5py.File, manifest: dict, findings: list[Finding], *, require_decoded: bool = False
+) -> None:
     """The opt-in deep check: each alternate decodes to its baseline.
 
     Every structural check can pass while an alternate says something its
@@ -1366,7 +1368,10 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
         h5: The open file.
         manifest: The validated manifest.
         findings: Accumulator.
+        require_decoded: Report an alternate that is not decoded as an error
+            rather than a warning, under the same check name.
     """
+    unchecked = ERROR if require_decoded else WARNING
     alternates = [
         (spec, alternate)
         for spec in manifest["components"]
@@ -1377,7 +1382,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
     if any(f.severity == ERROR for f in findings):
         findings.append(
             Finding(
-                WARNING,
+                unchecked,
                 "alternate_deep_unchecked",
                 "alternates were not decoded: the file has errors, and decoding trusts the "
                 "offsets and shapes those checks cover",
@@ -1391,7 +1396,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
         label = alternate_key(spec["id"], alternate["name"])
         reason = _undecodable_reason(spec, alternate, by_id)
         if reason is not None:
-            findings.append(Finding(WARNING, "alternate_deep_unchecked", f"{label}: {reason}"))
+            findings.append(Finding(unchecked, "alternate_deep_unchecked", f"{label}: {reason}"))
         elif spec["id"] == _CONTOURS:
             contours = alternate
         else:
@@ -1409,7 +1414,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
         # through the contours' offsets would compare the wrong groups.
         findings.append(
             Finding(
-                WARNING,
+                unchecked,
                 "alternate_deep_unchecked",
                 f"{alternate_key(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
                 "the contours alternate's, so it cannot be decoded through them",
@@ -1421,7 +1426,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
         if flags is not None:
             findings.append(
                 Finding(
-                    WARNING,
+                    unchecked,
                     "alternate_deep_unchecked",
                     f"{alternate_key(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
                     "contours alternate's offsets, and that alternate is not decodable here",
@@ -1659,7 +1664,9 @@ def _compare_segmentation_alternate(
             return
 
 
-def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
+def validate(
+    path: str | Path, *, deep: bool = False, require_decoded: bool = False
+) -> list[Finding]:
     """Validate a pose file.
 
     Never raises for a malformed file: every problem comes back as a Finding.
@@ -1670,6 +1677,12 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
             and compare it with its baseline, per ``(frame, slot)``. It reads
             the baseline in full, so it costs as much as reading the payload.
             A tool that writes or ingests alternates runs it; a reader need not.
+        require_decoded: With ``deep``, report an alternate the deep check
+            cannot decode -- an encoding this revision does not define, or a
+            file whose errors stop decoding -- as an error rather than a
+            warning, still as ``alternate_deep_unchecked``. For a caller that
+            promises every alternate was compared, as the writer's ``deep``
+            does. Without ``deep`` nothing is decoded, so it has no effect.
 
     Returns:
         Findings, errors first. An empty list means the file conforms.
@@ -1702,6 +1715,6 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
             _check_alternates(h5, spec, manifest, findings)
         _check_contour_count(h5, manifest, findings)
         if deep:
-            _check_alternates_decode(h5, manifest, findings)
+            _check_alternates_decode(h5, manifest, findings, require_decoded=require_decoded)
 
     return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))

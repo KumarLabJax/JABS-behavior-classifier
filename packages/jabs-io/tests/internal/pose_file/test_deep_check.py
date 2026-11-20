@@ -181,6 +181,33 @@ def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path: Path) -> N
     assert all(f.severity == "warning" for f in unchecked)
 
 
+def test_require_decoded_makes_an_undecodable_alternate_an_error(tmp_path: Path) -> None:
+    """The same finding, at error severity, when the caller needs every alternate compared.
+
+    The check name stays the same, so the caller decides by severity alone.
+    """
+    path = _copy(tmp_path)
+
+    def rename(manifest: dict) -> None:
+        for spec in manifest["components"]:
+            for alternate in spec.get("alternates", []):
+                alternate["name"] = "tiled"
+
+    _rewrite_manifest(path, rename)
+    strict = validate(path, deep=True, require_decoded=True)
+    errors = _checks(strict, "error")
+    assert len(errors) == 2
+    assert {f.check for f in errors} == {"alternate_deep_unchecked"}
+    lenient = validate(path, deep=True)
+    assert _checks(lenient, "error") == []
+    assert {f.check for f in _checks(lenient, "warning")} == {"alternate_deep_unchecked"}
+
+
+def test_require_decoded_passes_a_decodable_file() -> None:
+    """Nothing is promoted when every alternate decodes."""
+    assert _checks(validate(ALTERNATE, deep=True, require_decoded=True), "error") == []
+
+
 def test_a_file_with_errors_is_not_decoded(tmp_path: Path) -> None:
     """Decoding trusts offsets and shapes the structural checks have already passed."""
     path = _copy(tmp_path)

@@ -426,9 +426,10 @@ def write_pose_file(
             with its baseline, so a stale alternate never reaches the
             destination. It reads the baseline in full, so it costs as much as
             reading the payload; a tool that writes alternates should pass it.
-            An alternate the deep check cannot decode is refused too, though
-            ``validate`` reports it only as a warning: publishing it would
-            break the promise that every alternate was compared. Without
+            An alternate the deep check cannot decode is refused too --
+            ``validate`` runs with ``require_decoded`` and reports it as an
+            error -- because publishing it would break the promise that every
+            alternate was compared. Without
             ``deep``, an alternate whose values disagree with its baseline
             is not caught.
 
@@ -501,11 +502,12 @@ def write_pose_file(
         from jabs.io.internal.pose_file.validate import validate
 
         # Under deep, an undecodable alternate is a refusal: the caller asked
-        # for every alternate to be compared, and this one was not.
+        # for every alternate to be compared. The validator decides that
+        # severity, so this filters on severity alone.
         errors = [
             f
-            for f in validate(temporary, deep=deep)
-            if f.severity == "error" or (deep and f.check == "alternate_deep_unchecked")
+            for f in validate(temporary, deep=deep, require_decoded=deep)
+            if f.severity == "error"
         ]
         if errors:
             raise ValueError(
