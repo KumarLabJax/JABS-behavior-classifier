@@ -201,9 +201,10 @@ restriction the canonical form is RFC 8785 (JCS), which equals Python's
 `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")`.
 A producer writing with h5py and JSON alone can reproduce it. *(Claude's call, after review.)*
 
-Semantics of the fingerprint: it is the consumer's comparability key. Two embeddings with equal
-fingerprints are interchangeable for training/prediction; names are labels only. Pooling is in the
-fingerprint, so an instance and a frame embedding never share one.
+Semantics of the fingerprint: the consumer's comparability key is the pair (kind, fingerprint).
+Two embeddings are interchangeable for training/prediction only when both kind and fingerprint are
+equal; names are labels only. An instance and a frame embedding normally differ in pooling (which
+is in the fingerprint), but nothing requires it, so consumers compare (kind, fingerprint).
 
 **Carry/recurrent models.** For ViT-Carry-SPAL, frame *t*'s vector can also depend (weakly) on
 earlier windows through the carried prior. `window` records the nominal clip receptive field only;

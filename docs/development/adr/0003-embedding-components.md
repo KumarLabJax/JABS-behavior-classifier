@@ -43,8 +43,8 @@ ADR 0002 has no place for these arrays. Three things in it stand in the way:
 ## Decision
 
 **Embeddings are first-class catalog components under the reserved `jabs` namespace**, in a new
-`jabs.embedding` section, each carrying a typed, validated descriptor whose fingerprint decides
-comparability. Concretely, this ADR adds to ADR 0002:
+`jabs.embedding` section, each carrying a typed, validated descriptor. Its fingerprint, together
+with the component's kind, decides comparability. Concretely, this ADR adds to ADR 0002:
 
 - a catalog section, `jabs.embedding`, with a per-instance and a whole-frame kind, several named
   embeddings per file;
@@ -99,7 +99,7 @@ Shapes use `F` = frames, `S` = slots, `D` = the embedding's feature width (its d
 
 - **`<name>`** is one id segment, `[a-z0-9]([a-z0-9_-]*[a-z0-9])?`, chosen by the producer (`trunk`,
   `blk31`). It is a label, unique per file, and nothing more: comparability is decided by the
-  descriptor's fingerprint, never by the name.
+  kind and the descriptor's fingerprint, never by the name.
 - **The id shape is exact.** Every id under `jabs.embedding.` must be
   `jabs.embedding.<name>.instance` or `jabs.embedding.<name>.frame`. `jabs.embedding.trunk`,
   `jabs.embedding.trunk.extra` and `jabs.embedding.a.b.instance` are invalid.
@@ -144,14 +144,19 @@ required; `projection` may be `null`.
 fingerprint = "sha256:" + lowercase_hex(SHA-256(canonical_json(descriptor minus name, kind, fingerprint)))
 ```
 
-The fingerprint is the consumer's comparability key. **Two embeddings with equal fingerprints are
-interchangeable** for training and prediction; names are labels only. `name` and `kind` are
-excluded so that the same vectors under another name compare equal. `pooling` is included, so an
-`.instance` and a `.frame` embedding never share a fingerprint.
+**The comparability key is the pair `(kind, fingerprint)`.** Two embeddings are interchangeable
+for training and prediction **only when both their `kind` and their `fingerprint` are equal**;
+names are labels only. `name` is excluded from the fingerprint so that the same vectors under
+another name compare equal. `kind` is excluded too, which is why a consumer must compare it
+alongside the fingerprint: an `.instance` and a `.frame` embedding normally differ in `pooling`
+and so in fingerprint, but nothing requires that, and a producer may record the same `pooling`
+for both.
 
 The descriptor may contain only objects, arrays, strings, integers, booleans and `null`: **no
 floating-point numbers**. Under that restriction the canonical form is RFC 8785 (JCS), which for
-these values is exactly Python's
+these values is exactly Python's form below. The equivalence holds because every key is a fixed
+ASCII key from the schema (so Python's code-point sort and JCS's UTF-16 sort agree) and every
+integer stays within ±2^53 (so it serializes identically as an IEEE 754 double):
 
 ```python
 json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -324,8 +329,8 @@ naming the first offending row. A block that cannot be read (a corrupt chunk) is
 malformed file. A component the structural checks found unindexable (missing payload, wrong rank,
 non-float dtype) is skipped by the deep checks rather than reported twice.
 
-`jabs-io`'s `Component` enforces the per-component rules (all but `embedding_pair_consistent`) at
-construction. The writer runs `validate()` on the finished file before publishing it, which adds
+`jabs-io`'s `Component` enforces all six structural rules except `embedding_pair_consistent` at
+construction; the deep checks do not run there. The writer runs `validate()` on the finished file before publishing it, which adds
 the pairing rule, and the two deep checks when it is called with `deep=True`.
 
 **Conformance fixtures** follow ADR 0002's one-file-per-error-check pattern: `valid-embedding.h5`
@@ -339,10 +344,10 @@ non-embedding component.
 ### Positive
 
 - Embeddings are a first-class, validated JABS input: a consumer can decide whether two files'
-  embeddings are interchangeable from the fingerprint alone, without trusting names.
+  embeddings are interchangeable from `(kind, fingerprint)` alone, without trusting names.
 - One pose file per video still holds all inference output; embeddings inherit provenance,
   validation, round trips and lazy frame-window reads from the generic tooling.
-- float16 halves embedding storage, to roughly 1.1-1.5 GB per video-hour for a 3-4 slot ViT-G
+- float16 halves embedding storage, to roughly 1.1-1.4 GB per video-hour for a 3-4 slot ViT-G
   per-instance embedding.
 - A producer, or a foreign component's author, can choose a layout suited to its access pattern
   without changing the writer.
