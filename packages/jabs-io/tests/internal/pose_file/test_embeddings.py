@@ -3,6 +3,7 @@
 import dataclasses
 import json
 from collections.abc import Iterator
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -13,16 +14,20 @@ from jabs.io.internal.pose_file import read_manifest, read_pose_file, validate, 
 from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.embeddings import (
     EmbeddingDescriptor,
+    EmbeddingInfo,
     EmbeddingModel,
     Projection,
     TemporalWindow,
     canonical_json,
     compute_fingerprint,
     is_embedding_id,
+    list_embeddings,
     parse_embedding_id,
 )
 
 from .conftest import build_pose_file_with_embeddings
+
+DATA = Path(__file__).parents[2] / "data" / "pose-format"
 
 _WEIGHTS = "sha256:" + "0" * 64
 
@@ -311,3 +316,43 @@ def test_an_empty_shape_is_reported_not_raised(tmp_path):
     checks = {f.check for f in errors}
     assert "embedding_descriptor_matches" in checks
     assert "axes_arity" in checks
+
+
+def test_list_embeddings_from_fixture():
+    """Each embedding in a file is listed once, sorted by name then kind."""
+    infos = list_embeddings(read_manifest(DATA / "valid-embedding.h5"))
+    assert [(i.name, i.kind, i.dim) for i in infos] == [
+        ("blk31", "instance", 4),
+        ("trunk", "frame", 8),
+        ("trunk", "instance", 8),
+    ]
+    assert [i.component_id for i in infos] == [
+        "jabs.embedding.blk31.instance",
+        "jabs.embedding.trunk.frame",
+        "jabs.embedding.trunk.instance",
+    ]
+    assert all(isinstance(i, EmbeddingInfo) for i in infos)
+    assert all(i.fingerprint.startswith("sha256:") for i in infos)
+    # The two trunk components pool differently, so their vectors are not comparable.
+    assert infos[1].fingerprint != infos[2].fingerprint
+
+
+def test_list_embeddings_skips_malformed_embedding_ids():
+    """Only ids of the exact form jabs.embedding.<name>.<kind> are embeddings to list."""
+    descriptor = _descriptor().to_json()
+    manifest = {
+        "components": [
+            {"id": "jabs.pose.points"},
+            {"id": "jabs.embedding.Bad.instance", "embedding": descriptor},
+            {"id": "jabs.embedding.trunk.instance", "embedding": descriptor},
+        ]
+    }
+    assert list_embeddings(manifest) == [
+        EmbeddingInfo(
+            name="trunk",
+            kind="instance",
+            dim=4,
+            fingerprint=descriptor["fingerprint"],
+            component_id="jabs.embedding.trunk.instance",
+        )
+    ]
