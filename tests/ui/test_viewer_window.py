@@ -1,5 +1,8 @@
 """Tests for the jabs-viewer main window."""
 
+import threading
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -7,13 +10,48 @@ import numpy as np
 import pytest
 
 try:
+    from PySide6.QtCore import QObject, Signal
     from PySide6.QtWidgets import QApplication
 
     from jabs.ui.player_widget import PlayerWidget
     from jabs.ui.viewer import viewer_window
     from jabs.ui.viewer.frame_size_dialog import FrameSizeDialog
     from jabs.ui.viewer.overlay_export import OverlayChoice
+    from jabs.ui.viewer.pose_loader_thread import PoseLoaderThread
     from jabs.ui.viewer.viewer_window import ViewerWindow
+
+    class _SynchronousPoseLoader(QObject):
+        """PoseLoaderThread stand-in that opens the pose file as soon as it is started.
+
+        Lets tests assert on the window right after ``open_video`` returns, as if the
+        background load had already finished.
+        """
+
+        pose_loaded = Signal(object)
+        load_error = Signal(Exception)
+        finished = Signal()
+
+        def __init__(
+            self,
+            pose_path: Path,
+            loader: Callable[[Path], object],
+            parent: QObject | None = None,
+        ) -> None:
+            super().__init__(parent)
+            self.pose_path = pose_path
+            self._loader = loader
+
+        def start(self) -> None:
+            try:
+                pose_est = self._loader(self.pose_path)
+            except Exception as e:
+                self.load_error.emit(e)
+            else:
+                self.pose_loaded.emit(pose_est)
+            self.finished.emit()
+
+        def wait(self) -> bool:
+            return True
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -37,6 +75,21 @@ def qapp():
     if app is None:
         app = QApplication([])
     yield app
+
+
+@pytest.fixture(autouse=True)
+def synchronous_pose_loading(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Open pose files synchronously; tests of the background load restore the thread."""
+    monkeypatch.setattr(viewer_window, "PoseLoaderThread", _SynchronousPoseLoader)
+
+
+def _process_events_until(condition: Callable[[], bool], timeout: float = 5.0) -> None:
+    """Run the Qt event loop until ``condition()`` is true, failing after ``timeout``."""
+    deadline = time.monotonic() + timeout
+    while not condition():
+        assert time.monotonic() < deadline, "timed out waiting for the event loop"
+        QApplication.processEvents()
+        time.sleep(0.01)
 
 
 @pytest.fixture
@@ -168,8 +221,8 @@ def test_pose_file_with_different_frame_count_warns_and_opens_video_anyway(
     assert "does not match the video" in window.statusBar().currentMessage()
 
 
-def test_unreadable_video_reports_error_and_keeps_previous_state(monkeypatch, window) -> None:
-    """A video that fails to open is reported and the window state is not updated."""
+def test_unreadable_video_reports_error_and_leaves_nothing_open(monkeypatch, window) -> None:
+    """A video that fails to open is reported and the window shows nothing open."""
     _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose())
     window._player.load_video.side_effect = OSError("bad video")
     message_dialog = mock.Mock()
@@ -369,7 +422,8 @@ def test_failed_load_does_not_leave_loading_message(
         window._player.load_video.side_effect = OSError("unreadable")
         window.open_video(VIDEO_PATH)
 
-    assert window.statusBar().currentMessage() == "previous status"
+    # whatever was open was released before the load, so its status no longer applies
+    assert window.statusBar().currentMessage() == viewer_window.OPEN_PROMPT
 
 
 def test_bounding_box_control_follows_the_pose_file(monkeypatch, window) -> None:
@@ -444,8 +498,9 @@ def test_export_passes_the_video_and_displayed_overlays(monkeypatch, window) -> 
     """Exports start from the open video and the overlays the View menu has on."""
     pose = _fake_pose(has_bounding_boxes=True, has_landmarks=True)
     _patch_pose_lookup(monkeypatch, POSE_PATH, pose)
-    window._player._video_path = VIDEO_PATH
     window.open_video(VIDEO_PATH)
+    # load_video is mocked, so set the path it would have set
+    window._player._video_path = VIDEO_PATH
     window._segmentation_action.setChecked(False)
     window._exporter = mock.Mock()
 
@@ -488,3 +543,220 @@ def test_export_does_nothing_with_nothing_open() -> None:
 
     window._exporter.export_frame.assert_not_called()
     window._exporter.export_video.assert_not_called()
+
+
+@pytest.fixture
+def blocking_pose_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[tuple[threading.Event, mock.Mock]]:
+    """Load pose files on the real background thread, held until the test releases it."""
+    monkeypatch.setattr(viewer_window, "PoseLoaderThread", PoseLoaderThread)
+    release = threading.Event()
+    pose = _fake_pose()
+
+    def open_pose(_path: Path) -> mock.Mock:
+        assert release.wait(5), "test never released the pose load"
+        return pose
+
+    monkeypatch.setattr(viewer_window, "get_pose_path", lambda _video_path: POSE_PATH)
+    monkeypatch.setattr(viewer_window, "open_pose_file", open_pose)
+    yield release, pose
+    release.set()
+
+
+def test_pose_file_opens_in_the_background(window, blocking_pose_load) -> None:
+    """The window stays usable while a pose file opens, then shows the video and pose."""
+    release, pose = blocking_pose_load
+
+    window.open_video(VIDEO_PATH)
+
+    # open_video returned while the pose file is still loading
+    loader = window._pose_loader
+    assert loader is not None and loader.isRunning()
+    window._player.load_video.assert_not_called()
+    assert window.statusBar().currentMessage() == f"Loading pose file {POSE_PATH.name}..."
+
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+
+    window._player.load_video.assert_called_once_with(VIDEO_PATH, pose)
+    assert window.pose_est is pose
+    assert window._pose_action.isEnabled()
+
+
+def test_open_requests_are_ignored_while_a_pose_file_loads(window, blocking_pose_load) -> None:
+    """A second file can't be opened until the first one's pose file has loaded."""
+    release, pose = blocking_pose_load
+    window._player.load_blank_frames = mock.Mock()
+
+    window.open_video(VIDEO_PATH)
+    loader = window._pose_loader
+    window.open_video(Path("/data/other.mp4"))
+    window.open_pose_file(POSE_PATH)
+
+    assert window._pose_loader is loader
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+    window._player.load_video.assert_called_once_with(VIDEO_PATH, pose)
+    window._player.load_blank_frames.assert_not_called()
+
+
+def test_busy_dialog_shows_for_a_slow_load_and_closes_after(
+    monkeypatch, window, blocking_pose_load
+) -> None:
+    """A pose file that takes a while to open shows a busy dialog until it has loaded."""
+    release, _pose = blocking_pose_load
+    dialog = mock.Mock()
+    monkeypatch.setattr(viewer_window, "create_progress_dialog", mock.Mock(return_value=dialog))
+    monkeypatch.setattr(viewer_window, "BUSY_DIALOG_DELAY_MS", 0)
+
+    window.open_video(VIDEO_PATH)
+    _process_events_until(lambda: dialog.show.called)
+    dialog.hide.assert_not_called()
+
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+    # hide(), since the progress dialog ignores close events
+    dialog.hide.assert_called_once()
+
+
+def test_quick_load_does_not_flash_the_busy_dialog(monkeypatch, window) -> None:
+    """A pose file that opens before the delay never builds the busy dialog."""
+    create_dialog = mock.Mock()
+    monkeypatch.setattr(viewer_window, "create_progress_dialog", create_dialog)
+    _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose())
+
+    window.open_video(VIDEO_PATH)
+    deadline = time.monotonic() + 2 * viewer_window.BUSY_DIALOG_DELAY_MS / 1000
+    while time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+
+    create_dialog.assert_not_called()
+
+
+def _open_pose_only_then_block(monkeypatch: pytest.MonkeyPatch, window: "ViewerWindow") -> None:
+    """Open a pose file on its own at once, then restore the blocking background load."""
+    blocking_open = viewer_window.open_pose_file
+    monkeypatch.setattr(viewer_window, "PoseLoaderThread", _SynchronousPoseLoader)
+    _open_pose_only(monkeypatch, window)
+    monkeypatch.setattr(viewer_window, "PoseLoaderThread", PoseLoaderThread)
+    monkeypatch.setattr(viewer_window, "open_pose_file", blocking_open)
+    monkeypatch.setattr(viewer_window, "get_pose_path", lambda _video_path: POSE_PATH)
+
+
+def test_closing_mid_load_waits_without_blocking(window: "ViewerWindow") -> None:
+    """Closing mid-load is put off rather than blocking on the thread.
+
+    Destroying a running QThread aborts, so the window can't close yet, but waiting
+    on it would freeze the window for the rest of the load.
+    """
+    loader = mock.Mock(pose_path=POSE_PATH)
+    window._pose_loader = loader
+    window._exporter = mock.Mock()
+
+    assert window.close() is False
+
+    loader.wait.assert_not_called()
+    window._exporter.shutdown.assert_not_called()
+    assert "Closing once" in window.statusBar().currentMessage()
+
+
+def test_close_requested_mid_load_discards_the_pose_and_closes(
+    monkeypatch: pytest.MonkeyPatch,
+    window: "ViewerWindow",
+    blocking_pose_load: tuple[threading.Event, mock.Mock],
+) -> None:
+    """Once the load finishes, the window closes without showing the file or any dialog."""
+    release, _pose = blocking_pose_load
+    message_dialog = mock.Mock()
+    monkeypatch.setattr(viewer_window, "MessageDialog", message_dialog)
+    window._exporter = mock.Mock()
+
+    window.open_video(VIDEO_PATH)
+    window.close()
+    release.set()
+    _process_events_until(lambda: window._exporter.shutdown.called)
+
+    window._player.load_video.assert_not_called()
+    message_dialog.warning.assert_not_called()
+    assert window.pose_est is None
+
+
+def test_open_and_export_actions_are_disabled_while_a_pose_file_loads(
+    monkeypatch: pytest.MonkeyPatch,
+    window: "ViewerWindow",
+    blocking_pose_load: tuple[threading.Event, mock.Mock],
+) -> None:
+    """Nothing can be opened or exported mid-load, so no request is silently dropped."""
+    release, _pose = blocking_pose_load
+    _open_pose_only_then_block(monkeypatch, window)
+    assert window._export_video_action.isEnabled()
+
+    window.open_video(VIDEO_PATH)
+
+    assert not window._open_action.isEnabled()
+    assert not window._open_pose_action.isEnabled()
+    assert not window._export_frame_action.isEnabled()
+    assert not window._export_video_action.isEnabled()
+
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+
+    assert window._open_action.isEnabled()
+    assert window._open_pose_action.isEnabled()
+    assert window._export_video_action.isEnabled()
+
+
+def test_the_open_file_is_released_before_the_next_pose_file_loads(
+    monkeypatch: pytest.MonkeyPatch,
+    window: "ViewerWindow",
+    blocking_pose_load: tuple[threading.Event, mock.Mock],
+) -> None:
+    """The old pose is not kept in memory alongside the one that is loading."""
+    release, pose = blocking_pose_load
+    _open_pose_only_then_block(monkeypatch, window)
+    assert window.pose_est is not None
+
+    window.open_video(VIDEO_PATH)
+
+    assert window.pose_est is None
+    assert window._player.pose_est is None
+    assert window.windowTitle() == "test"
+
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+    assert window.pose_est is pose
+
+
+def test_video_frame_count_is_read_off_the_gui_thread(
+    window: "ViewerWindow", blocking_pose_load: tuple[threading.Event, mock.Mock]
+) -> None:
+    """The frame count check, slow for a video on a network share, runs on the loader."""
+    release, _pose = blocking_pose_load
+    threads: list[threading.Thread] = []
+
+    def frame_count(_path: Path) -> int:
+        threads.append(threading.current_thread())
+        return 100
+
+    window._video_frame_count = frame_count
+
+    window.open_video(VIDEO_PATH)
+    release.set()
+    _process_events_until(lambda: window._pose_loader is None)
+
+    assert threads and threads[0] is not threading.main_thread()
+
+
+def test_unreadable_video_frame_count_still_opens_with_the_pose(
+    monkeypatch: pytest.MonkeyPatch, window: "ViewerWindow"
+) -> None:
+    """A frame count that can't be read is left for opening the video to report."""
+    pose = _fake_pose()
+    _patch_pose_lookup(monkeypatch, POSE_PATH, pose)
+    window._video_frame_count = mock.Mock(side_effect=OSError("unreadable"))
+
+    window.open_video(VIDEO_PATH)
+
+    window._player.load_video.assert_called_once_with(VIDEO_PATH, pose)
