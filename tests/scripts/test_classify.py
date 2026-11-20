@@ -1,5 +1,6 @@
 """Unit tests for jabs.scripts.classify helpers."""
 
+import shutil
 from pathlib import Path
 from unittest import mock
 
@@ -95,3 +96,47 @@ def test_training_on_an_old_export_exits_with_the_reason(
         trainer(tmp_path / "old_training.h5")
 
     assert "retrain" in str(raised.value.code)
+
+
+def test_classify_reports_an_unopenable_pose_file_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A pose file the converter refuses ends the command with its path and the reason."""
+    unusable = (
+        Path(__file__).parents[2]
+        / "packages"
+        / "jabs-io"
+        / "tests"
+        / "data"
+        / "legacy-pose"
+        / "v8-unknown-dataset.h5"
+    )
+    pose_path = tmp_path / "bad_pose_est_v8.h5"
+    shutil.copyfile(unusable, pose_path)
+    classifier = mock.Mock(
+        classifier_type=next(iter(classify.Classifier().classifier_choices())),
+        behavior_name="grooming",
+        project_settings={"window_size": 5, "social": False, "cm_units": False},
+    )
+    monkeypatch.setattr(classify, "load_classifier_from_pickle", lambda _path: classifier)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "jabs-classify",
+            "classify",
+            "--classifier",
+            str(tmp_path / "classifier.pickle"),
+            "--input-pose",
+            str(pose_path),
+            "--out-dir",
+            str(tmp_path / "out"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        classify.classify_main()
+
+    message = str(raised.value.code)
+    assert str(pose_path) in message
+    assert "poseest/mystery is not a legacy pose dataset" in message
+    assert "Traceback" not in message

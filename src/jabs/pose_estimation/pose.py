@@ -8,6 +8,7 @@ lazily in frame windows. It never loads the whole file.
 
 import logging
 import re
+import shutil
 import weakref
 from collections import OrderedDict
 from collections.abc import Iterator
@@ -197,6 +198,16 @@ def resolve_source_format(path: Path, converted_from: str | None) -> str:
     return source_format_from_path(path) or converted_from or NATIVE_SOURCE_FORMAT
 
 
+def _release(reader: ComponentReader, cleanup_dir: Path | None) -> None:
+    """Close a Pose's reader, then remove the directory it owns, if any.
+
+    The reader is closed first: Windows cannot delete an open file.
+    """
+    reader.close()
+    if cleanup_dir is not None:
+        shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+
 class Pose:
     """Read access to one video's pose, from a unified pose file.
 
@@ -217,6 +228,8 @@ class Pose:
         cache_dir: Optional directory to cache convex hulls in.
         converter_revision: The converter revision that produced ``pose_path``
             from ``source_path``, or None when the file was not converted.
+        cleanup_dir: A directory this ``Pose`` owns (a temporary conversion
+            cache) and removes when it is closed or collected.
 
     Raises:
         NotAPoseFileError: If ``pose_path`` is not a unified pose file.
@@ -234,6 +247,7 @@ class Pose:
         source_hash: str | None = None,
         cache_dir: Path | None = None,
         converter_revision: int | None = None,
+        cleanup_dir: Path | None = None,
     ) -> None:
         self._pose_path = pose_path
         self._converter_revision = converter_revision
@@ -242,8 +256,9 @@ class Pose:
         # hashed before the reader opens, so a failure here leaks no open file
         self._hash = source_hash if source_hash is not None else hash_file(self._path)
         self._reader = ComponentReader(pose_path)
-        # closes the file when the Pose is collected; never refers to self
-        self._finalizer = weakref.finalize(self, self._reader.close)
+        # closes the file (and removes cleanup_dir) when the Pose is closed or
+        # collected; never refers to self
+        self._finalizer = weakref.finalize(self, _release, self._reader, cleanup_dir)
         self._convex_hull_cache: dict[int, list[BaseGeometry | None]] = {}
         self._connected_segments: tuple[tuple[KeypointIndex, ...], ...] | None = None
         self._segmentation_cache: OrderedDict[int, _SegmentationBlock] = OrderedDict()

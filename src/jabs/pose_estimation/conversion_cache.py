@@ -5,11 +5,17 @@ A legacy ``*_pose_est_v<N>.h5`` file is converted to a unified pose file at
 and reused while the legacy file's bytes and the converter revision
 (``jabs.io.internal.pose_file.convert.CONVERTER_REVISION``, bumped only when the
 converter's output changes) are unchanged.
-The cache root is the project's ``cache_dir``, or the per-user cache directory
-when there is none. The video directory is never written.
+The cache root is the project's ``cache_dir``; without one it is
+``$JABS_CACHE_DIR`` when that is set, else the per-user cache directory. When
+that directory cannot be written, a one-off open converts into a temporary
+directory removed when the ``Pose`` is closed. The video directory is never
+written.
 """
 
 import logging
+import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from platformdirs import user_cache_dir
@@ -29,6 +35,11 @@ __all__ = ["cache_root", "converted_path", "ensure_converted", "open_unified"]
 
 _APP_NAME = "jabs"
 _CONVERTED_DIR = "converted"
+# overrides the per-user cache directory for opens without a project
+CACHE_DIR_ENV = "JABS_CACHE_DIR"
+
+# per-user cache roots already reported as unwritable, so each is reported once
+_reported_unwritable: set[Path] = set()
 
 # what opening a pose file raises for a file it cannot read; LookupError and
 # ValueError cover a malformed manifest that still passes the schema
@@ -57,10 +68,14 @@ def cache_root(cache_dir: Path | None) -> Path:
         cache_dir: The project's cache directory, or None outside a project.
 
     Returns:
-        ``cache_dir``, or the per-user cache directory for jabs when it is None.
+        ``cache_dir``; when it is None, ``$JABS_CACHE_DIR`` if set and not
+        empty, else the per-user cache directory for jabs.
     """
     if cache_dir is not None:
         return cache_dir
+    override = os.environ.get(CACHE_DIR_ENV)
+    if override:
+        return Path(override).expanduser()
     return Path(user_cache_dir(_APP_NAME))
 
 
@@ -202,6 +217,11 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
         except _OPEN_ERRORS as error:
             raise PoseOpenError(path, _reason(path, error)) from error
 
+    if cache_dir is None:
+        temporary = _temporary_cache_if_unwritable(path, source_hash)
+        if temporary is not None:
+            return _open_in_temporary_cache(path, source_hash, temporary)
+
     pose_path = ensure_converted(path, source_hash, cache_dir)
     try:
         return Pose(
@@ -227,3 +247,64 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
     except _OPEN_ERRORS as error:
         _discard(pose_path)
         raise PoseOpenError(path, _reason(pose_path, error)) from error
+
+
+def _can_write(directory: Path) -> bool:
+    """Return whether files can be created in ``directory``, creating it if needed."""
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryFile(dir=directory):
+            pass
+    except OSError:
+        return False
+    return True
+
+
+def _temporary_cache_if_unwritable(source: Path, source_hash: str) -> Path | None:
+    """Return a new temporary cache root when the per-user cache cannot take a conversion.
+
+    An existing conversion in the per-user cache is used even when the cache
+    is read-only, so None is returned then too. The first time a cache root is
+    found unwritable a WARNING is logged.
+
+    Returns:
+        A new temporary directory the caller owns, or None to use the per-user cache.
+    """
+    destination = converted_path(source, source_hash, None)
+    if destination.exists() or _can_write(destination.parent):
+        return None
+    root = cache_root(None)
+    if root not in _reported_unwritable:
+        _reported_unwritable.add(root)
+        logger.warning(
+            "Cannot write the pose conversion cache %s; converting into a temporary "
+            "directory removed after use. Set %s to a writable directory to keep "
+            "conversions between runs.",
+            root,
+            CACHE_DIR_ENV,
+        )
+    return Path(tempfile.mkdtemp(prefix="jabs-pose-"))
+
+
+def _open_in_temporary_cache(path: Path, source_hash: str, temporary: Path) -> Pose:
+    """Convert a legacy file into ``temporary`` and open it; the Pose removes it on close.
+
+    Raises:
+        PoseOpenError: If the file cannot be converted or opened; ``temporary``
+            is removed.
+    """
+    try:
+        pose_path = ensure_converted(path, source_hash, temporary)
+        try:
+            return Pose(
+                pose_path,
+                source_path=path,
+                source_hash=source_hash,
+                converter_revision=_converter_revision(),
+                cleanup_dir=temporary,
+            )
+        except _OPEN_ERRORS as error:
+            raise PoseOpenError(path, _reason(pose_path, error)) from error
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise

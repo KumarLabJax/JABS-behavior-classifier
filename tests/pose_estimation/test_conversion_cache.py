@@ -415,3 +415,66 @@ def test_conversion_mode_follows_the_umask(legacy_v4: Path, tmp_path: Path) -> N
     finally:
         os.umask(previous)
     assert stat.S_IMODE(converted.stat().st_mode) == 0o644
+
+
+def test_cache_root_honors_jabs_cache_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """JABS_CACHE_DIR, when set, wins over the per-user cache directory."""
+    monkeypatch.setenv("JABS_CACHE_DIR", str(tmp_path / "env-cache"))
+    assert cache_root(None) == tmp_path / "env-cache"
+    # a project's cache directory still wins
+    assert cache_root(tmp_path / "project") == tmp_path / "project"
+    monkeypatch.setenv("JABS_CACHE_DIR", "")
+    monkeypatch.setattr(conversion_cache, "user_cache_dir", lambda _app: str(tmp_path / "user"))
+    assert cache_root(None) == tmp_path / "user"
+
+
+def test_jabs_cache_dir_receives_conversions(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An open without a cache_dir converts into JABS_CACHE_DIR."""
+    monkeypatch.setenv("JABS_CACHE_DIR", str(tmp_path / "env-cache"))
+    with open_unified(legacy_v4):
+        pass
+    assert converted_path(legacy_v4, hash_file(legacy_v4), None).parent == (
+        tmp_path / "env-cache" / "converted"
+    )
+    assert converted_path(legacy_v4, hash_file(legacy_v4), None).exists()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="POSIX permissions; root ignores them",
+)
+def test_unwritable_user_cache_converts_into_a_temporary_directory(
+    legacy_v4: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Without a writable per-user cache, one-off opens still work and leave nothing behind."""
+    read_only = tmp_path / "read-only"
+    read_only.mkdir()
+    monkeypatch.setenv("JABS_CACHE_DIR", str(read_only))
+    temporaries: list[Path] = []
+    real_mkdtemp = conversion_cache.tempfile.mkdtemp
+
+    def recording_mkdtemp(*args: object, **kwargs: object) -> str:
+        temporaries.append(Path(real_mkdtemp(*args, **kwargs)))
+        return str(temporaries[-1])
+
+    monkeypatch.setattr(conversion_cache.tempfile, "mkdtemp", recording_mkdtemp)
+    read_only.chmod(0o500)
+    try:
+        with caplog.at_level(logging.WARNING, logger=conversion_cache.__name__):
+            for _ in range(2):
+                with open_unified(legacy_v4) as pose:
+                    assert pose.num_frames > 0
+                    assert temporaries[-1].is_dir()
+                assert not temporaries[-1].exists()
+    finally:
+        read_only.chmod(0o700)
+    assert list(read_only.iterdir()) == []
+    assert len(temporaries) == 2
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert str(read_only) in warnings[0].getMessage()
