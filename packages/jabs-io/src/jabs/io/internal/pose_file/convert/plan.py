@@ -318,8 +318,8 @@ def _track_plan(h5: h5py.File, layout: LegacyLayout, block_frames: int) -> Place
 
     Only the first ``instance_count`` legacy instances of a frame hold tracks,
     compacted to the front, so a track's legacy index shifts when an earlier
-    one ends; its slot does not. Slots come from the free list of
-    ``PoseEstimationV3._build_identity_map``: at each frame, the slots of
+    one ends; its slot does not. Slots come from the free list the legacy v3
+    reader used to build its identity map: at each frame, the slots of
     tracks gone since the last frame are freed, then each new track, in legacy
     index order, takes the lowest free slot. A slot is therefore reused the
     frame after its track's last, and slot ``i`` is the legacy reader's

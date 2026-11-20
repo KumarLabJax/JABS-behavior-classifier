@@ -14,8 +14,8 @@ from typing import Any
 
 import h5py
 
-from jabs.core.abstract.pose_est import parse_model_metadata
 from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import parse_model_metadata
 from jabs.core.utils.static_objects import lixit_keypoint_count
 from jabs.io.internal.pose_file import ComponentReader, PoseFileError
 from jabs.io.internal.pose_file.convert import LegacyConversionError, inspect_legacy

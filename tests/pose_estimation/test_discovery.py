@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.pose_estimation.discovery import (
     POSE_FILE_GLOBS,
@@ -94,33 +93,16 @@ def test_pose_dir(tmp_path: Path) -> None:
     assert get_pose_path(tmp_path / "vid.mp4") == tmp_path / "vid_pose_est_v6.h5"
 
 
-def test_open_pose_file_unified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_open_pose_file_unified(tmp_path: Path) -> None:
     """A ``*_pose.h5`` file opens as Pose."""
-    monkeypatch.delenv("JABS_FORCE_UNIFIED", raising=False)
     path = build_pose_file(tmp_path / "vid_pose.h5")
     with open_pose_file(path, tmp_path / "cache") as pose:
         assert isinstance(pose, Pose)
         assert pose.pose_file == path
 
 
-@pytest.mark.legacy_reader
-def test_open_pose_file_legacy_uses_legacy_reader(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A legacy file still opens with its legacy reader by default."""
-    monkeypatch.delenv("JABS_FORCE_UNIFIED", raising=False)
-    cache = tmp_path / "cache"
-    cache.mkdir()
-    pose = open_pose_file(sample_path(4), cache)
-    assert isinstance(pose, PoseEstimation)
-    assert not (cache / "converted").exists()
-
-
-def test_force_unified_routes_legacy_through_pose(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """JABS_FORCE_UNIFIED=1 converts a legacy file and opens the conversion."""
-    monkeypatch.setenv("JABS_FORCE_UNIFIED", "1")
+def test_open_pose_file_converts_legacy(tmp_path: Path) -> None:
+    """A legacy file is converted through the cache and opens as Pose."""
     source = tmp_path / "vid_pose_est_v4.h5"
     shutil.copyfile(sample_path(4), source)
     cache = tmp_path / "cache"

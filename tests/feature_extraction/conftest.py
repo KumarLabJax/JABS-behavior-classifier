@@ -57,7 +57,7 @@ def pose_est_v5_short(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Pose
     NaN gaps and cache round trips use this instead of the full 1800-frame sample.
 
     Yields:
-        PoseEstimationV5 backed by a temporary shortened copy of the sample file.
+        Pose backed by a temporary shortened copy of the sample file.
     """
     pose_path = tmp_path_factory.mktemp("short_pose") / _SAMPLE_POSE_V5.name
     _write_short_pose(_SAMPLE_POSE_V5, pose_path, _SHORT_FRAMES)

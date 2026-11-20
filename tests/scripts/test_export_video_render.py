@@ -1,9 +1,8 @@
 """``jabs-cli export-video`` renders segmentation from legacy and unified pose files.
 
-Unlike ``test_export_video_cli.py``, nothing here is stubbed: the real pose readers and
-the real Qt renderer draw a few frames of a v6 pose file with segmentation, as a legacy
-file (with its legacy reader, and converted under ``JABS_FORCE_UNIFIED``) and as its
-unified conversion.
+Unlike ``test_export_video_cli.py``, nothing here is stubbed: the real ``Pose`` and the
+real Qt renderer draw a few frames of a v6 pose file with segmentation, as a legacy file
+(which is converted) and as its unified conversion.
 """
 
 import shutil
@@ -34,11 +33,7 @@ SEGMENTATION_SOURCE = Path(__file__).parents[1] / "data" / "sample_pose_est_v6.h
 SIZE = 800
 FRAMES = 3
 
-CASES = (
-    pytest.param("legacy", marks=pytest.mark.legacy_reader),
-    "legacy-forced-unified",
-    "unified",
-)
+CASES = ("legacy", "unified")
 
 
 @pytest.fixture(scope="session")
@@ -76,9 +71,7 @@ def _read_frames(path: Path) -> list[np.ndarray]:
 
 
 @pytest.mark.parametrize("case", CASES)
-def test_export_video_draws_segmentation(
-    tmp_path: Path, unified_v6: Path, monkeypatch: pytest.MonkeyPatch, case: str
-) -> None:
+def test_export_video_draws_segmentation(tmp_path: Path, unified_v6: Path, case: str) -> None:
     """The default --segmentation export renders, and its contours change the frames."""
     if case == "unified":
         pose_path = tmp_path / "clip_pose.h5"
@@ -86,10 +79,6 @@ def test_export_video_draws_segmentation(
     else:
         pose_path = tmp_path / "clip_pose_est_v6.h5"
         shutil.copyfile(SEGMENTATION_SOURCE, pose_path)
-    if case == "legacy-forced-unified":
-        monkeypatch.setenv("JABS_FORCE_UNIFIED", "1")
-    else:
-        monkeypatch.delenv("JABS_FORCE_UNIFIED", raising=False)
     video = _write_video(tmp_path / "clip.avi")
 
     with open_pose_file(pose_path) as pose:

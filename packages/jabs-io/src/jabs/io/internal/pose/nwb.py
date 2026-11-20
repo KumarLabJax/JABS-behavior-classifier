@@ -151,9 +151,9 @@ def _bounding_box_description(identity_name: str) -> str:
     """Return the TimeSeries description for bounding boxes of a given identity.
 
     The description does not promise a single missing-value sentinel, because the
-    writer cannot guarantee one. Missing boxes are usually NaN - PoseEstimationV8
-    initializes its regrouped array with NaN and fills only the slots id_mask marks
-    valid - but ``jabs-cli convert-parquet`` rewrites every NaN coordinate to -1,
+    writer cannot guarantee one. Missing boxes are usually NaN - the legacy v8
+    reader initialized its regrouped array with NaN and filled only the slots
+    id_mask marks valid - but ``jabs-cli convert-parquet`` rewrites every NaN coordinate to -1,
     including rows it marks valid in id_mask, and an integer-typed ``poseest/bbox``
     dataset cannot hold NaN at all (the NaN fill casts to 0). Normalizing the value
     here would change the exported coordinates and break the lossless roundtrip, so

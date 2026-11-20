@@ -11,16 +11,15 @@ The goldens are kept small: values are recorded for every
 ``FRAME_STRIDE``-th frame only, as float32. Features are still computed over
 every frame, so frame-to-frame features (e.g. centroid speed) are covered.
 
-Recording goldens:
-    Goldens are committed, never recorded by a test run. To (re)record them
-    after an intended behavior change, run from the repo root::
-
-        uv run python tests/feature_extraction/segmentation_features/feature_goldens.py --record
-
-    and review the change before committing it.
+Provenance of the goldens:
+    ``goldens/sample_pose_est_v6_features.npz`` is data. It was recorded with
+    the legacy v6 reader (``jabs/pose_estimation/pose_est_v6.py``) and
+    committed in da9e2892 ("test(features): record segmentation feature
+    goldens from the pre-window code"). That reader no longer exists, so the
+    goldens cannot be re-recorded; ``test_feature_goldens.py`` checks the
+    features on ``Pose`` against them, allowing only the differences it names.
 """
 
-import argparse
 import logging
 from pathlib import Path
 from typing import Any
@@ -34,7 +33,6 @@ from jabs.feature_extraction.social_features import SocialFeatureGroup
 
 logger = logging.getLogger(__name__)
 
-SAMPLE_PATH = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
 GOLDEN_PATH = Path(__file__).parent / "goldens" / "sample_pose_est_v6_features.npz"
 
 # frames between recorded frames
@@ -77,42 +75,3 @@ def load_golden(path: Path = GOLDEN_PATH) -> dict[str, npt.NDArray[Any]]:
     """
     with np.load(path, allow_pickle=False) as data:
         return {key: data[key] for key in data.files}
-
-
-def record_golden(path: Path = GOLDEN_PATH) -> Path:
-    """Record the goldens from the sample v6 file.
-
-    Args:
-        path: Destination ``.npz`` path; its directory is created if needed.
-
-    Returns:
-        The written path.
-    """
-    # imported here: recording opens the file, checking is given a pose
-    from jabs.pose_estimation import open_pose_file
-
-    with open_pose_file(SAMPLE_PATH) as pose:
-        values = compute_features(pose)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(path, **values)
-    logger.info("Recorded %s (%d bytes)", path, path.stat().st_size)
-    return path
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Command line entry point; ``--record`` rewrites the goldens.
-
-    Args:
-        argv: Command line arguments, defaults to ``sys.argv[1:]``.
-    """
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--record", action="store_true", help="record the feature goldens")
-    args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    if not args.record:
-        parser.error("nothing to do; pass --record to rewrite the goldens")
-    record_golden()
-
-
-if __name__ == "__main__":
-    main()

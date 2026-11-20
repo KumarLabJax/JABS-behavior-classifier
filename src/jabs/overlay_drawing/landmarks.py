@@ -35,7 +35,7 @@ _LIXIT_KEYPOINTS_3 = 3
 _DRAWN_STATIC_OBJECTS = ("corners", "lixit", "food_hopper")
 
 
-def pose_has_landmarks(pose: PoseEstimation) -> bool:
+def pose_has_landmarks(pose: PoseLike) -> bool:
     """Return whether a pose file carries any arena landmarks to draw.
 
     Args:

@@ -454,7 +454,6 @@ def test_source_path_names_the_users_file(pose_file_factory: Factory, tmp_path: 
     with Pose(pose_file_factory(name="converted.h5"), source_path=legacy) as pose:
         assert pose.pose_file == legacy
         assert pose.source_format == "pose_est_v6"
-        assert pose.format_major_version == 6
         assert pose.hash  # hashed from the legacy file
     with Pose(pose_file_factory()) as pose:
         assert pose.source_format == "jabs.pose-file"

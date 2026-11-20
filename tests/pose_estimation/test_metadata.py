@@ -105,17 +105,14 @@ def test_scan_matches_the_opened_pose(tmp_path: Path, source: Path, name: str) -
 
 
 @pytest.mark.parametrize(("source", "name"), _V3_SAMPLES, ids=lambda v: getattr(v, "name", v))
-def test_v3_identities_are_its_track_slots(
-    tmp_path: Path, source: Path, name: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_v3_identities_are_its_track_slots(tmp_path: Path, source: Path, name: str) -> None:
     """Both v3 samples: the scan counts what open_pose_file counts, legacy and unified.
 
-    ``open_pose_file`` opens the legacy file as ``Pose`` (``JABS_FORCE_UNIFIED``):
-    the legacy v3 reader counts ``points.shape[1]``, which for v3-tracklets is
+    ``open_pose_file`` opens the legacy file as ``Pose``; the removed legacy v3
+    reader counted ``points.shape[1]``, which for v3-tracklets is
     fewer than the track slots the identities rule gives.
     """
     legacy, unified = _legacy_and_converted(tmp_path, source, name)
-    monkeypatch.setenv("JABS_FORCE_UNIFIED", "1")
     with open_pose_file(legacy, tmp_path / "cache") as pose:
         expected = pose.num_identities
     assert expected > 0

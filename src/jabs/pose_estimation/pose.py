@@ -21,9 +21,12 @@ import numpy.typing as npt
 from shapely.geometry import MultiPoint
 from shapely.geometry.base import BaseGeometry
 
-from jabs.core.abstract.pose_est import parse_model_metadata
 from jabs.core.enums import PoseCapability
-from jabs.core.pose_protocol import NATIVE_SOURCE_FORMAT, source_format_from_path
+from jabs.core.pose_protocol import (
+    NATIVE_SOURCE_FORMAT,
+    parse_model_metadata,
+    source_format_from_path,
+)
 from jabs.core.pose_skeleton import (
     FULL_CONNECTED_SEGMENTS,
     NVSN_CONNECTED_SEGMENTS,
@@ -79,11 +82,6 @@ _MISSING_FROM_NVSN = (
     KeypointIndex.RIGHT_REAR_PAW.value,
     KeypointIndex.MID_TAIL.value,
 )
-
-# format_major_version of a native unified file, which has no legacy version:
-# the newest legacy format, since a unified file can carry everything it can.
-# Kept only for PoseLike until callers use capabilities.
-_NATIVE_FORMAT_MAJOR_VERSION = 8
 
 # The convert history's source format of a legacy v3 conversion, whose tracks
 # are its identities.
@@ -441,15 +439,6 @@ class Pose:
         convention, from the convert history entry, else native.
         """
         return self._source_format
-
-    @property
-    def format_major_version(self) -> int:
-        """Legacy major version from :attr:`source_format`; 8 for a native file.
-
-        Kept for ``PoseLike`` only: callers should use :attr:`capabilities`.
-        """
-        match = re.fullmatch(r"pose_est_v(\d+)", self._source_format)
-        return int(match.group(1)) if match else _NATIVE_FORMAT_MAJOR_VERSION
 
     @property
     def model_metadata(self) -> dict[str, Any] | None:

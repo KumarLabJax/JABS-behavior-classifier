@@ -1,573 +1,69 @@
-import json
-import logging
-from abc import ABC, abstractmethod
-from collections.abc import Iterator
-from pathlib import Path
-from types import TracebackType
-from typing import Any
+"""Deprecated home of the legacy pose reader base class.
 
-import h5py
-import joblib
-import numpy as np
-from shapely.geometry import MultiPoint
+The per-version legacy pose readers and their abstract base class were removed;
+JABS opens every pose file as ``jabs.pose_estimation.Pose``, typed against
+:class:`jabs.core.pose_protocol.PoseLike`. ``PoseEstimation`` stays for one
+release as a name that only carries the skeleton constants, now in
+:mod:`jabs.core.pose_skeleton`, and warns on every access.
+"""
 
-from jabs.core.enums import PoseCapability
-from jabs.core.pose_protocol import source_format_from_path
+import warnings
+
 from jabs.core.pose_skeleton import (
     FULL_CONNECTED_SEGMENTS,
     MINIMUM_CONFIDENCE,
     NVSN_CONNECTED_SEGMENTS,
     KeypointIndex,
 )
-from jabs.core.types import DynamicObjectData, SegmentationWindow
-from jabs.core.utils import hash_file
 
-logger = logging.getLogger(__name__)
+__all__ = ["MINIMUM_CONFIDENCE"]
 
-__all__ = ["MINIMUM_CONFIDENCE", "PoseEstimation", "parse_model_metadata"]
-
-
-def parse_model_metadata(raw: Any) -> dict[str, Any] | None:
-    """Parse a ``model_metadata_json`` attribute value.
-
-    Args:
-        raw: The attribute as h5py returns it: None, str, bytes, or a 0-d array
-            of either.
-
-    Returns:
-        The parsed JSON object, or None when the value is absent, empty, not
-        valid JSON, or not a JSON object.
-    """
-    if isinstance(raw, np.ndarray) and raw.shape == ():
-        raw = raw.item()
-    if isinstance(raw, bytes):
-        raw = raw.decode("utf-8", errors="replace")
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    try:
-        metadata = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.warning("Pose model_metadata_json is not valid JSON; ignoring it")
-        return None
-    if not isinstance(metadata, dict):
-        logger.warning("Pose model_metadata_json is not a JSON object; ignoring it")
-        return None
-    return metadata
+_DEPRECATED_NAME = "PoseEstimation"
+_DEPRECATION_MESSAGE = (
+    "jabs.core.abstract.PoseEstimation is deprecated and will be removed in a future "
+    "release; the legacy pose readers are gone. Use jabs.core.pose_skeleton for "
+    "KeypointIndex, FULL_CONNECTED_SEGMENTS and NVSN_CONNECTED_SEGMENTS, and "
+    "jabs.core.pose_protocol.PoseLike to type a pose."
+)
 
 
-class PoseEstimation(ABC):
-    """Abstract base class for pose estimation data handlers.
+class _PoseEstimation:
+    """Carrier of the skeleton constants under the deprecated ``PoseEstimation`` name.
 
-    Provides a common interface for loading, accessing, and processing pose data
-    from HDF5 files. Defines methods for retrieving keypoints, confidence masks, identity
-    presence, and static objects, as well as utilities for geometric computations such as
-    convex hulls and bearing angles. All pose estimation versioned classes should inherit
-    from this base class.
-
-    Args:
-        file_path (Path): Path to the pose HDF5 file.
-        cache_dir (Path | None): Optional cache directory for intermediate data.
-        fps (int): Frames per second for the video.
-
-    Implements :class:`jabs.core.pose_protocol.PoseLike`.
-
-    Abstract Methods:
-        get_points(frame_index, identity, scale): Get points and mask for an identity in a frame.
-        get_identity_poses(identity, scale): Get all points and masks for an identity.
-        get_identity_point_mask(identity): Get the point mask array for a given identity.
-        identity_mask(identity): Get the identity mask for a given identity.
-        identity_to_track: Get the identity-to-track mapping for this file.
-        format_major_version: Returns the major version of the pose file format.
-
-    Methods:
-        get_identity_convex_hulls(identity): Get convex hulls for an identity across frames.
-        compute_bearing(points): Compute the bearing angle for a single frame.
-        compute_all_bearings(identity): Compute bearing angles for all frames of an identity.
-        get_pose_file_attributes(path): Static method to get HDF5 file attributes.
-
-    Properties:
-        num_frames (int): Number of frames.
-        identities (list): List of identities.
-        num_identities (int): Number of identities.
-        cm_per_pixel (float | None): Centimeters per pixel.
-        fps (int): Frames per second.
-        pose_file (Path): Path to the pose file.
-        hash (str): Hash of the pose file.
-        static_objects (dict): Static objects in the pose file.
-        num_lixit_keypoints (int): Number of lixit keypoints (default 0).
-        external_identities (list[str] | None): External identity names, indexed by
-            JABS identity index. None when the pose file has no external identities.
+    The attributes are the same objects as :mod:`jabs.core.pose_skeleton`'s.
     """
 
-    # Skeleton constants live in jabs.core.pose_skeleton; these are aliases
-    # (the same objects) kept for existing callers.
     KeypointIndex = KeypointIndex
     FULL_CONNECTED_SEGMENTS = FULL_CONNECTED_SEGMENTS
     NVSN_CONNECTED_SEGMENTS = NVSN_CONNECTED_SEGMENTS
 
-    _CACHE_FILE_VERSION = 1
 
-    def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
-        """initialize new object from h5 file
+def _deprecated_pose_estimation(stacklevel: int) -> type[_PoseEstimation]:
+    """Warn that ``PoseEstimation`` is deprecated and return its constant carrier.
 
-        Args:
-            file_path: path to the pose file, named following the JABS
-                convention ``<video name>_pose_est_v<major version>.h5``
-            cache_dir: optional cache directory, used to cache convex hulls
-                for faster loading
-            fps: frames per second, used for scaling time series features
-                from "per frame" to "per second"
-        """
-        super().__init__()
-        self._num_frames = 0
-        self._identities = []
-        self._external_identities: list[str] | None = None
-        self._convex_hull_cache = {}
-        self._path = file_path
-        self._cache_dir = cache_dir
-        self._cm_per_pixel = None
-        self._hash = hash_file(file_path)
-        self._fps = fps
+    Args:
+        stacklevel: ``warnings.warn`` stack level that points at the caller's
+            access.
 
-        self._static_objects: dict = {}
-        self._model_metadata: dict[str, Any] | None = None
-        self._model_metadata_loaded = False
-        self._dynamic_objects: dict[str, DynamicObjectData] = {}
+    Returns:
+        The class carrying the skeleton constants.
+    """
+    warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=stacklevel + 1)
+    return _PoseEstimation
 
-        # check cache version, if it doesn't match, clear the cache file for this pose file
-        if self._cache_dir is not None and not self.check_cache_version():
-            cache_file = self._cache_file_path()
-            if cache_file and cache_file.exists():
-                try:
-                    cache_file.unlink()
-                except Exception:
-                    logger.warning("Unable to delete old cache file %s", cache_file)
 
-    def close(self) -> None:
-        """Release file handles; a no-op, since legacy readers load everything on open."""
-        return None
+def __getattr__(name: str) -> type[_PoseEstimation]:
+    """Return the deprecated ``PoseEstimation`` name with a ``DeprecationWarning``.
 
-    def __enter__(self) -> "PoseEstimation":
-        """Return self, for use as a context manager."""
-        return self
+    Args:
+        name: Attribute looked up on this module.
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        """Call :meth:`close`."""
-        self.close()
+    Returns:
+        The class carrying the skeleton constants, for ``PoseEstimation``.
 
-    @property
-    def capabilities(self) -> frozenset[PoseCapability]:
-        """Optional data this pose provides.
-
-        ``SOCIAL`` iff there is more than one identity, ``SEGMENTATION`` iff
-        :attr:`has_segmentation`, ``BOUNDING_BOXES`` iff :attr:`has_bounding_boxes`.
-        """
-        capabilities = set()
-        if self.num_identities > 1:
-            capabilities.add(PoseCapability.SOCIAL)
-        if self.has_segmentation:
-            capabilities.add(PoseCapability.SEGMENTATION)
-        if self.has_bounding_boxes:
-            capabilities.add(PoseCapability.BOUNDING_BOXES)
-        return frozenset(capabilities)
-
-    @property
-    def has_social(self) -> bool:
-        """True when the pose has more than one identity."""
-        return self.num_identities > 1
-
-    @property
-    def has_segmentation(self) -> bool:
-        """True when segmentation data is available; overridden by readers that have it."""
-        return False
-
-    @property
-    def has_bounding_boxes(self) -> bool:
-        """True when bounding boxes are available; overridden by readers that have them."""
-        return False
-
-    def has_static_object(self, name: str) -> bool:
-        """Return True when the pose has the named static object.
-
-        Args:
-            name: Static object name, e.g. ``"lixit"``.
-        """
-        return name in self.static_objects
-
-    @property
-    def source_format(self) -> str:
-        """``"pose_est_v<N>"`` from the file name.
-
-        Falls back to :attr:`format_major_version` when the file name does not
-        follow the ``*_pose_est_v<N>.h5`` convention.
-        """
-        return source_format_from_path(self._path) or f"pose_est_v{self.format_major_version}"
-
-    @property
-    def model_metadata(self) -> dict[str, Any] | None:
-        """The parsed ``poseest`` ``model_metadata_json`` attribute, or None.
-
-        Read from the pose file on first access.
-        """
-        if not self._model_metadata_loaded:
-            with h5py.File(self._path, "r") as pose_h5:
-                raw = pose_h5["poseest"].attrs.get("model_metadata_json")
-            self._model_metadata = parse_model_metadata(raw)
-            self._model_metadata_loaded = True
-        return self._model_metadata
-
-    def segmentation_window(self, identity: int, start: int, stop: int) -> SegmentationWindow:
-        """Return an identity's segmentation contours for frames ``[start, stop)``.
-
-        Args:
-            identity: Identity index.
-            start: First frame, inclusive.
-            stop: Last frame, exclusive.
-
-        Raises:
-            NotImplementedError: Always; readers with segmentation override this.
-        """
-        raise NotImplementedError(f"{self._path.name} has no segmentation data")
-
-    def iter_segmentation(self, identity: int, block: int = 300) -> Iterator[SegmentationWindow]:
-        """Yield consecutive segmentation windows of ``block`` frames covering the file.
-
-        Args:
-            identity: Identity index.
-            block: Frames per window; the last window may be shorter.
-
-        Raises:
-            NotImplementedError: If the pose has no segmentation.
-            ValueError: If ``block`` is not positive.
-        """
-        if not self.has_segmentation:
-            raise NotImplementedError(f"{self._path.name} has no segmentation data")
-        if block <= 0:
-            raise ValueError(f"block must be positive, got {block}")
-        # validated above, on the call rather than on the first next()
-        return self._segmentation_windows(identity, block)
-
-    def _segmentation_windows(self, identity: int, block: int) -> Iterator[SegmentationWindow]:
-        """Yield the windows of :meth:`iter_segmentation`."""
-        for start in range(0, self.num_frames, block):
-            yield self.segmentation_window(identity, start, min(start + block, self.num_frames))
-
-    @property
-    def num_frames(self) -> int:
-        """return the number of frames in the pose_est file"""
-        return self._num_frames
-
-    @property
-    def identities(self):
-        """return list of integer identities generated from file"""
-        return self._identities
-
-    @property
-    def num_identities(self) -> int:
-        """get the number of identities in the pose file"""
-        return len(self._identities)
-
-    @property
-    def cm_per_pixel(self):
-        """get centimeters per pixel for video/pose"""
-        return self._cm_per_pixel
-
-    @property
-    def fps(self) -> int:
-        """get frames per second"""
-        return self._fps
-
-    @property
-    def pose_file(self):
-        """get the path to the pose file"""
-        return self._path
-
-    @property
-    def hash(self):
-        """get the hash of the pose file"""
-        return self._hash
-
-    @abstractmethod
-    def get_points(self, frame_index: int, identity: int, scale: float | None = None):
-        """return points and point masks for an individual frame
-
-        Args:
-            frame_index: frame index of points and masks to be returned
-            identity: identity to return points for
-            scale: optional scale factor, set to cm_per_pixel to convert
-                poses from pixel coordinates to cm coordinates
-
-        Returns:
-            numpy array of points (12,2), numpy array of point masks (12,)
-        """
-        pass
-
-    @abstractmethod
-    def get_identity_poses(self, identity: int, scale: float | None = None):
-        """return all points and point masks
-
-        Args:
-            identity: identity to return points for
-            scale: optional scale factor, set to cm_per_pixel to convert
-                poses from pixel coordinates to cm coordinates
-
-        Returns:
-            numpy array of points (#frames, 12, 2), numpy array of point masks (#frames, 12)
-        """
-        pass
-
-    @abstractmethod
-    def get_identity_point_mask(self, identity):
-        """get the point mask array for a given identity
-
-        Args:
-            identity: identity to return point mask for
-
-        Returns:
-            array of point masks (#frames, 12)
-        """
-        pass
-
-    @abstractmethod
-    def get_reduced_point_mask(self):
-        """Returns a boolean array of length 12 indicating which keypoints are valid.
-
-        Determines which keypoints are valid for any identity across all frames.
-
-        Returns:
-            numpy array of shape (12,) with boolean values indicating validity
-            of each keypoint.
-        """
-        pass
-
-    def get_connected_segments(self):
-        """Get the segments to use for rendering connections between the keypoints
-
-        Returns:
-            list of tuples, where each tuple contains the indexes of the keypoints
-            that form a connected segment
-        """
-        return FULL_CONNECTED_SEGMENTS
-
-    @abstractmethod
-    def identity_mask(self, identity):
-        """get the identity mask (indicates if specified identity is present in each frame)
-
-        Args:
-            identity: identity to get masks for
-
-        Returns:
-            numpy array of size (#frames,)
-        """
-        pass
-
-    @property
-    @abstractmethod
-    def identity_to_track(self):
-        """get the identity to track mapping for this file"""
-        pass
-
-    @property
-    @abstractmethod
-    def format_major_version(self):
-        """an integer giving the major version of the format"""
-        pass
-
-    @property
-    def static_objects(self):
-        """get static objects from the pose file"""
-        return self._static_objects
-
-    @property
-    def dynamic_objects(self) -> dict[str, DynamicObjectData]:
-        """Get dynamic objects from the pose file.
-
-        Returns:
-            Mapping of object name to jabs.core.types.DynamicObjectData.
-            Empty for pose versions that do not support dynamic objects (v2-v6).
-        """
-        return self._dynamic_objects
-
-    def get_dynamic_object(self, name: str) -> DynamicObjectData | None:
-        """Get a named dynamic object from the pose file.
-
-        Args:
-            name: Name of the dynamic object (e.g. "fecal_boli").
-
-        Returns:
-            DynamicObjectData for the requested object, or None if not present.
-            Always None for pose versions that do not support dynamic objects (v2-v6).
-        """
-        return self._dynamic_objects.get(name)
-
-    def get_identity_convex_hulls(self, identity):
-        """get a list of length #frames containing convex hulls for the given identity.
-
-        The convex hulls are calculated using all valid points except for the
-        middle of tail and tip of tail points.
-
-        Args:
-            identity: identity to return points for
-
-        Returns:
-            the convex hulls in pixel units (array elements will be None
-            if there is no valid convex hull for that frame)
-        """
-        if identity in self._convex_hull_cache:
-            return self._convex_hull_cache[identity]
-        else:
-            convex_hulls = None
-            path = None
-            if self._cache_dir is not None:
-                path = (
-                    self._cache_dir
-                    / "convex_hulls"
-                    / self._path.with_suffix("").name
-                    / f"convex_hulls_{identity}.pickle"
-                )
-                path.parents[0].mkdir(mode=0o775, parents=True, exist_ok=True)
-
-                try:
-                    with path.open("rb") as f:
-                        convex_hulls = joblib.load(f)
-                except Exception:
-                    # we weren't able to read in the cached convex hulls,
-                    # just ignore the exception and we'll generate them
-                    pass
-
-            if convex_hulls is None:
-                points, point_masks = self.get_identity_poses(identity)
-                # Omit tail from convex hull
-                body_points = points[:, :-2, :]
-                body_point_masks = point_masks[:, :-2]
-                convex_hulls = []
-
-                for frame_index in range(self.num_frames):
-                    if sum(body_point_masks[frame_index, :]) >= 3:
-                        filtered_points = body_points[
-                            frame_index, body_point_masks[frame_index, :] == 1, :
-                        ]
-                        convex_hulls.append(MultiPoint(filtered_points).convex_hull)
-                    else:
-                        convex_hulls.append(None)
-
-                if path:
-                    with path.open("wb") as f:
-                        joblib.dump(convex_hulls, f)
-
-            self._convex_hull_cache[identity] = convex_hulls
-            return convex_hulls
-
-    def compute_bearing(self, points: np.ndarray, use_nose: bool = False):
-        """compute the bearing of the animal using base tail and base neck keypoints
-
-        Args:
-            points (np.ndarray): the points for a single frame (12,2) array
-            use_nose (bool): use nose keypoint instead of base neck, used when
-              we have a reduced keypoint pose that lacks base neck
-        """
-        # fall back to use nose instead of base neck if base neck is absent from this pose file
-        # (for example, 5 keypoint pose instead of 12)
-        if use_nose:
-            p1_xy = points[KeypointIndex.NOSE.value].astype(np.float32)
-        else:
-            p1_xy = points[KeypointIndex.BASE_NECK.value].astype(np.float32)
-        p2_xy = points[KeypointIndex.BASE_TAIL.value].astype(np.float32)
-        offset_xy = p1_xy - p2_xy
-
-        angle_rad = np.arctan2(offset_xy[1], offset_xy[0])
-
-        return np.degrees(angle_rad)
-
-    def compute_all_bearings(self, identity):
-        """compute the bearing for each frame for a given identity
-
-        Equal to applying `compute_bearing` to each frame's points, computed for all
-        frames at once. Frames where the identity is absent are NaN.
-        """
-        use_nose = not self.get_reduced_point_mask()[KeypointIndex.BASE_NECK.value]
-        if use_nose:
-            logger.warning("Falling back to using nose keypoint for bearing computation")
-
-        # every frame at once, with the same float32 arithmetic as compute_bearing
-        points, _ = self.get_identity_poses(identity)
-        present = np.asarray(self.identity_mask(identity)) == 1
-        front = KeypointIndex.NOSE if use_nose else KeypointIndex.BASE_NECK
-        offset_xy = points[present, front.value].astype(np.float32) - points[
-            present, KeypointIndex.BASE_TAIL.value
-        ].astype(np.float32)
-
-        bearings = np.full(self.num_frames, np.nan, dtype=np.float32)
-        bearings[present] = np.degrees(np.arctan2(offset_xy[:, 1], offset_xy[:, 0]))
-        return bearings
-
-    @staticmethod
-    def get_pose_file_attributes(path: Path) -> dict:
-        """get the attributes from the pose file's hdf5 file"""
-        with h5py.File(path, "r") as pose_h5:
-            attrs = dict(pose_h5.attrs)
-            attrs["poseest"] = dict(pose_h5["poseest"].attrs)
-            return attrs
-
-    @property
-    def num_lixit_keypoints(self) -> int:
-        """get the number of lixit keypoints
-
-        always 0 for pose file versions <5
-        """
-        return 0
-
-    @property
-    def external_identities(self) -> list[str] | None:
-        """get the jabs identity to external identity mapping"""
-        return self._external_identities
-
-    def identity_index_to_display(self, identity_index: int) -> str:
-        """Convert an identity index to a display string.
-
-        Args:
-            identity_index (int): The identity index to convert.
-
-        Returns:
-            str: The display string for the identity.
-        """
-        if self.external_identities and 0 <= identity_index < len(self.external_identities):
-            return self.external_identities[identity_index]
-        return str(identity_index)
-
-    def check_cache_version(self) -> bool:
-        """Check if the cache version matches the expected version.
-
-        Returns:
-            bool: True if the cache version matches, False otherwise.
-        """
-        try:
-            with h5py.File(self._cache_file_path(), "r") as cache_h5:
-                cache_version = cache_h5.attrs.get("cache_file_version", None)
-                return cache_version == self._CACHE_FILE_VERSION
-        except Exception:
-            return False
-
-    def _cache_file_path(self) -> Path | None:
-        """Get the path to the cache file for this pose file.
-
-        Returns:
-            Path | None: The path to the cache file, or None if no cache directory is set.
-        """
-        if self._cache_dir is None:
-            return None
-        filename = self._path.name.replace(".h5", "_cache.h5")
-        return self._cache_dir / filename
-
-    def get_bounding_boxes(self, identity: int) -> np.ndarray | None:
-        """Get bounding box array for an identity index.
-
-        Default implementation returns None, indicating no bounding box data.
-        Bounding boxes are not available in pose file versions <8, this is included for interface consistency.
-        """
-        return None
+    Raises:
+        AttributeError: For any other name.
+    """
+    if name == _DEPRECATED_NAME:
+        return _deprecated_pose_estimation(stacklevel=2)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

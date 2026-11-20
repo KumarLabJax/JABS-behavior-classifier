@@ -398,7 +398,7 @@ def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5(
 
 
 def test_social_feature_group_on_real_pose_v6_slice() -> None:
-    """SocialFeatureGroup computes all distance and huddle features on real PoseEstimationV6 data."""
+    """SocialFeatureGroup computes all distance and huddle features on real converted v6 pose data."""
     sample_v6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
     with tempfile.TemporaryDirectory() as tmpdir:
         short_v6 = Path(tmpdir) / sample_v6.name

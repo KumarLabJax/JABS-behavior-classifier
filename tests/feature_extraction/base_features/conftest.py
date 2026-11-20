@@ -16,7 +16,7 @@ def pose_est_v5():
     Creates a temporary directory with a copy of the pose file.
 
     Yields:
-        PoseEstimationV5: Pose estimation object.
+        Pose: Pose estimation object.
     """
     test_file = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v5.h5"
 

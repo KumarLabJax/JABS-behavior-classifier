@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 import jabs.pose_estimation
-from jabs.core.exceptions import PoseIdEmbeddingException
+from jabs.pose_estimation import PoseOpenError
 
 _TEST_FILES = [
     "sample_pose_est_v3.h5",
@@ -43,25 +43,6 @@ def pose_est_v5(tmpdir_with_pose_files):
     return jabs.pose_estimation.open_pose_file(tmpdir_with_pose_files / "sample_pose_est_v5.h5")
 
 
-@pytest.mark.legacy_reader
-@pytest.mark.parametrize(
-    ("pose_file", "reader", "version"),
-    [
-        ("sample_pose_est_v3.h5", "PoseEstimationV3", 3),
-        ("sample_pose_est_v4.h5", "PoseEstimationV4", 4),
-        ("sample_pose_est_v5.h5", "PoseEstimationV5", 5),
-    ],
-    ids=["v3", "v4", "v5"],
-)
-def test_open_pose_est_legacy_reader(
-    tmpdir_with_pose_files: Path, tmp_path: Path, pose_file: str, reader: str, version: int
-) -> None:
-    """open_pose_file opens a legacy file with the reader for its version."""
-    pose = jabs.pose_estimation.open_pose_file(tmpdir_with_pose_files / pose_file, tmp_path)
-    assert isinstance(pose, getattr(jabs.pose_estimation, reader))
-    assert pose.format_major_version == version
-
-
 def test_v5_static_corners(pose_est_v5) -> None:
     """the sample v5 file's corners come back as (4, 2) (spec §2 row "Static objects")"""
     static_objs = pose_est_v5.static_objects
@@ -70,60 +51,37 @@ def test_v5_static_corners(pose_est_v5) -> None:
 
 
 @pytest.mark.parametrize(
-    ("filename", "expected"),
+    "filename",
     [
-        ("sample_pose_est_v2.h5", 2),
-        ("sample_pose_est_v6.h5", 6),
-        ("sample_pose_est_v10.h5", 10),
-        ("sample_pose_est_v123.h5", 123),
+        "sample.h5",
+        "sample_pose_est.h5",
+        "samplev3.h5",
+        "sample_pose_est_v6.h5.bak",
+        "sample_pose_est_v1.h5",
+        "sample_pose_est_v99.h5",
+        "._sample_pose_est_v6.h5",
     ],
-    ids=["v2", "v6", "two-digit", "three-digit"],
+    ids=[
+        "no-suffix",
+        "no-version",
+        "no-underscore",
+        "trailing-extension",
+        "version-too-old",
+        "version-too-new",
+        "dotfile",
+    ],
 )
-def test_get_pose_file_major_version(filename: str, expected: int) -> None:
-    """multi-digit major versions are parsed in full, not just the last digit"""
-    assert jabs.pose_estimation.get_pose_file_major_version(Path(filename)) == expected
+def test_open_pose_file_rejects_non_pose_file_names(filename: str) -> None:
+    """open_pose_file refuses a name that is neither a unified nor a supported legacy name
 
-
-def test_get_pose_file_major_version_ignores_directories() -> None:
-    """only the file name supplies the version, never a parent directory name"""
-    path = Path("/projects/archive_v3.h5_backup/sample_pose_est_v6.h5")
-    assert jabs.pose_estimation.get_pose_file_major_version(path) == 6
-
-
-@pytest.mark.parametrize(
-    "filename",
-    ["sample.h5", "sample_pose_est.h5", "sample_pose_est_v6.h5.bak", "sample_pose_est_vN.h5"],
-    ids=["no-suffix", "no-version", "trailing-extension", "non-numeric"],
-)
-def test_get_pose_file_major_version_invalid(filename: str) -> None:
-    """a name without a version suffix raises ValueError, not AttributeError"""
-    with pytest.raises(ValueError, match="not a valid pose file name"):
-        jabs.pose_estimation.get_pose_file_major_version(Path(filename))
-
-
-@pytest.mark.parametrize(
-    "filename",
-    ["sample.h5", "sample_pose_est.h5", "samplev3.h5", "sample_pose_est_v6.h5.bak"],
-    ids=["no-suffix", "no-version", "no-underscore", "trailing-extension"],
-)
-def test_open_pose_file_rejects_invalid_name(filename: str) -> None:
-    """open_pose_file accepts exactly the names get_pose_file_major_version accepts
-
-    Both derive the version from the ``_v<major version>.h5`` suffix, so a name the
-    rest of JABS treats as unversioned is not opened here either.
+    The name is checked before the file is read, so the file need not exist.
     """
-    with pytest.raises(ValueError, match="not a valid pose file name"):
+    with pytest.raises(PoseOpenError, match="not a pose file name"):
         jabs.pose_estimation.open_pose_file(Path(filename))
 
 
-def test_open_pose_file_rejects_unsupported_version() -> None:
-    """a well-formed name with a version JABS has no reader for names that version"""
-    with pytest.raises(ValueError, match="major version 99 is not supported"):
-        jabs.pose_estimation.open_pose_file(Path("sample_pose_est_v99.h5"))
-
-
 def test_get_points(pose_est_v4):
-    """test getting pose points from PoseEstimation instance"""
+    """test getting pose points from a Pose"""
     points, point_mask = pose_est_v4.get_identity_poses(0)
     nframes = pose_est_v4.num_frames
 
@@ -132,7 +90,7 @@ def test_get_points(pose_est_v4):
 
 
 def test_get_points_single_frame(pose_est_v4):
-    """test getting pose points for single frame from PoseEstimation instance"""
+    """test getting pose points for single frame from a Pose"""
     # get points for the 10th frame for identity 0
     points, point_mask = pose_est_v4.get_points(10, 0)
 
@@ -194,45 +152,26 @@ def test_v4_zero_instance_embed_id_is_a_tail_slot(tmpdir_with_pose_files, tmp_pa
             np.testing.assert_array_equal(pose.identity_mask(other), clean.identity_mask(other))
 
 
-@pytest.mark.legacy_reader
-def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files, tmp_path):
-    """test that an unmasked instance_embed_id value of 0 raises PoseIdEmbeddingException
-
-    instance_embed_id values are 1-based. A value of 0 on unmasked (id_mask ==
-    False) data would wrap around when 1 is subtracted to build a 0-based
-    identity index.
-    """
-    corrupt_path, _, _ = _corrupt_v4_embed_id(tmpdir_with_pose_files)
-
-    with pytest.raises(PoseIdEmbeddingException):
-        jabs.pose_estimation.open_pose_file(corrupt_path, tmp_path)
-
-
 def test_v4_read_from_cache(tmpdir_with_pose_files):
-    """
-    test that we can open a V4 pose file from its cached h5 file
+    """a v4 file opened a second time reads its cached conversion and gets the same data
 
-    Converting v4/v5 pose files to the format used by JABS is expensive
-    enough that we don't want to have to do it every time a pose file is
-    opened. The JABS UI will cache data after it's been structured in the
-    way JABS expects as an h5 file. This tests that we can open the file
-    after it's been cached and get the expected results.
+    Converting a legacy pose file to the unified format is expensive enough that
+    it is done once: the conversion is cached in the cache directory and reused
+    by later opens of the same, unchanged file.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
         cache_dir_path = Path(temp_dir)
 
-        # this will be uncached, so it will read raw data from the pose file
-        # and manipulate it to generate data in the form we need, and then
-        # will write it back out to the cache directory
+        # uncached: converts the legacy file into the cache directory
         pose_v4 = jabs.pose_estimation.open_pose_file(
             tmpdir_with_pose_files / "sample_pose_est_v4.h5", cache_dir=cache_dir_path
         )
 
-        # open it again, this time it should be read from the cached
-        # file
+        # open it again: the cached conversion is reused
         pose_v4_from_cache = jabs.pose_estimation.open_pose_file(
             tmpdir_with_pose_files / "sample_pose_est_v4.h5", cache_dir=cache_dir_path
         )
+        assert len(list((cache_dir_path / "converted").glob("*.h5"))) == 1
 
     # make sure the list of identities is the same
     assert pose_v4.identities == pose_v4_from_cache.identities
@@ -251,77 +190,6 @@ def test_v4_read_from_cache(tmpdir_with_pose_files):
         assert np.all(mask == mask_cached)
 
 
-@pytest.mark.legacy_reader
-@pytest.mark.parametrize(
-    "pose_file",
-    ["sample_pose_est_v3.h5", "sample_pose_est_v4.h5"],
-    ids=["v3", "v4"],
-)
-def test_stale_cache_file_version_is_regenerated(
-    tmpdir_with_pose_files: Path, tmp_path: Path, pose_file: str
-) -> None:
-    """a cache written by an older _CACHE_FILE_VERSION is discarded, not read
-
-    The version check lives in PoseEstimation.__init__, which deletes a cache
-    file whose "cache_file_version" attribute does not match the class's
-    _CACHE_FILE_VERSION. The version-specific readers never see the stale file,
-    so they carry no version check of their own.
-    """
-    source_pose = tmpdir_with_pose_files / pose_file
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    pose = jabs.pose_estimation.open_pose_file(source_pose, cache_dir=cache_dir)
-    cache_file = cache_dir / source_pose.name.replace(".h5", "_cache.h5")
-    assert cache_file.exists()
-
-    # make the cache look like it was written by an older version of JABS, and
-    # add a marker that only survives if the stale file is reused
-    with h5py.File(cache_file, "r+") as f:
-        current_version = f.attrs["cache_file_version"]
-        f.attrs["cache_file_version"] = current_version - 1
-        f["poseest"].create_dataset("stale_marker", data=[1])
-
-    pose_from_regenerated_cache = jabs.pose_estimation.open_pose_file(
-        source_pose, cache_dir=cache_dir
-    )
-
-    with h5py.File(cache_file, "r") as f:
-        assert f.attrs["cache_file_version"] == current_version
-        assert "stale_marker" not in f["poseest"]
-
-    assert pose_from_regenerated_cache.identities == pose.identities
-    assert pose_from_regenerated_cache.num_frames == pose.num_frames
-
-
-@pytest.mark.legacy_reader
-def test_segmentation_data_by_identity_is_an_identity_first_view():
-    """get_segmentation_data_by_identity returns every identity's contours without copying."""
-    pose = jabs.pose_estimation.open_pose_file(
-        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
-    )
-
-    all_contours = pose.get_segmentation_data_by_identity()
-
-    # spare storage slots beyond the file's identities are not exposed
-    assert all_contours.shape[0] == len(pose.identities)
-    assert all_contours.shape[1] == pose.num_frames
-    for identity in pose.identities:
-        np.testing.assert_array_equal(all_contours[identity], pose.get_segmentation_data(identity))
-        assert np.shares_memory(all_contours[identity], pose.get_segmentation_data(identity))
-
-
-@pytest.mark.legacy_reader
-def test_segmentation_data_by_identity_is_none_without_segmentation(monkeypatch):
-    """A pose file with no seg_data has nothing to hand out."""
-    pose = jabs.pose_estimation.open_pose_file(
-        Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
-    )
-    monkeypatch.setitem(pose._segmentation_dict, "seg_data", None)
-
-    assert pose.get_segmentation_data_by_identity() is None
-
-
 @pytest.mark.parametrize(
     ("lixit_shape", "expected"),
     [
@@ -333,7 +201,7 @@ def test_segmentation_data_by_identity_is_none_without_segmentation(monkeypatch)
     ids=["three-keypoint", "one-keypoint", "empty-three-keypoint", "empty-one-keypoint"],
 )
 def test_scan_lixit_keypoints(tmp_path: Path, lixit_shape: tuple[int, ...], expected: int) -> None:
-    """An empty lixit dataset counts as no lixit, as it does for the v5+ readers.
+    """An empty lixit dataset counts as no lixit, as it does when the file is opened.
 
     Args:
         tmp_path: Temporary directory to write the pose file copy into.
