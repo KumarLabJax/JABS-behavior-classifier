@@ -22,7 +22,6 @@ class FoodHopper(Feature):
     """
 
     _name = "food_hopper"
-    _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["food_hopper"]
 
     def per_frame(self, identity: int) -> dict:

@@ -1,13 +1,8 @@
-from pathlib import Path
+from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING
 
 import jabs.feature_extraction as feature_extraction
 from jabs.core.enums import PoseCapability, ProjectDistanceUnit
-from jabs.pose_estimation import (
-    get_pose_file_major_version,
-    get_pose_path,
-)
-from jabs.pose_estimation.discovery import is_unified_pose_file
 
 from .project_paths import ProjectPaths
 from .video_manager import VideoManager
@@ -15,46 +10,43 @@ from .video_manager import VideoManager
 if TYPE_CHECKING:
     from .parallel_workers import VideoScanResult
 
-# The legacy major version a unified pose file stands in for until features are
-# gated on capabilities: 6 (segmentation) when it has segmentation, else 5
-# (social and static objects; static objects are still checked by name).
-_UNIFIED_SEGMENTATION_VERSION = 6
-_UNIFIED_VERSION = 5
+# legacy pose versions standing in for capabilities where callers still take one
+_SEGMENTATION_POSE_VERSION = 6
+_POSE_VERSION = 5
 
 
-def _pose_version(pose_path: Path, capabilities: list[str]) -> int:
-    """Return the pose version that gates a video's features.
+def pose_version_for_capabilities(capabilities: AbstractSet[PoseCapability]) -> int:
+    """Return the legacy pose version to pass where a caller still takes one.
 
-    A legacy file's version comes from its name; a unified file has none, so
-    one is derived from its scanned capabilities.
+    Deprecated: only for callers not yet moved to capabilities (project default
+    settings, training exports). Those gate social on ``>= 3``, static objects on
+    ``>= 5`` (static objects are also checked by name) and segmentation on
+    ``>= 6``, so the version is 6 with ``SEGMENTATION``, else 5. Without
+    ``SOCIAL`` no social features are computed, whatever the version says.
 
     Args:
-        pose_path: The video's pose file.
-        capabilities: Its scanned ``PoseCapability`` values.
+        capabilities: Pose capabilities.
 
     Returns:
-        The pose major version to gate features on.
+        6 when ``SEGMENTATION`` is among the capabilities, else 5.
     """
-    if is_unified_pose_file(pose_path):
-        if PoseCapability.SEGMENTATION.value in capabilities:
-            return _UNIFIED_SEGMENTATION_VERSION
-        return _UNIFIED_VERSION
-    return get_pose_file_major_version(pose_path)
+    if PoseCapability.SEGMENTATION in capabilities:
+        return _SEGMENTATION_POSE_VERSION
+    return _POSE_VERSION
 
 
 class FeatureManager:
     """Manages feature support and metadata for a JABS project.
 
-    Determines which features are available for a project by analyzing pose file versions
-    and static objects across all videos. Provides access to feature availability, distance
+    Determines which features are available for a project from the pose capabilities
+    and static objects every usable video provides. Provides access to feature availability, distance
     units, and extended feature support, ensuring consistency across the project.
 
     Args:
         project_paths: Paths object for the project.
         videos: List of video filenames in the project.
-        video_manager: Optional VideoManager instance used for cached pose path
-            lookups. When ``None``, pose paths are resolved directly from
-            ``project_paths``.
+        video_manager: Optional VideoManager instance (kept for callers; feature
+            support comes from ``scan_results`` alone).
         scan_results: Per-video metadata collected by
             :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
             by video filename. Every entry in ``videos`` must have a
@@ -79,12 +71,8 @@ class FeatureManager:
         self._video_manager = video_manager
         self.__initialize_pose_data(videos, scan_results)
 
-        # determine if this project can use social features or not
-        # social data is available for V3+
-        self._can_use_social = self._min_pose_version >= 3
-
-        # segmentation data is available for V6+
-        self._can_use_segmentation = self._min_pose_version >= 6
+        self._can_use_social = PoseCapability.SOCIAL in self._capabilities
+        self._can_use_segmentation = PoseCapability.SEGMENTATION in self._capabilities
 
         self._extended_features = self.__initialize_extended_features()
 
@@ -93,36 +81,26 @@ class FeatureManager:
         videos: list[str],
         scan_results: "dict[str, VideoScanResult]",
     ) -> None:
-        """Initialize pose version, static object, distance unit, and lixit data.
+        """Initialize capability, static object, distance unit, and lixit data.
 
         Args:
             videos: List of video filenames to process for metadata extraction.
             scan_results: Per-video metadata from the project scan, keyed by
                 video filename.
         """
-        pose_versions = []
+        capability_sets: list[frozenset[PoseCapability]] = []
         static_object_sets = []
         lixit_keypoints = []
         distance_unit_valid = True
 
         # Single pass through all videos to gather all needed metadata
         for vid in videos:
-            # Use cached pose path if video_manager is available
-            if self._video_manager:
-                pose_path = self._video_manager.get_cached_pose_path(vid)
-            else:
-                pose_path = get_pose_path(
-                    self._project_paths.video_dir / vid,
-                    self._project_paths.pose_dir,
-                )
-
             result = scan_results[vid]
             # an unusable video must not strip features from the others
             if result["error"] is not None:
                 continue
 
-            # filename regex, or scanned capabilities for a unified file - no I/O
-            pose_versions.append(_pose_version(pose_path, result["capabilities"]))
+            capability_sets.append(frozenset(PoseCapability(c) for c in result["capabilities"]))
 
             static_objs = result["static_objects"]
             if "lixit" in static_objs:
@@ -132,8 +110,11 @@ class FeatureManager:
 
             static_object_sets.append(set(static_objs))
 
-        # Set pose version to minimum across all videos
-        self._min_pose_version = min(pose_versions) if pose_versions else 0
+        # Capabilities are those of ALL usable videos
+        self._capabilities: frozenset[PoseCapability] = (
+            frozenset.intersection(*capability_sets) if capability_sets else frozenset()
+        )
+        self._has_usable_videos = bool(capability_sets)
 
         # Static objects are those present in ALL videos
         self._static_objects = (
@@ -153,13 +134,13 @@ class FeatureManager:
         )
 
     def __initialize_extended_features(self) -> dict:
-        """Initialize extended features based on the pose version and static objects.
+        """Initialize extended features based on the capabilities and static objects.
 
         Returns:
             Dictionary of enabled extended features.
         """
         return feature_extraction.IdentityFeatures.get_available_extended_features(
-            self._min_pose_version,
+            self._capabilities,
             self._static_objects,
             lixit_keypoints=self._lixit_keypoints,
         )
@@ -212,13 +193,28 @@ class FeatureManager:
         return self._distance_unit
 
     @property
-    def min_pose_version(self) -> int:
-        """Get the minimum pose version for the project.
+    def capabilities(self) -> frozenset[PoseCapability]:
+        """Pose capabilities every usable video in the project provides.
 
         Returns:
-            Minimum pose version.
+            Intersection of the scanned capabilities of the usable videos; empty
+            when there are none.
         """
-        return self._min_pose_version
+        return self._capabilities
+
+    @property
+    def min_pose_version(self) -> int:
+        """Deprecated: a pose version standing in for :attr:`capabilities`.
+
+        See :func:`pose_version_for_capabilities`. Kept for project default
+        settings and training exports until they take capabilities.
+
+        Returns:
+            0 without usable videos, else the version for :attr:`capabilities`.
+        """
+        if not self._has_usable_videos:
+            return 0
+        return pose_version_for_capabilities(self._capabilities)
 
     @property
     def static_objects(self) -> set[str]:

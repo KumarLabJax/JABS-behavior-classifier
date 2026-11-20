@@ -2,6 +2,7 @@ import abc
 import contextlib
 import typing
 
+from jabs.core.enums import PoseCapability
 from jabs.pose_estimation import PoseEstimation
 
 from .feature_base_class import Feature
@@ -13,7 +14,7 @@ class FeatureGroup(abc.ABC):
 
     This class manages a collection of feature modules, providing methods to compute per-frame and windowed features
     for a given subject identity. It also handles enabling/disabling features, querying supported features based on
-    pose version and static objects, and provides class-level metadata.
+    pose capabilities and static objects, and provides class-level metadata.
 
     Methods:
         per_frame(identity): Compute per-frame features for a specific identity.
@@ -21,7 +22,7 @@ class FeatureGroup(abc.ABC):
         enabled_features: Property returning the names of currently enabled features.
         module_names(): Class method returning all feature names in this group.
         name(): Class method returning the group name.
-        get_supported_feature_modules(pose_version, static_objects, **kwargs): Class method returning supported features.
+        get_supported_feature_modules(capabilities, static_objects, **kwargs): Class method returning supported features.
         _init_feature_mods(identity): Abstract method to initialize feature modules for an identity.
     """
 
@@ -125,19 +126,23 @@ class FeatureGroup(abc.ABC):
     @classmethod
     def get_supported_feature_modules(
         cls,
-        pose_version: int,
-        static_objects: set[str],
+        capabilities: typing.AbstractSet[PoseCapability],
+        static_objects: typing.AbstractSet[str],
         **kwargs,
     ) -> list[str]:
-        """Get the features supported by this group based on the pose version, static objects, and optional additional attributes
+        """Get the features of this group supported by the given pose capabilities and static objects.
 
         Args:
-            pose_version (int): version of the pose estimation file
-            static_objects (set[str]): set of static objects available to the project
+            capabilities: Pose capabilities available (for a project, those every
+                pose file provides).
+            static_objects: Names of the static objects available to the project.
             **kwargs: additional keyword arguments that may be used by specific feature classes
+
+        Returns:
+            Names of the supported features.
         """
-        features = []
-        for feature_name, feature_class in cls._features.items():
-            if feature_class.is_supported(pose_version, static_objects, **kwargs):
-                features.append(feature_name)
-        return features
+        return [
+            feature_name
+            for feature_name, feature_class in cls._features.items()
+            if feature_class.is_supported(capabilities, static_objects, **kwargs)
+        ]

@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 from scipy import signal
 
+from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
 
@@ -139,8 +140,9 @@ class Feature(abc.ABC):
     # None and derive their column names in per_frame().
     _feature_names: typing.ClassVar[list[str] | None] = None
 
-    # requirements for this feature to be available
-    _min_pose = 2
+    # requirements for this feature to be available: the pose capabilities and the
+    # static objects (checked by name) every pose file must provide
+    _requires: typing.ClassVar[frozenset[PoseCapability]] = frozenset()
     _static_objects: typing.ClassVar[list[str]] = []
 
     # does this feature use circular window operations
@@ -215,27 +217,29 @@ class Feature(abc.ABC):
         return cls._feature_names
 
     @classmethod
-    def is_supported(cls, pose_version: int, static_objects: set[str], **kwargs) -> bool:
-        """check that a feature is supported by a pose file
+    def is_supported(
+        cls,
+        capabilities: typing.AbstractSet[PoseCapability],
+        static_objects: typing.AbstractSet[str],
+        **kwargs,
+    ) -> bool:
+        """Check that a feature is supported by the pose data.
 
         Args:
-            pose_version: pose file version
-            static_objects: list of static object available in pose file
+            capabilities: Capabilities the pose data provides (for a project, the
+                capabilities every pose file provides).
+            static_objects: Names of the static objects available.
             **kwargs: additional attributes that can be used to
                 determine if a feature is supported by the project, not
                 used by the default method but might be used by
                 subclasses
 
         Returns:
-            True if the pose file supports the feature, false otherwise
+            True if every required capability and static object is available.
         """
-        # check that the minimum pose version is met
-        if cls._min_pose > pose_version:
-            return False
-
-        # check that any static objects required by the feature are
-        # available
-        return all(obj in static_objects for obj in cls._static_objects)
+        return cls._requires <= capabilities and all(
+            obj in static_objects for obj in cls._static_objects
+        )
 
     @abc.abstractmethod
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:

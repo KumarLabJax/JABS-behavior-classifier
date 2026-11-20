@@ -249,7 +249,6 @@ class DistanceToCorner(Feature):
     """
 
     _name = "corner_distances"
-    _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["corners"]
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
@@ -280,7 +279,6 @@ class BearingToCorner(Feature):
     """
 
     _name = "corner_bearings"
-    _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["corners"]
     _use_circular = True
 

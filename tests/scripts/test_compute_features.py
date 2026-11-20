@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
-from jabs.core.enums import CacheFormat, ProjectDistanceUnit
+from jabs.core.enums import CacheFormat, PoseCapability, ProjectDistanceUnit
 from jabs.scripts.cli.cli import cli
 
 MODULE = "jabs.scripts.cli.compute_features"
@@ -19,15 +20,20 @@ def _make_pose_file(tmp_path: Path, name: str = "session_pose_est_v6.h5") -> Pat
     return pose_file
 
 
-def _fake_pose(cm_per_pixel: float | None = None, identities: tuple[int, ...] = (0,)) -> MagicMock:
+def _fake_pose(
+    cm_per_pixel: float | None = None,
+    identities: tuple[int, ...] = (0,),
+    capabilities: frozenset[PoseCapability] = frozenset({PoseCapability.SEGMENTATION}),
+) -> MagicMock:
     pose = MagicMock()
     pose.cm_per_pixel = cm_per_pixel
     pose.identities = identities
+    pose.capabilities = capabilities
     return pose
 
 
 def test_invalid_filename_rejected(tmp_path: Path) -> None:
-    """Filename without a recognizable _v<N>.h5 produces a clear error."""
+    """A file not named like a pose file produces a clear error."""
     bad_pose = tmp_path / "poses.h5"
     bad_pose.touch()
     runner = CliRunner()
@@ -36,7 +42,7 @@ def test_invalid_filename_rejected(tmp_path: Path) -> None:
         ["compute-features", "--pose-file", str(bad_pose), "--feature-dir", str(tmp_path)],
     )
     assert result.exit_code != 0
-    assert "pose version" in result.output
+    assert "not a pose file name" in result.output
 
 
 def test_window_size_rejects_zero(tmp_path: Path) -> None:
@@ -193,7 +199,6 @@ def test_identity_features_invoked_with_expected_args(tmp_path: Path) -> None:
         assert args == (pose_file, expected_id, feature_dir, pose)
         assert kwargs == {
             "force": False,
-            "fps": 60,
             "op_settings": settings,
             "cache_window": False,
             "cache_format": CacheFormat.HDF5,
@@ -271,3 +276,55 @@ def test_force_flag_forwarded(tmp_path: Path) -> None:
     _, kwargs = mock_features_cls.call_args
     assert kwargs["force"] is True
     fake_features.get_window_features.assert_called_once_with(5, force=True)
+
+
+@pytest.mark.parametrize(
+    ("capabilities", "version"),
+    [
+        (frozenset(), 5),
+        (frozenset({PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}), 6),
+    ],
+)
+def test_settings_follow_pose_capabilities(
+    tmp_path: Path, capabilities: frozenset[PoseCapability], version: int
+) -> None:
+    """Default settings come from the pose capabilities, for a unified file too."""
+    pose_file = _make_pose_file(tmp_path, "session_pose.h5")
+    pose = _fake_pose(capabilities=capabilities)
+    with (
+        patch(f"{MODULE}.open_pose_file", return_value=pose),
+        patch(f"{MODULE}.Project.settings_by_pose_version") as mock_settings,
+        patch(f"{MODULE}.IdentityFeatures"),
+    ):
+        mock_settings.return_value = {"social": False}
+        result = CliRunner().invoke(
+            cli,
+            ["compute-features", "--pose-file", str(pose_file), "--feature-dir", str(tmp_path)],
+        )
+    assert result.exit_code == 0, result.output
+    mock_settings.assert_called_once_with(version, ProjectDistanceUnit.PIXEL)
+
+
+def test_fps_is_deprecated_and_ignored(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """--fps logs a deprecation warning and is not passed to the features."""
+    pose_file = _make_pose_file(tmp_path)
+    with (
+        patch(f"{MODULE}.open_pose_file", return_value=_fake_pose()),
+        patch(f"{MODULE}.Project.settings_by_pose_version", return_value={"social": False}),
+        patch(f"{MODULE}.IdentityFeatures") as mock_features_cls,
+    ):
+        result = CliRunner().invoke(
+            cli,
+            [
+                "compute-features",
+                "--pose-file",
+                str(pose_file),
+                "--feature-dir",
+                str(tmp_path),
+                "--fps",
+                "60",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert "fps" not in mock_features_cls.call_args.kwargs
+    assert any("--fps is deprecated" in r.getMessage() for r in caplog.records)

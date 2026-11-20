@@ -67,7 +67,7 @@ class LandmarkFeatureGroup(FeatureGroup):
             for feature in self.static_object_features(o):
                 # make sure the feature is supported before adding it to the enabled features
                 if self._features[feature].is_supported(
-                    poses.format_major_version,
+                    poses.capabilities,
                     set(poses.static_objects.keys()),
                     lixit_keypoints=poses.num_lixit_keypoints,
                 ):

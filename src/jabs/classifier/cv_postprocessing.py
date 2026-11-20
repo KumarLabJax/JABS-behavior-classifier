@@ -179,7 +179,6 @@ def evaluate_group_with_postprocessing(
                 identity,
                 project.feature_dir,
                 pose_est,
-                fps=pose_est.fps,
                 op_settings=behavior_settings,
                 cache_format=project.cache_format,
             )

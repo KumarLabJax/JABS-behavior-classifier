@@ -13,7 +13,7 @@ import pytest
 from jabs.classifier import MultiClassClassifier
 from jabs.classifier.protocols import ClassifierProtocol
 from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierMode, ProjectDistanceUnit
+from jabs.core.enums import ClassifierMode, PoseCapability, ProjectDistanceUnit
 from jabs.core.utils import hash_file, hide_stderr
 from jabs.project import Project, VideoLabels
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
@@ -238,9 +238,11 @@ def test_load_defers_video_frame_check_by_default(project_with_data):
     assert set(project.video_manager.videos) == {"test_file_1.avi", "test_file_2.avi"}
 
 
-def test_min_pose_version(project_with_data):
-    """dummy project contains version 3 and 4 pose files min should be 3"""
-    assert project_with_data.feature_manager.min_pose_version == 3
+def test_project_capabilities(project_with_data):
+    """dummy project's v3 and v4 pose files are both social, neither has segmentation"""
+    assert project_with_data.feature_manager.capabilities == frozenset({PoseCapability.SOCIAL})
+    # deprecated stand-in for the capabilities: 5 without segmentation
+    assert project_with_data.feature_manager.min_pose_version == 5
 
 
 def test_can_use_social_true(project_with_data):
@@ -1084,7 +1086,7 @@ def test_refresh_feature_manager_recomputes_capabilities(tmp_path: Path) -> None
     project = _mixed_pose_version_project(tmp_path)
 
     # the v3 video holds every capability back
-    assert project.feature_manager.min_pose_version == 3
+    assert project.feature_manager.capabilities == frozenset({PoseCapability.SOCIAL})
     assert not project.feature_manager.can_use_segmentation_features
     assert not project.feature_manager.is_cm_unit
     assert project.feature_manager.static_objects == set()
@@ -1092,6 +1094,9 @@ def test_refresh_feature_manager_recomputes_capabilities(tmp_path: Path) -> None
     project.video_manager.remove_video("video1.avi")
     project.refresh_feature_manager()
 
+    assert project.feature_manager.capabilities == frozenset(
+        {PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}
+    )
     assert project.feature_manager.min_pose_version == 6
     assert project.feature_manager.can_use_segmentation_features
     assert project.feature_manager.can_use_social_features

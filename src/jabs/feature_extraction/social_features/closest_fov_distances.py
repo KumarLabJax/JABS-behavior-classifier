@@ -2,6 +2,7 @@ import typing
 
 import numpy as np
 
+from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
@@ -20,7 +21,7 @@ class ClosestFovDistances(Feature):
     """
 
     _name = "closest_fov_distances"
-    _min_pose = 3
+    _requires = frozenset({PoseCapability.SOCIAL})
 
     def __init__(
         self,

@@ -2,6 +2,7 @@ import typing
 
 import numpy as np
 
+from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
@@ -25,7 +26,7 @@ class ClosestFovAngles(Feature):
     """
 
     _name = "closest_fov_angles"
-    _min_pose = 3
+    _requires = frozenset({PoseCapability.SOCIAL})
     _use_circular = True
 
     def __init__(

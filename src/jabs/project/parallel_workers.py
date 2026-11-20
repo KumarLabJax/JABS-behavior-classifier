@@ -217,13 +217,13 @@ def _warn_on_frame_count_mismatch(
 
 def _open_pose_and_labels(
     job: _BaseFeatureLoadJobSpec,
-) -> "tuple[PoseEstimation, VideoLabels | None, float]":
+) -> "tuple[PoseEstimation, VideoLabels | None]":
     """Open pose + label resources for a job."""
     pose_est = open_pose_file(job["pose_path"], job["cache_dir"])
-    fps, video_frame_count = get_fps_and_nframes(str(job["video_path"]))
+    _, video_frame_count = get_fps_and_nframes(str(job["video_path"]))
     _warn_on_frame_count_mismatch(job["video"], video_frame_count, pose_est.num_frames)
     labels_obj = _load_video_labels(job["annotations_path"], pose_est)
-    return pose_est, labels_obj, fps
+    return pose_est, labels_obj
 
 
 def _extract_identity_features(
@@ -233,7 +233,6 @@ def _extract_identity_features(
     feature_dir: Path,
     behavior_settings: dict,
     cache_format: str,
-    fps: float,
     labels: np.ndarray,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Compute per-frame and window features for one identity's labeled frames.
@@ -245,7 +244,6 @@ def _extract_identity_features(
         feature_dir: Project feature directory.
         behavior_settings: Behavior-scoped settings dict (must include ``window_size``).
         cache_format: Cache format string from project settings.
-        fps: Video frames per second.
         labels: Per-frame label vector for this identity; rows with
             ``TrackLabels.Label.NONE`` are dropped from the output features.
 
@@ -258,7 +256,6 @@ def _extract_identity_features(
         identity,
         feature_dir,
         pose_est,
-        fps=fps,
         op_settings=behavior_settings,
         cache_format=cache_format_enum,
     )
@@ -289,7 +286,7 @@ def collect_binary_labeled_features(job: BinaryFeatureLoadJobSpec) -> BinaryFeat
         Collected per-frame/window features, label arrays, and per-identity
         group keys for the video.
     """
-    pose_est, labels_obj, fps = _open_pose_and_labels(job)
+    pose_est, labels_obj = _open_pose_and_labels(job)
     if labels_obj is None:
         return {"per_frame": [], "window": [], "labels": [], "group_keys": []}
 
@@ -313,7 +310,7 @@ def collect_binary_labeled_features(job: BinaryFeatureLoadJobSpec) -> BinaryFeat
             continue
 
         per_frame_df, window_df = _extract_identity_features(
-            video, identity, pose_est, feature_dir, behavior_settings, cache_format, fps, labels
+            video, identity, pose_est, feature_dir, behavior_settings, cache_format, labels
         )
         per_frame_list.append(per_frame_df)
         window_list.append(window_df)
@@ -349,7 +346,7 @@ def collect_multiclass_labeled_features(
         Collected per-frame/window features, per-behavior label arrays, and
         per-identity group keys for the video.
     """
-    pose_est, labels_obj, fps = _open_pose_and_labels(job)
+    pose_est, labels_obj = _open_pose_and_labels(job)
     if labels_obj is None:
         return {"per_frame": [], "window": [], "labels_by_behavior": [], "group_keys": []}
 
@@ -388,7 +385,7 @@ def collect_multiclass_labeled_features(
             continue
 
         per_frame_df, window_df = _extract_identity_features(
-            video, identity, pose_est, feature_dir, behavior_settings, cache_format, fps, labels
+            video, identity, pose_est, feature_dir, behavior_settings, cache_format, labels
         )
         per_frame_list.append(per_frame_df)
         window_list.append(window_df)
