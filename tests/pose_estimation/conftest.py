@@ -75,6 +75,7 @@ def build_pose_file(
     bbox: bool = False,
     external_ids: list[str] | None = None,
     convert_extra: dict | None = None,
+    convert_format: str = "pose_est_v6",
 ) -> Path:
     """Write a tiny unified pose file and return its path.
 
@@ -97,6 +98,8 @@ def build_pose_file(
         external_ids: Optional ``jabs.identity.external_ids``.
         convert_extra: When given, the provenance history is a ``convert``
             entry with this ``extra``; otherwise an ``infer`` entry.
+        convert_format: The ``convert`` entry's source format, used only
+            with ``convert_extra``.
 
     Returns:
         ``path``.
@@ -251,7 +254,7 @@ def build_pose_file(
             tool="jabs-io",
             version="1",
             time=_TIME,
-            source={"format": "pose_est_v6", "content_hash": "blake2b:00", "filename": "x.h5"},
+            source={"format": convert_format, "content_hash": "blake2b:00", "filename": "x.h5"},
             synthesized=("jabs.pose.point_valid",),
             extra=convert_extra,
         )

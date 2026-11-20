@@ -85,6 +85,10 @@ _MISSING_FROM_NVSN = (
 # Kept only for PoseLike until callers use capabilities.
 _NATIVE_FORMAT_MAJOR_VERSION = 8
 
+# The convert history's source format of a legacy v3 conversion, whose tracks
+# are its identities.
+_V3_FORMAT = "pose_est_v3"
+
 _POSE_NAME_SUFFIX_RE = re.compile(r"(_pose_est_v\d+|_pose)$")
 
 # One segmentation window across every slot: contours (n, S, C, P, 2),
@@ -118,9 +122,11 @@ class Pose:
     """Read access to one video's pose, from a unified pose file.
 
     Implements :class:`jabs.core.pose_protocol.PoseLike`. Identities are slots
-    ``0..dimensions.identity - 1``; a file with ``dimensions.identity == 0`` and
-    ``jabs.pose.tracklet_id`` (a legacy v3 conversion) has every slot as an
-    identity. Points are float32 with invalid points NaN; masks are bool.
+    ``0..dimensions.identity - 1``; a legacy v3 conversion (``dimensions.identity
+    == 0``, ``jabs.pose.tracklet_id``, and a ``convert`` history entry from
+    ``pose_est_v3``) has every slot as an identity. Any other
+    ``dimensions.identity == 0`` file has no identities. Points are float32
+    with invalid points NaN; masks are bool.
 
     Args:
         pose_path: The unified pose file to read.
@@ -150,6 +156,8 @@ class Pose:
         self._pose_path = pose_path
         self._path = source_path if source_path is not None else pose_path
         self._cache_dir = cache_dir
+        # hashed before the reader opens, so a failure here leaks no open file
+        self._hash = source_hash if source_hash is not None else hash_file(self._path)
         self._reader = ComponentReader(pose_path)
         # closes the file when the Pose is collected; never refers to self
         self._finalizer = weakref.finalize(self, self._reader.close)
@@ -161,7 +169,6 @@ class Pose:
         except BaseException:
             self.close()
             raise
-        self._hash = source_hash if source_hash is not None else hash_file(self._path)
 
     def _load(self) -> None:
         """Read the manifest, provenance and keypoint-scale components."""
@@ -174,11 +181,19 @@ class Pose:
             raise PoseFileError(f"{self._pose_path}: missing required components {missing}")
         body_parts = self._check_skeleton(manifest)
 
+        convert = _last_convert_entry(self._reader.read_provenance().history)
+        extra = (convert.extra or {}) if convert is not None else {}
+        converted_from = (convert.source or {}).get("format") if convert is not None else None
+
         dimensions = manifest["dimensions"]
         self._num_frames = int(dimensions["frame"])
         has_tracklets = _TRACKLET_ID in self._component_ids
         # A v3 conversion: tracks placed one per slot, so each slot is an identity.
-        self._tracks_are_identities = dimensions["identity"] == 0 and has_tracklets
+        # Any other identity = 0 file (such as a v4+ file whose instances are all
+        # masked, which keeps its tracklets) has no identities.
+        self._tracks_are_identities = (
+            dimensions["identity"] == 0 and has_tracklets and converted_from == _V3_FORMAT
+        )
         num_identities = (
             int(dimensions["slot"]) if self._tracks_are_identities else int(dimensions["identity"])
         )
@@ -187,7 +202,7 @@ class Pose:
         video = manifest["video"]
         self._fps: int | float = _DEFAULT_FPS
         if video.get("fps") is None:
-            logger.info("%s records no fps; using %d", self._pose_path.name, _DEFAULT_FPS)
+            logger.info("%s records no fps; using %d", self._path.name, _DEFAULT_FPS)
         else:
             fps = float(video["fps"])
             self._fps = int(fps) if fps.is_integer() else fps
@@ -207,10 +222,7 @@ class Pose:
             spec = next(s for s in manifest["components"] if s["id"] == _CONTOURS)
             self._segmentation_capacity = (int(spec["shape"][2]), int(spec["shape"][3]))
 
-        convert = _last_convert_entry(self._reader.read_provenance().history)
-        extra = (convert.extra or {}) if convert is not None else {}
         self._model_metadata = parse_model_metadata(extra.get("model_metadata_json"))
-        converted_from = (convert.source or {}).get("format") if convert is not None else None
         self._source_format = (
             source_format_from_path(self._path) or converted_from or NATIVE_SOURCE_FORMAT
         )

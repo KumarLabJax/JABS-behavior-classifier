@@ -100,7 +100,13 @@ def test_identity_zero_with_tracklets_makes_every_slot_an_identity(
     tracklets = np.array([[1, 3], [1, 3], [2, 0]] * 2, dtype=np.uint32)
     valid = _valid(6, 2)
     valid[2, 1] = False  # unoccupied: no track
-    path = pose_file_factory(identity=0, tracklet_id=tracklets, point_valid=valid)
+    path = pose_file_factory(
+        identity=0,
+        tracklet_id=tracklets,
+        point_valid=valid,
+        convert_extra={},
+        convert_format="pose_est_v3",
+    )
     with Pose(path) as pose:
         assert pose.identities == [0, 1]
         track = pose.identity_to_track
@@ -119,6 +125,31 @@ def test_identity_to_track_is_none_when_identities_are_not_tracks(
     with Pose(pose_file_factory(tracklet_id=tracklets)) as pose:
         assert pose.identity_to_track is None
     with Pose(pose_file_factory(name="b_pose.h5")) as pose:
+        assert pose.identity_to_track is None
+
+
+@pytest.mark.parametrize(
+    "convert",
+    [None, "pose_est_v4", "pose_est_v8"],
+    ids=["native", "converted-v4", "converted-v8"],
+)
+def test_identity_zero_with_tracklets_not_from_v3_has_no_identities(
+    pose_file_factory: Factory, convert: str | None
+) -> None:
+    """Only a v3 conversion makes slots identities; other identity = 0 files have none.
+
+    A v4+ file whose instances are all masked converts to identity = 0 and keeps
+    its tracklets; the legacy readers gave it no identities.
+    """
+    tracklets = np.ones((6, 2), dtype=np.uint32)
+    if convert is None:
+        path = pose_file_factory(identity=0, tracklet_id=tracklets)
+    else:
+        path = pose_file_factory(
+            identity=0, tracklet_id=tracklets, convert_extra={}, convert_format=convert
+        )
+    with Pose(path) as pose:
+        assert pose.identities == []
         assert pose.identity_to_track is None
 
 
@@ -148,6 +179,42 @@ def test_fps_defaults_to_30_with_one_info_log(
         assert pose.fps == 30
         assert pose.fps == 30
     assert sum("fps" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_fps_default_log_names_the_source_file(
+    pose_file_factory: Factory, caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """The default-fps log names the user's file, not a converted copy."""
+    converted = pose_file_factory(name="vid.abc-1.0.h5", fps=None)
+    source = tmp_path / "user_pose_est_v6.h5"
+    with (
+        caplog.at_level(logging.INFO, logger="jabs.pose_estimation.pose"),
+        Pose(converted, source_path=source, source_hash="abc"),
+    ):
+        pass
+    messages = [r.getMessage() for r in caplog.records if "fps" in r.getMessage()]
+    assert len(messages) == 1
+    assert source.name in messages[0]
+    assert converted.name not in messages[0]
+
+
+def test_hash_failure_opens_no_file(
+    pose_file_factory: Factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the source cannot be hashed, no reader is left open."""
+    opened: list[object] = []
+    real_reader = pose_file_package.ComponentReader
+
+    def tracking_reader(*args: object, **kwargs: object) -> object:
+        reader = real_reader(*args, **kwargs)
+        opened.append(reader)
+        return reader
+
+    monkeypatch.setattr("jabs.pose_estimation.pose.ComponentReader", tracking_reader)
+    path = pose_file_factory()
+    with pytest.raises(OSError):
+        Pose(path, source_path=tmp_path / "missing_pose_est_v6.h5")
+    assert opened == []
 
 
 def test_video_scale(pose_file_factory: Factory) -> None:

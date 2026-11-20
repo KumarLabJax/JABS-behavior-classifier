@@ -345,12 +345,24 @@ def _check_iter_segmentation(
         np.testing.assert_array_equal(
             np.concatenate([p[2] for p in parts]), expected[f"{key}/points"], err_msg=key
         )
+        if f"{key}/flags" in expected:
+            assert all(p[3] is not None for p in parts), key
+            np.testing.assert_array_equal(
+                np.concatenate([p[3] for p in parts]), expected[f"{key}/flags"], err_msg=key
+            )
+        else:
+            assert all(p[3] is None for p in parts), key
 
 
 def _slice_window(
     window: SegmentationWindow, lo: int, hi: int
-) -> tuple[npt.NDArray[np.uint32], npt.NDArray[np.uint32], npt.NDArray[np.int32]]:
-    """Valid count, lengths and points of rows ``[lo, hi)`` of a window."""
+) -> tuple[
+    npt.NDArray[np.uint32],
+    npt.NDArray[np.uint32],
+    npt.NDArray[np.int32],
+    npt.NDArray[np.bool_] | None,
+]:
+    """Valid count, lengths, points and flags of rows ``[lo, hi)`` of a window."""
     sub = SegmentationWindow(
         contours=window.contours[lo:hi],
         contour_count=window.contour_count[lo:hi],
@@ -358,8 +370,7 @@ def _slice_window(
         external_flag=None if window.external_flag is None else window.external_flag[lo:hi],
         start=window.start + lo,
     )
-    count, lengths, points, _ = _valid_segmentation(sub)
-    return count, lengths, points
+    return _valid_segmentation(sub)
 
 
 def check_pose_contract(pose: PoseLike, expected: dict[str, npt.NDArray[Any]]) -> None:

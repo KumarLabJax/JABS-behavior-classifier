@@ -113,7 +113,7 @@ class PoseLike(Protocol):
         ...
 
     @property
-    def fps(self) -> int:
+    def fps(self) -> float:
         """Frames per second."""
         ...
 
@@ -346,9 +346,12 @@ class PoseLike(Protocol):
     def iter_segmentation(self, identity: int, block: int = 300) -> Iterator[SegmentationWindow]:
         """Yield consecutive segmentation windows covering every frame.
 
-        Both errors below are raised on the call, not on the first ``next()``.
-        ``Pose`` also validates ``identity`` on the call; the legacy readers
-        raise for an out-of-range identity only when the first window is read.
+        ``NotImplementedError`` and the ``ValueError`` for a non-positive
+        ``block`` are raised on the call, not on the first ``next()``.
+
+        An out-of-range ``identity`` is a ``ValueError`` too, raised at a time
+        that depends on the implementation: ``Pose`` checks it on the call, the
+        legacy readers only when the first window is read.
 
         Args:
             identity: Identity index.

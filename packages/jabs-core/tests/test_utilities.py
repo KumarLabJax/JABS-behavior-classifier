@@ -20,6 +20,11 @@ from jabs.core.utils import copy_file_atomic, pose_file_stem
         ("nested_name_pose_est_v8.h5", "nested_name"),
         ("no_suffix.h5", "no_suffix"),
         ("plain_name", "plain_name"),
+        ("trial_pose.h5", "trial"),
+        ("/some/dir/trial_pose.h5", "trial"),
+        ("trial_pose.mp4", "trial_pose"),
+        ("trial_pose_pose_est_v6.h5", "trial_pose"),
+        ("trial_pose_pose.h5", "trial_pose"),
     ],
     ids=[
         "pose-v6",
@@ -31,6 +36,11 @@ from jabs.core.utils import copy_file_atomic, pose_file_stem
         "nested-underscore-name",
         "h5-no-pose-suffix",
         "no-extension",
+        "unified-pose",
+        "unified-pose-with-dir",
+        "video-named-pose",
+        "legacy-pose-of-video-named-pose",
+        "unified-pose-of-video-named-pose",
     ],
 )
 def test_pose_file_stem(path: str, expected: str) -> None:
@@ -51,6 +61,7 @@ def test_pose_file_stem_video_and_pose_match() -> None:
     video file (jabs-init, GUI).
     """
     assert pose_file_stem("video.mp4") == pose_file_stem("video_pose_est_v6.h5")
+    assert pose_file_stem("video.mp4") == pose_file_stem("video_pose.h5")
 
 
 def test_copy_file_atomic_replaces_existing_file(tmp_path: Path) -> None:
