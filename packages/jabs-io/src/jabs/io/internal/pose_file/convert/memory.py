@@ -106,6 +106,15 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     datasets read whole: the static and dynamic objects,
     ``instance_id_center`` and ``external_identity_mapping``.
 
+    Last, it adds the largest single chunk, ``prod(chunks) * itemsize``,
+    across every dataset it reads (the frame datasets, the datasets read
+    whole and the objects); a contiguous dataset adds nothing. HDF5
+    decompresses a whole chunk to read any part of it, and a chunk can be
+    far larger than what it stores on disk, or than the dataset's extent.
+    One chunk is counted: the reads are sequential, and a chunk larger than
+    the dataset's chunk cache (h5py's default, 1 MiB) is not kept after its
+    read, so two large chunks are never decompressed at once.
+
     Args:
         h5: The open legacy file; only shapes and dtypes are read.
         identity: The identity count, or a lower bound for it.
@@ -151,12 +160,15 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
         checking_block = _DEEP_CHECK_COPIES * min(DEEP_CHECK_BLOCK_BYTES, dense)
 
     whole = sum(_whole_bytes(pose.get(name)) for name in _WHOLE_DATASETS)
+    read = [pose.get(name) for name in (*_FRAME_DATASETS, *_WHOLE_DATASETS)]
     for root in ("static_objects", "dynamic_objects"):
         group = h5.get(root)
         if isinstance(group, h5py.Group):
             whole += _group_bytes(group)
+            read.extend(_group_datasets(group))
+    chunk = max((_chunk_bytes(dataset) for dataset in read), default=0)
 
-    return frames * per_frame + max(writing, checking_block) + whole
+    return frames * per_frame + max(writing, checking_block) + whole + chunk
 
 
 def require_memory(path: Path, estimate: int, max_memory: int) -> None:
@@ -289,13 +301,25 @@ def _whole_bytes(dataset: object) -> int:
     return _values(dataset) * (dataset.dtype.itemsize + 4)
 
 
-def _group_bytes(group: h5py.Group) -> int:
-    """Return ``_whole_bytes`` summed over a group's datasets, one level of subgroups included."""
-    total = 0
+def _chunk_bytes(dataset: object) -> int:
+    """Return a dataset's chunk size in bytes, as decompressed; 0 if it is contiguous or absent."""
+    if not isinstance(dataset, h5py.Dataset) or dataset.chunks is None:
+        return 0
+    return math.prod(dataset.chunks) * dataset.dtype.itemsize
+
+
+def _group_datasets(group: h5py.Group) -> list[object]:
+    """Return a group's members, one level of subgroups expanded into theirs."""
+    members: list[object] = []
     for name in group:
         member = group[name]
         if isinstance(member, h5py.Group):
-            total += sum(_whole_bytes(member[inner]) for inner in member)
+            members.extend(member[inner] for inner in member)
         else:
-            total += _whole_bytes(member)
-    return total
+            members.append(member)
+    return members
+
+
+def _group_bytes(group: h5py.Group) -> int:
+    """Return ``_whole_bytes`` summed over a group's datasets, one level of subgroups included."""
+    return sum(_whole_bytes(member) for member in _group_datasets(group))

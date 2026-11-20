@@ -276,3 +276,75 @@ def test_a_four_day_v6_recording_fits_the_default_cap(tmp_path: Path) -> None:
         estimate = estimate_memory(h5, identity=4, block_frames=900)
 
     assert estimate < DEFAULT_MAX_MEMORY
+
+
+# _declare's largest chunk: 900 frames of 4 instances' float32 points.
+_POINTS_CHUNK = 900 * 4 * 12 * 2 * 4
+# A chunk longer than the 900 frames declared, which a resizable dataset may have.
+_BIG_CHUNK_FRAMES = 2**16
+_BIG_CHUNK = _BIG_CHUNK_FRAMES * 4 * 12 * 2 * 4
+
+
+def _one_big_chunk(pose: h5py.Group) -> None:
+    """Rewrite the points as one chunk past the extent, written, so it is decompressed whole."""
+    frames, instances = pose["points"].shape[:2]
+    del pose["points"]
+    points = pose.create_dataset(
+        "points",
+        shape=(frames, instances, 12, 2),
+        maxshape=(None, instances, 12, 2),
+        dtype=np.float32,
+        chunks=(_BIG_CHUNK_FRAMES, instances, 12, 2),
+        compression="gzip",
+    )
+    points[:] = 1
+
+
+def _estimate(path: Path) -> int:
+    """Estimate a file's conversion with a fixed identity count and block."""
+    with h5py.File(path, "r") as h5:
+        return estimate_memory(h5, identity=4, block_frames=900)
+
+
+def test_the_estimate_counts_the_largest_chunk(tmp_path: Path) -> None:
+    """Reading any part of a chunk decompresses all of it, so the largest chunk is counted."""
+    small, big = tmp_path / "small.h5", tmp_path / "big.h5"
+    _declare(small, frames=900)
+    _declare(big, frames=900, edits=_one_big_chunk)
+
+    assert _estimate(big) - _estimate(small) == _BIG_CHUNK - _POINTS_CHUNK
+
+
+def test_the_estimate_counts_an_object_dataset_chunk(tmp_path: Path) -> None:
+    """The static and dynamic objects are read too, and their chunks count the same way."""
+    contiguous, chunked = tmp_path / "contiguous.h5", tmp_path / "chunked.h5"
+    for path, chunks in ((contiguous, None), (chunked, (2**20, 2))):
+        _declare(path, frames=900)
+        with h5py.File(path, "r+") as h5:
+            h5.create_group("static_objects").create_dataset(
+                "corners",
+                data=np.zeros((4, 2)),
+                maxshape=(None, 2) if chunks else None,
+                chunks=chunks,
+            )
+
+    assert _estimate(chunked) - _estimate(contiguous) == 2**20 * 2 * 8 - _POINTS_CHUNK
+
+
+def test_one_huge_compressible_chunk_is_refused(tmp_path: Path) -> None:
+    """A chunk far larger than the data it holds, stored in kilobytes, counts against the cap.
+
+    It passes the storage check, being small, yet every block read
+    decompresses all of it.
+    """
+    small, src = tmp_path / "small.h5", tmp_path / "big.h5"
+    _declare(small, frames=900)
+    _declare(src, frames=900, edits=_one_big_chunk)
+    assert src.stat().st_size < 2**20
+    cap = _estimate(small) + _BIG_CHUNK // 2
+
+    message, peak = _refusal(src, tmp_path / "out.h5", max_memory=cap)
+
+    assert "estimated" in message
+    assert f"({cap} bytes)" in message
+    assert peak < _SMALL_PEAK
