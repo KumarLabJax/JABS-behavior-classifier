@@ -10,7 +10,7 @@ full disk — would otherwise cost the caller the file they already had.
 import json
 import math
 import os
-import tempfile
+import uuid
 from pathlib import Path
 
 import h5py
@@ -469,6 +469,27 @@ def _write_ragged_set(h5: h5py.File, members: list[tuple[str, Alternate]]) -> No
             )
 
 
+def _create_temporary(destination: Path) -> str:
+    """Create an empty, uniquely named temporary file beside ``destination``.
+
+    Created with mode 0o666 so the process umask applies, as for any normal
+    file creation; ``tempfile.mkstemp`` forces 0o600, which the replace would
+    carry onto the destination and keep other members of a shared lab cache
+    from reading it.
+
+    Returns:
+        The temporary file's path.
+    """
+    while True:
+        temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex[:12]}.tmp"
+        try:
+            handle = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+        except FileExistsError:
+            continue
+        os.close(handle)
+        return str(temporary)
+
+
 def write_pose_file(
     pose_file: PoseFile, path: str | Path, created: str | None = None, *, deep: bool = False
 ) -> None:
@@ -558,10 +579,7 @@ def write_pose_file(
         ) from error
 
     string_dtype = h5py.string_dtype(encoding="utf-8")
-    handle, temporary = tempfile.mkstemp(
-        dir=destination.parent, prefix=f".{destination.name}.", suffix=".tmp"
-    )
-    os.close(handle)
+    temporary = _create_temporary(destination)
     try:
         with h5py.File(temporary, "w") as h5:
             h5.attrs["jabs_format"] = FORMAT_ID

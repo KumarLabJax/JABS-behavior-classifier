@@ -7,6 +7,9 @@ schema validations that run before the open do not catch everything.
 """
 
 import json
+import os
+import stat
+import sys
 
 import h5py
 import numpy as np
@@ -162,3 +165,20 @@ def test_manifest_is_serializable_with_numpy_scalars(tmp_path, sample_pose_file)
         manifest = json.loads(h5["manifest"][()])
     assert manifest["dimensions"]["frame"] == 4
     assert read_pose_file(path).dimensions["frame"] == 4
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+@pytest.mark.parametrize(("umask", "mode"), [(0o022, 0o644), (0o002, 0o664)])
+def test_written_file_mode_follows_the_umask(tmp_path, sample_pose_file, umask, mode):
+    """The file is created as a normal create would be: 0o666 less the umask.
+
+    A shared lab cache needs group members to read each other's files; a
+    temporary created 0600 and renamed into place would keep them out.
+    """
+    path = tmp_path / "out.h5"
+    previous = os.umask(umask)
+    try:
+        write_pose_file(sample_pose_file, path)
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(path.stat().st_mode) == mode
