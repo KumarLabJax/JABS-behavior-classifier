@@ -1898,7 +1898,8 @@ def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]
     Each embedding is read ``_DEEP_FRAME_BLOCK`` frames at a time. Only
     components whose id parses are read, and only payloads the structural
     pass could index; each rule reports at most one finding per component,
-    naming the first offending row.
+    naming the first offending row. A block that cannot be read (a corrupt
+    chunk) is reported as ``file_readable`` and ends that component's check.
 
     Args:
         h5: The open file.
@@ -1926,7 +1927,25 @@ def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]
         rows_whole, unoccupied_nan = True, occupied_node is not None
         for first in range(0, node.shape[0], block):
             last = min(node.shape[0], first + block)
-            nan = np.isnan(np.asarray(node[first:last]))
+            try:
+                nan = np.isnan(np.asarray(node[first:last]))
+                empty = (
+                    ~np.asarray(occupied_node[first:last])
+                    if unoccupied_nan and occupied_node is not None
+                    else None
+                )
+            except OSError as error:
+                # A corrupt chunk is a malformed file, which validate() reports
+                # rather than raises on. Later blocks may be readable, but one
+                # finding per component says enough.
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "file_readable",
+                        f"{component_id}: frames {first} to {last - 1} cannot be read: {error}",
+                    )
+                )
+                break
             nan_count = nan.sum(axis=-1)
             if rows_whole:
                 partial = np.argwhere((nan_count != 0) & (nan_count != dim))
@@ -1942,8 +1961,7 @@ def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]
                         )
                     )
                     rows_whole = False
-            if unoccupied_nan and occupied_node is not None:
-                empty = ~np.asarray(occupied_node[first:last])
+            if empty is not None:
                 stored = np.argwhere(empty & (nan_count != dim))
                 if stored.size:
                     findings.append(
