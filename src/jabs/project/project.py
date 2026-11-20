@@ -596,13 +596,17 @@ class Project:
         else:
             outcomes = (convert_pose(job) for job in jobs)
         refused: list[str] = []
-        for completed, (video, reason) in enumerate(outcomes, start=1):
-            if reason is not None:
-                self._mark_unusable(video, reason)
-                refused.append(video)
-            progress(completed, len(jobs))
-        if refused:
-            self._drop_refused_videos(refused)
+        try:
+            for completed, (video, reason) in enumerate(outcomes, start=1):
+                if reason is not None:
+                    self._mark_unusable(video, reason)
+                    refused.append(video)
+                progress(completed, len(jobs))
+        finally:
+            # also when a job raises part way, so the videos already refused
+            # stop counting identities and restricting features
+            if refused:
+                self._drop_refused_videos(refused)
 
     def _drop_refused_videos(self, videos: list[str]) -> None:
         """Recompute identity counts and features after videos became unusable mid-session.

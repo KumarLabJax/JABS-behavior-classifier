@@ -351,3 +351,27 @@ def test_refusal_during_prepare_poses_refreshes_identities_and_capabilities(
     assert project.total_project_identities == b_identities
     assert PoseCapability.SOCIAL in project.feature_manager.capabilities
     assert project.feature_manager.can_use_social_features
+
+
+def test_prepare_poses_raising_part_way_still_refreshes_refused_videos(
+    legacy_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An error after a refusal still drops the refused video's identities and features."""
+
+    def refuse_a_then_fail(job: PoseConversionJobSpec) -> tuple[str, str | None]:
+        if job["video"] == "a.avi":
+            return job["video"], "refused"
+        raise RuntimeError("worker died")
+
+    monkeypatch.setattr(project_module, "convert_pose", refuse_a_then_fail)
+    project = _open(legacy_project)
+    b_identities = project.video_manager.get_video_identity_count("b.avi")
+    assert PoseCapability.SOCIAL not in project.feature_manager.capabilities
+
+    with pytest.raises(RuntimeError, match="worker died"):
+        project.prepare_poses(lambda i, n: None)
+
+    assert not project.is_usable("a.avi")
+    assert project.video_manager.get_video_identity_count("a.avi") == 0
+    assert project.total_project_identities == b_identities
+    assert PoseCapability.SOCIAL in project.feature_manager.capabilities
