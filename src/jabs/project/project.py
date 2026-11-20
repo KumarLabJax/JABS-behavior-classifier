@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import getpass
 import gzip
 import json
@@ -155,6 +156,49 @@ def _pose_cache_entry(result: VideoScanResult, pose_file: str, token: str) -> di
         "has_cm_per_pixel": result["has_cm_per_pixel"],
         "capabilities": list(result["capabilities"]),
     }
+
+
+_LABEL_SECTIONS = ("labels", "unfragmented_labels")
+
+
+def _pop_behavior(document: dict, behavior: str) -> dict[str, dict[str, dict]]:
+    """Remove a behavior's blocks from an annotation document and return them.
+
+    Args:
+        document: A serialized annotation document; edited in place.
+        behavior: The behavior to remove.
+
+    Returns:
+        ``{section: {behavior: {identity: blocks}}}`` for both label sections.
+    """
+    removed: dict[str, dict[str, dict]] = {}
+    for section in _LABEL_SECTIONS:
+        removed_section = removed.setdefault(section, {}).setdefault(behavior, {})
+        for identity, identity_behaviors in document.get(section, {}).items():
+            if behavior in identity_behaviors:
+                removed_section[identity] = identity_behaviors.pop(behavior)
+    return removed
+
+
+def _rename_behavior_in_document(document: dict, old_name: str, new_name: str) -> None:
+    """Rename a behavior in both label sections of an annotation document, in place.
+
+    Mirrors :meth:`VideoLabels.rename_behavior` for a document edited without
+    its pose: identities without ``old_name`` are left as they are.
+
+    Raises:
+        KeyError: If ``new_name`` already has labels for any identity; the
+            document is then unchanged.
+    """
+    sections = [document.get(section, {}) for section in _LABEL_SECTIONS]
+    for section in sections:
+        for identity, identity_behaviors in section.items():
+            if new_name in identity_behaviors:
+                raise KeyError(f"Behavior '{new_name}' already exists for identity '{identity}'")
+    for section in sections:
+        for identity_behaviors in section.values():
+            if old_name in identity_behaviors:
+                identity_behaviors[new_name] = identity_behaviors.pop(old_name)
 
 
 class Project:
@@ -1185,8 +1229,10 @@ class Project:
         """
         conflicting: list[str] = []
         for video in self._video_manager.videos:
-            if (labels := self._video_manager.load_video_labels(video)) is None:
+            # behavior labels need no pose, so an unusable video is checked too
+            if (document := self._video_manager.load_annotations(video)) is None:
                 continue
+            labels = VideoLabels.load(document)
             identities = {identity for identity, _, _ in labels.iter_identity_behavior_labels()}
             video_has_conflict = False
             for identity in identities:
@@ -1207,76 +1253,99 @@ class Project:
                     break
         return sorted(conflicting)
 
-    def archive_behavior(self, behavior: str):
+    def archive_behavior(self, behavior: str) -> None:
         """Archive a behavior.
 
-        Archives any labels for this behavior. Deletes any other files associated with this behavior.
+        Moves every video's labels for this behavior into
+        ``archive/<behavior>_<timestamp>.json.gz`` and deletes the behavior's
+        classifier and predictions. Every annotation document is read and
+        edited in memory first, and the archive is written before any document
+        is saved, so a failure part way cannot lose labels.
+
+        A video whose pose file is unusable (or cannot be opened now) has its
+        saved annotation document edited directly: labels do not need a pose.
 
         Args:
-            behavior (str): behavior name
-
-        Returns:
-            None
+            behavior: behavior name
         """
         safe_behavior = to_safe_name(behavior)
 
-        # remove predictions
-        path = self._paths.prediction_dir / safe_behavior
-        shutil.rmtree(path, ignore_errors=True)
-
-        # remove classifier
-        path = self._paths.classifier_dir / f"{safe_behavior}.pickle"
-        with contextlib.suppress(FileNotFoundError):
-            path.unlink()
-
-        # archive labels and unfragmented_labels
         archived_labels: dict[str, dict] = {}
+        to_save: list[tuple[str, VideoLabels | dict, PoseLike | None]] = []
         for video in self._video_manager.videos:
-            if (video_labels := self._video_manager.load_video_labels(video)) is None:
+            if (document := self._video_manager.load_annotations(video)) is None:
                 continue
+            pose = self._open_pose_for_annotations(video)
+            if pose is None:
+                annotations = copy.deepcopy(document)
+            else:
+                annotations = VideoLabels.load(document, pose).as_dict(pose)
 
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            annotations = video_labels.as_dict(pose)
+            # the behavior is keyed by its name as provided (not to_safe_name())
+            # in the archive. Both label sections are archived: "labels" holds
+            # the blocks masked to frames where the identity has pose data,
+            # "unfragmented_labels" holds them unmasked.
+            archived_labels[video] = {
+                "num_frames": annotations["num_frames"],
+                **_pop_behavior(annotations, behavior),
+            }
+            if pose is None:
+                to_save.append((video, annotations, None))
+            else:
+                to_save.append((video, VideoLabels.load(annotations, pose), pose))
 
-            # ensure archive structure exists for this video:
-            # {
-            #   "num_frames": ...,
-            #   "labels": {"<behavior>": {}},
-            #   "unfragmented_labels": {"<behavior>": {}}
-            # }
-            # the behavior is keyed by its name as provided (not to_safe_name()) in the
-            # archive per requested schema
-            video_archive = archived_labels.setdefault(
-                video,
-                {
-                    "num_frames": annotations["num_frames"],
-                    "labels": {},
-                    "unfragmented_labels": {},
-                },
-            )
-
-            # Move per-identity blocks for the behavior from the live annotations into the
-            # archive. Identities are stored as string keys in annotations. Both label
-            # sections are archived: "labels" holds the blocks masked to frames where the
-            # identity has pose data, "unfragmented_labels" holds them unmasked.
-            for section in ("labels", "unfragmented_labels"):
-                archived_section = video_archive[section].setdefault(behavior, {})
-                # values are per-identity dicts of {behavior: blocks}; popping from them
-                # removes the behavior from the annotations saved back to disk below
-                for identity, identity_behaviors in annotations.get(section, {}).items():
-                    if behavior in identity_behaviors:
-                        archived_section[identity] = identity_behaviors.pop(behavior)
-
-            # persist the modified annotations back to disk (with the behavior removed)
-            self.save_annotations(VideoLabels.load(annotations, pose), pose)
-
-        # write the archived labels out
+        # write the archive before any annotation document loses the behavior
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt") as f:
             json.dump(archived_labels, f, indent=2)
 
+        for video, labels, pose in to_save:
+            self._save_edited_annotations(video, labels, pose)
+
+        # remove predictions
+        shutil.rmtree(self._paths.prediction_dir / safe_behavior, ignore_errors=True)
+
+        # remove classifier
+        with contextlib.suppress(FileNotFoundError):
+            (self._paths.classifier_dir / f"{safe_behavior}.pickle").unlink()
+
         # save project file
         self._settings_manager.remove_behavior(behavior)
+
+    def _open_pose_for_annotations(self, video: str) -> PoseLike | None:
+        """Open a video's pose to edit its annotations, or return None when it cannot be opened.
+
+        Editing annotations needs no pose; with one, the edited document is
+        re-fragmented by the identity mask as a normal save does. Without one
+        (an unusable video, or a pose that fails to open now), the caller edits
+        the saved document directly.
+        """
+        if not self.is_usable(video):
+            return None
+        try:
+            return self.load_pose_est(self._video_manager.video_path(video))
+        except PoseOpenError as error:
+            logger.warning(
+                "Editing the annotations of %s without its pose file: %s", video, error.reason
+            )
+            return None
+
+    def _save_edited_annotations(
+        self, video: str, labels: "VideoLabels | dict", pose: PoseLike | None
+    ) -> None:
+        """Save annotations edited by a project-wide behavior operation.
+
+        Args:
+            video: Video filename.
+            labels: The edited labels, or (without a pose) the edited saved document.
+            pose: The video's pose, or None when ``labels`` is a document.
+        """
+        if isinstance(labels, VideoLabels):
+            self.save_annotations(labels, pose)
+            return
+        labels["labeler"] = self.labeler
+        self._annotation_store.save_document(video, labels)
+        self._settings_manager.update_version()
 
     def counts(self, behavior: str) -> dict[str, dict[int, dict[str, tuple[int, int]]]]:
         """get the labeled frame counts and bout counts for each video in the project
@@ -1911,14 +1980,18 @@ class Project:
         """Rename a behavior throughout the project.
 
         This updates the project settings, and renames any files associated with the behavior.
-        It also updates any labels for this behavior in all videos.
+        It also updates any labels for this behavior in all videos, including
+        videos whose pose file is unusable (their saved documents are edited
+        directly). Every video's labels are renamed in memory before anything is
+        written, so a refused rename changes nothing.
 
         Args:
             old_name (str): current behavior name
             new_name (str): new behavior name
 
-        Returns:
-            None
+        Raises:
+            ValueError: If ``new_name`` is already a behavior, or is reserved.
+            KeyError: If any video already has labels named ``new_name``.
         """
         if new_name in self._settings_manager.behavior_names:
             raise ValueError(f"Behavior {new_name} already exists in project")
@@ -1935,6 +2008,24 @@ class Project:
                 f"{MULTICLASS_NONE_BEHAVIOR!r}"
             )
 
+        # rename labels inside every video's annotation document in memory first
+        # (mode-independent: labels are always keyed by behavior name on disk),
+        # so a refusal for any video changes nothing. A video without a usable
+        # pose has its saved document renamed directly.
+        to_save: list[tuple[str, VideoLabels | dict, PoseLike | None]] = []
+        for video in self._video_manager.videos:
+            if (document := self._video_manager.load_annotations(video)) is None:
+                continue
+            pose = self._open_pose_for_annotations(video)
+            if pose is None:
+                edited = copy.deepcopy(document)
+                _rename_behavior_in_document(edited, old_name, new_name)
+                to_save.append((video, edited, None))
+            else:
+                labels = VideoLabels.load(document, pose)
+                labels.rename_behavior(old_name, new_name)
+                to_save.append((video, labels, pose))
+
         # Classifier and prediction storage differs between modes, so update the
         # mode-specific artifacts separately.
         if self._settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
@@ -1942,14 +2033,8 @@ class Project:
         else:
             self._rename_behavior_binary_artifacts(old_name, new_name)
 
-        # rename labels inside every video's annotation file (mode-independent:
-        # labels are always keyed by behavior name on disk)
-        for video in self._video_manager.videos:
-            if (labels := self._video_manager.load_video_labels(video)) is None:
-                continue
-            labels.rename_behavior(old_name, new_name)
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            self.save_annotations(labels, pose)
+        for video, labels, pose in to_save:
+            self._save_edited_annotations(video, labels, pose)
 
         # update project settings
         self._settings_manager.rename_behavior(old_name, new_name)

@@ -421,6 +421,9 @@ def _make_project_with_mock_vm(tmp_path: Path, videos_and_labels: dict) -> Proje
     mock_vm.videos = list(videos_and_labels.keys())
     mock_vm.video_path.side_effect = lambda v: tmp_path / v
     mock_vm.load_video_labels.side_effect = lambda v, pose=None: videos_and_labels[v]
+    mock_vm.load_annotations.side_effect = lambda v: (
+        None if videos_and_labels[v] is None else videos_and_labels[v].as_dict(None)
+    )
     project._video_manager = mock_vm
     project.load_pose_est = MagicMock(return_value=MagicMock())
     project.save_annotations = MagicMock()
@@ -979,6 +982,7 @@ def _project_for_archive(
     mock_vm.videos = [video]
     mock_vm.video_path.side_effect = lambda v: tmp_path / v
     mock_vm.load_video_labels.side_effect = lambda v, pose=None: labels
+    mock_vm.load_annotations.side_effect = lambda v: labels.as_dict(None)
     project._video_manager = mock_vm
     project.load_pose_est = MagicMock(return_value=pose)
     project.save_annotations = MagicMock()
