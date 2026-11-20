@@ -2,17 +2,19 @@
 
 A legacy file's ``version`` attribute does not say what it holds (the public
 v5 sample records ``3.0``), so the converter reads what is there instead and
-refuses anything outside the catalog of ``pose_est_v2`` and ``v4``..``v8``
-paths, naming it. A path it does not know is one it would silently lose. A
-``points`` dataset with no instance axis, ``(frame, 12, 2)``, is a
-``pose_est_v2`` file: one animal, with only ``points`` and ``confidence``.
+refuses anything outside the catalog of ``pose_est_v2``..``v8`` paths,
+naming it. A path it does not know is one it would silently lose. A ``points``
+dataset with no instance axis, ``(frame, 12, 2)``, is a ``pose_est_v2`` file:
+one animal, with only ``points`` and ``confidence``. One with an instance axis
+but neither ``id_mask`` nor ``instance_embed_id`` is a ``pose_est_v3`` file:
+tracks and no identity, with ``instance_count`` and ``instance_track_id``.
 Before any of that it refuses a file whose data is not all inside it (an
 external or soft link, external or virtual storage), since the Hub converts
 uploads on its own machines.
 
 Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 ``id_mask``, which it reads in frame blocks when the identity count has to
-come from the largest valid embed id.
+come from the largest valid embed id, and a v3 file's ``instance_count``.
 """
 
 import logging
@@ -65,6 +67,11 @@ _POSEEST = frozenset(
 _REQUIRED = ("points", "confidence", "id_mask", "instance_embed_id")
 # Everything a v2 file has: one animal, so no per-instance identity data.
 _SINGLE = frozenset({"points", "confidence"})
+# The datasets v4 introduced; a file with an instance axis and neither is v3.
+_IDENTITY_DATASETS = ("id_mask", "instance_embed_id")
+# What a v3 file needs to place its tracks, and everything it may have.
+_TRACK_REQUIRED = ("points", "confidence", "instance_count", "instance_track_id")
+_TRACKS = frozenset({*_TRACK_REQUIRED, "instance_embedding"})
 _STATIC_OBJECTS = frozenset({"corners", "lixit", "food_hopper"})
 _DYNAMIC_DATASETS = ("points", "counts", "sample_indices")
 _AXIS_ORDERS = frozenset({"xy", "yx"})
@@ -98,11 +105,19 @@ class LegacyLayout:
         keypoints: The keypoint axis of ``poseest/points``; always 12.
         identity: Rows of ``instance_id_center`` when it has any, otherwise the
             largest embed id of a valid instance (ADR 0002:1294-1295); 0 when
-            there is none. 1 without an instance axis: the one animal.
+            there is none. 1 without an instance axis: the one animal. 0 for a
+            ``pose_est_v3`` file, which has tracks and no identity.
         instance_axis: Whether ``poseest/points`` has an instance axis,
             ``(frame, instance, 12, 2)``. False for a ``pose_est_v2`` file,
             ``(frame, 12, 2)``, whose ``confidence`` is ``(frame, 12)``; every
             per-instance read then adds the axis, as the one instance.
+        placed_by_track: Whether the file is a ``pose_est_v3`` file, whose
+            instances are placed by track (``instance_track_id``) rather than
+            by identity: an instance axis and neither ``id_mask`` nor
+            ``instance_embed_id``.
+        track_slots: The slots a ``pose_est_v3`` file's tracks need, its
+            largest ``instance_count``: each track keeps one slot for its
+            run, and a frame's tracks are distinct. 0 for any other file.
         version: The ``poseest`` ``version`` attribute as whole numbers,
             parsed from text such as ``"6.0"``; empty when the file has none or
             it is neither whole numbers nor dotted whole-number text, since the
@@ -128,6 +143,8 @@ class LegacyLayout:
     keypoints: int
     identity: int
     instance_axis: bool
+    placed_by_track: bool
+    track_slots: int
     version: tuple[int, ...]
     has_segmentation: bool
     contour_axis: int
@@ -141,14 +158,14 @@ class LegacyLayout:
 
 
 def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout:
-    """Identify a legacy ``pose_est_v2`` or ``v4``..``v8`` file by its contents.
+    """Identify a legacy ``pose_est_v2``..``v8`` file by its contents.
 
     Shapes and attributes are checked before any data is read: first that
     the file is self-contained, then its paths, that no attribute declares
     more than ``memory.MAX_ATTRIBUTE_BYTES``, then its shapes, then, with
     ``max_memory``, a lower bound on the conversion's memory, and that no
     large dataset declares far more than it stores. Only then are the embed
-    ids and dynamic objects read.
+    ids, a v3 file's ``instance_count`` and the dynamic objects read.
 
     Args:
         path: The legacy HDF5 file.
@@ -166,7 +183,10 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             or a dataset with external or virtual storage (checked first,
             before anything is read), holds a path outside the catalog, has
             an attribute declaring more than 16 MiB or whose metadata cannot
-            be read, has an instance axis but lacks a dataset v4 introduced,
+            be read, has an instance axis and one dataset v4 introduced but
+            not the other, has neither but lacks ``instance_count`` or
+            ``instance_track_id`` or holds a dataset a v3 file does not, has
+            an ``instance_count`` that is not integers in ``0..instances``,
             has no instance axis but holds a dataset other than ``points``
             and ``confidence``, has other than 12 keypoints, has datasets
             whose shapes disagree, names other than one identity per
@@ -189,7 +209,10 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
         check_attributes(path, h5)
         pose = h5["poseest"]
         instance_axis = not ("points" in pose and pose["points"].ndim == 3)
-        if instance_axis:
+        placed_by_track = instance_axis and not any(n in pose for n in _IDENTITY_DATASETS)
+        if placed_by_track:
+            frames, instances, keypoints = _check_track_layout(path, pose)
+        elif instance_axis:
             frames, instances, keypoints = _check_instance_layout(path, pose)
         else:
             frames, keypoints = _check_single_layout(path, pose)
@@ -213,7 +236,10 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
         for name in dynamics:
             _check_dynamic_object(path, dynamics[name], int(frames))
 
-        identity = _identity(pose) if instance_axis else 1
+        if placed_by_track:
+            track_slots, identity = _track_slots(path, pose["instance_count"], instances), 0
+        else:
+            track_slots, identity = 0, _identity(pose) if instance_axis else 1
         names = pose.get("external_identity_mapping")
         # jabs.identity.external_ids is on the identity axis.
         if names is not None and names.shape[0] != identity:
@@ -235,6 +261,8 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             keypoints=int(keypoints),
             identity=identity,
             instance_axis=instance_axis,
+            placed_by_track=placed_by_track,
+            track_slots=track_slots,
             version=version,
             has_segmentation=seg is not None,
             contour_axis=int(seg.shape[2]) if seg is not None else 0,
@@ -261,6 +289,35 @@ def _check_instance_layout(path: Path, pose: h5py.Group) -> tuple[int, int, int]
         raise LegacyConversionError(
             f"{path}: not a pose_est_v4 or later file; missing poseest/{', poseest/'.join(missing)}"
         )
+    return _check_instance_shapes(path, pose)
+
+
+def _check_track_layout(path: Path, pose: h5py.Group) -> tuple[int, int, int]:
+    """Check a ``pose_est_v3`` file's datasets and shapes.
+
+    Any dataset a v3 file does not have is refused: a dataset from v4 on would
+    say the file is a damaged later one, and would be silently lost.
+
+    Returns:
+        Its frames, legacy instances and keypoints.
+    """
+    for name in pose:
+        if name not in _TRACKS:
+            _refuse(path, f"poseest/{name}", "is not in a pose_est_v3 file")
+    missing = [name for name in _TRACK_REQUIRED if name not in pose]
+    if missing:
+        raise LegacyConversionError(
+            f"{path}: not a pose_est_v3 file; missing poseest/{', poseest/'.join(missing)}"
+        )
+    return _check_instance_shapes(path, pose)
+
+
+def _check_instance_shapes(path: Path, pose: h5py.Group) -> tuple[int, int, int]:
+    """Check ``points`` is ``(frame, instance, 12, 2)`` and the other shapes agree with it.
+
+    Returns:
+        Its frames, legacy instances and keypoints.
+    """
     shape = pose["points"].shape
     if len(shape) != 4 or shape[3] != 2:
         raise LegacyConversionError(
@@ -475,6 +532,29 @@ def _check_dynamic_object(path: Path, group: h5py.Group, frames: int) -> None:
         raise LegacyConversionError(
             f"{path}: {name}/points has axis_order {axis_order!r}; expected 'xy' or 'yx'"
         )
+
+
+def _track_slots(path: Path, count: h5py.Dataset, instances: int) -> int:
+    """Return a v3 file's largest ``instance_count``, refusing one outside ``0..instances``.
+
+    It bounds which legacy instances hold a track, so a count above the
+    instance axis, or a negative one, would place data that is not there.
+    """
+    name = f"{path}: poseest/instance_count"
+    if count.dtype.kind not in "iu":
+        raise LegacyConversionError(f"{name} has dtype {count.dtype}; expected integers")
+    largest = 0
+    for start in range(0, count.shape[0], BLOCK_FRAMES):
+        block = count[start : start + BLOCK_FRAMES].astype(np.int64)
+        outside = (block < 0) | (block > instances)
+        if outside.any():
+            frame = int(np.flatnonzero(outside)[0])
+            raise LegacyConversionError(
+                f"{name} holds {block[frame]} at frame {start + frame}; expected 0..{instances}, "
+                "the instances poseest/points has"
+            )
+        largest = max(largest, int(block.max(initial=0)))
+    return largest
 
 
 def _identity(pose: h5py.Group) -> int:

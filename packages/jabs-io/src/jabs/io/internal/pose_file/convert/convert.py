@@ -124,7 +124,7 @@ def convert_legacy(
     max_memory: int = DEFAULT_MAX_MEMORY,
     created: str | None = None,
 ) -> ConversionReport:
-    """Convert a legacy ``pose_est_v2`` or ``v4``..``v8`` file to a ``jabs.pose-file``.
+    """Convert a legacy ``pose_est_v2``..``v8`` file to a ``jabs.pose-file``.
 
     The legacy file is only read. The destination is written atomically and
     deep-checked before it replaces any existing file, so a refusal or a
@@ -157,7 +157,7 @@ def convert_legacy(
             catalog, its estimated peak memory is above ``max_memory``, a
             large dataset declares far more than it stores, it cannot be
             placed (a duplicate identity, a tracklet in two slots of a
-            frame), or the converted file fails validation. The message says
+            frame, a v3 track on two instances of a frame), or the converted file fails validation. The message says
             why.
     """
     started = time.perf_counter()

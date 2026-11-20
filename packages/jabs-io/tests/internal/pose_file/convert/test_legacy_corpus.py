@@ -29,6 +29,7 @@ CORPUS = {
     "v8-unknown-dataset.h5",
     "v7-bad-dynamic-object.h5",
     "v2-single.h5",
+    "v3-tracklets.h5",
 }
 
 # The datasets a real v8 file from the `pose_v4` model has, and nothing else
@@ -398,6 +399,56 @@ def test_v2_file_carries_its_case() -> None:
     assert confidence[g.V2_THRESHOLD] == np.float32(0.3)
     assert ((confidence > 0) & (confidence < np.float32(0.3))).any()
     assert (confidence > 0.4).any()
+
+
+def test_v3_file_carries_its_case() -> None:
+    """The v3 file has the samples' datasets, and tracks that compact, end and come back.
+
+    Track 0 is a real track; track 7 runs twice; track 9 starts the frame
+    after track 7's first run ends; one counted instance has every confidence
+    0; and one frame has a stale instance with confidence past its count.
+    """
+    g = generator()
+    with h5py.File(legacy("v3-tracklets.h5"), "r") as h5:
+        pose = h5["poseest"]
+        assert set(pose) == {
+            "points",
+            "confidence",
+            "instance_count",
+            "instance_embedding",
+            "instance_track_id",
+        }
+        assert dict(pose.attrs).keys() == {"version"}
+        assert pose.attrs["version"].tolist() == [3, 0]
+        assert pose["points"].dtype == np.uint16
+        assert pose["instance_track_id"].dtype == np.uint32
+        assert pose["instance_count"].dtype == np.uint8
+        count = pose["instance_count"][()]
+        track = pose["instance_track_id"][()]
+        confidence = pose["confidence"][()]
+    assert track.shape == (g.V3_FRAMES, g.V3_INSTANCES)
+    assert count.max() == 4 < g.V3_INSTANCES
+    counted = np.arange(g.V3_INSTANCES) < count[:, np.newaxis]
+    runs = {}
+    for frame in range(g.V3_FRAMES):
+        held = track[frame, : count[frame]].tolist()
+        assert len(held) == len(set(held)), frame
+        for track_id in held:
+            runs.setdefault(track_id, []).append(frame)
+    assert 0 in runs
+    # Track 7 has a gap; no other track does.
+    gaps = {t: int((np.diff(frames) > 1).sum()) for t, frames in runs.items()}
+    assert {t: n for t, n in gaps.items() if n} == {7: 1}
+    assert 7 in track[14, : count[14]] and 7 not in track[15, : count[15]]
+    assert 9 in track[15, : count[15]] and 9 not in track[14, : count[14]]
+    unconfident = counted & (confidence == 0).all(axis=-1)
+    frame, unoccupied = g.V3_UNOCCUPIED
+    assert np.argwhere(unconfident).tolist() == [
+        [frame, int(np.flatnonzero(track[frame] == unoccupied)[0])]
+    ]
+    stale = ~counted & (confidence > 0).any(axis=-1)
+    assert np.argwhere(stale).tolist() == [[g.V3_STALE_FRAME, int(count[g.V3_STALE_FRAME])]]
+    assert not (confidence == np.float32(0.3)).any()
 
 
 @pytest.mark.parametrize("name", sorted(CORPUS))
