@@ -1196,6 +1196,7 @@ question, not a requirement of this revision.
 | ragged `group_offsets` / `instance_offsets`, and RLE `instance_offsets`: present, one-dimensional, non-decreasing, starting at 0, ending at the terminal value for the declared `level`, with `frame*slot+1` instance entries | error |
 | every alternate is checked as a component is: its `path` exists and holds its payload, `dtype` and `shape` match, `len(axes) == len(shape)`, and its encoding's offsets pass the rows above | error |
 | alternate names are unique within a component, and every alternate's `path` is distinct from every component and alternate path | error |
+| every dataset path (component, alternate, offsets, attachment) is canonical: no empty segment (`//`) and no trailing slash, either of which HDF5 resolves to another spelling of a path | error |
 | **opt-in deep check:** each alternate decodes to its baseline, per `(frame, slot)` | error when requested |
 | an RLE instance's runs sum to `video.width * video.height` | error |
 | a sparse index is integer-typed | error |
