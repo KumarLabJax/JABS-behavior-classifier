@@ -1206,6 +1206,7 @@ question, not a requirement of this revision.
 | dense segmentation's `contour_count` is a non-negative integer no larger than the `contour` axis of `jabs.segmentation.contours` — it is not a `length` reference, so the row above does not cover it | error |
 | an RLE payload is one-dimensional with a single `run` axis | error |
 | every declared attachment exists, lives under `/attachments/`, and is declared once | error |
+| the file is self-contained: every link is a hard link, and no dataset uses external raw storage or a virtual layout. Checked first, before any data is read, because HDF5 resolves those against other files and a file from an upload must not reach them | error |
 | component ids are unique and namespace-well-formed | error |
 | a non-`jabs` namespace has a reverse-DNS root of ≥2 segments | error |
 | `video.width` / `video.height` non-null | warning |
