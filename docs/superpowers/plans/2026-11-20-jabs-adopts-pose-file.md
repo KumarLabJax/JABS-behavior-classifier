@@ -18,7 +18,7 @@
 - Conversion cache file: `<cache root>/converted/<video stem>.<legacy hash>-<jabs-io version>.h5`. `<cache root>` is the project's `cache_dir`, or `platformdirs.user_cache_dir("jabs")` when there is none. Legacy hash = `jabs.core.utils.hash_file(legacy path)`; version from a module-level helper `_converter_version()` in `conversion_cache.py` (wrapping `importlib.metadata.version("jabs-io")`).
 - `Pose.hash` = `hash_file(<the file the user has>)`, computed once and passed along (never hash a file twice per open).
 - Point validity = `jabs.pose.point_valid`; invalid points are NaN in returned arrays. Identity present = `jabs.pose.slot_usable` when present, else `>= 3` valid keypoints among skeleton body parts other than `MID_TAIL`, `TIP_TAIL` (by name).
-- Identities = slots `0..dimensions["identity"]-1`. When `dimensions["identity"] == 0` **and** `jabs.pose.tracklet_id` is present (v3 conversions), every slot is an identity; otherwise `identity == 0` means no identities.
+- Identities = slots `0..dimensions["identity"]-1`. When `dimensions["identity"] == 0` and the file is a v3 conversion (last convert entry source `pose_est_v3`), every slot is an identity; otherwise `identity == 0` means no identities.
 - fps = manifest `video.fps`, else 30 (INFO log once per `Pose`). Features read fps **only** from the pose object.
 - Static objects stored `(O, P, 2)` float32 xy under `jabs.static_objects.<name>`; `Pose.static_objects[name]` squeezes P when P == 1; `num_lixit_keypoints` = P of `lixit`.
 - `PoseCapability` (`jabs.core.enums`, `str, Enum`): `SOCIAL = "social"` (more than one identity), `SEGMENTATION = "segmentation"`, `BOUNDING_BOXES = "bounding_boxes"`. Static objects are checked by name.
