@@ -538,7 +538,7 @@ def test_a_failed_deep_check_leaves_the_destination(
     """When the writer's own validation fails, the destination keeps its bytes and no temp is left."""
     deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
     finding = deep_check.Finding(deep_check.ERROR, "alternate_decodes", "planted for the test")
-    monkeypatch.setattr(deep_check, "validate", lambda path, deep=False: [finding])
+    monkeypatch.setattr(deep_check, "validate", lambda path, deep=False, **_: [finding])
     out = tmp_path / "out.h5"
     sentinel = b"an earlier conversion"
     out.write_bytes(sentinel)

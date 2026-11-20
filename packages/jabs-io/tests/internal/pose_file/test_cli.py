@@ -166,7 +166,7 @@ def test_convert_error_is_one_line(
     finding = deep_check.Finding(
         deep_check.ERROR, "alternate_decodes", "first line\n  second line\nthird"
     )
-    monkeypatch.setattr(deep_check, "validate", lambda path, deep=False: [finding])
+    monkeypatch.setattr(deep_check, "validate", lambda path, deep=False, **_: [finding])
 
     assert _convert(legacy("v8-with-centers.h5"), tmp_path / "out.h5") == 1
 
@@ -182,7 +182,7 @@ def test_validate_findings_are_one_line_each(
     """A finding whose message spans lines prints as one line."""
     deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
     finding = deep_check.Finding(deep_check.ERROR, "manifest_schema", "bad\nmanifest:\n  here")
-    monkeypatch.setattr(cli, "validate", lambda path, deep=False: [finding])
+    monkeypatch.setattr(cli, "validate", lambda path, deep=False, **_: [finding])
 
     assert main(["validate", "any.h5"]) == 1
 
