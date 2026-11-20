@@ -1180,6 +1180,7 @@ question, not a requirement of this revision.
 | a group-level ragged payload has `shape[0] == len(group_offsets) - 1` | error |
 | ragged/RLE `instance_offsets` is non-decreasing, starts at 0, has length `frame*slot + 1`, and ends at `len(group_offsets) - 1` (ragged) or `shape[0]` of the payload (RLE) | error |
 | a group-level ragged component or alternate names the same two offset datasets as a leaf-level one in the same file | error |
+| an offsets dataset has one partner, in one role: ragged components and alternates that name the same `group_offsets` or `instance_offsets` dataset name the same pair | error |
 | every component `provenance` id resolves to a record in `/provenance` | error |
 | a component whose `axes` contain `coord` declares `units` and `coord_order` | error |
 | an RLE component's file has non-null `video.width` and `video.height` | error |
