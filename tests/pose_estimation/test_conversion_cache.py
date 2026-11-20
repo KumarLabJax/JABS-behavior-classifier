@@ -1,7 +1,10 @@
 """The keyed conversion cache and open_unified."""
 
 import logging
+import os
 import shutil
+import stat
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -372,3 +375,14 @@ def test_source_changed_during_conversion_is_discarded(
     assert info.value.path == legacy_v4
     assert not converted_path(legacy_v4, digest, cache).exists()
     assert not list((cache / "converted").glob("*.h5"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_conversion_mode_follows_the_umask(legacy_v4: Path, tmp_path: Path) -> None:
+    """A conversion is readable as widely as the umask allows, like any created file."""
+    previous = os.umask(0o022)
+    try:
+        converted = ensure_converted(legacy_v4, hash_file(legacy_v4), tmp_path / "cache")
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(converted.stat().st_mode) == 0o644
