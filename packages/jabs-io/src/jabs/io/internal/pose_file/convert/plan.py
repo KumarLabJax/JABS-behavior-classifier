@@ -154,6 +154,9 @@ def plan_placement(
     index order. Contours follow the instance, never ``longterm_seg_id``, which
     is only checked against the embed id.
 
+    A file with no instance axis (``pose_est_v2``) is one animal: its one
+    instance goes to slot 0 in every frame, and nothing is read.
+
     Args:
         h5: The open legacy file.
         layout: What ``inspect_legacy`` found in it.
@@ -170,6 +173,8 @@ def plan_placement(
             fit the plan's index types. The message names the file, and the
             frame and id where there is one.
     """
+    if not layout.instance_axis:
+        return _single_plan(layout)
     pose = h5["poseest"]
     frames, instances, identity = layout.frames, layout.instances, layout.identity
     contours = layout.contour_axis
@@ -264,6 +269,26 @@ def plan_placement(
         instance_offsets=instance_offsets,
         tracklet_id=tracklet_id,
         tracklet_splits=splits,
+    )
+
+
+def _single_plan(layout: LegacyLayout) -> PlacementPlan:
+    """Return the plan for a file with no instance axis: its one instance in slot 0."""
+    empty = np.empty(0, np.uint32), np.empty(0, np.int16)
+    return PlacementPlan(
+        slots=1,
+        slot_of=np.zeros((layout.frames, 1), dtype=np.int16),
+        tail_slots=TailSlots(*empty, np.empty(0, np.int16), np.empty(0, np.bool_)),
+        longterm_mismatches=LongtermMismatches(
+            *empty, np.empty(0, np.int64), np.empty(0, np.int64)
+        ),
+        contour_count=None,
+        contour_length=None,
+        contour_source=None,
+        group_offsets=None,
+        instance_offsets=None,
+        tracklet_id=None,
+        tracklet_splits=_NO_SPLITS,
     )
 
 

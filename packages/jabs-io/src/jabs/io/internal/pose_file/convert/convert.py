@@ -124,7 +124,7 @@ def convert_legacy(
     max_memory: int = DEFAULT_MAX_MEMORY,
     created: str | None = None,
 ) -> ConversionReport:
-    """Convert a legacy ``pose_est_v4``..``v8`` file to a ``jabs.pose-file``.
+    """Convert a legacy ``pose_est_v2`` or ``v4``..``v8`` file to a ``jabs.pose-file``.
 
     The legacy file is only read. The destination is written atomically and
     deep-checked before it replaces any existing file, so a refusal or a
