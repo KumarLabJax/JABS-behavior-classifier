@@ -6,9 +6,53 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.types import SegmentationWindow
+
 from .pose_est_v5 import PoseEstimationV5
 
 logger = logging.getLogger(__name__)
+
+
+def pack_segmentation(
+    seg_data: npt.NDArray[np.integer],
+    seg_flags: npt.NDArray[np.integer] | npt.NDArray[np.bool_] | None,
+    start: int,
+) -> SegmentationWindow:
+    """Pack legacy ``-1``-padded contours so the valid ones come first.
+
+    Uses the same rule as the legacy-to-unified converter: a contour slot holds a
+    contour iff its first point's x is not -1, and the contour's points are the
+    leading ones before the first -1 x. Valid contours keep their legacy order.
+
+    Args:
+        seg_data: One identity's contours, shape (n, C, P, 2), ``(x, y)``, padded
+            with -1.
+        seg_flags: Matching external flags, shape (n, C): positive for an
+            external boundary, 0 for a hole, -1 for no contour. None without flags.
+        start: Frame index of the first frame.
+
+    Returns:
+        The packed window; padding slots and points hold unspecified values.
+    """
+    num_points = seg_data.shape[2]
+    padding = seg_data[..., 0] == -1
+    exists = ~padding[..., 0]
+    lengths = np.where(padding.any(axis=-1), padding.argmax(axis=-1), num_points)
+    # stable, so valid contours keep their legacy order at the front
+    order = np.argsort(~exists, axis=-1, kind="stable")
+    packed_exists = np.take_along_axis(exists, order, axis=-1)
+    contours = np.take_along_axis(seg_data, order[..., np.newaxis, np.newaxis], axis=1)
+    contour_length = np.where(packed_exists, np.take_along_axis(lengths, order, axis=-1), 0)
+    external_flag = None
+    if seg_flags is not None:
+        external_flag = np.take_along_axis(np.asarray(seg_flags) > 0, order, axis=-1)
+    return SegmentationWindow(
+        contours=contours.astype(np.int32),
+        contour_count=exists.sum(axis=-1).astype(np.uint32),
+        contour_length=contour_length.astype(np.uint32),
+        external_flag=external_flag,
+        start=start,
+    )
 
 
 class PoseEstimationV6(PoseEstimationV5):
@@ -202,6 +246,35 @@ class PoseEstimationV6(PoseEstimationV5):
             return None
         else:
             return self._segmentation_dict["seg_data"][frame_index, identity, ...]
+
+    def segmentation_window(self, identity: int, start: int, stop: int) -> SegmentationWindow:
+        """Return an identity's segmentation contours for frames ``[start, stop)``.
+
+        Valid contours are packed first (see :func:`pack_segmentation`);
+        ``external_flag`` is True where the legacy flag is positive.
+
+        Args:
+            identity: Identity index.
+            start: First frame, inclusive.
+            stop: Last frame, exclusive.
+
+        Returns:
+            The packed segmentation window.
+
+        Raises:
+            NotImplementedError: If the file has no segmentation data.
+            ValueError: If the identity or frame range is out of bounds.
+        """
+        if not self.has_segmentation:
+            raise NotImplementedError(f"{self._path.name} has no segmentation data")
+        if not 0 <= identity < self.num_identities:
+            raise ValueError(f"identity {identity} out of range (0 to {self.num_identities - 1})")
+        if not 0 <= start <= stop <= self.num_frames:
+            raise ValueError(f"frame range [{start}, {stop}) is not within [0, {self.num_frames})")
+        seg_data = self._segmentation_dict["seg_data"][start:stop, identity]
+        flags = self._segmentation_dict["seg_external_flag"]
+        seg_flags = None if flags is None else flags[start:stop, identity]
+        return pack_segmentation(seg_data, seg_flags, start)
 
     @property
     def format_major_version(self) -> int:
