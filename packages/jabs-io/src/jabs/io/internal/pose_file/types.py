@@ -69,6 +69,22 @@ def dtype_name(data: ComponentData) -> str:
     return data.dtype.name
 
 
+def alternate_key(component_id: str, name: str) -> str:
+    """The key that names one component's alternate.
+
+    Used to look up an alternate's layout and in history entries'
+    ``synthesized`` and ``dropped`` lists, where ADR 0002 writes it this way.
+
+    Args:
+        component_id: The component that carries the alternate.
+        name: The alternate's name.
+
+    Returns:
+        ``<component id>:alternate:<name>``.
+    """
+    return f"{component_id}:alternate:{name}"
+
+
 @dataclass(frozen=True)
 class Skeleton:
     """A named keypoint set and the edges that connect it.
@@ -603,9 +619,6 @@ class PoseFile:
                 name different offset paths, or one pair of offset paths is
                 declared by two different indexes.
         """
-        # Imported here: alternates imports this module at load time.
-        from jabs.io.internal.pose_file.alternates import alternate_key
-
         by_id = {component.id: component for component in self.components}
         owners = {component.path: component.id for component in self.components}
         indexes: dict[tuple[str, str], tuple[str, object]] = {}

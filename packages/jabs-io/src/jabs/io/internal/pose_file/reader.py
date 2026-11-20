@@ -24,14 +24,14 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
-from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex, alternate_key
+from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex
 from jabs.io.internal.pose_file.manifest import parse_manifest, parse_provenance
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
     validate_manifest,
     validate_provenance,
 )
-from jabs.io.internal.pose_file.types import Attachment, Component, PoseFile
+from jabs.io.internal.pose_file.types import Attachment, Component, PoseFile, alternate_key
 
 # Only the baseline encoding can be decoded. Handing back RLE run values or a
 # ragged point buffer as though it were a dense array is worse than failing.

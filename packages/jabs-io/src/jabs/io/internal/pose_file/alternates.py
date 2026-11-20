@@ -34,22 +34,6 @@ RAGGED_LEVELS = ("leaf", "group")
 _OFFSET_DTYPE = np.dtype("uint64")
 
 
-def alternate_key(component_id: str, name: str) -> str:
-    """The key that names one component's alternate.
-
-    Used to look up an alternate's layout and in history entries'
-    ``synthesized`` and ``dropped`` lists, where ADR 0002 writes it this way.
-
-    Args:
-        component_id: The component that carries the alternate.
-        name: The alternate's name.
-
-    Returns:
-        ``<component id>:alternate:<name>``.
-    """
-    return f"{component_id}:alternate:{name}"
-
-
 def _check_path(owner: str, path: str) -> None:
     """Refuse a path that is not absolute, as the schema's hdf5Path is."""
     if not path.startswith("/"):

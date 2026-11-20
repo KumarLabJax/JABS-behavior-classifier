@@ -8,11 +8,10 @@ import numpy.typing as npt
 import pytest
 
 from jabs.io.internal.pose_file import Alternate, RaggedIndex
-from jabs.io.internal.pose_file.alternates import alternate_key
 from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.manifest import build_manifest
 from jabs.io.internal.pose_file.schema import validate_manifest
-from jabs.io.internal.pose_file.types import Component, PoseFile, VideoInfo
+from jabs.io.internal.pose_file.types import Component, PoseFile, VideoInfo, alternate_key
 
 from .conftest import ragged_segmentation
 

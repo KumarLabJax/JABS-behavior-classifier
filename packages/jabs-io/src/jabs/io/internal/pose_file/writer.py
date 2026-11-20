@@ -15,7 +15,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex, alternate_key
+from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex
 from jabs.io.internal.pose_file.blocks import BlockSource, ComponentData
 from jabs.io.internal.pose_file.manifest import build_manifest, build_provenance
 from jabs.io.internal.pose_file.schema import (
@@ -24,7 +24,7 @@ from jabs.io.internal.pose_file.schema import (
     validate_manifest,
     validate_provenance,
 )
-from jabs.io.internal.pose_file.types import Component, PoseFile
+from jabs.io.internal.pose_file.types import Component, PoseFile, alternate_key
 
 # Only the baseline encoding is implemented. The specification permits ragged
 # and RLE, and a reader must implement the baseline and may implement others --

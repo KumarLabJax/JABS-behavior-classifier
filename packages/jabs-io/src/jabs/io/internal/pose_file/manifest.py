@@ -17,7 +17,7 @@ Two conventions this module enforces:
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from jabs.io.internal.pose_file.alternates import Alternate, alternate_key
+from jabs.io.internal.pose_file.alternates import Alternate
 from jabs.io.internal.pose_file.schema import FORMAT_ID, SCHEMA_REVISION
 from jabs.io.internal.pose_file.types import (
     Component,
@@ -27,6 +27,7 @@ from jabs.io.internal.pose_file.types import (
     ProvenanceRecord,
     Skeleton,
     VideoInfo,
+    alternate_key,
 )
 
 # Video fields that are always present, as null when unknown. `clip_of` is not

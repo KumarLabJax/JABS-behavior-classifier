@@ -22,7 +22,6 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
-from jabs.io.internal.pose_file.alternates import alternate_key
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -31,7 +30,7 @@ from jabs.io.internal.pose_file.schema import (
     SCHEMA_REVISION,
     iter_errors,
 )
-from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE
+from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE, alternate_key
 
 ERROR = "error"
 WARNING = "warning"
