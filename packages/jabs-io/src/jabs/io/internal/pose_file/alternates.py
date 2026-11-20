@@ -141,6 +141,12 @@ class Alternate:
         if self.level not in RAGGED_LEVELS:
             raise ValueError(f"{label}: level must be one of {RAGGED_LEVELS}, got {self.level!r}")
         _check_path(label, self.path)
+        if self.data.ndim == 0:
+            # Both levels index the payload along its first axis: leaf items
+            # through group_offsets, groups through instance_offsets.
+            raise ValueError(
+                f"{label}: a ragged payload needs a leading item axis, got a 0-d payload"
+            )
         if len(self.axes) != self.data.ndim:
             raise ValueError(
                 f"{label}: declared {len(self.axes)} axes {tuple(self.axes)} but the payload "

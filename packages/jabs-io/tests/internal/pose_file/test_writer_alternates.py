@@ -306,6 +306,57 @@ def test_an_alternate_with_no_points_writes(tmp_path: Path) -> None:
     assert _errors(path) == []
 
 
+def test_a_zero_dimensional_alternate_is_refused() -> None:
+    """A ragged payload is indexed along its first axis, so a 0-d one has nothing to index.
+
+    Refused as a ValueError when the alternate is built, not as an IndexError
+    from the writer's chunk policy.
+    """
+    with pytest.raises(ValueError, match="leading item axis"):
+        _segmentation_file(
+            points_alternates=lambda s, i: (
+                _points_alternate(s, i),
+                Alternate(
+                    name="scalar",
+                    path=f"{PREFIX}/scalar",
+                    axes=(),
+                    data=np.array(3, dtype=np.int32),
+                    missing={"policy": "none"},
+                    index=i,
+                ),
+            )
+        )
+
+
+def test_an_alternate_with_a_zero_width_trailing_axis_writes(tmp_path: Path) -> None:
+    """A ``(N, 0)`` leaf payload holds no values, so it is contiguous rather than chunked.
+
+    A chunk shape with a zero in it is refused by the layout schema and by h5py.
+    """
+    seg = ragged_segmentation()
+    hollow = np.zeros((seg["points"].shape[0], 0), dtype=np.float32)
+    pose_file = _segmentation_file(
+        seg,
+        points_alternates=lambda s, i: (
+            _points_alternate(s, i),
+            Alternate(
+                name="hollow",
+                path=f"{PREFIX}/hollow",
+                axes=("point", "feature"),
+                data=hollow,
+                missing={"policy": "none"},
+                index=i,
+            ),
+        ),
+    )
+    path = tmp_path / "hollow.h5"
+    write_pose_file(pose_file, path, created=CREATED)
+    with h5py.File(path, "r") as h5:
+        assert h5[f"{PREFIX}/hollow"].shape == hollow.shape
+        assert h5[f"{PREFIX}/hollow"].chunks is None
+    assert [f for f in validate(path) if f.severity == "error"] == []
+
+
 def test_deep_write_refuses_a_disagreeing_alternate(tmp_path: Path) -> None:
     """A deep write that fails leaves the destination as it was, and no temporary."""
     seg = ragged_segmentation()

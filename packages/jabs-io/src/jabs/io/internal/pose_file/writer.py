@@ -73,21 +73,30 @@ def _is_keypoint_scale(component_id: str) -> bool:
     return component_id.startswith(_CONTIGUOUS_ID_PREFIXES)
 
 
-def _frame_major_chunks(component: Component) -> tuple[int, ...] | None:
-    """A chunk shape that keeps a frame window contiguous within chunks.
+def _chunked_layout(shape: tuple[int, ...], leading_rows: int) -> dict:
+    """A chunked, compressed layout along the first axis, or contiguous when empty.
+
+    Chunks span every trailing axis whole and at most ``leading_rows`` rows
+    of the first, so a window along that axis maps onto whole chunks. A 0-d
+    payload or one with a zero-length axis cannot be chunked -- every chunk
+    dimension must be positive -- and holds nothing to compress, so it is
+    stored contiguous.
 
     Args:
-        component: The component about to be written.
+        shape: The payload's shape.
+        leading_rows: The most rows of the first axis one chunk holds.
 
     Returns:
-        The chunk shape, or None when the payload is empty and cannot be
-        chunked.
+        The layout to record in the manifest.
     """
-    shape = component.data.shape
-    if not shape or any(dimension == 0 for dimension in shape):
-        return None
-    leading = min(_FRAME_CHUNK, shape[0])
-    return (leading, *shape[1:])
+    if not shape or 0 in shape:
+        return {"storage": "contiguous", "compression": "none"}
+    return {
+        "storage": "chunked",
+        "chunks": [min(leading_rows, shape[0]), *shape[1:]],
+        "compression": _COMPRESSION,
+        "compression_opts": _COMPRESSION_OPTS,
+    }
 
 
 def _layout_for(component: Component) -> dict:
@@ -101,31 +110,15 @@ def _layout_for(component: Component) -> dict:
     """
     if _is_keypoint_scale(component.id):
         return {"storage": "contiguous", "compression": "none"}
-    chunks = _frame_major_chunks(component)
-    if chunks is None:
-        return {"storage": "contiguous", "compression": "none"}
-    return {
-        "storage": "chunked",
-        "chunks": list(chunks),
-        "compression": _COMPRESSION,
-        "compression_opts": _COMPRESSION_OPTS,
-    }
-
-
-def _ragged_chunks(alternate: Alternate) -> tuple[int, ...] | None:
-    """The chunk shape of an alternate's payload, or None when it is contiguous.
-
-    A group-level payload is one small value per group, read with its offsets,
-    so it is contiguous like them. An empty leaf payload cannot be chunked.
-    """
-    shape = alternate.data.shape
-    if alternate.level != "leaf" or shape[0] == 0:
-        return None
-    return (min(_RAGGED_CHUNK, shape[0]), *shape[1:])
+    return _chunked_layout(component.data.shape, _FRAME_CHUNK)
 
 
 def _alternate_layout(alternate: Alternate) -> dict:
     """The storage layout this writer will apply to an alternate's payload.
+
+    A group-level payload is one small value per group, read with its
+    offsets, so it is contiguous like them. A leaf-level payload is chunked
+    along its item axis.
 
     Args:
         alternate: The alternate about to be written.
@@ -133,15 +126,9 @@ def _alternate_layout(alternate: Alternate) -> dict:
     Returns:
         The layout to record in the manifest.
     """
-    chunks = _ragged_chunks(alternate)
-    if chunks is None:
+    if alternate.level != "leaf":
         return {"storage": "contiguous", "compression": "none"}
-    return {
-        "storage": "chunked",
-        "chunks": list(chunks),
-        "compression": _COMPRESSION,
-        "compression_opts": _COMPRESSION_OPTS,
-    }
+    return _chunked_layout(alternate.data.shape, _RAGGED_CHUNK)
 
 
 def _create_options(layout: dict, *, shuffle: bool = False) -> dict:
