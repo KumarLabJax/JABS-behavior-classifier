@@ -77,16 +77,9 @@ class Classifier(BaseClassifier):
         classifier = cls()
         classifier.behavior_name = behavior
         classifier.set_dict_settings(loaded_training_data["settings"])
-        file_classifier_type = ClassifierType(loaded_training_data["classifier_type"])
-        effective_type = classifier_type if classifier_type is not None else file_classifier_type
-        if effective_type in classifier._supported_classifiers:
-            classifier.set_classifier(effective_type)
-        else:
-            logger.warning(
-                "Specified classifier type %s is unavailable, using default: %s",
-                effective_type.name,
-                classifier.classifier_type.name,
-            )
+        classifier._apply_training_file_classifier_type(
+            ClassifierType(loaded_training_data["classifier_type"]), classifier_type
+        )
         training_features = classifier.combine_data(
             loaded_training_data["per_frame"], loaded_training_data["window"]
         )

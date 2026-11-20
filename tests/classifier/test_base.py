@@ -1,12 +1,15 @@
 """Tests for loading saved classifiers whose algorithm is unavailable."""
 
+import logging
 import warnings
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from jabs.classifier import Classifier, MultiClassClassifier, UnsupportedClassifierError
+from jabs.classifier import base as base_module
 from jabs.classifier.base import unpickle_classifier
 from jabs.core.enums import ClassifierType
 from jabs.scripts.classify import load_classifier_from_pickle
@@ -146,3 +149,47 @@ def test_unloadable_xgboost_library_raises_unsupported(tmp_path: Path) -> None:
         unpickle_classifier(tmp_path / "classifier.pickle")
     assert exc_info.value.classifier_name == "xgboost"
     assert "installed but could not be loaded" in str(exc_info.value)
+
+
+@pytest.fixture
+def two_type_classifier() -> Iterator[Classifier]:
+    """A classifier whose environment supports exactly Random Forest and XGBoost."""
+    supported = {ClassifierType.RANDOM_FOREST, ClassifierType.XGBOOST}
+    with patch.object(Classifier, "_supported_classifier_choices", return_value=supported):
+        yield Classifier(ClassifierType.RANDOM_FOREST)
+
+
+def test_training_file_type_used_when_no_override(two_type_classifier: Classifier) -> None:
+    """With no override, the type recorded in the training file is applied."""
+    two_type_classifier._apply_training_file_classifier_type(ClassifierType.XGBOOST, None)
+    assert two_type_classifier.classifier_type is ClassifierType.XGBOOST
+
+
+def test_training_file_type_override_wins(two_type_classifier: Classifier) -> None:
+    """An explicit override takes precedence over the recorded type."""
+    two_type_classifier._apply_training_file_classifier_type(
+        ClassifierType.XGBOOST, ClassifierType.RANDOM_FOREST
+    )
+    assert two_type_classifier.classifier_type is ClassifierType.RANDOM_FOREST
+
+
+@pytest.mark.parametrize(
+    ("recorded", "override"),
+    [
+        (ClassifierType.LIGHTGBM, None),
+        (ClassifierType.RANDOM_FOREST, ClassifierType.LIGHTGBM),
+    ],
+    ids=["recorded", "override"],
+)
+def test_unavailable_training_file_type_keeps_default(
+    two_type_classifier: Classifier,
+    recorded: ClassifierType,
+    override: ClassifierType | None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unavailable request is warned about and leaves the classifier unchanged."""
+    with caplog.at_level(logging.WARNING, logger=base_module.__name__):
+        two_type_classifier._apply_training_file_classifier_type(recorded, override)
+
+    assert two_type_classifier.classifier_type is ClassifierType.RANDOM_FOREST
+    assert "LIGHTGBM is unavailable" in caplog.text
