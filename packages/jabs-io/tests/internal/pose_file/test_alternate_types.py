@@ -466,3 +466,39 @@ def test_an_offsets_path_must_be_canonical(field: str, path: str) -> None:
     }
     with pytest.raises(ValueError, match="path"):
         RaggedIndex(**{**fields, field: path})
+
+
+@pytest.mark.parametrize(
+    "group_path,instance_path",
+    [
+        pytest.param(f"{PREFIX}/contour_offsets", f"{PREFIX}/instance_offsets_b", id="same-group"),
+        pytest.param(
+            f"{PREFIX}/group_offsets_b", f"{PREFIX}/instance_offsets", id="same-instance"
+        ),
+        pytest.param(f"{PREFIX}/instance_offsets", f"{PREFIX}/other", id="crossed-roles"),
+    ],
+)
+def test_an_offsets_dataset_has_one_partner(group_path: str, instance_path: str) -> None:
+    """Two indexes sharing one offsets path but not the other are refused.
+
+    The reviewer's reproduction: a second leaf alternate ``copy`` on the
+    contours, with the ``ragged`` alternate's group_offsets and its own
+    instance_offsets. The writer would list the shared path once per index and
+    refuse the file as a path collision, after it had been read clean.
+    """
+    seg = ragged_segmentation()
+    index = _index(seg)
+    other = RaggedIndex(
+        group_offsets_path=group_path,
+        instance_offsets_path=instance_path,
+        group_offsets=seg["contour_offsets"],
+        instance_offsets=seg["instance_offsets"],
+    )
+    contours = _contours_alternate(seg, index)
+    copy = _contours_alternate(seg, other, name="copy", path=f"{PREFIX}/copy")
+    with pytest.raises(ValueError, match="one partner"):
+        _segmentation_file(
+            seg,
+            contours_alternates=(contours, copy),
+            flag_alternates=(_flags_alternate(seg, index),),
+        )

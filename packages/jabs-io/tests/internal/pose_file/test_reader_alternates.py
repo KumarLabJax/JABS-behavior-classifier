@@ -166,3 +166,15 @@ def test_an_alternate_without_a_level_reads_as_leaf(tmp_path: Path) -> None:
     _rewrite_manifest(path, _drop_level)
     contours = _component(read_pose_file(path), CONTOURS_ID)
     assert contours.alternates[0].level == "leaf"
+
+
+def test_an_offsets_dataset_with_two_partners_is_refused_on_read() -> None:
+    """The validator and the reader agree: one offsets dataset, one partner.
+
+    Read clean, this file could not be written back, because the writer lists
+    the shared dataset once per index.
+    """
+    path = DATA / "invalid-ragged-offsets-pairing.h5"
+    assert "ragged_offsets_pairing" in {f.check for f in validate(path)}
+    with pytest.raises(PoseFileError, match="one partner"):
+        read_pose_file(path)

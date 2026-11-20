@@ -9,7 +9,8 @@ are one encoding, so a :class:`~jabs.io.internal.pose_file.types.PoseFile`
 refuses them unless they name the same two offset datasets. Alternates that
 name the same offset datasets, under one name or several, must share one
 :class:`RaggedIndex` object, and the ``PoseFile`` refuses them otherwise.
-Alternates of different names may share one index.
+Alternates of different names may share one index, but not half of one: an
+offsets dataset is always named with the same partner, in the same role.
 
 ``types`` refers to :class:`Alternate` only for annotation, so this module can
 import from it without a cycle.

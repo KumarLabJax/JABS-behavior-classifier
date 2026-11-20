@@ -493,6 +493,47 @@ def _check_alternate_names_and_paths(manifest: dict, findings: list[Finding]) ->
             owners[alternate["path"]] = label
 
 
+def _ragged_declarations(manifest: dict) -> list[tuple[str, dict]]:
+    """Every ragged encoding in the manifest, components' and alternates', with its label."""
+    declared: list[tuple[str, dict]] = []
+    for spec in manifest["components"]:
+        declared.append((spec["id"], spec["encoding"]))
+        for alternate in spec.get("alternates", []):
+            declared.append((alternate_key(spec["id"], alternate["name"]), alternate["encoding"]))
+    return [(label, e) for label, e in declared if e.get("kind") == "ragged"]
+
+
+def _check_ragged_offsets_pairing(manifest: dict, findings: list[Finding]) -> None:
+    """An offsets dataset is named with one partner, in one role.
+
+    Declarations that share offsets share the whole pair. One that shares
+    ``group_offsets`` with another but names its own ``instance_offsets``, or
+    names a dataset as ``group_offsets`` that another names as
+    ``instance_offsets``, makes the dataset two different indexes' at once:
+    the reader builds two indexes over one dataset, and the writer cannot
+    write both.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    pairs: dict[str, tuple[str, tuple[str, str]]] = {}
+    for label, encoding in _ragged_declarations(manifest):
+        pair = (encoding["group_offsets"], encoding["instance_offsets"])
+        for path in pair:
+            first_label, first_pair = pairs.setdefault(path, (label, pair))
+            if first_pair != pair:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "ragged_offsets_pairing",
+                        f"{label}: names offsets {pair}, but {first_label} pairs {path} as "
+                        f"{first_pair}; an offsets dataset has one partner, in one role",
+                    )
+                )
+                break
+
+
 def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
     """A group-level ragged payload shares its offsets with a leaf-level one.
 
@@ -505,12 +546,7 @@ def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
         manifest: The validated manifest.
         findings: Accumulator.
     """
-    declared: list[tuple[str, dict]] = []
-    for spec in manifest["components"]:
-        declared.append((spec["id"], spec["encoding"]))
-        for alternate in spec.get("alternates", []):
-            declared.append((alternate_key(spec["id"], alternate["name"]), alternate["encoding"]))
-    ragged = [(label, e) for label, e in declared if e.get("kind") == "ragged"]
+    ragged = _ragged_declarations(manifest)
     leaf_pairs = {
         (e["group_offsets"], e["instance_offsets"])
         for _, e in ragged
@@ -1660,6 +1696,7 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
         _check_sparse_index_values(h5, manifest, findings)
         _check_alternate_names_and_paths(manifest, findings)
         _check_ragged_pairing(manifest, findings)
+        _check_ragged_offsets_pairing(manifest, findings)
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)

@@ -64,6 +64,7 @@ INVALID = {
     "invalid-ragged-instance-count.h5": "ragged_offsets",
     "invalid-ragged-level.h5": "ragged_offsets",
     "invalid-ragged-order.h5": "ragged_offsets",
+    "invalid-ragged-offsets-pairing.h5": "ragged_offsets_pairing",
     "invalid-ragged-pairing.h5": "ragged_group_pairing",
     "invalid-ragged-signed-offsets.h5": "ragged_offsets",
     "invalid-ragged-uint32-offsets.h5": "ragged_offsets",

@@ -634,21 +634,25 @@ class PoseFile:
         every component's and every other alternate's, or one dataset would be
         claimed twice. Alternates of one name are one encoding (ADR 0002): they
         must name the same two offset paths, or the name would mean two things.
-        And alternates naming the same offset paths, under any names, must
-        share one :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`,
-        or the writer would have two different arrays to write at one path.
+        An offsets path has one partner, in one role: alternates that share
+        one offsets dataset share the whole pair. And alternates naming the
+        same offset paths, under any names, must share one
+        :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`, or the
+        writer would have two different arrays to write at one path.
         Parent/child path collisions are the writer's check.
 
         Raises:
             ValueError: If an alternate's missing reference is undeclared or
                 does not align, a path is claimed twice, alternates of one name
-                name different offset paths, or one pair of offset paths is
-                declared by two different indexes.
+                name different offset paths, an offsets path appears in two
+                different pairs, or one pair of offset paths is declared by two
+                different indexes.
         """
         by_id = {component.id: component for component in self.components}
         owners = {component.path: component.id for component in self.components}
         indexes: dict[tuple[str, str], tuple[str, object]] = {}
         first: dict[str, tuple[str, tuple[str, str]]] = {}
+        partners: dict[str, tuple[str, tuple[str, str]]] = {}
         for component in self.components:
             for alternate in component.alternates:
                 label = alternate_key(component.id, alternate.name)
@@ -666,6 +670,14 @@ class PoseFile:
                         f"{other_offsets}; alternates of one name are one encoding and share "
                         "their offsets"
                     )
+                for path in offsets:
+                    partner_label, partner = partners.setdefault(path, (label, offsets))
+                    if partner != offsets:
+                        raise ValueError(
+                            f"{label}: names offsets {offsets}, but {partner_label} pairs {path} "
+                            f"as {partner}; an offsets dataset has one partner, in one role, or "
+                            "the writer would have two indexes to write at it"
+                        )
                 sharer, shared = indexes.setdefault(offsets, (label, index))
                 if shared is not index:
                     raise ValueError(
