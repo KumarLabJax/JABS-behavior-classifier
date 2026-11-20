@@ -268,7 +268,7 @@ jabs-cli update-pose <project_dir> <updated_pose_dir> [--match-by {auto,segmenta
 ```
 
 - `<project_dir>`: Path to the JABS project to update in place.
-- `<updated_pose_dir>`: Directory containing updated pose files for the project videos. For each video, the latest pose version in this directory is used. All videos must resolve to the same latest version, and that version must include bounding boxes.
+- `<updated_pose_dir>`: Directory containing updated pose files for the project videos. For each video, the pose file JABS would pick is used: the unified `<video>_pose.h5` if present, otherwise the highest-version legacy `<video>_pose_est_v<N>.h5`. Every video must resolve to the same format (all unified files, or all legacy files of one version), and the pose files must include bounding boxes. Only the picked file is copied into the project.
 - `--match-by {auto,segmentation,bbox}`: Which score decides each label block's identity (see [Identity matching](#identity-matching-for-label-remapping)). Default: `auto`.
 - `--min-mask-iou <FLOAT>`: Minimum acceptable median segmentation mask IoU for a match decided by segmentation. Blocks below this threshold are skipped. Default: `0.5`.
 - `--min-iou-thresh <FLOAT>`: Minimum acceptable median bounding box IoU for a match decided by bounding boxes. Blocks below this threshold are skipped. Default: `0.5`.
@@ -481,9 +481,12 @@ experiment1/mouse_b.avi
 experiment2/mouse_c.avi
 ```
 
-For each video, the corresponding pose file is located automatically by searching
-beside the video for `<stem>_pose_est_v*.h5` files and selecting the highest
-version. If no pose file is found the video is skipped with a warning.
+For each video, the corresponding pose file is located beside the video the same
+way JABS picks it: the unified `<stem>_pose.h5` if present, otherwise the
+highest-version legacy `<stem>_pose_est_v<N>.h5`. Only legacy pose files can be
+clipped: if the picked file is a unified file, the video is skipped with a warning,
+even when a legacy file is also beside it. If no pose file is found the video is
+skipped with a warning.
 
 ### Output files
 
