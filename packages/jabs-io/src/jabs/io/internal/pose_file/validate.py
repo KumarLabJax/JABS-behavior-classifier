@@ -30,7 +30,7 @@ from jabs.io.internal.pose_file.schema import (
     SCHEMA_REVISION,
     iter_errors,
 )
-from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE
+from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE, alternate_key, check_hdf5_path
 
 ERROR = "error"
 WARNING = "warning"
@@ -375,20 +375,6 @@ def _check_component(
     _check_layout(component_id, spec, node, findings)
 
 
-def _alternate_label(component_id: str, name: str) -> str:
-    """The name an alternate goes by in findings and in history entries.
-
-    Args:
-        component_id: The component that carries the alternate.
-        name: The alternate's name.
-
-    Returns:
-        ``<component id>:alternate:<name>``, the form ADR 0002 uses in an
-        ``encode`` entry's ``synthesized``.
-    """
-    return f"{component_id}:alternate:{name}"
-
-
 def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[Finding]) -> None:
     """Validate a component's alternates the way a component is validated.
 
@@ -405,7 +391,7 @@ def _check_alternates(h5: h5py.File, spec: dict, manifest: dict, findings: list[
     """
     by_id = {c["id"]: c for c in manifest["components"]}
     for alternate in spec.get("alternates", []):
-        label = _alternate_label(spec["id"], alternate["name"])
+        label = alternate_key(spec["id"], alternate["name"])
         view = {**alternate, "id": label}
         node = h5.get(alternate["path"])
         if not isinstance(node, h5py.Dataset):
@@ -485,7 +471,7 @@ def _check_alternate_names_and_paths(manifest: dict, findings: list[Finding]) ->
     for spec in manifest["components"]:
         seen: set[str] = set()
         for alternate in spec.get("alternates", []):
-            label = _alternate_label(spec["id"], alternate["name"])
+            label = alternate_key(spec["id"], alternate["name"])
             if alternate["name"] in seen:
                 findings.append(
                     Finding(
@@ -507,6 +493,84 @@ def _check_alternate_names_and_paths(manifest: dict, findings: list[Finding]) ->
             owners[alternate["path"]] = label
 
 
+def _ragged_declarations(manifest: dict) -> list[tuple[str, dict]]:
+    """Every ragged encoding in the manifest, components' and alternates', with its label."""
+    declared: list[tuple[str, dict]] = []
+    for spec in manifest["components"]:
+        declared.append((spec["id"], spec["encoding"]))
+        for alternate in spec.get("alternates", []):
+            declared.append((alternate_key(spec["id"], alternate["name"]), alternate["encoding"]))
+    return [(label, e) for label, e in declared if e.get("kind") == "ragged"]
+
+
+def _check_ragged_offsets_pairing(manifest: dict, findings: list[Finding]) -> None:
+    """An offsets dataset is named with one partner, in one role.
+
+    Declarations that share offsets share the whole pair. One that shares
+    ``group_offsets`` with another but names its own ``instance_offsets``, or
+    names a dataset as ``group_offsets`` that another names as
+    ``instance_offsets``, makes the dataset two different indexes' at once:
+    the reader builds two indexes over one dataset, and the writer cannot
+    write both.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    pairs: dict[str, tuple[str, tuple[str, str]]] = {}
+    for label, encoding in _ragged_declarations(manifest):
+        pair = (encoding["group_offsets"], encoding["instance_offsets"])
+        for path in pair:
+            first_label, first_pair = pairs.setdefault(path, (label, pair))
+            if first_pair != pair:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "ragged_offsets_pairing",
+                        f"{label}: names offsets {pair}, but {first_label} pairs {path} as "
+                        f"{first_pair}; an offsets dataset has one partner, in one role",
+                    )
+                )
+                break
+
+
+def _manifest_paths(manifest: dict) -> list[tuple[str, str]]:
+    """Every dataset path the manifest names, with what names it."""
+    paths: list[tuple[str, str]] = []
+    for spec in manifest["components"]:
+        declared = [(spec["id"], spec)]
+        declared += [
+            (alternate_key(spec["id"], alternate["name"]), alternate)
+            for alternate in spec.get("alternates", [])
+        ]
+        for label, entry in declared:
+            paths.append((label, entry["path"]))
+            encoding = entry.get("encoding", {})
+            for name in ("group_offsets", "instance_offsets"):
+                if name in encoding:
+                    paths.append((f"{label} {name}", encoding[name]))
+    paths += [("attachment", a["path"]) for a in manifest.get("attachments", [])]
+    return paths
+
+
+def _check_paths_canonical(manifest: dict, findings: list[Finding]) -> None:
+    """Every dataset path has one spelling: no empty segment, no trailing slash.
+
+    HDF5 folds ``//`` and ignores a trailing slash, so such a path finds its
+    dataset while comparing unequal to the path everything else uses. The
+    reader refuses it, so the validator does too.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    for label, path in _manifest_paths(manifest):
+        try:
+            check_hdf5_path(label, path)
+        except ValueError as error:
+            findings.append(Finding(ERROR, "path_canonical", str(error)))
+
+
 def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
     """A group-level ragged payload shares its offsets with a leaf-level one.
 
@@ -519,14 +583,7 @@ def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
         manifest: The validated manifest.
         findings: Accumulator.
     """
-    declared: list[tuple[str, dict]] = []
-    for spec in manifest["components"]:
-        declared.append((spec["id"], spec["encoding"]))
-        for alternate in spec.get("alternates", []):
-            declared.append(
-                (_alternate_label(spec["id"], alternate["name"]), alternate["encoding"])
-            )
-    ragged = [(label, e) for label, e in declared if e.get("kind") == "ragged"]
+    ragged = _ragged_declarations(manifest)
     leaf_pairs = {
         (e["group_offsets"], e["instance_offsets"])
         for _, e in ragged
@@ -952,16 +1009,17 @@ def _offsets(h5: h5py.File, path: str) -> np.ndarray | None:
         path: The dataset's path.
 
     Returns:
-        The offsets, or None when the path is not a one-dimensional dataset.
+        The offsets, or None when the path is not a one-dimensional ``uint64``
+        dataset.
     """
     node = h5.get(path)
     if not isinstance(node, h5py.Dataset):
         return None
     values = np.asarray(node[()])
-    # Unsigned by specification. A float offset cannot index an array, and a
-    # signed one admits negatives, so neither is usable even when its values
-    # happen to look right.
-    if values.ndim != 1 or values.dtype.kind != "u":
+    # uint64 by specification. A float offset cannot index an array, a signed
+    # one admits negatives, and a narrower unsigned one is refused by the
+    # reader, so none is usable even when its values happen to look right.
+    if values.ndim != 1 or values.dtype != np.uint64:
         return None
     return values.astype(np.int64, copy=False)
 
@@ -1000,7 +1058,7 @@ def _check_offsets(
                     ERROR,
                     check,
                     f"{component_id}: group_offsets at {encoding['group_offsets']} is missing, "
-                    "not one-dimensional, or not an unsigned integer",
+                    "not one-dimensional, or not uint64",
                 )
             )
         elif encoding.get("level", "leaf") == "leaf":
@@ -1031,7 +1089,7 @@ def _check_offsets(
                 ERROR,
                 check,
                 f"{component_id}: instance_offsets at {encoding['instance_offsets']} is "
-                "missing, not one-dimensional, or not an unsigned integer",
+                "missing, not one-dimensional, or not uint64",
             )
         )
         return
@@ -1327,7 +1385,9 @@ def _check_attachments(h5: h5py.File, manifest: dict, findings: list[Finding]) -
     root.visititems(note_undeclared)
 
 
-def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+def _check_alternates_decode(
+    h5: h5py.File, manifest: dict, findings: list[Finding], *, require_decoded: bool = False
+) -> None:
     """The opt-in deep check: each alternate decodes to its baseline.
 
     Every structural check can pass while an alternate says something its
@@ -1345,7 +1405,10 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
         h5: The open file.
         manifest: The validated manifest.
         findings: Accumulator.
+        require_decoded: Report an alternate that is not decoded as an error
+            rather than a warning, under the same check name.
     """
+    unchecked = ERROR if require_decoded else WARNING
     alternates = [
         (spec, alternate)
         for spec in manifest["components"]
@@ -1356,7 +1419,7 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
     if any(f.severity == ERROR for f in findings):
         findings.append(
             Finding(
-                WARNING,
+                unchecked,
                 "alternate_deep_unchecked",
                 "alternates were not decoded: the file has errors, and decoding trusts the "
                 "offsets and shapes those checks cover",
@@ -1367,10 +1430,10 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
     by_id = {c["id"]: c for c in manifest["components"]}
     contours = flags = None
     for spec, alternate in alternates:
-        label = _alternate_label(spec["id"], alternate["name"])
+        label = alternate_key(spec["id"], alternate["name"])
         reason = _undecodable_reason(spec, alternate, by_id)
         if reason is not None:
-            findings.append(Finding(WARNING, "alternate_deep_unchecked", f"{label}: {reason}"))
+            findings.append(Finding(unchecked, "alternate_deep_unchecked", f"{label}: {reason}"))
         elif spec["id"] == _CONTOURS:
             contours = alternate
         else:
@@ -1388,9 +1451,9 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
         # through the contours' offsets would compare the wrong groups.
         findings.append(
             Finding(
-                WARNING,
+                unchecked,
                 "alternate_deep_unchecked",
-                f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
+                f"{alternate_key(_EXTERNAL_FLAG, flags['name'])}: names offsets other than "
                 "the contours alternate's, so it cannot be decoded through them",
             )
         )
@@ -1400,9 +1463,9 @@ def _check_alternates_decode(h5: h5py.File, manifest: dict, findings: list[Findi
         if flags is not None:
             findings.append(
                 Finding(
-                    WARNING,
+                    unchecked,
                     "alternate_deep_unchecked",
-                    f"{_alternate_label(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
+                    f"{alternate_key(_EXTERNAL_FLAG, flags['name'])}: decoded through the "
                     "contours alternate's offsets, and that alternate is not decodable here",
                 )
             )
@@ -1545,8 +1608,8 @@ def _compare_segmentation_alternate(
     instance_offsets = _offsets(h5, contours["encoding"]["instance_offsets"])
     contour_axis, point_axis = dense.shape[2], dense.shape[3]
 
-    points_label = _alternate_label(_CONTOURS, contours["name"])
-    flags_label = _alternate_label(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
+    points_label = alternate_key(_CONTOURS, contours["name"])
+    flags_label = alternate_key(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
     frame_bytes = max(1, int(np.prod(dense.shape[1:])) * dense.dtype.itemsize)
     block = max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes)
 
@@ -1638,7 +1701,9 @@ def _compare_segmentation_alternate(
             return
 
 
-def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
+def validate(
+    path: str | Path, *, deep: bool = False, require_decoded: bool = False
+) -> list[Finding]:
     """Validate a pose file.
 
     Never raises for a malformed file: every problem comes back as a Finding.
@@ -1649,6 +1714,12 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
             and compare it with its baseline, per ``(frame, slot)``. It reads
             the baseline in full, so it costs as much as reading the payload.
             A tool that writes or ingests alternates runs it; a reader need not.
+        require_decoded: With ``deep``, report an alternate the deep check
+            cannot decode -- an encoding this revision does not define, or a
+            file whose errors stop decoding -- as an error rather than a
+            warning, still as ``alternate_deep_unchecked``. For a caller that
+            promises every alternate was compared, as the writer's ``deep``
+            does. Without ``deep`` nothing is decoded, so it has no effect.
 
     Returns:
         Findings, errors first. An empty list means the file conforms.
@@ -1675,11 +1746,13 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
         _check_sparse_index_values(h5, manifest, findings)
         _check_alternate_names_and_paths(manifest, findings)
         _check_ragged_pairing(manifest, findings)
+        _check_ragged_offsets_pairing(manifest, findings)
+        _check_paths_canonical(manifest, findings)
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)
         _check_contour_count(h5, manifest, findings)
         if deep:
-            _check_alternates_decode(h5, manifest, findings)
+            _check_alternates_decode(h5, manifest, findings, require_decoded=require_decoded)
 
     return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))

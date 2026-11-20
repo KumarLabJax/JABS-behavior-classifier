@@ -795,6 +795,17 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
                 lambda m: _entry(m, "org.example.lab.whisker_angle").update(id="lab.whisker_angle")
             ),
         ),
+        # HDF5 resolves "//" to "/", so the payload is found, but the path is a
+        # second spelling of /org.example.lab/whisker_angle.
+        (
+            "invalid-path-not-canonical.h5",
+            full,
+            _manifest(
+                lambda m: _entry(m, "org.example.lab.whisker_angle").update(
+                    path="/org.example.lab//whisker_angle"
+                )
+            ),
+        ),
         # Dimensions and video.
         (
             "invalid-identity-exceeds-slot.h5",
@@ -898,16 +909,58 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
                 path, f"{RAGGED}/instance_offsets", lambda a: a.astype(np.int64)
             ),
         ),
+        # Unsigned but narrower than the uint64 the encoding requires: a
+        # reader that builds its index as uint64 refuses it.
+        (
+            "invalid-ragged-uint32-offsets.h5",
+            ragged,
+            lambda path: _with_offsets(
+                path, f"{RAGGED}/contour_offsets", lambda a: a.astype(np.uint32)
+            ),
+        ),
         (
             "invalid-ragged-pairing.h5",
             ragged,
+            # Both offsets copied, so the flags name a pair of their own rather
+            # than sharing one dataset of the contours' pair, which
+            # ragged_offsets_pairing refuses.
             _in_order(
                 lambda path: _copy_dataset(
                     path, f"{RAGGED}/contour_offsets", f"{RAGGED}/flag_offsets"
                 ),
+                lambda path: _copy_dataset(
+                    path, f"{RAGGED}/instance_offsets", f"{RAGGED}/flag_instances"
+                ),
                 _manifest(
                     lambda m: _entry(m, f"{SEG}.external_flag")["encoding"].update(
-                        group_offsets=f"{RAGGED}/flag_offsets"
+                        group_offsets=f"{RAGGED}/flag_offsets",
+                        instance_offsets=f"{RAGGED}/flag_instances",
+                    )
+                ),
+            ),
+        ),
+        # A second leaf alternate on the contours names the ragged alternate's
+        # group_offsets with instance_offsets of its own: one offsets dataset
+        # with two partners.
+        (
+            "invalid-ragged-offsets-pairing.h5",
+            alternate,
+            _in_order(
+                lambda path: _copy_dataset(
+                    path, f"{RAGGED_ALT}/instance_offsets", f"{RAGGED_ALT}/instance_offsets_b"
+                ),
+                lambda path: _copy_dataset(path, f"{RAGGED_ALT}/contours", f"{RAGGED_ALT}/copy"),
+                _manifest(
+                    lambda m: _entry(m, f"{SEG}.contours")["alternates"].append(
+                        {
+                            **_first_alternate(m, f"{SEG}.contours"),
+                            "name": "copy",
+                            "path": f"{RAGGED_ALT}/copy",
+                            "encoding": {
+                                **_first_alternate(m, f"{SEG}.contours")["encoding"],
+                                "instance_offsets": f"{RAGGED_ALT}/instance_offsets_b",
+                            },
+                        }
                     )
                 ),
             ),

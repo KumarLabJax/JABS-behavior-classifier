@@ -7,6 +7,7 @@ from jabs.core.enums import JabsPoseVersion
 from jabs.core.types.pose import PoseData
 from jabs.io.internal.pose import hdf5 as pose_hdf5
 from jabs.io.internal.pose_file import (
+    BlockSource,
     Component,
     Finding,
     NotAPoseFileError,
@@ -50,6 +51,7 @@ def test_public_names_are_importable():
     for type_name in (
         PoseFile,
         Component,
+        BlockSource,
         Skeleton,
         VideoInfo,
         Provenance,

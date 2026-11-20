@@ -16,8 +16,15 @@ at open time.
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+from jabs.io.internal.pose_file.blocks import _STRING_KINDS, ComponentData
+
+if TYPE_CHECKING:
+    # Annotation only: alternates imports this module for its dtype rules.
+    from jabs.io.internal.pose_file.alternates import Alternate
 
 # A dot-separated lowercase path of at least two segments. The first segment is
 # the namespace root; `jabs` is reserved by the specification.
@@ -45,11 +52,62 @@ DTYPE_NAMES = frozenset(
     }
 )
 
-# numpy dtype kinds that the format calls "string": object (h5py variable
-# length), bytes and unicode.
-_STRING_KINDS = "OSU"
-
 RESERVED_NAMESPACE = "jabs"
+
+
+def dtype_name(data: ComponentData) -> str:
+    """Return a payload's dtype name, as the manifest records it.
+
+    Args:
+        data: An in-memory array or a block source.
+
+    Returns:
+        ``"string"`` for every string representation, else numpy's name.
+    """
+    if data.dtype.kind in _STRING_KINDS:
+        return "string"
+    return data.dtype.name
+
+
+def alternate_key(component_id: str, name: str) -> str:
+    """The key that names one component's alternate.
+
+    Used to look up an alternate's layout and in history entries'
+    ``synthesized`` and ``dropped`` lists, where ADR 0002 writes it this way.
+
+    Args:
+        component_id: The component that carries the alternate.
+        name: The alternate's name.
+
+    Returns:
+        ``<component id>:alternate:<name>``.
+    """
+    return f"{component_id}:alternate:{name}"
+
+
+def check_hdf5_path(owner: str, path: str) -> None:
+    """Refuse a dataset path that is not absolute or not canonical.
+
+    HDF5 folds repeated slashes and ignores a trailing one, so
+    ``/a//b`` and ``/a/b/`` name the dataset at ``/a/b`` while comparing
+    unequal to it. Every path check that compares strings -- the writer's
+    collision check, offset sharing -- relies on one spelling per dataset.
+
+    Args:
+        owner: Names what the path belongs to, for the error message.
+        path: The HDF5 path.
+
+    Raises:
+        ValueError: If the path is not absolute, has an empty segment, or
+            ends in a slash.
+    """
+    if not path.startswith("/"):
+        raise ValueError(f"{owner}: path must be absolute, got {path!r}")
+    if "//" in path or path.endswith("/"):
+        raise ValueError(
+            f"{owner}: path {path!r} has an empty segment or a trailing slash; HDF5 reads it "
+            "as another spelling of a different path"
+        )
 
 
 @dataclass(frozen=True)
@@ -136,9 +194,8 @@ class Attachment:
     content_type: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate that the path is absolute."""
-        if not self.path.startswith("/"):
-            raise ValueError(f"attachment path must be absolute, got {self.path!r}")
+        """Validate that the path is absolute and canonical."""
+        check_hdf5_path("attachment", self.path)
 
 
 @dataclass(frozen=True, eq=False)
@@ -151,7 +208,9 @@ class Component:
     Attributes:
         id: Namespaced component id, e.g. ``jabs.pose.points``.
         axes: Axis name per array dimension, e.g. ``("frame", "slot")``.
-        data: The payload.
+        data: The payload: an in-memory array, or a
+            :class:`~jabs.io.internal.pose_file.blocks.BlockSource` that
+            declares its shape and dtype and yields the rows in blocks.
         missing: The missing-value policy — ``{"policy": "none" | "nan"}``,
             ``{"policy": "mask", "mask": <id>}`` or
             ``{"policy": "length", "length": <id>}``.
@@ -172,11 +231,18 @@ class Component:
         stored_path: Where the payload actually lives, when that differs from
             the path derived from the id. Preserved so a read-write cycle does
             not relocate a third party's data.
+        alternates: Derived copies of the data in another encoding, each under
+            a name that appears at most once per component. They are derived
+            from ``data``, so per ADR 0002 a caller that changes a component's
+            baseline data must drop or regenerate its alternates, e.g.
+            ``dataclasses.replace(c, data=..., alternates=())``. Nothing here
+            compares them with the data, and the default ``deep=False`` write
+            does not catch a stale one.
     """
 
     id: str
     axes: tuple[str, ...]
-    data: np.ndarray
+    data: ComponentData
     missing: dict
     units: str | None = None
     coord_order: str | None = None
@@ -188,14 +254,17 @@ class Component:
     encoding: dict = field(default_factory=lambda: {"kind": "dense"})
     extra: dict | None = None
     stored_path: str | None = None
+    alternates: "tuple[Alternate, ...]" = ()
 
     def __post_init__(self) -> None:
-        """Validate the id, the axis declarations and the payload dtype."""
+        """Validate the id, the axis declarations, the payload dtype and alternates."""
         if not COMPONENT_ID_RE.fullmatch(self.id):
             raise ValueError(
                 f"invalid component id {self.id!r}: expected lowercase, dot-separated, "
                 "at least two segments"
             )
+        if self.stored_path is not None:
+            check_hdf5_path(self.id, self.stored_path)
         segments = self.id.split(".")
         if segments[0] != RESERVED_NAMESPACE and len(segments) < 3:
             raise ValueError(
@@ -243,6 +312,16 @@ class Component:
             raise ValueError(f"{self.id}: sparse_index declared but there is no sample axis")
         if self.dtype not in DTYPE_NAMES:
             raise ValueError(f"{self.id}: unsupported dtype {self.dtype!r}")
+        # Before the name check reads it: a generator would be consumed there,
+        # leaving nothing to store.
+        object.__setattr__(self, "alternates", tuple(self.alternates))
+        names = [alternate.name for alternate in self.alternates]
+        repeated = sorted({n for n in names if names.count(n) > 1})
+        if repeated:
+            raise ValueError(
+                f"{self.id}: alternates {repeated} are declared more than once; a name "
+                "identifies one encoding"
+            )
         # Frozen only freezes the attribute bindings. Without this a caller
         # keeps a live reference to the dicts that were validated, and can
         # mutate them past every check above.
@@ -267,9 +346,7 @@ class Component:
     @property
     def dtype(self) -> str:
         """The payload's dtype name, as the manifest records it."""
-        if self.data.dtype.kind in _STRING_KINDS:
-            return "string"
-        return self.data.dtype.name
+        return dtype_name(self.data)
 
 
 @dataclass(frozen=True)
@@ -413,6 +490,7 @@ class PoseFile:
             self._check_skeleton_width(component)
             self._check_sparse_reference(component, by_id)
             self._check_missing_reference(component, by_id)
+        self._check_alternates()
 
         self._freeze()
 
@@ -482,29 +560,38 @@ class PoseFile:
                 f"{index.data.shape[0]} entries"
             )
 
-    def _check_missing_reference(self, component: Component, by_id: dict) -> None:
+    def _check_missing_reference(
+        self, component: "Component | Alternate", by_id: dict, label: str | None = None
+    ) -> None:
         """Validate that a mask or length reference can align with its target.
 
         Args:
-            component: The component whose policy is checked.
+            component: The component or alternate whose policy is checked.
             by_id: Every component, keyed by id.
+            label: Names the payload in error messages; defaults to the
+                component's id. An alternate has no id of its own.
 
         Raises:
-            ValueError: If the reference's axes are not the target's leading
-                axes.
+            ValueError: If the reference names no component, or its axes are
+                not the target's leading axes.
         """
         policy = component.missing.get("policy")
         if policy not in ("mask", "length"):
             return
+        label = component.id if label is None else label
+        if component.missing[policy] not in by_id:
+            raise ValueError(
+                f"{label}: missing policy references undeclared {component.missing[policy]!r}"
+            )
         other = by_id[component.missing[policy]]
         if other.axes != component.axes[: len(other.axes)]:
             raise ValueError(
-                f"{component.id}: {policy} reference {other.id!r} has axes {other.axes}, which "
+                f"{label}: {policy} reference {other.id!r} has axes {other.axes}, which "
                 f"are not the leading axes of {component.axes}"
             )
         if other.data.shape != component.data.shape[: other.data.ndim]:
             raise ValueError(
-                f"{component.id}: {policy} reference {other.id!r} has shape "
+                f"{label}: {policy} reference {other.id!r} has shape "
                 f"{other.data.shape}, which does not align with {component.data.shape}"
             )
         # Alignment is not interpretability: a boolean mask says present or
@@ -512,13 +599,13 @@ class PoseFile:
         # length cannot be applied however well its shape lines up.
         if policy == "mask" and other.data.dtype.kind != "b":
             raise ValueError(
-                f"{component.id}: mask reference {other.id!r} has dtype "
+                f"{label}: mask reference {other.id!r} has dtype "
                 f"{other.data.dtype.name!r}; a mask must be boolean"
             )
         if policy == "length":
             if other.data.dtype.kind not in "iu":
                 raise ValueError(
-                    f"{component.id}: length reference {other.id!r} has dtype "
+                    f"{label}: length reference {other.id!r} has dtype "
                     f"{other.data.dtype.name!r}; a length must be an integer"
                 )
             bound = (
@@ -526,10 +613,102 @@ class PoseFile:
                 if other.data.ndim < component.data.ndim
                 else 0
             )
-            if other.data.size and (other.data.min() < 0 or other.data.max() > bound):
+            # A block source's values are not in memory, and reading them here
+            # would consume the blocks the writer needs; the validator checks
+            # the written values instead.
+            if (
+                isinstance(other.data, np.ndarray)
+                and other.data.size
+                and (other.data.min() < 0 or other.data.max() > bound)
+            ):
                 raise ValueError(
-                    f"{component.id}: length reference {other.id!r} has values outside "
+                    f"{label}: length reference {other.id!r} has values outside "
                     f"[0, {bound}], the axis it bounds"
+                )
+
+    def _check_alternates(self) -> None:
+        """Validate alternates across components.
+
+        An alternate's mask or length reference must name a component it
+        aligns with, as a component's must. Its payload path must differ from
+        every component's and every other alternate's, or one dataset would be
+        claimed twice. Alternates of one name are one encoding (ADR 0002): they
+        must name the same two offset paths, or the name would mean two things.
+        An offsets path has one partner, in one role: alternates that share
+        one offsets dataset share the whole pair. And alternates naming the
+        same offset paths, under any names, must share one
+        :class:`~jabs.io.internal.pose_file.alternates.RaggedIndex`, or the
+        writer would have two different arrays to write at one path. As the
+        validator requires of the written file, a group-level alternate names
+        the same offsets as a leaf-level one, and ``instance_offsets`` has
+        ``frame*slot+1`` entries; both are checked here from shapes alone, so a
+        block source is never consumed for a file the validator would then
+        refuse. Parent/child path collisions are the writer's check.
+
+        Raises:
+            ValueError: If an alternate's missing reference is undeclared or
+                does not align, a path is claimed twice, alternates of one name
+                name different offset paths, an offsets path appears in two
+                different pairs, one pair of offset paths is declared by two
+                different indexes, instance_offsets has the wrong length, or a
+                group-level alternate has no leaf-level partner.
+        """
+        by_id = {component.id: component for component in self.components}
+        owners = {component.path: component.id for component in self.components}
+        indexes: dict[tuple[str, str], tuple[str, object]] = {}
+        first: dict[str, tuple[str, tuple[str, str]]] = {}
+        partners: dict[str, tuple[str, tuple[str, str]]] = {}
+        expected_instances = self.dimensions["frame"] * self.dimensions["slot"] + 1
+        leaf_offsets: set[tuple[str, str]] = set()
+        group_level: list[tuple[str, tuple[str, str]]] = []
+        for component in self.components:
+            for alternate in component.alternates:
+                label = alternate_key(component.id, alternate.name)
+                self._check_missing_reference(alternate, by_id, label)
+                other = owners.get(alternate.path)
+                if other is not None:
+                    raise ValueError(f"{label}: path {alternate.path} is already {other}'s")
+                owners[alternate.path] = label
+                index = alternate.index
+                offsets = (index.group_offsets_path, index.instance_offsets_path)
+                other_label, other_offsets = first.setdefault(alternate.name, (label, offsets))
+                if offsets != other_offsets:
+                    raise ValueError(
+                        f"{label}: names offsets {offsets}, but {other_label} names "
+                        f"{other_offsets}; alternates of one name are one encoding and share "
+                        "their offsets"
+                    )
+                for path in offsets:
+                    partner_label, partner = partners.setdefault(path, (label, offsets))
+                    if partner != offsets:
+                        raise ValueError(
+                            f"{label}: names offsets {offsets}, but {partner_label} pairs {path} "
+                            f"as {partner}; an offsets dataset has one partner, in one role, or "
+                            "the writer would have two indexes to write at it"
+                        )
+                sharer, shared = indexes.setdefault(offsets, (label, index))
+                if shared is not index:
+                    raise ValueError(
+                        f"{label} and {sharer} declare offsets at {offsets[0]} and "
+                        f"{offsets[1]} through different RaggedIndex objects; alternates "
+                        "naming the same offsets must share one"
+                    )
+                # The shape alone, so a block source is not read.
+                instances = index.instance_offsets.shape[0]
+                if instances != expected_instances:
+                    raise ValueError(
+                        f"{label}: instance_offsets at {offsets[1]} has {instances} entries, "
+                        f"expected frame*slot+1 = {expected_instances}"
+                    )
+                if alternate.level == "leaf":
+                    leaf_offsets.add(offsets)
+                else:
+                    group_level.append((label, offsets))
+        for label, offsets in group_level:
+            if offsets not in leaf_offsets:
+                raise ValueError(
+                    f"{label}: a group-level alternate must name the same two offset datasets "
+                    f"as a leaf-level alternate in this file; none names {offsets}"
                 )
 
     def _freeze(self) -> None:

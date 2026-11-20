@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from jabs.io.internal.pose_file.types import Component, Skeleton
+from jabs.io.internal.pose_file.types import Attachment, Component, Skeleton
 
 
 def _points(frames=4, slots=1):
@@ -105,3 +105,32 @@ def test_skeleton_rejects_out_of_range_edge():
     """An edge cannot name a keypoint the skeleton does not have."""
     with pytest.raises(ValueError, match="edge"):
         Skeleton(body_parts=("NOSE", "TAIL"), edges=((0, 5),))
+
+
+# HDF5 folds "a//b" into "a/b" and ignores a trailing slash, so a path spelled
+# either way aliases another while comparing unequal to it as a string.
+ALIASING_PATHS = [
+    pytest.param("/attachments//notes", id="double-slash"),
+    pytest.param("/attachments/notes/", id="trailing-slash"),
+    pytest.param("attachments/notes", id="relative"),
+]
+
+
+@pytest.mark.parametrize("path", ALIASING_PATHS)
+def test_an_attachment_path_must_be_canonical(path):
+    """An attachment path that aliases another is refused."""
+    with pytest.raises(ValueError, match="path"):
+        Attachment(path=path, data=np.zeros(3, dtype=np.uint8))
+
+
+@pytest.mark.parametrize("path", ALIASING_PATHS)
+def test_a_stored_path_must_be_canonical(path):
+    """A component's stored path is checked as every other dataset path is."""
+    with pytest.raises(ValueError, match="path"):
+        Component(
+            id="org.example.lab.notes",
+            axes=("item",),
+            data=np.zeros(3, dtype=np.uint8),
+            missing={"policy": "none"},
+            stored_path=path,
+        )

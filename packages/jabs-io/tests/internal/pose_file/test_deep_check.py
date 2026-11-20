@@ -181,6 +181,33 @@ def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path: Path) -> N
     assert all(f.severity == "warning" for f in unchecked)
 
 
+def test_require_decoded_makes_an_undecodable_alternate_an_error(tmp_path: Path) -> None:
+    """The same finding, at error severity, when the caller needs every alternate compared.
+
+    The check name stays the same, so the caller decides by severity alone.
+    """
+    path = _copy(tmp_path)
+
+    def rename(manifest: dict) -> None:
+        for spec in manifest["components"]:
+            for alternate in spec.get("alternates", []):
+                alternate["name"] = "tiled"
+
+    _rewrite_manifest(path, rename)
+    strict = validate(path, deep=True, require_decoded=True)
+    errors = _checks(strict, "error")
+    assert len(errors) == 2
+    assert {f.check for f in errors} == {"alternate_deep_unchecked"}
+    lenient = validate(path, deep=True)
+    assert _checks(lenient, "error") == []
+    assert {f.check for f in _checks(lenient, "warning")} == {"alternate_deep_unchecked"}
+
+
+def test_require_decoded_passes_a_decodable_file() -> None:
+    """Nothing is promoted when every alternate decodes."""
+    assert _checks(validate(ALTERNATE, deep=True, require_decoded=True), "error") == []
+
+
 def test_a_file_with_errors_is_not_decoded(tmp_path: Path) -> None:
     """Decoding trusts offsets and shapes the structural checks have already passed."""
     path = _copy(tmp_path)
@@ -503,3 +530,40 @@ def test_a_flag_disagreement_names_both_values(tmp_path: Path) -> None:
     _flip(path, FLAGS, 0)
     (error,) = _deep_errors(path)
     assert "True" in error.message and "False" in error.message
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            lambda m: _entry(m, "jabs.segmentation.contour_count").update(
+                path="/jabs/segmentation//contour_count"
+            ),
+            id="component",
+        ),
+        pytest.param(
+            lambda m: _entry(m, "jabs.segmentation.contours")["alternates"][0].update(
+                path=POINTS + "/"
+            ),
+            id="alternate",
+        ),
+        pytest.param(
+            lambda m: _entry(m, "jabs.segmentation.contours")["alternates"][0]["encoding"].update(
+                group_offsets="/jabs/segmentation//ragged/contour_offsets"
+            ),
+            id="offsets",
+        ),
+        pytest.param(
+            lambda m: m.update(attachments=[{"path": "/attachments//notes"}]),
+            id="attachment",
+        ),
+    ],
+)
+def test_a_non_canonical_path_is_an_error(
+    tmp_path: Path, mutate: Callable[[dict], object]
+) -> None:
+    """A path the reader refuses as another spelling of a dataset is a validation error too."""
+    path = _copy(tmp_path)
+    _rewrite_manifest(path, mutate)
+    errors = _checks(validate(path), "error")
+    assert "path_canonical" in {f.check for f in errors}

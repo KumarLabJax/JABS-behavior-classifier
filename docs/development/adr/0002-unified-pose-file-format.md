@@ -1180,6 +1180,7 @@ question, not a requirement of this revision.
 | a group-level ragged payload has `shape[0] == len(group_offsets) - 1` | error |
 | ragged/RLE `instance_offsets` is non-decreasing, starts at 0, has length `frame*slot + 1`, and ends at `len(group_offsets) - 1` (ragged) or `shape[0]` of the payload (RLE) | error |
 | a group-level ragged component or alternate names the same two offset datasets as a leaf-level one in the same file | error |
+| an offsets dataset has one partner, in one role: ragged components and alternates that name the same `group_offsets` or `instance_offsets` dataset name the same pair | error |
 | every component `provenance` id resolves to a record in `/provenance` | error |
 | a component whose `axes` contain `coord` declares `units` and `coord_order` | error |
 | an RLE component's file has non-null `video.width` and `video.height` | error |
@@ -1195,11 +1196,12 @@ question, not a requirement of this revision.
 | ragged `group_offsets` / `instance_offsets`, and RLE `instance_offsets`: present, one-dimensional, non-decreasing, starting at 0, ending at the terminal value for the declared `level`, with `frame*slot+1` instance entries | error |
 | every alternate is checked as a component is: its `path` exists and holds its payload, `dtype` and `shape` match, `len(axes) == len(shape)`, and its encoding's offsets pass the rows above | error |
 | alternate names are unique within a component, and every alternate's `path` is distinct from every component and alternate path | error |
+| every dataset path (component, alternate, offsets, attachment) is canonical: no empty segment (`//`) and no trailing slash, either of which HDF5 resolves to another spelling of a path | error |
 | **opt-in deep check:** each alternate decodes to its baseline, per `(frame, slot)` | error when requested |
 | an RLE instance's runs sum to `video.width * video.height` | error |
 | a sparse index is integer-typed | error |
 | a `coord` axis has length exactly 2 — `coord_order` describes two values and nothing else | error |
-| offset datasets are unsigned integers, as the encoding text requires; a float offset cannot index an array | error |
+| offset datasets are `uint64`, as the encoding text requires; a float offset cannot index an array, a signed one admits negatives, and a narrower unsigned one is not the declared type | error |
 | a `mask` reference is boolean, and a `length` reference is a non-negative integer no larger than the axis it bounds | error |
 | dense segmentation's `contour_count` is a non-negative integer no larger than the `contour` axis of `jabs.segmentation.contours` — it is not a `length` reference, so the row above does not cover it | error |
 | an RLE payload is one-dimensional with a single `run` axis | error |
