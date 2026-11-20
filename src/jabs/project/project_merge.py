@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jabs.core.utils import hash_file
 from jabs.pose_estimation import get_pose_path, open_pose_file
 
 if TYPE_CHECKING:
@@ -48,6 +49,71 @@ def _unusable_reason(video: str, *projects: "Project") -> str | None:
     return None
 
 
+def _merge_annotations_without_pose(
+    destination: "Project",
+    source: "Project",
+    video: str,
+    strategy: MergeStrategy,
+    copied: bool,
+) -> None:
+    """Merge a video's annotation documents when its pose file cannot be opened.
+
+    Annotations are JSON and do not need the pose: the documents are merged
+    as :class:`VideoLabels` and saved without fragmenting the blocks by the
+    identity mask (see :meth:`VideoLabels.as_dict`). External identities are
+    carried over from the documents. As for a usable video, nothing is
+    merged when the two pose files differ.
+
+    Args:
+        destination: The project to merge into.
+        source: The project to merge from.
+        video: The video filename.
+        strategy: How conflicting labels are resolved.
+        copied: Whether the video was copied into ``destination`` by this
+            merge, so it has no annotations there yet and is not yet in
+            ``destination``'s video manager.
+    """
+    # imported here: video_labels imports track_labels, which imports this module
+    from .video_labels import VideoLabels
+
+    source_document = source.video_manager.load_annotations(video)
+    if source_document is None:
+        return
+
+    source_pose_path = source.video_manager.get_cached_pose_path(video)
+    destination_pose_path = get_pose_path(
+        destination.project_paths.video_dir / video, destination.project_paths.pose_dir
+    )
+    if hash_file(source_pose_path) != hash_file(destination_pose_path):
+        print(f"WARNING: Pose hash mismatch for video {video}. Skipping annotation merge.")
+        return
+
+    destination_document = None if copied else destination.video_manager.load_annotations(video)
+    labels = VideoLabels.load(source_document)
+    if destination_document is None:
+        print(f"Adding annotations for video {video} to destination project...")
+    else:
+        print(
+            f"Merging annotations for video {video} from source project into destination project..."
+        )
+        destination_labels = VideoLabels.load(destination_document)
+        destination_labels.merge(labels, strategy)
+        labels = destination_labels
+
+    document = labels.as_dict(
+        None,
+        project_metadata=destination.settings_manager.project_metadata,
+        video_metadata=destination.settings_manager.video_metadata(video),
+    )
+    for existing in (destination_document, source_document):
+        if existing is not None and "external_identities" in existing:
+            document["external_identities"] = existing["external_identities"]
+            break
+    document["labeler"] = destination.labeler
+    destination.annotation_store.save_document(video, document)
+    destination.settings_manager.update_version()
+
+
 def merge_projects(destination: "Project", source: "Project", strategy: MergeStrategy) -> None:
     """Merges the source project into the destination project using the specified strategy.
 
@@ -55,7 +121,8 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
     adds behaviors unique to the source project to the destination project, and merges
     or adds annotations for each video from the source project into the destination project
     according to the given merge strategy. Annotations of a video whose pose
-    file is unusable in either project are not merged (a WARNING is logged).
+    file is unusable in either project are merged without opening the pose
+    (see :func:`_merge_annotations_without_pose`).
 
     Args:
         destination (Project): The project to merge into (destination).
@@ -92,12 +159,15 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
 
     # for each video in source, load the annotations and merge them into the destination project
     for video in source.video_manager.videos:
-        # labels are saved through the pose's identities, which an unusable pose
-        # file cannot provide
         reason = _unusable_reason(video, source, destination)
         if reason is not None:
             logger.warning(
-                "Skipping annotation merge for %s: its pose file is unusable: %s", video, reason
+                "Merging annotations for %s without its pose file, which is unusable: %s",
+                video,
+                reason,
+            )
+            _merge_annotations_without_pose(
+                destination, source, video, strategy, copied=video in videos_unique_to_source
             )
             continue
 
