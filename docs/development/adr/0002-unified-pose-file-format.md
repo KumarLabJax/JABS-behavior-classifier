@@ -1199,7 +1199,7 @@ question, not a requirement of this revision.
 | an RLE instance's runs sum to `video.width * video.height` | error |
 | a sparse index is integer-typed | error |
 | a `coord` axis has length exactly 2 — `coord_order` describes two values and nothing else | error |
-| offset datasets are unsigned integers, as the encoding text requires; a float offset cannot index an array | error |
+| offset datasets are `uint64`, as the encoding text requires; a float offset cannot index an array, a signed one admits negatives, and a narrower unsigned one is not the declared type | error |
 | a `mask` reference is boolean, and a `length` reference is a non-negative integer no larger than the axis it bounds | error |
 | dense segmentation's `contour_count` is a non-negative integer no larger than the `contour` axis of `jabs.segmentation.contours` — it is not a `length` reference, so the row above does not cover it | error |
 | an RLE payload is one-dimensional with a single `run` axis | error |
