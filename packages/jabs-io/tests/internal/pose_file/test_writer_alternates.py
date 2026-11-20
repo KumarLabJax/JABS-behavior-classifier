@@ -1,8 +1,8 @@
 """The writer writes ragged alternates, and can deep-check before publishing.
 
-A ``ragged`` set -- the shared offsets and every alternate of one name -- is
-written as one run of datasets immediately before the first component that
-carries it, so the set occupies one byte range (spec 0029-A §2.6). With
+A ragged set -- the shared offsets and every alternate decoded through them,
+under any name -- is written as one run of datasets immediately before the
+first component that carries it, so the set occupies one byte range (spec 0029-A §2.6). With
 ``deep=True`` the temporary file is decoded and compared against its dense
 baseline before it replaces the destination.
 """
@@ -271,6 +271,35 @@ def test_the_ragged_set_occupies_one_byte_range(tmp_path: Path) -> None:
         if start <= extent[0] < end
     ]
     assert intruders == []
+
+
+def test_every_name_sharing_an_index_is_written_with_its_offsets(tmp_path: Path) -> None:
+    """A second name on one index lands beside the offsets, not after other baselines.
+
+    The reviewer's reproduction: the external flags' alternate renamed
+    ``flagset``, so it shares the ``ragged`` index under a second name. Written
+    with ``deep=False``, since the deep check cannot decode ``flagset``.
+    """
+    pose_file = _segmentation_file(
+        flag_alternates=lambda s, i: (_flags_alternate(s, i, name="flagset"),),
+    )
+    path = tmp_path / "flagset.h5"
+    write_pose_file(pose_file, path, created=CREATED)
+    extents = _all_extents(path)
+    start, end = _span(extents, RAGGED_SET)
+    intruders = [
+        (name, extent)
+        for name, ranges in extents.items()
+        if name not in RAGGED_SET
+        for extent in ranges
+        if start <= extent[0] < end
+    ]
+    assert intruders == []
+    # Offsets first, then the group-level payload, then the leaf-level one.
+    with h5py.File(path, "r") as h5:
+        flags_at = h5[FLAGS].id.get_offset()
+        assert h5[INSTANCE].id.get_offset() < flags_at
+    assert flags_at < min(chunk_start for chunk_start, _ in extents[POINTS])
 
 
 def test_ragged_set_is_written_before_its_first_carrier(tmp_path: Path) -> None:

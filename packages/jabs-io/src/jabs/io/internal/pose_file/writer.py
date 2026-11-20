@@ -359,37 +359,31 @@ def _write_array(
         h5.create_dataset(path, data=data, **options)
 
 
-def _write_ragged_set(
-    h5: h5py.File, members: list[tuple[str, Alternate]], written_indexes: set[int]
-) -> None:
-    """Write one alternate name's offsets and payloads, back to back.
+def _write_ragged_set(h5: h5py.File, members: list[tuple[str, Alternate]]) -> None:
+    """Write one index's offsets and every payload decoded through it, back to back.
 
     Written as one run, so the set occupies one byte range (spec 0029-A §2.6):
     a reader fetching one frame's segmentation reads the offsets and then the
     payload nearby, rather than seeking across the dense baseline. The order
     is the order a reader needs them -- offsets, then group-level payloads,
-    then the leaf payloads they index.
+    then the leaf payloads they index -- and within a level, the order the
+    alternates appear in, component by component. Every name that shares the
+    index is in the run, so a second name does not land after other baselines.
 
     Args:
         h5: The open destination file.
-        members: Every ``(component id, alternate)`` of one name, in component
-            order. They share one :class:`RaggedIndex`.
-        written_indexes: Ids of the indexes whose offsets are already in the
-            file; updated here. Two names may share one index, and its offsets
-            are one pair of datasets.
+        members: Every ``(component id, alternate)`` whose alternate uses one
+            :class:`RaggedIndex`, in component order.
     """
     index: RaggedIndex = members[0][1].index
-    name = members[0][1].name
-    if id(index) not in written_indexes:
-        written_indexes.add(id(index))
-        for offsets_name in ("group_offsets", "instance_offsets"):
-            _write_array(
-                h5,
-                getattr(index, f"{offsets_name}_path"),
-                getattr(index, offsets_name),
-                f"alternate {name!r} {offsets_name}",
-                chunks=None,
-            )
+    for offsets_name in ("group_offsets", "instance_offsets"):
+        _write_array(
+            h5,
+            getattr(index, f"{offsets_name}_path"),
+            getattr(index, offsets_name),
+            f"ragged {offsets_name} at {getattr(index, f'{offsets_name}_path')}",
+            chunks=None,
+        )
     for level in ("group", "leaf"):
         for component_id, alternate in members:
             if alternate.level != level:
@@ -413,13 +407,13 @@ def write_pose_file(
     destination's directory which is then moved into place. A failure at any
     point leaves an existing destination untouched.
 
-    Datasets are written in component order. Each named ragged set is written
-    immediately before the first component that carries an alternate of that
-    name: its offsets (unless an earlier set sharing its index already wrote
-    them), then its group-level payloads, then its leaf-level payloads. A
-    caller that wants spec 0029-A's layout, with the ragged set after the
-    keypoint-scale data, lists the keypoint-scale components before the
-    segmentation ones.
+    Datasets are written in component order. Each ragged set -- one
+    :class:`RaggedIndex` and every alternate decoded through it, under any
+    name -- is written immediately before the first component that carries
+    one of those alternates: the offsets, then the group-level payloads, then
+    the leaf-level payloads. A caller that wants spec 0029-A's layout, with
+    the ragged set after the keypoint-scale data, lists the keypoint-scale
+    components before the segmentation ones.
 
     Args:
         pose_file: The file's contents.
@@ -452,12 +446,13 @@ def write_pose_file(
     _check_path_collisions(pose_file)
 
     layouts = {component.id: _layout_for(component) for component in pose_file.components}
-    # Every alternate of a name, in component order: the set written together.
-    ragged_sets: dict[str, list[tuple[str, Alternate]]] = {}
+    # Every alternate decoded through one index, in component order: the set
+    # written together. Keyed by identity, as the PoseFile shares indexes.
+    ragged_sets: dict[int, list[tuple[str, Alternate]]] = {}
     for component in pose_file.components:
         for alternate in component.alternates:
             layouts[alternate_key(component.id, alternate.name)] = _alternate_layout(alternate)
-            ragged_sets.setdefault(alternate.name, []).append((component.id, alternate))
+            ragged_sets.setdefault(id(alternate.index), []).append((component.id, alternate))
     manifest = build_manifest(pose_file, layouts=layouts, created=created)
     provenance = build_provenance(pose_file.provenance)
     errors = validate_manifest(manifest) + validate_provenance(provenance)
@@ -481,15 +476,14 @@ def write_pose_file(
             h5.attrs["schema_revision"] = np.int32(SCHEMA_REVISION)
             h5.create_dataset("manifest", data=manifest_json, dtype=string_dtype)
             h5.create_dataset("provenance", data=provenance_json, dtype=string_dtype)
-            written_sets: set[str] = set()
-            written_indexes: set[int] = set()
+            written_sets: set[int] = set()
             for component in pose_file.components:
                 # Each ragged set goes immediately before the first component
                 # that carries it, so it sits beside its baseline on disk.
                 for alternate in component.alternates:
-                    if alternate.name not in written_sets:
-                        _write_ragged_set(h5, ragged_sets[alternate.name], written_indexes)
-                        written_sets.add(alternate.name)
+                    if id(alternate.index) not in written_sets:
+                        _write_ragged_set(h5, ragged_sets[id(alternate.index)])
+                        written_sets.add(id(alternate.index))
                 _create_dataset(h5, component)
             for attachment in pose_file.attachments:
                 # Carried verbatim: an attachment declares no axes, so no tool
