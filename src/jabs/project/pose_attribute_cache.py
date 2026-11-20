@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 #    pose readers drop.
 # 3: entries carry the file's capabilities, and are written for unified pose
 #    files too, from a metadata-only scan.
-SCHEMA_VERSION = 3
+# 4: entries for legacy pose files may carry ``source_hash``, the file's hash
+#    when it had the entry's token, so opening a project does not re-hash an
+#    unchanged legacy file whose conversion exists.
+SCHEMA_VERSION = 4
 
 
 def pose_token(pose_path: Path) -> str:

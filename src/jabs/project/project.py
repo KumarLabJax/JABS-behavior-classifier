@@ -145,9 +145,11 @@ def _scan_result_from_pose_cache(video: str, entry: dict) -> VideoScanResult:
     )
 
 
-def _pose_cache_entry(result: VideoScanResult, pose_file: str, token: str) -> dict:
-    """Build a cache entry from a fresh scan result."""
-    return {
+def _pose_cache_entry(
+    result: VideoScanResult, pose_file: str, token: str, source_hash: str | None = None
+) -> dict:
+    """Build a cache entry from a scan result, with a legacy file's hash when known."""
+    entry = {
         "token": token,
         "pose_file": pose_file,
         "hdf5_frame_count": result["hdf5_frame_count"],
@@ -157,6 +159,48 @@ def _pose_cache_entry(result: VideoScanResult, pose_file: str, token: str) -> di
         "has_cm_per_pixel": result["has_cm_per_pixel"],
         "capabilities": list(result["capabilities"]),
     }
+    if source_hash is not None:
+        entry["source_hash"] = source_hash
+    return entry
+
+
+def _cached_source_hash(entry: object, token: str, pose_file: str) -> str | None:
+    """Return the legacy file hash recorded in a pose cache entry, if still current.
+
+    The hash is current only while the entry's ``stat`` token and pose file
+    name match the file now; a replaced or touched file is hashed again.
+    """
+    if (
+        isinstance(entry, dict)
+        and entry.get("token") == token
+        and entry.get("pose_file") == pose_file
+        and isinstance(entry.get("source_hash"), str)
+    ):
+        return entry["source_hash"]
+    return None
+
+
+def _record_source_hashes(
+    cache_path: Path | None,
+    entries: dict[str, dict],
+    tokens: Mapping[str, str],
+    hashes: Mapping[str, str],
+) -> None:
+    """Record legacy file hashes in the pose attribute cache beside their stat tokens.
+
+    Only entries whose token is the one the file had before it was hashed are
+    updated, and the cache is written only when something changed.
+    """
+    changed = False
+    for video, source_hash in hashes.items():
+        entry = entries.get(video)
+        if not isinstance(entry, dict) or entry.get("token") != tokens.get(video):
+            continue
+        if entry.get("source_hash") != source_hash:
+            entry["source_hash"] = source_hash
+            changed = True
+    if changed:
+        pose_attribute_cache.save(cache_path, entries)
 
 
 _LABEL_SECTIONS = ("labels", "unfragmented_labels")
@@ -461,9 +505,16 @@ class Project:
             results.update(self._scan_jobs(to_scan, process_pool))
 
         # A video whose scan failed is not cached, so it is rescanned next time.
+        # A recorded legacy file hash (see prepare_poses) is kept while the
+        # file's stat token is unchanged.
         updated = {
             job["video"]: _pose_cache_entry(
-                results[job["video"]], job["pose_path"].name, tokens[job["video"]]
+                results[job["video"]],
+                job["pose_path"].name,
+                tokens[job["video"]],
+                _cached_source_hash(
+                    cached.get(job["video"]), tokens[job["video"]], job["pose_path"].name
+                ),
             )
             for job in jobs
             if results[job["video"]]["error"] is None
@@ -576,15 +627,27 @@ class Project:
         Args:
             progress: Called with ``(completed, total)`` after each legacy video.
         """
+        # A legacy file's hash keys its conversion. It is recorded in the pose
+        # attribute cache beside the file's stat token, so an unchanged file
+        # whose conversion exists is not read in full again on every open.
+        cache_path = self._paths.pose_attribute_cache_file
+        attribute_cache = pose_attribute_cache.load(cache_path)
+        tokens: dict[str, str] = {}
         jobs: list[PoseConversionJobSpec] = []
         for video in self._video_manager.videos:
             if not self.is_usable(video):
                 continue
             pose_path = self._video_manager.get_cached_pose_path(video)
             if is_legacy_pose_file(pose_path):
+                tokens[video] = pose_attribute_cache.pose_token(pose_path)
                 jobs.append(
                     PoseConversionJobSpec(
-                        video=video, pose_path=pose_path, cache_dir=self._paths.cache_dir
+                        video=video,
+                        pose_path=pose_path,
+                        cache_dir=self._paths.cache_dir,
+                        known_hash=_cached_source_hash(
+                            attribute_cache.get(video), tokens[video], pose_path.name
+                        ),
                     )
                 )
         if not jobs:
@@ -597,17 +660,21 @@ class Project:
         else:
             outcomes = (convert_pose(job) for job in jobs)
         refused: list[str] = []
+        hashes: dict[str, str] = {}
         try:
-            for completed, (video, reason) in enumerate(outcomes, start=1):
+            for completed, (video, reason, source_hash) in enumerate(outcomes, start=1):
                 if reason is not None:
                     self._mark_unusable(video, reason)
                     refused.append(video)
+                elif source_hash is not None:
+                    hashes[video] = source_hash
                 progress(completed, len(jobs))
         finally:
             # also when a job raises part way, so the videos already refused
             # stop counting identities and restricting features
             if refused:
                 self._drop_refused_videos(refused)
+            _record_source_hashes(cache_path, attribute_cache, tokens, hashes)
 
     def _drop_refused_videos(self, videos: list[str]) -> None:
         """Recompute identity counts and features after videos became unusable mid-session.

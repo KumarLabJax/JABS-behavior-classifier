@@ -18,7 +18,7 @@ from jabs.core.enums import CacheFormat
 from jabs.core.utils import hash_file
 from jabs.io.annotations import read_document
 from jabs.pose_estimation import PoseOpenError, open_pose_file
-from jabs.pose_estimation.conversion_cache import ensure_converted
+from jabs.pose_estimation.conversion_cache import converted_path, ensure_converted
 from jabs.pose_estimation.metadata import scan_pose_metadata
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps_and_nframes
@@ -180,15 +180,30 @@ def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
 
 
 class PoseConversionJobSpec(TypedDict):
-    """A legacy pose file to convert into the conversion cache ahead of use."""
+    """A legacy pose file to convert into the conversion cache ahead of use.
+
+    ``known_hash`` is the file's hash recorded when its ``stat`` token was the
+    same as now, or None; when given and its conversion exists, the file is not
+    hashed.
+    """
 
     video: str
     pose_path: Path
     cache_dir: Path | None
+    known_hash: str | None
 
 
-def convert_pose(job: PoseConversionJobSpec) -> tuple[str, str | None]:
+# (video, reason it cannot be converted or None, the pose file's hash or None)
+PoseConversionOutcome = tuple[str, str | None, str | None]
+
+
+def convert_pose(job: PoseConversionJobSpec) -> PoseConversionOutcome:
     """Convert one legacy pose file into the conversion cache, unless it is there.
+
+    A file whose ``known_hash`` names an existing conversion is not read at
+    all: hashing every legacy file in full on every project open would undo
+    the metadata-only scan. Otherwise the file is hashed and converted if its
+    conversion is missing.
 
     A refusal does not raise, so one bad file does not abort the batch: the
     reason is returned for the project to mark the video unusable.
@@ -200,9 +215,13 @@ def convert_pose(job: PoseConversionJobSpec) -> tuple[str, str | None]:
         job: The video, its legacy pose file and the project's cache directory.
 
     Returns:
-        ``(video, None)`` when the conversion is cached, else ``(video, reason)``.
+        ``(video, None, hash)`` when the conversion is cached, else
+        ``(video, reason, None)``.
     """
     pose_path = job["pose_path"]
+    known_hash = job["known_hash"]
+    if known_hash is not None and converted_path(pose_path, known_hash, job["cache_dir"]).exists():
+        return job["video"], None, known_hash
     try:
         try:
             source_hash = hash_file(pose_path)
@@ -210,8 +229,8 @@ def convert_pose(job: PoseConversionJobSpec) -> tuple[str, str | None]:
             raise PoseOpenError(pose_path, f"cannot read: {error}") from error
         ensure_converted(pose_path, source_hash, job["cache_dir"])
     except PoseOpenError as error:
-        return job["video"], error.reason
-    return job["video"], None
+        return job["video"], error.reason, None
+    return job["video"], None, source_hash
 
 
 def _load_video_labels(annotations_path: Path, pose_est: "PoseLike") -> VideoLabels | None:
