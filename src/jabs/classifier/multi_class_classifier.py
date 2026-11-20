@@ -20,7 +20,7 @@ from jabs.core.enums import (
     compile_grouping_regex,
     filename_group_key,
 )
-from jabs.core.utils import hash_file, validate_behavior_names
+from jabs.core.utils import validate_behavior_names
 from jabs.project import load_multiclass_training_data
 
 from . import classifier_utils
@@ -220,9 +220,7 @@ class MultiClassClassifier(BaseClassifier):
             warnings.simplefilter("ignore", category=FutureWarning)
             self._classifier = clf.fit(cleaned, multiclass_labels)
 
-        self._classifier_file = None
-        self._classifier_hash = None
-        self._classifier_source = None
+        self.reset_persistence_identity()
         logger.info("MultiClassClassifier trained on %d behaviors", len(self._behavior_names))
 
     def predict(
@@ -345,9 +343,7 @@ class MultiClassClassifier(BaseClassifier):
             },
             random_seed=loaded["training_seed"],
         )
-        classifier._classifier_file = Path(path).name
-        classifier._classifier_hash = hash_file(Path(path))
-        classifier._classifier_source = "training_file"
+        classifier._record_persistence_identity(path, "training_file")
         return classifier
 
     @staticmethod
