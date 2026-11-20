@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from multiprocessing.pool import Pool
 from pathlib import Path
@@ -89,8 +90,10 @@ def validate_video_worker(params: dict) -> dict:
         params: ``video``, ``project_dir`` and ``cache_dir``.
 
     Returns:
-        ``{"video", "okay"}``, plus ``"message"`` when the video is not okay; a
-        pose file that cannot be opened is named in the message with the reason.
+        ``{"video", "okay"}``, plus ``"message"`` when the video is not okay. A
+        pose file that cannot be opened (refused or unreadable) does not fail
+        validation: the result is okay and its ``"unusable"`` names the file and
+        the reason, so the other videos still get features.
     """
     vid_path = params["project_dir"] / params["video"]
 
@@ -120,15 +123,11 @@ def validate_video_worker(params: dict) -> dict:
     except jabs.pose_estimation.PoseOpenError as e:
         return {
             "video": params["video"],
-            "okay": False,
-            "message": f"Unable to open pose file {pose_path.name}: {e.reason}",
+            "okay": True,
+            "unusable": f"{pose_path.name}: {e.reason}",
         }
     except OSError as e:
-        return {
-            "video": params["video"],
-            "okay": False,
-            "message": f"Unable to open pose file {pose_path.name}: {e}",
-        }
+        return {"video": params["video"], "okay": True, "unusable": f"{pose_path.name}: {e}"}
 
     return {"video": params["video"], "okay": True}
 
@@ -174,12 +173,13 @@ def compute_project_features(
     pool: Pool,
     cache_format: CacheFormat = CacheFormat.PARQUET,
     collect_timings: bool = False,
+    unusable: Mapping[str, str] | None = None,
 ) -> FeatureTimings | None:
     """Compute features for all identities in the project.
 
     Work is split into one job per video, so parallelism is limited to the number of
-    videos in the project. Videos whose pose file is unusable are skipped with a
-    warning.
+    videos in the project. Videos whose pose file is unusable (in the project, or in
+    ``unusable``) are skipped with a warning.
 
     Args:
         project: Project to compute features for.
@@ -188,21 +188,20 @@ def compute_project_features(
         pool: Worker pool used to compute features in parallel.
         cache_format: Feature cache storage format.
         collect_timings: Record how long each feature module takes to compute.
+        unusable: Further videos to skip, mapped to the reason; for pose files
+            that failed to open after the project scan accepted them.
 
     Returns:
         Feature compute times merged across all identities if ``collect_timings`` is
         set, otherwise None.
     """
+    skipped = {**project.unusable_videos, **(unusable or {})}
     videos = []
     for video in project.video_manager.videos:
-        if project.is_usable(video):
-            videos.append(video)
+        if video in skipped:
+            logger.warning("Skipping %s: its pose file is unusable: %s", video, skipped[video])
         else:
-            logger.warning(
-                "Skipping %s: its pose file is unusable: %s",
-                video,
-                project.unusable_videos[video],
-            )
+            videos.append(video)
 
     def feature_job_producer():
         for video in videos:
@@ -322,6 +321,24 @@ def _exit_on_validation_failures(failures: list[dict]) -> None:
     raise click.exceptions.Exit(1)
 
 
+def _exit_on_unopenable_pose_files(unopenable: Mapping[str, str]) -> None:
+    """Name the videos whose pose file could not be opened and exit 1, if there are any.
+
+    Args:
+        unopenable: Video to ``"<pose file>: <reason>"``.
+    """
+    if not unopenable:
+        return
+
+    click.echo(
+        " The pose files of these videos could not be opened; they were skipped "
+        "(features for the other videos were computed):"
+    )
+    for video, reason in sorted(unopenable.items()):
+        click.echo(f"  {video}: {reason}")
+    raise click.exceptions.Exit(1)
+
+
 def run_initialize_project(
     force: bool,
     processes: int,
@@ -336,6 +353,10 @@ def run_initialize_project(
 ) -> None:
     """Run project initialization and optional feature generation.
 
+    A video whose pose file cannot be opened (refused by the converter, or
+    unreadable) does not stop the run: it is skipped, the other videos get their
+    features, and the skipped videos are listed at the end.
+
     Args:
         force: Recompute features even if they already exist.
         processes: Number of worker processes.
@@ -347,7 +368,14 @@ def run_initialize_project(
         cache_format: Feature cache format, or None to keep the project setting.
         timing_report: If given, write a Markdown report of feature compute times here.
         timing_top_n: Limit the timing report to the slowest ``timing_top_n`` entries.
+
+    Raises:
+        click.exceptions.Exit: With status 1 when validation fails, or (after
+            feature generation) when any pose file could not be opened.
     """
+    # videos whose pose file could not be opened: reported at the end, exit 1
+    unopenable: dict[str, str] = {}
+
     if timing_report is not None and skip_feature_generation:
         click.echo("Warning: --timing-report is ignored with --skip-feature-generation")
         timing_report = None
@@ -421,6 +449,7 @@ def run_initialize_project(
                 results.append(result)
 
         _exit_on_validation_failures([result for result in results if result["okay"] is False])
+        unopenable = {r["video"]: r["unusable"] for r in results if r.get("unusable")}
 
         # compute features in parallel, this might take a while
         if not skip_feature_generation:
@@ -432,6 +461,7 @@ def run_initialize_project(
                 pool,
                 cache_format,
                 collect_timings=timing_report is not None,
+                unusable=unopenable,
             )
             elapsed = time.perf_counter() - start
 
@@ -479,6 +509,8 @@ def run_initialize_project(
     else:
         pool.close()
         pool.join()
+
+    _exit_on_unopenable_pose_files(unopenable)
 
 
 @click.command(name="jabs-init", context_settings={"max_content_width": 120}, help=__doc__)

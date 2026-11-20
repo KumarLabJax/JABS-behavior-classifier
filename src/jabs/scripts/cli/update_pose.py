@@ -8,9 +8,9 @@ underway. The updated pose directory must provide pose files of the same
 format for every project video (unified ``<video>_pose.h5`` files, or legacy
 files of one ``_pose_est_v<N>.h5`` version), and only the pose file JABS would
 pick for each video (``find_pose_file``: the unified file, else the highest
-legacy version) is copied back into the live project. Only after the staged label remap succeeds does it copy the
-staged annotations and project metadata back to the live project and swap in
-the updated pose files.
+legacy version) is copied back into the live project. Only after the staged
+label remap succeeds does it copy the staged annotations and project metadata
+back to the live project and swap in the updated pose files.
 
 Before the live project is modified, the script creates a timestamped backup
 zip under ``<project>/.backup`` containing every live file the update may

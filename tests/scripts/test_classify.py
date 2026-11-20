@@ -34,10 +34,16 @@ def test_require_pose_file_name_accepts_canonical(name: str) -> None:
         "predictions_pose_est_v6.h5.bak",
         "sample_pose.hdf5",
         "_pose.h5",
+        "._sample_pose.h5",
+        "._sample_pose_est_v6.h5",
+        ".hidden_pose.h5",
     ],
 )
 def test_require_pose_file_name_rejects_invalid(name: str) -> None:
-    """Names that match neither pose file pattern are rejected."""
+    """Names that match neither pose file pattern, and hidden files, are rejected.
+
+    A macOS AppleDouble ``._*`` sidecar is not a pose file, as in ``is_pose_file``.
+    """
     with pytest.raises(ValueError, match="not a valid pose file path"):
         _require_pose_file_name(Path(name))
 

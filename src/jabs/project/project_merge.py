@@ -85,16 +85,16 @@ def _merge_annotations_without_pose(
         destination.project_paths.video_dir / video, destination.project_paths.pose_dir
     )
     if hash_file(source_pose_path) != hash_file(destination_pose_path):
-        print(f"WARNING: Pose hash mismatch for video {video}. Skipping annotation merge.")
+        logger.warning("Pose hash mismatch for video %s. Skipping annotation merge.", video)
         return
 
     destination_document = None if copied else destination.video_manager.load_annotations(video)
     labels = VideoLabels.load(source_document)
     if destination_document is None:
-        print(f"Adding annotations for video {video} to destination project...")
+        logger.info("Adding annotations for video %s to destination project", video)
     else:
-        print(
-            f"Merging annotations for video {video} from source project into destination project..."
+        logger.info(
+            "Merging annotations for video %s from source project into destination project", video
         )
         destination_labels = VideoLabels.load(destination_document)
         destination_labels.merge(labels, strategy)
