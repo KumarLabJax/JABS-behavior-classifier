@@ -368,3 +368,23 @@ def test_selecting_an_unusable_video_does_not_request_a_load():
 
     assert widget._pending_selection is None
     assert not widget._debounce_timer.isActive()
+
+
+def test_classify_action_disabled_for_an_unusable_video(monkeypatch):
+    """An unusable video cannot be classified from its context menu."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi", "b.avi"], set(), {"b.avi": "refused"}))
+    widget.set_classify_available(True)
+    item = _item_for(widget, "b.avi")
+    monkeypatch.setattr(widget._file_list, "itemAt", lambda _pos: item)
+
+    captured = {}
+
+    def chooser(actions):
+        captured["enabled"] = _classify_action(actions).isEnabled()
+        return None
+
+    _patch_menu(monkeypatch, chooser)
+    widget._show_context_menu(QPoint(0, 0))
+
+    assert captured["enabled"] is False

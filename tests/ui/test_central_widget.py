@@ -1,5 +1,6 @@
 """Tests for CentralWidget helpers that don't require instantiating the widget."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -10,6 +11,7 @@ from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
 
 try:
+    import jabs.ui.main_window.central_widget as central_widget_module
     from jabs.core.enums import ClassifierMode
     from jabs.ui.main_window.central_widget import CentralWidget
 
@@ -764,3 +766,49 @@ def test_training_completion_is_quiet_when_cross_validation_ran(monkeypatch):
     CentralWidget._training_thread_complete(_training_completion_stub(None), 1234)
 
     assert warnings == []
+
+
+def _search_stub(project, hit_file: str) -> SimpleNamespace:
+    """Build a stub self for _on_search_hit_changed with one current search hit."""
+    hit = SimpleNamespace(file=hit_file, start_frame=5, identity=None, behavior=None)
+    return SimpleNamespace(
+        _search_bar_widget=SimpleNamespace(current_search_hit=hit),
+        _project=project,
+        _loaded_video=None,
+        load_video=MagicMock(),
+        _player_widget=MagicMock(),
+        search_hit_loaded=MagicMock(),
+    )
+
+
+def test_search_hit_in_an_unusable_video_shows_the_reason(monkeypatch):
+    """A search hit in an unusable video is not loaded; the reason is shown instead."""
+    dialog = MagicMock()
+    monkeypatch.setattr(central_widget_module, "MessageDialog", dialog)
+    project = MagicMock()
+    project.is_usable.return_value = False
+    project.unusable_videos = {"bad.avi": "shared tracklet"}
+    stub = _search_stub(project, "bad.avi")
+
+    CentralWidget._on_search_hit_changed(stub)
+
+    stub.load_video.assert_not_called()
+    stub.search_hit_loaded.emit.assert_not_called()
+    assert dialog.warning.call_args.kwargs["details"] == "shared tracklet"
+
+
+def test_search_hit_whose_pose_fails_to_open_is_reported(monkeypatch):
+    """A PoseOpenError loading a search hit's video is reported, not raised from the slot."""
+    dialog = MagicMock()
+    monkeypatch.setattr(central_widget_module, "MessageDialog", dialog)
+    project = MagicMock()
+    project.is_usable.return_value = True
+    stub = _search_stub(project, "a.avi")
+    stub.load_video.side_effect = central_widget_module.PoseOpenError(
+        Path("a_pose_est_v8.h5"), "disk full"
+    )
+
+    CentralWidget._on_search_hit_changed(stub)
+
+    assert dialog.error.call_args.kwargs["details"] == "disk full"
+    stub._player_widget.seek_to_frame.assert_not_called()

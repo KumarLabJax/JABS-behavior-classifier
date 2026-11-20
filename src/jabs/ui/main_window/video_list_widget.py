@@ -289,8 +289,13 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         menu.addSeparator()
         classify_action = menu.addAction("Classify Video")
 
-        # only offer single-video classification when a trained classifier is ready
-        classify_action.setEnabled(self._project is not None and self._classify_available)
+        # only offer single-video classification when a trained classifier is ready,
+        # and never for a video whose pose file is unusable
+        classify_action.setEnabled(
+            self._project is not None
+            and self._classify_available
+            and item.data(_UNUSABLE_ROLE) is None
+        )
         exclude_action = menu.addAction("Exclude from Training")
         exclude_action.setCheckable(True)
         exclude_action.setChecked(bool(item.data(_EXCLUDED_ROLE)))
