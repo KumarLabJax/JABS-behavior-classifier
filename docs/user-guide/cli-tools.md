@@ -55,6 +55,30 @@ Classifier Input (one of the following is required):
 
 When `--feature-dir` is provided, `jabs-classify` automatically detects the existing cache format (HDF5 or Parquet) and reads from it. New cache files are always written in Parquet format. If the directory already contains an HDF5 cache, it is read as-is and any new window features are added to the existing HDF5 file — no conversion takes place.
 
+### Legacy pose files and the conversion cache
+
+`jabs-classify` (like `jabs-cli compute-features` and the other tools that open a single
+pose file outside a project) converts a legacy `*_pose_est_v<N>.h5` file to the unified
+pose format the first time it opens it, and keeps the converted copy in a cache so later
+runs on the same file skip the conversion. The legacy file is never modified.
+
+- **Location.** The cache is the directory named by the `JABS_CACHE_DIR` environment
+  variable when it is set, otherwise the per-user cache directory for `jabs`
+  (`~/.cache/jabs` on Linux, `~/Library/Caches/jabs` on macOS,
+  `%LOCALAPPDATA%\jabs\jabs\Cache` on Windows). Converted copies are under its
+  `converted/` subdirectory.
+- **Size.** A converted copy is about 2-4x the size of its legacy file, and copies are
+  not evicted automatically. Delete the `converted/` directory to reclaim the space; files
+  are converted again when next opened. On a cluster, point `JABS_CACHE_DIR` at scratch
+  space rather than a home directory with a quota.
+- **Read-only cache.** If the cache directory cannot be written (for example a read-only
+  home directory in a container), each file is converted into a temporary directory that
+  is removed when the run finishes, and a warning is logged once. Conversions are then
+  repeated on every run.
+
+A pose file that cannot be opened (for example a legacy file the converter refuses) ends
+`jabs-classify` with an error naming the file and the reason, and a nonzero exit status.
+
 ### Train Command
 
 ```text

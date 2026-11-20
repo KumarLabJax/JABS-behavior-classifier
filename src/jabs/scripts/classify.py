@@ -24,7 +24,7 @@ from jabs.core.constants import APP_NAME, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierType
 from jabs.core.utils import pose_file_stem
 from jabs.feature_extraction import IdentityFeatures
-from jabs.pose_estimation import open_pose_file
+from jabs.pose_estimation import PoseOpenError, open_pose_file
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 
 logger = logging.getLogger(__name__)
@@ -442,6 +442,20 @@ def classify_main() -> None:
     out_dir = Path(args.out_dir)
     in_pose_path = Path(args.input_pose)
 
+    try:
+        _classify_with(args, in_pose_path, out_dir)
+    except PoseOpenError as error:
+        # an expected per-file failure (a file the converter refuses, or one
+        # that cannot be read): report it without a traceback
+        sys.exit(f"Unable to open pose file {error.path}: {error.reason}")
+
+
+def _classify_with(args: argparse.Namespace, in_pose_path: Path, out_dir: Path) -> None:
+    """Train (or load) the classifier named by the arguments and classify the pose file.
+
+    Raises:
+        PoseOpenError: If the pose file cannot be opened.
+    """
     if args.training is not None:
         train_and_classify(
             Path(args.training),
