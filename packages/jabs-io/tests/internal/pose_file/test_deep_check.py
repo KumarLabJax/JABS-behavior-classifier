@@ -530,3 +530,40 @@ def test_a_flag_disagreement_names_both_values(tmp_path: Path) -> None:
     _flip(path, FLAGS, 0)
     (error,) = _deep_errors(path)
     assert "True" in error.message and "False" in error.message
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            lambda m: _entry(m, "jabs.segmentation.contour_count").update(
+                path="/jabs/segmentation//contour_count"
+            ),
+            id="component",
+        ),
+        pytest.param(
+            lambda m: _entry(m, "jabs.segmentation.contours")["alternates"][0].update(
+                path=POINTS + "/"
+            ),
+            id="alternate",
+        ),
+        pytest.param(
+            lambda m: _entry(m, "jabs.segmentation.contours")["alternates"][0]["encoding"].update(
+                group_offsets="/jabs/segmentation//ragged/contour_offsets"
+            ),
+            id="offsets",
+        ),
+        pytest.param(
+            lambda m: m.update(attachments=[{"path": "/attachments//notes"}]),
+            id="attachment",
+        ),
+    ],
+)
+def test_a_non_canonical_path_is_an_error(
+    tmp_path: Path, mutate: Callable[[dict], object]
+) -> None:
+    """A path the reader refuses as another spelling of a dataset is a validation error too."""
+    path = _copy(tmp_path)
+    _rewrite_manifest(path, mutate)
+    errors = _checks(validate(path), "error")
+    assert "path_canonical" in {f.check for f in errors}

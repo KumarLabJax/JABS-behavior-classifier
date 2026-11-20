@@ -30,7 +30,7 @@ from jabs.io.internal.pose_file.schema import (
     SCHEMA_REVISION,
     iter_errors,
 )
-from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE, alternate_key
+from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE, alternate_key, check_hdf5_path
 
 ERROR = "error"
 WARNING = "warning"
@@ -532,6 +532,43 @@ def _check_ragged_offsets_pairing(manifest: dict, findings: list[Finding]) -> No
                     )
                 )
                 break
+
+
+def _manifest_paths(manifest: dict) -> list[tuple[str, str]]:
+    """Every dataset path the manifest names, with what names it."""
+    paths: list[tuple[str, str]] = []
+    for spec in manifest["components"]:
+        declared = [(spec["id"], spec)]
+        declared += [
+            (alternate_key(spec["id"], alternate["name"]), alternate)
+            for alternate in spec.get("alternates", [])
+        ]
+        for label, entry in declared:
+            paths.append((label, entry["path"]))
+            encoding = entry.get("encoding", {})
+            for name in ("group_offsets", "instance_offsets"):
+                if name in encoding:
+                    paths.append((f"{label} {name}", encoding[name]))
+    paths += [("attachment", a["path"]) for a in manifest.get("attachments", [])]
+    return paths
+
+
+def _check_paths_canonical(manifest: dict, findings: list[Finding]) -> None:
+    """Every dataset path has one spelling: no empty segment, no trailing slash.
+
+    HDF5 folds ``//`` and ignores a trailing slash, so such a path finds its
+    dataset while comparing unequal to the path everything else uses. The
+    reader refuses it, so the validator does too.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    for label, path in _manifest_paths(manifest):
+        try:
+            check_hdf5_path(label, path)
+        except ValueError as error:
+            findings.append(Finding(ERROR, "path_canonical", str(error)))
 
 
 def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
@@ -1710,6 +1747,7 @@ def validate(
         _check_alternate_names_and_paths(manifest, findings)
         _check_ragged_pairing(manifest, findings)
         _check_ragged_offsets_pairing(manifest, findings)
+        _check_paths_canonical(manifest, findings)
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)

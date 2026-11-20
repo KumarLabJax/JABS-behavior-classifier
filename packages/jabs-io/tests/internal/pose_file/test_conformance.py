@@ -57,6 +57,7 @@ INVALID = {
     "invalid-nan-policy.h5": "manifest_schema",
     "invalid-not-a-pose-file.h5": "root_attrs",
     "invalid-not-hdf5.h5": "file_readable",
+    "invalid-path-not-canonical.h5": "path_canonical",
     "invalid-provenance-reference.h5": "provenance_reference",
     "invalid-provenance-schema.h5": "provenance_schema",
     "invalid-ragged-group-length.h5": "ragged_offsets",

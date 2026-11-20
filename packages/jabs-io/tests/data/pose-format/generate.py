@@ -795,6 +795,17 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
                 lambda m: _entry(m, "org.example.lab.whisker_angle").update(id="lab.whisker_angle")
             ),
         ),
+        # HDF5 resolves "//" to "/", so the payload is found, but the path is a
+        # second spelling of /org.example.lab/whisker_angle.
+        (
+            "invalid-path-not-canonical.h5",
+            full,
+            _manifest(
+                lambda m: _entry(m, "org.example.lab.whisker_angle").update(
+                    path="/org.example.lab//whisker_angle"
+                )
+            ),
+        ),
         # Dimensions and video.
         (
             "invalid-identity-exceeds-slot.h5",
