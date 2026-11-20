@@ -8,23 +8,17 @@ from scipy import signal
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
 
-# Set to True in forked worker processes (e.g. via parallel_workers.py) to avoid
-# calling scipy.linalg.lstsq (Apple Accelerate LAPACK) from a forked child on macOS,
-# which causes a segfault.  The main process and CLI leave this False so they
-# continue to use scipy's built-in "linear" detrend path.
-_use_numpy_detrend: bool = False
-
 
 def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
-    """Linear detrend along axis=-1 using only numpy (no LAPACK).
+    """Linear detrend along axis=-1 using the closed-form least-squares fit.
 
-    When passed to ``scipy.signal.stft`` as the ``detrend`` callable, this
-    function receives a 2-D array of shape ``(n_windows, nperseg)`` and must
-    detrend every row independently.  It produces the same result as
-    ``scipy.signal.detrend(x, type='linear')`` but uses the closed-form
-    OLS solution (pure numpy dot/matmul) instead of ``scipy.linalg.lstsq``,
-    avoiding a segfault that occurs when Accelerate LAPACK is called from a
-    forked child process on macOS arm64.
+    Passed to ``scipy.signal.stft`` as its ``detrend`` callable, this function
+    receives every segment at once, with the segments along the last axis, and
+    detrends each independently. It matches
+    ``scipy.signal.detrend(x, type='linear')`` to within floating-point rounding,
+    but every segment has the same length, so the fit reduces to a mean and a
+    slope computed with one matrix product instead of a ``scipy.linalg.lstsq``
+    solve, which makes the STFT about a quarter faster.
 
     Args:
         segment: Array of shape ``(..., n)``; detrending is applied along the
@@ -56,6 +50,82 @@ _SHARED_MOMENT_OPERATIONS: dict[str, typing.Callable] = {
     "skew": window_stats.window_skew,
     "kurtosis": window_stats.window_kurtosis,
 }
+
+# Window and signal operations that accept a batch of series (time on the last axis,
+# one series per row) as well as a single 1d series. The default operations are all
+# batch-capable; an operation a subclass substitutes is not assumed to be, so it is
+# applied one series at a time.
+_BATCHABLE_OPERATIONS: frozenset[typing.Callable] = frozenset(
+    {
+        window_stats.window_mean,
+        window_stats.window_median,
+        window_stats.window_std_dev,
+        window_stats.window_skew,
+        window_stats.window_kurtosis,
+        window_stats.window_max,
+        window_stats.window_min,
+        signal_stats.psd_mean_band,
+        signal_stats.psd_sum,
+        signal_stats.psd_max,
+        signal_stats.psd_min,
+        signal_stats.psd_mean,
+        signal_stats.psd_std_dev,
+        signal_stats.psd_skew,
+        signal_stats.psd_kurtosis,
+        signal_stats.psd_median,
+        signal_stats.psd_peak_freq,
+    }
+)
+
+# Upper bound on the number of float64 values in the sliding-window view of one batch
+# of series (n_series * n_frames * window width). Window operations materialize
+# arrays of about this size, so this bounds their memory use (2**23 values is 64 MiB)
+# while keeping batches large enough to amortize per-call overhead.
+_MAX_BATCH_WINDOW_VALUES = 2**23
+
+# A batch of series: the per-frame feature names and their values stacked into a 2d
+# array of shape (len(names), n_frames).
+_SeriesBatch: typing.TypeAlias = tuple[list[str], np.ndarray]
+
+
+def _batch_series(per_frame_values: dict[str, np.ndarray], window_size: int) -> list[_SeriesBatch]:
+    """Stack per-frame series into 2d batches for batched window operations.
+
+    Series are grouped by dtype and shape so stacking never changes a value's dtype,
+    and each group is split so its sliding-window view stays within
+    `_MAX_BATCH_WINDOW_VALUES`.
+
+    Args:
+        per_frame_values: dict of per-frame feature name to 1d values
+        window_size: number of frames (in each direction) in the window
+
+    Returns:
+        list of (names, stacked values) batches covering every series once
+    """
+    groups: dict[tuple, list[str]] = {}
+    for key, val in per_frame_values.items():
+        groups.setdefault((np.asarray(val).dtype, np.shape(val)), []).append(key)
+
+    width = 2 * window_size + 1
+    batches = []
+    for (_, shape), keys in groups.items():
+        values_per_series = max(1, (shape[0] if shape else 1) * width)
+        batch_size = max(1, _MAX_BATCH_WINDOW_VALUES // values_per_series)
+        for start in range(0, len(keys), batch_size):
+            batch_keys = keys[start : start + batch_size]
+            batches.append(
+                (batch_keys, np.stack([np.asarray(per_frame_values[k]) for k in batch_keys]))
+            )
+    return batches
+
+
+def _in_key_order(values: dict, key_order: dict) -> dict:
+    """Return `values` reordered to match the key order of `key_order`.
+
+    Batching groups series by dtype, which can change their order; this restores the
+    per-frame feature order so window feature columns come out as they did before.
+    """
+    return {key: values[key] for key in key_order}
 
 
 class Feature(abc.ABC):
@@ -296,12 +366,13 @@ class Feature(abc.ABC):
             return {}
 
         results: dict[str, dict] = {op: {} for op in _SHARED_MOMENT_OPERATIONS}
-        for key, val in per_frame_values.items():
-            std_dev, skew, kurtosis = window_stats.window_std_skew_kurtosis(val, window_size)
-            results["std_dev"][key] = std_dev
-            results["skew"][key] = skew
-            results["kurtosis"][key] = kurtosis
-        return {op: results[op] for op in shared_ops}
+        for keys, batch in _batch_series(per_frame_values, window_size):
+            std_dev, skew, kurtosis = window_stats.window_std_skew_kurtosis(batch, window_size)
+            for i, key in enumerate(keys):
+                results["std_dev"][key] = std_dev[i]
+                results["skew"][key] = skew[i]
+                results["kurtosis"][key] = kurtosis[i]
+        return {op: _in_key_order(results[op], per_frame_values) for op in shared_ops}
 
     def _window_signal(self, window_size: int, per_frame_values: dict) -> dict:
         """The standard method for computing signal processing window features.
@@ -317,34 +388,29 @@ class Feature(abc.ABC):
             a dictionary of the signal processing features.
         """
         values = {}
+        width = 2 * window_size + 1
 
-        psd_data = {}
-        # Obtain the PSD once
-        for per_frame_key, per_frame in per_frame_values.items():
-            adjusted_feature = np.nan_to_num(per_frame, nan=0)
-            if len(adjusted_feature) < 2 * window_size + 1:
-                adjusted_feature = np.pad(
-                    adjusted_feature, (0, (2 * window_size + 1) - len(adjusted_feature))
-                )
+        # Obtain the PSD once per batch of series; stft transforms each row independently
+        psd_batches: list[_SeriesBatch] = []
+        freqs = None
+        for keys, batch in _batch_series(per_frame_values, window_size):
+            adjusted = np.nan_to_num(batch, nan=0)
+            if adjusted.shape[-1] < width:
+                adjusted = np.pad(adjusted, ((0, 0), (0, width - adjusted.shape[-1])))
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
-                freqs, ts, Zxx = signal.stft(
-                    adjusted_feature,
+                freqs, _, Zxx = signal.stft(
+                    adjusted,
                     fs=self._fps,
-                    nperseg=window_size * 2 + 1,
-                    noverlap=window_size * 2,
+                    nperseg=width,
+                    noverlap=width - 1,
                     window="hann",
                     scaling="psd",
-                    # When running inside a forked worker process on macOS,
-                    # use a pure-numpy detrend to avoid the segfault caused by
-                    # calling scipy.linalg.lstsq (Accelerate LAPACK) from a
-                    # forked child.  _use_numpy_detrend is set by the worker
-                    # function in parallel_workers.py; the main process and
-                    # CLI leave it False so they use scipy's normal path.
-                    detrend=_linear_detrend_numpy if _use_numpy_detrend else "linear",
+                    axis=-1,
+                    detrend=_linear_detrend_numpy,
                 )
-            psd = np.abs(Zxx)
-            psd_data[per_frame_key] = psd
+            # Zxx has shape (n_series, n_freqs, n_segments)
+            psd_batches.append((keys, np.abs(Zxx)))
 
         # Summarize the signal features
         for op_name, op in self._signal_operations.items():
@@ -353,13 +419,16 @@ class Feature(abc.ABC):
                     values[f"{op_name}-{band['band_low']}Hz-{band['band_high']}Hz"] = (
                         self._compute_signal_features(
                             freqs,
-                            psd_data,
+                            psd_batches,
                             op,
+                            per_frame_values,
                             **band,
                         )
                     )
             else:
-                values[op_name] = self._compute_signal_features(freqs, psd_data, op)
+                values[op_name] = self._compute_signal_features(
+                    freqs, psd_batches, op, per_frame_values
+                )
 
         return values
 
@@ -386,6 +455,9 @@ class Feature(abc.ABC):
     ) -> dict:
         """helper function to compute window feature values
 
+        A batch-capable op (see `_BATCHABLE_OPERATIONS`) is applied to batches of
+        series at once; any other op is applied one series at a time.
+
         Args:
             feature_values: dict of per frame feature values
             window_size: number of frames (in each direction) to include in the window. The actual number of frames is 2 * window_size + 1
@@ -394,35 +466,47 @@ class Feature(abc.ABC):
         Returns:
             dict mapping each per-frame feature name to its window feature values
         """
-        values = {}
-        for key, val in feature_values.items():
-            values[key] = op(val, window=window_size)
+        if op not in _BATCHABLE_OPERATIONS:
+            return {key: op(val, window=window_size) for key, val in feature_values.items()}
 
-        return values
+        values = {}
+        for keys, batch in _batch_series(feature_values, window_size):
+            result = op(batch, window=window_size)
+            for i, key in enumerate(keys):
+                values[key] = result[i]
+        return _in_key_order(values, feature_values)
 
     def _compute_signal_features(
         self,
         freqs: np.ndarray,
-        psd: dict,
+        psd_batches: list[_SeriesBatch],
         op: typing.Callable,
+        key_order: dict,
         **kwargs,
     ) -> dict:
         """helper function to compute signal window feature values.
 
         Args:
             freqs: frequency values for psd matrices
-            psd: dict of power spectral density
+            psd_batches: batches of (feature names, power spectral density), each psd
+                with shape (n_series, n_freqs, n_segments)
             op: function to perform the actual computation. Operation must accept frequencies and psd as input
+            key_order: dict whose keys give the order of the returned feature names
             **kwargs: additional keyword args used by op
 
         Returns:
             dict mapping each per-frame feature name to its signal feature values
         """
         values = {}
-        for key, value in psd.items():
-            values[key] = op(freqs, value, **kwargs)
-
-        return values
+        for keys, psd in psd_batches:
+            if op in _BATCHABLE_OPERATIONS:
+                result = op(freqs, psd, **kwargs)
+                for i, key in enumerate(keys):
+                    values[key] = result[i]
+            else:
+                for i, key in enumerate(keys):
+                    values[key] = op(freqs, psd[i], **kwargs)
+        return _in_key_order(values, key_order)
 
     def _compute_window_features_circular(
         self,

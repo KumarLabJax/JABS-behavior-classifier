@@ -9,6 +9,7 @@ import pytest
 from scipy import signal, stats
 from scipy.signal import detrend
 
+from jabs.feature_extraction import feature_base_class
 from jabs.feature_extraction.feature_base_class import Feature, _linear_detrend_numpy
 from jabs.feature_extraction.window_operations import window_stats
 
@@ -338,3 +339,28 @@ def test_overridden_moment_operation_is_used() -> None:
 
     np.testing.assert_array_equal(result["skew"]["a"], np.full(80, 42.0))
     np.testing.assert_array_equal(result["kurtosis"]["b"], expected_kurtosis)
+
+
+def test_window_signal_features_use_the_numpy_detrend(monkeypatch) -> None:
+    """Every process detrends STFT segments the same way, with the closed-form fit.
+
+    The GUI's macOS workers once used this detrend while every other process used
+    scipy's ``lstsq``-based one, so the same video's features differed by platform
+    and by entry point.
+    """
+    calls: list[tuple[int, ...]] = []
+
+    def spy(segment: np.ndarray) -> np.ndarray:
+        calls.append(segment.shape)
+        return _linear_detrend_numpy(segment)
+
+    monkeypatch.setattr(feature_base_class, "_linear_detrend_numpy", spy)
+    poses, values = _standard_window_inputs()
+
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _StandardStubFeature(poses, 1.0).window(0, 3, values)
+
+    assert calls, "the STFT did not use the numpy detrend"
+    # one call per batch, with each segment the full window width on the last axis
+    assert all(shape[-1] == 7 for shape in calls)

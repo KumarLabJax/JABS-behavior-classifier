@@ -6,8 +6,6 @@ be executed by ProcessPoolExecutor workers, managed by Project.
 """
 
 import logging
-import multiprocessing
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
@@ -223,19 +221,6 @@ def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> Vi
     return VideoLabels.load(document, pose_est)
 
 
-def _apply_macos_fork_lapack_workaround() -> None:
-    """Avoid Accelerate LAPACK segfaults in forked children on macOS.
-
-    scipy.linalg.lstsq (called by signal.stft's "linear" detrend) uses Apple's
-    Accelerate LAPACK, which segfaults when invoked from a forked child
-    process. Switch to the pure-numpy detrend path only on macOS to avoid this.
-    The flag is process-local, so the main process and non-macOS workers are
-    unaffected.
-    """
-    if sys.platform == "darwin" and multiprocessing.parent_process() is not None:
-        fe.feature_base_class._use_numpy_detrend = True
-
-
 def _warn_on_frame_count_mismatch(
     video: str, video_frame_count: int, pose_frame_count: int
 ) -> None:
@@ -264,8 +249,7 @@ def _warn_on_frame_count_mismatch(
 def _open_pose_and_labels(
     job: _BaseFeatureLoadJobSpec,
 ) -> "tuple[PoseEstimation, VideoLabels | None, float]":
-    """Set up the macOS workaround and open pose + label resources for a job."""
-    _apply_macos_fork_lapack_workaround()
+    """Open pose + label resources for a job."""
     pose_est = open_pose_file(job["pose_path"], job["cache_dir"])
     fps, video_frame_count = get_fps_and_nframes(str(job["video_path"]))
     _warn_on_frame_count_mismatch(job["video"], video_frame_count, pose_est.num_frames)
