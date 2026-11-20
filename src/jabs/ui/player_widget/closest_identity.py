@@ -8,6 +8,7 @@ changes, so the result wants computing once per frame and reusing.
 
 import numpy as np
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 from jabs.pose_estimation import PoseEstimation
@@ -36,7 +37,7 @@ def closest_identity(
         The nearest identity, or ``None`` when the subject has no pose on this frame,
         there is nobody else, or nobody qualifies.
     """
-    idx = PoseEstimation.KeypointIndex
+    idx = KeypointIndex
 
     ref_shape = pose.get_identity_convex_hulls(subject)[frame_index]
     if ref_shape is None:

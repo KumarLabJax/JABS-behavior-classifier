@@ -10,6 +10,7 @@ import numpy.typing as npt
 import pytest
 
 import jabs.pose_estimation
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.pose_estimation import PoseEstimation
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
@@ -27,7 +28,7 @@ def sample_pose(request: pytest.FixtureRequest) -> Iterator[PoseEstimation]:
 
 def _reference_bearings(poses: PoseEstimation, identity: int) -> npt.NDArray[np.float32]:
     """Original per-frame loop from compute_all_bearings, kept as a reference."""
-    use_nose = not poses.get_reduced_point_mask()[PoseEstimation.KeypointIndex.BASE_NECK.value]
+    use_nose = not poses.get_reduced_point_mask()[KeypointIndex.BASE_NECK.value]
     bearings = np.full(poses.num_frames, np.nan, dtype=np.float32)
     for i in range(poses.num_frames):
         points, _ = poses.get_points(i, identity)
@@ -51,7 +52,7 @@ def test_bearings_fall_back_to_nose_without_base_neck(
 ) -> None:
     """A pose without a base neck keypoint uses the nose, as the original loop did."""
     reduced = np.array(sample_pose.get_reduced_point_mask(), dtype=bool)
-    reduced[PoseEstimation.KeypointIndex.BASE_NECK.value] = False
+    reduced[KeypointIndex.BASE_NECK.value] = False
     monkeypatch.setattr(sample_pose, "get_reduced_point_mask", lambda: reduced)
 
     identity = sample_pose.identities[0]

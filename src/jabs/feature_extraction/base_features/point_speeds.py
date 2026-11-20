@@ -1,5 +1,6 @@
 import numpy as np
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -35,7 +36,7 @@ class PointSpeeds(Feature):
         xy_deltas = np.gradient(poses, axis=0)
         point_velocities = np.linalg.norm(xy_deltas, axis=-1) * fps
 
-        for keypoint in PoseEstimation.KeypointIndex:
+        for keypoint in KeypointIndex:
             speeds[f"{keypoint.name} speed"] = point_velocities[:, keypoint.value]
 
         return speeds

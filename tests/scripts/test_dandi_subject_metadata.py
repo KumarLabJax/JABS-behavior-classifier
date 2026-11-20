@@ -5,7 +5,7 @@ import logging
 import numpy as np
 import pytest
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types.pose import PoseData
 from jabs.scripts.cli.dandi_subject_metadata import (
     subject_metadata_problems,
@@ -26,7 +26,7 @@ def _pose_data(
     subjects: dict[str, dict] | None = None,
 ) -> PoseData:
     """Build a minimal PoseData carrying the given identities and subject metadata."""
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     num_keypoints = len(body_parts)
     return PoseData(
         points=np.zeros((num_identities, 4, num_keypoints, 2)),

@@ -3,7 +3,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, NVSN_CONNECTED_SEGMENTS, KeypointIndex
 from jabs.core.utils.static_objects import lixit_keypoint_count
 
 from .pose_est_v4 import PoseEstimationV4
@@ -84,19 +84,19 @@ class PoseEstimationV5(PoseEstimationV4):
         # if we don't see any of the points that are missing from Envision Hydranet
         # pose we use NVSN_CONNECTED_SEGMENTS, otherwise we use FULL_CONNECTED_SEGMENTS
         points_missing_from_nvsn = [
-            PoseEstimation.KeypointIndex.BASE_NECK.value,
-            PoseEstimation.KeypointIndex.LEFT_FRONT_PAW.value,
-            PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW.value,
-            PoseEstimation.KeypointIndex.CENTER_SPINE.value,
-            PoseEstimation.KeypointIndex.LEFT_REAR_PAW.value,
-            PoseEstimation.KeypointIndex.RIGHT_REAR_PAW.value,
-            PoseEstimation.KeypointIndex.MID_TAIL.value,
+            KeypointIndex.BASE_NECK.value,
+            KeypointIndex.LEFT_FRONT_PAW.value,
+            KeypointIndex.RIGHT_FRONT_PAW.value,
+            KeypointIndex.CENTER_SPINE.value,
+            KeypointIndex.LEFT_REAR_PAW.value,
+            KeypointIndex.RIGHT_REAR_PAW.value,
+            KeypointIndex.MID_TAIL.value,
         ]
         reduced_mask = self.get_reduced_point_mask()
         self._connected_segments = (
-            PoseEstimation.FULL_CONNECTED_SEGMENTS
+            FULL_CONNECTED_SEGMENTS
             if np.any(reduced_mask[points_missing_from_nvsn])
-            else PoseEstimation.NVSN_CONNECTED_SEGMENTS
+            else NVSN_CONNECTED_SEGMENTS
         )
 
         return self._connected_segments

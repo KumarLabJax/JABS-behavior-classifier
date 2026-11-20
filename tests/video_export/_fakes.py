@@ -3,7 +3,7 @@
 import numpy as np
 from shapely.geometry import Polygon
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, KeypointIndex
 
 # Uniform frame value, so any pixel change is attributable to the overlay.
 BACKGROUND = 60
@@ -50,7 +50,7 @@ class StubPose:
     @staticmethod
     def get_connected_segments():
         """Return the standard full skeleton connections."""
-        return PoseEstimation.FULL_CONNECTED_SEGMENTS
+        return FULL_CONNECTED_SEGMENTS
 
     def get_points(self, frame_index: int, identity: int):
         """Return points offset per identity and per frame, all marked visible.
@@ -62,7 +62,7 @@ class StubPose:
         Indexes a real frame-backed array so that asking for a frame beyond
         ``num_frames`` raises ``IndexError``, exactly as a real pose object does.
         """
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         base = self._frame_offsets[frame_index]
         points = np.array(
             [[20 + base + i * 3, 20 + identity * 40 + i * 2] for i in range(n_kp)],

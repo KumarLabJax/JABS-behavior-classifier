@@ -19,13 +19,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 pytest.importorskip("pynwb")
 pytest.importorskip("ndx_pose")
 pytest.importorskip("ndx_jabs")
 
 from pynwb import NWBHDF5IO
 
-from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types.pose import PoseData
 from jabs.io.internal.pose import PoseNWBAdapter
 from jabs.scripts.cli.dandi_subject_metadata import subject_metadata_problems
@@ -40,7 +41,7 @@ VALID = {
 
 def _single_identity_pose(identity: str, subjects: dict[str, dict]) -> PoseData:
     """Build a minimal one-identity PoseData carrying the given subject metadata."""
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     num_keypoints = len(body_parts)
     return PoseData(
         points=np.zeros((1, 4, num_keypoints, 2)),

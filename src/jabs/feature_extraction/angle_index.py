@@ -3,9 +3,9 @@
 import enum
 from typing import Final
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 
-_KP = PoseEstimation.KeypointIndex
+_KP = KeypointIndex
 
 
 class AngleIndex(enum.IntEnum):
@@ -41,7 +41,7 @@ class AngleIndex(enum.IntEnum):
         return _ANGLE_NAMES[i]
 
     @staticmethod
-    def get_angle_indices(i: "AngleIndex") -> list[PoseEstimation.KeypointIndex]:
+    def get_angle_indices(i: "AngleIndex") -> list[KeypointIndex]:
         """get the keypoint indices for a given angle index
 
         Args:
@@ -65,9 +65,9 @@ _ANGLE_KEYPOINTS: Final[
     dict[
         AngleIndex,
         tuple[
-            PoseEstimation.KeypointIndex,
-            PoseEstimation.KeypointIndex,
-            PoseEstimation.KeypointIndex,
+            KeypointIndex,
+            KeypointIndex,
+            KeypointIndex,
         ],
     ]
 ] = {

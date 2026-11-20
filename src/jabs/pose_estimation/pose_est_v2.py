@@ -3,7 +3,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
+from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE
 from jabs.core.utils.pose_util import build_identity_mask
 
 

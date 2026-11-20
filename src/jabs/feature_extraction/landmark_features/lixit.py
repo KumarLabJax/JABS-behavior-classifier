@@ -2,6 +2,7 @@ import typing
 
 import numpy as np
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
@@ -23,7 +24,7 @@ class LixitDistanceInfo:
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         # Distances include all keypoints
-        self._keypoint_indices = list(PoseEstimation.KeypointIndex)
+        self._keypoint_indices = list(KeypointIndex)
 
         self._poses = poses
         self._pixel_scale = pixel_scale
@@ -104,8 +105,8 @@ class LixitDistanceInfo:
                     kpt_dist_vector
                 )
 
-            nose_points = points[:, PoseEstimation.KeypointIndex.NOSE, :]
-            base_neck_points = points[:, PoseEstimation.KeypointIndex.BASE_NECK, :]
+            nose_points = points[:, KeypointIndex.NOSE, :]
+            base_neck_points = points[:, KeypointIndex.BASE_NECK, :]
             self._cached_bearings[identity]["bearing to lixit"] = signed_angle_degrees(
                 nose_points, base_neck_points, closest_lixit_vec
             )
@@ -331,9 +332,9 @@ class MouseLixitAngle(Feature):
             centroids = centroids * self._pixel_scale
 
         # Compute the vector from the nose to the center of the spine for the mouse
-        mouse_vectors = points[:, PoseEstimation.KeypointIndex.NOSE, :] - centroids
+        mouse_vectors = points[:, KeypointIndex.NOSE, :] - centroids
 
-        mouse_back_vectors = centroids - points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :]
+        mouse_back_vectors = centroids - points[:, KeypointIndex.BASE_TAIL, :]
 
         # Get the lixit points for the closest lixit to the given identity
         lixit_points = self._poses.static_objects["lixit"][

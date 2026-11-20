@@ -21,6 +21,7 @@ from shapely.geometry import (
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.core.utils.pose_util import identity_centroids
 from jabs.pose_estimation import PoseEstimation
@@ -907,7 +908,7 @@ class ClosestIdentityInfo:
     HALF_FOV_DEGREE = 120
 
     def __init__(self, poses: PoseEstimation, identity: int, pixel_scale: float) -> None:
-        idx = PoseEstimation.KeypointIndex
+        idx = KeypointIndex
 
         self._poses = poses
         self._identity = identity
@@ -1184,7 +1185,7 @@ class ClosestIdentityInfo:
 
     def compute_pairwise_social_distances(
         self,
-        social_points: list[PoseEstimation.KeypointIndex],
+        social_points: list[KeypointIndex],
         closest_identities: npt.NDArray[np.integer],
     ) -> dict[str, npt.NDArray[np.float32]]:
         """Compute pairwise distances between specified keypoints of the subject and closest identity.

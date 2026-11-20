@@ -13,15 +13,15 @@ anything under ``jabs.ui`` pulls in ``MainWindow``, which the exports must not d
 import distinctipy
 from PySide6 import QtGui
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 
 # Distinct per-keypoint colors, from a fixed seed so they are reproducible across
 # runs and across the GUI overlay, frame export and video export.
-_KEYPOINT_COLORS = distinctipy.get_colors(len(PoseEstimation.KeypointIndex), rng=42)
+_KEYPOINT_COLORS = distinctipy.get_colors(len(KeypointIndex), rng=42)
 
 KEYPOINT_COLOR_MAP = {
     kp: QtGui.QColor(int(r * 255), int(g * 255), int(b * 255))
-    for kp, (r, g, b) in zip(PoseEstimation.KeypointIndex, _KEYPOINT_COLORS, strict=True)
+    for kp, (r, g, b) in zip(KeypointIndex, _KEYPOINT_COLORS, strict=True)
 }
 
 # Behavior label colors, used for the label/prediction marker in binary mode and as

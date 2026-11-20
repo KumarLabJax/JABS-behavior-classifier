@@ -4,8 +4,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
+from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.exceptions import PoseHashException
+from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE, KeypointIndex
 from jabs.core.utils.pose_util import build_identity_mask
 
 from .identity_indexed_pose import IdentityIndexedPoseMixin
@@ -112,7 +113,7 @@ class PoseEstimationV3(IdentityIndexedPoseMixin, PoseEstimation):
             self._identity_map = self._build_identity_map(all_instance_count, all_track_id)
 
             self._points = np.full(
-                (self._max_instances, self.num_frames, len(self.KeypointIndex), 2),
+                (self._max_instances, self.num_frames, len(KeypointIndex), 2),
                 np.nan,
                 dtype=np.float64,
             )

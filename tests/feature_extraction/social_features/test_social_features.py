@@ -15,6 +15,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import jabs.pose_estimation as pose_est
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction import FEATURE_VERSION
 from jabs.feature_extraction.social_features import (
     ClosestDistances,
@@ -85,24 +86,24 @@ class _MultiFrameStubPose:
             return None, None
 
         factor = 1.0 if scale is None else scale
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         points = np.zeros((n_kp, 2), dtype=np.float32)
         mask = np.ones(n_kp, dtype=np.uint8)
 
         cx, cy = center
         points[:, 0] = cx * factor
         points[:, 1] = cy * factor
-        points[PoseEstimation.KeypointIndex.NOSE] = ((cx + 5.0) * factor, cy * factor)
-        points[PoseEstimation.KeypointIndex.BASE_NECK] = (cx * factor, cy * factor)
+        points[KeypointIndex.NOSE] = ((cx + 5.0) * factor, cy * factor)
+        points[KeypointIndex.BASE_NECK] = (cx * factor, cy * factor)
         if not self._nose_valid and identity == 0:
-            mask[PoseEstimation.KeypointIndex.NOSE] = 0
+            mask[KeypointIndex.NOSE] = 0
         return points, mask
 
     def get_identity_poses(
         self, identity: int, scale: float | None = None
     ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.uint8]]:
         """Return synthetic keypoints for every frame; zeros where ``identity`` is absent."""
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         points = np.zeros((self.num_frames, n_kp, 2), dtype=np.float32)
         mask = np.zeros((self.num_frames, n_kp), dtype=np.uint8)
         for frame in range(self.num_frames):
@@ -588,7 +589,7 @@ def _reference_pairwise_social_distances(
     poses: PoseEstimation,
     identity: int,
     pixel_scale: float,
-    social_points: list[PoseEstimation.KeypointIndex],
+    social_points: list[KeypointIndex],
     closest_identities: npt.NDArray[np.integer],
 ) -> dict[str, npt.NDArray[np.float32]]:
     """Original per-frame loop from compute_pairwise_social_distances, kept as a reference."""
@@ -623,9 +624,9 @@ def test_pairwise_social_distances_match_reference(
 ) -> None:
     """Pairwise social distances equal the original per-frame loop, for every identity."""
     points = [
-        PoseEstimation.KeypointIndex.NOSE,
-        PoseEstimation.KeypointIndex.BASE_NECK,
-        PoseEstimation.KeypointIndex.BASE_TAIL,
+        KeypointIndex.NOSE,
+        KeypointIndex.BASE_NECK,
+        KeypointIndex.BASE_TAIL,
     ]
     for identity in sample_pose_v6.identities:
         info = ClosestIdentityInfo(sample_pose_v6, identity, pixel_scale)
@@ -653,9 +654,7 @@ def test_pairwise_social_distances_nan_without_neighbor_or_subject() -> None:
     info = ClosestIdentityInfo(pose, 0, 1.0)
     closest = np.array([1, 1, 1], dtype=np.int16)
 
-    dists = info.compute_pairwise_social_distances(
-        [PoseEstimation.KeypointIndex.BASE_NECK], closest
-    )
+    dists = info.compute_pairwise_social_distances([KeypointIndex.BASE_NECK], closest)
 
     np.testing.assert_array_equal(
         dists["social dist. BASE_NECK-BASE_NECK"], [20.0, np.nan, np.nan]

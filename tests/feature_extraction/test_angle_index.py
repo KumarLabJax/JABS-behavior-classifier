@@ -2,8 +2,8 @@
 
 import pytest
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.angle_index import AngleIndex
-from jabs.pose_estimation import PoseEstimation
 
 # The exact name of every angle. These strings become part of the feature column
 # names written to the feature cache, so a change here renames cached features
@@ -41,7 +41,7 @@ def test_get_angle_indices_are_three_distinct_keypoints(angle: AngleIndex) -> No
     keypoints = AngleIndex.get_angle_indices(angle)
 
     assert len(keypoints) == 3
-    assert all(isinstance(kp, PoseEstimation.KeypointIndex) for kp in keypoints)
+    assert all(isinstance(kp, KeypointIndex) for kp in keypoints)
     assert len(set(keypoints)) == 3
 
 

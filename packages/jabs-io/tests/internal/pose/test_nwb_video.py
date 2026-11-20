@@ -7,6 +7,8 @@ import h5py
 import numpy as np
 import pytest
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 # The NWB helpers need the optional `nwb` extra; an unguarded import would fail
 # collection and abort every other test in this package, not just these.
 pytest.importorskip("pynwb")
@@ -16,7 +18,6 @@ pytest.importorskip("ndx_multisubjects")
 
 from pynwb import NWBHDF5IO, NWBFile
 
-from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.types import PoseData
 from jabs.io.internal.pose import (
     PoseNWBAdapter,
@@ -33,7 +34,7 @@ FPS = 30
 @pytest.fixture
 def pose_nwb(tmp_path: Path) -> Path:
     """Write a one-identity pose NWB file named ``clip.nwb`` in a ``nwb`` directory."""
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     data = PoseData(
         points=np.zeros((1, NUM_FRAMES, len(body_parts), 2)),
         point_mask=np.ones((1, NUM_FRAMES, len(body_parts)), dtype=bool),
