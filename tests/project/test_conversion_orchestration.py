@@ -292,3 +292,32 @@ def test_malformed_pose_marks_the_video_unusable(tmp_path: Path) -> None:
     project = _open(project_dir)
     assert not project.is_usable("bad.avi")
     assert project.is_usable("a.avi")
+
+
+def test_malformed_legacy_file_during_prepare_poses_does_not_abort_the_batch(
+    tmp_path: Path,
+) -> None:
+    """A legacy file the scan accepts but the converter crashes on becomes unusable.
+
+    Its static object holds strings, so ``convert_legacy`` raises ``ValueError``
+    rather than ``LegacyConversionError``; the batch still converts the other video.
+    """
+    project_dir = tmp_path / "proj"
+    _add_video(project_dir, "bad.avi", LEGACY_CORPUS / "v8-with-centers.h5", "bad_pose_est_v8.h5")
+    _add_video(project_dir, "good.avi", DATA_DIR / "sample_pose_est_v2.h5", "good_pose_est_v2.h5")
+    with h5py.File(project_dir / "bad_pose_est_v8.h5", "a") as h5:
+        del h5["static_objects/corners"]
+        h5["static_objects/corners"] = np.array([b"a", b"b"])
+
+    project = _open(project_dir)
+    assert project.is_usable("bad.avi")
+
+    progress: list[tuple[int, int]] = []
+    project.prepare_poses(lambda i, n: progress.append((i, n)))
+
+    assert progress[-1] == (2, 2)
+    assert not project.is_usable("bad.avi")
+    assert "could not convert string to float" in project.unusable_videos["bad.avi"]
+    assert project.is_usable("good.avi")
+    good = project_dir / "good_pose_est_v2.h5"
+    assert converted_path(good, hash_file(good), _cache_dir(project_dir)).exists()

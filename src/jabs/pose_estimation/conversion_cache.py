@@ -32,6 +32,10 @@ _CONVERTED_DIR = "converted"
 # ValueError cover a malformed manifest that still passes the schema
 _OPEN_ERRORS = (PoseFileError, NotImplementedError, OSError, LookupError, ValueError)
 
+# what the converter raises besides OSError: a refusal, or (from a malformed
+# legacy file the inspection let through) a KeyError, IndexError or ValueError
+_CONVERT_ERRORS = (LegacyConversionError, LookupError, ValueError)
+
 
 def _converter_version() -> str:
     """Return the converter's version: the installed jabs-io version."""
@@ -136,8 +140,9 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
         The converted unified pose file.
 
     Raises:
-        PoseOpenError: If the converter refuses the file, it cannot be
-            converted or written, or it changed while being converted.
+        PoseOpenError: If the converter refuses the file or fails on it (a
+            malformed file), it cannot be converted or written, or it changed
+            while being converted.
     """
     destination = converted_path(source, source_hash, cache_dir)
     if destination.exists():
@@ -148,7 +153,7 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
         logger.info("Converting %s to %s", source, destination)
         convert_legacy(source, destination)
         _check_unchanged(source, source_hash, destination)
-    except LegacyConversionError as error:
+    except _CONVERT_ERRORS as error:
         raise PoseOpenError(source, _reason(source, error)) from error
     except OSError as error:
         if not destination.exists():
