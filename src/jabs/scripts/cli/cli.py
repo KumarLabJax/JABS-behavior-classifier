@@ -596,8 +596,8 @@ def convert_to_nwb(
 ) -> None:
     """Convert a JABS pose estimation file to NWB format.
 
-    INPUT_PATH is a JABS pose HDF5 file (any version, v2-v8). The format
-    version is inferred automatically from the filename (e.g. _pose_est_v6.h5).
+    INPUT_PATH is a JABS pose file: a unified <video>_pose.h5 file, or a legacy
+    <video>_pose_est_v<N>.h5 file (v2-v8). The format is told by the filename.
 
     OUTPUT is the destination NWB file. By default one file per identity is
     written: OUTPUT is a naming template and is not created directly; instead

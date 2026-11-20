@@ -4,16 +4,14 @@ import os
 import re
 from pathlib import Path
 
-import h5py
-
 from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.exceptions import PoseHashException
 from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE
-from jabs.core.utils.static_objects import lixit_keypoint_count
 
 from .conversion_cache import open_unified
-from .discovery import find_pose_file, is_legacy_pose_file, is_unified_pose_file
+from .discovery import find_pose_file, is_legacy_pose_file, is_pose_file, is_unified_pose_file
 from .errors import PoseOpenError
+from .metadata import PoseMetadata, scan_pose_metadata
 from .pose import Pose
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
@@ -125,41 +123,3 @@ def get_pose_path(video_path: Path, pose_dir: Path | None = None) -> Path:
     if pose_file is None:
         raise ValueError("Video does not have pose file")
     return pose_file
-
-
-def get_frames_from_file(path: Path):
-    """peek into a pose_est file to count number of frames"""
-    with h5py.File(path, "r") as pose_h5:
-        vid_grp = pose_h5["poseest"]
-        return vid_grp["points"].shape[0]
-
-
-def get_static_objects_in_file(path: Path):
-    """peek into a pose file to get a list of the static objects it contains
-
-    Args:
-        path: path of pose file
-
-    Returns:
-        list of static object names contained in pose file
-    """
-    if get_pose_file_major_version(path) >= 5:
-        with h5py.File(path, "r") as pose_h5:
-            if "static_objects" in pose_h5:
-                return list(pose_h5["static_objects"].keys())
-    return []
-
-
-def get_points_per_lixit(path: Path) -> int:
-    """inspect a pose file to get the number of keypoints per lixit
-
-    returns zero if the pose file does not have any lixit keypoints, which
-    includes a lixit dataset that is present but empty -- the same rule the
-    v5+ readers and the project scan apply.
-    """
-    points_per_lixit = 0
-    if get_pose_file_major_version(path) >= 5:
-        with h5py.File(path, "r") as pose_h5:
-            if "static_objects" in pose_h5 and "lixit" in pose_h5["static_objects"]:
-                points_per_lixit = lixit_keypoint_count(pose_h5["static_objects"]["lixit"].shape)
-    return points_per_lixit

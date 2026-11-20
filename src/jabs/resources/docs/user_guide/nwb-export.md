@@ -686,7 +686,7 @@ here; the JABS reader restores it from the canonical keypoint index.)
 | `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                                          |
 | `external_ids`          | `list[str] \| null`       | Always                       | External identity names: from the pose file when it has them, otherwise the ones supplied with the `name` field in `--subjects`. `null` if neither. Identities left unnamed take their `subject_N` placeholder. |
 | `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity subject metadata keyed by identity name, for all identities. `null` if no subject metadata is available. Fields: `subject_id`, `sex`, `species`, `age`, `date_of_birth`, `genotype`, `strain`, `weight`, `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. |
-| `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                                                                                      |
+| `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_source_format`, and optionally `source_file_hash`.                                                                                                      |
 | `has_segmentation`      | `bool`                    | Always                       | `true` if segmentation contours were written. Absent in older files, which carry no contours. |
 | `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                                             |
 | `dynamic_object_names`  | `list[str]`               | When dynamic objects present | Names of all dynamic object `PoseEstimation` containers.                                                                                                                                                            |
@@ -731,7 +731,7 @@ here; the JABS reader restores it from the canonical keypoint index.)
   },
   "metadata": {
     "source_file": "/data/session_pose_est_v7.h5",
-    "pose_format_version": 7,
+    "pose_source_format": "pose_est_v7",
     "source_file_hash": "a3f1c8..."
   },
   "has_segmentation": true,

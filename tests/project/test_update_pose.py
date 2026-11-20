@@ -1,16 +1,21 @@
 import json
 import os
+import shutil
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.cli.update_pose as update_pose
+from jabs.core.types import SegmentationWindow
+from jabs.pose_estimation import conversion_cache
 from jabs.project import TimelineAnnotations, VideoLabels
 from jabs.project.timeline_annotations import is_valid_tag
 from jabs.scripts.cli.cli import cli
@@ -28,7 +33,6 @@ def _make_pose(identities, boxes_by_identity, *, num_identities=None):
     num_frames = next(iter(boxes_by_identity.values())).shape[0]
     identity_list = list(identities)
     return SimpleNamespace(
-        format_major_version=8,
         has_bounding_boxes=True,
         num_frames=num_frames,
         num_identities=num_identities if num_identities is not None else len(identity_list),
@@ -38,15 +42,38 @@ def _make_pose(identities, boxes_by_identity, *, num_identities=None):
     )
 
 
+@pytest.fixture(autouse=True)
+def _user_cache_in_tmp(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep conversions made without a project cache out of the real per-user cache."""
+    user_cache = tmp_path_factory.mktemp("user-cache")
+    monkeypatch.setattr(conversion_cache, "user_cache_dir", lambda _app: str(user_cache))
+
+
+# a 120-frame v8 pose file; the metadata tests replace its model metadata
+_V8_POSE = (
+    Path(__file__).parents[2]
+    / "packages"
+    / "jabs-io"
+    / "tests"
+    / "data"
+    / "legacy-pose"
+    / "v8-with-centers.h5"
+)
+
+
 def _write_pose_file_with_metadata(
     pose_path: Path,
     metadata: dict[str, object] | None = None,
     *,
     raw_json: str | None = None,
 ) -> None:
-    """Create a minimal pose H5 file with optional model metadata."""
-    with h5py.File(pose_path, "w") as pose_h5:
-        pose_grp = pose_h5.create_group("poseest")
+    """Write a small v8 pose file with the given model metadata, or none."""
+    shutil.copyfile(_V8_POSE, pose_path)
+    with h5py.File(pose_path, "a") as pose_h5:
+        pose_grp = pose_h5["poseest"]
+        pose_grp.attrs.pop("model_metadata_json", None)
         if raw_json is not None:
             pose_grp.attrs["model_metadata_json"] = raw_json
         elif metadata is not None:
@@ -103,8 +130,13 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
     (new_pose_dir / "video1_pose_est_v7.h5").touch()
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        return nullcontext(
+            SimpleNamespace(
+                source_format="pose_est_v8",
+                has_bounding_boxes=True,
+                num_frames=10,
+                num_identities=2,
+            )
         )
 
     monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
@@ -162,8 +194,13 @@ def test_preflight_rejects_nonwritable_live_annotation_targets(
     unwritable_path = project_dir / unwritable
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        return nullcontext(
+            SimpleNamespace(
+                source_format="pose_est_v8",
+                has_bounding_boxes=True,
+                num_frames=10,
+                num_identities=2,
+            )
         )
 
     def fake_access(path, mode):
@@ -210,8 +247,13 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
     )
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        return nullcontext(
+            SimpleNamespace(
+                source_format="pose_est_v8",
+                has_bounding_boxes=True,
+                num_frames=10,
+                num_identities=2,
+            )
         )
 
     monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
@@ -1091,8 +1133,13 @@ def test_preflight_update_inputs_raises_on_orphan_source_identities(tmp_path, mo
     )
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        return nullcontext(
+            SimpleNamespace(
+                source_format="pose_est_v8",
+                has_bounding_boxes=True,
+                num_frames=10,
+                num_identities=2,
+            )
         )
 
     monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
@@ -1130,8 +1177,13 @@ def test_preflight_update_inputs_tolerates_orphans_and_warns(tmp_path, monkeypat
     )
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        return nullcontext(
+            SimpleNamespace(
+                source_format="pose_est_v8",
+                has_bounding_boxes=True,
+                num_frames=10,
+                num_identities=2,
+            )
         )
 
     monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
@@ -1349,6 +1401,26 @@ def _diagonal_band(n: int, *, anti: bool = False) -> np.ndarray:
     return band
 
 
+def _padded_windows(seg: npt.NDArray[np.integer]) -> list[SegmentationWindow]:
+    """One segmentation window from -1 padded (frames, contours, vertices, 2) contours.
+
+    A slot holds a contour when its first x is not -1; its points are the leading ones
+    before the first -1 x. The fakes pack their contours first already.
+    """
+    padding = seg[..., 0] == -1
+    exists = ~padding[..., 0]
+    lengths = np.where(padding.any(axis=-1), padding.argmax(axis=-1), seg.shape[2])
+    return [
+        SegmentationWindow(
+            contours=seg.astype(np.int32),
+            contour_count=exists.sum(axis=-1).astype(np.uint32),
+            contour_length=np.where(exists, lengths, 0).astype(np.uint32),
+            external_flag=None,
+            start=0,
+        )
+    ]
+
+
 def _make_seg_pose(boxes_by_identity, bands_by_identity):
     """Build a v8-style pose fake with bounding boxes and one mask contour per frame."""
     pose = _make_pose(list(boxes_by_identity), boxes_by_identity)
@@ -1358,7 +1430,7 @@ def _make_seg_pose(boxes_by_identity, bands_by_identity):
         for identity, band in bands_by_identity.items()
     }
     pose.has_segmentation = True
-    pose.get_segmentation_data = lambda identity: seg[identity]
+    pose.iter_segmentation = lambda identity, block=300: _padded_windows(seg[identity])
     return pose
 
 
@@ -1461,7 +1533,7 @@ def test_remap_labels_for_video_splits_block_at_identity_handoff(capsys):
         1: np.where(np.arange(frames)[:, None, None, None] < 5, band, -1).astype(np.int32),
         2: np.where(np.arange(frames)[:, None, None, None] >= 5, band, -1).astype(np.int32),
     }
-    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.iter_segmentation = lambda identity, block=300: _padded_windows(seg[identity])
     dest_pose.identities = [1, 2]
 
     source_labels = VideoLabels("video1.avi", frames)
@@ -1515,7 +1587,7 @@ def test_remap_labels_for_video_flags_ambiguous_split(capsys):
     seg = {
         i: np.where((owner == i)[:, None, None, None], band, -1).astype(np.int32) for i in (1, 2)
     }
-    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.iter_segmentation = lambda identity, block=300: _padded_windows(seg[identity])
     dest_pose.identities = [1, 2]
 
     source_labels = VideoLabels("video1.avi", frames)

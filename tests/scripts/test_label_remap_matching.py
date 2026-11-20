@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from jabs.core.types import SegmentationWindow
 from jabs.scripts.cli.label_remap_matching import (
     IdentityMatcher,
     MatchMetric,
@@ -35,6 +36,26 @@ def _seg_array(frames: list[list[npt.NDArray[np.int32]] | None]) -> npt.NDArray[
     return seg
 
 
+def _padded_windows(seg: npt.NDArray[np.integer]) -> list[SegmentationWindow]:
+    """One segmentation window from -1 padded (frames, contours, vertices, 2) contours.
+
+    A slot holds a contour when its first x is not -1; its points are the leading ones
+    before the first -1 x. The fakes pack their contours first already.
+    """
+    padding = seg[..., 0] == -1
+    exists = ~padding[..., 0]
+    lengths = np.where(padding.any(axis=-1), padding.argmax(axis=-1), seg.shape[2])
+    return [
+        SegmentationWindow(
+            contours=seg.astype(np.int32),
+            contour_count=exists.sum(axis=-1).astype(np.uint32),
+            contour_length=np.where(exists, lengths, 0).astype(np.uint32),
+            external_flag=None,
+            start=0,
+        )
+    ]
+
+
 def _box(x0: float, y0: float, x1: float, y1: float) -> npt.NDArray[np.float32]:
     """One frame's bounding box in the [[x1, y1], [x2, y2]] layout pose files use."""
     return np.array([[x0, y0], [x1, y1]], dtype=np.float32)
@@ -52,7 +73,7 @@ def _pose(
         has_bounding_boxes=boxes is not None,
         get_bounding_boxes=lambda i: boxes[i],
         has_segmentation=masks is not None,
-        get_segmentation_data=lambda i: seg.get(i),
+        iter_segmentation=lambda i, block=300: _padded_windows(seg[i]) if i in seg else [],
     )
 
 
