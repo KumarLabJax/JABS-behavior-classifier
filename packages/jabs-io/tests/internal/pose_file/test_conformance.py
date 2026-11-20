@@ -66,6 +66,7 @@ INVALID = {
     "invalid-ragged-order.h5": "ragged_offsets",
     "invalid-ragged-pairing.h5": "ragged_group_pairing",
     "invalid-ragged-signed-offsets.h5": "ragged_offsets",
+    "invalid-ragged-uint32-offsets.h5": "ragged_offsets",
     "invalid-rle-coverage.h5": "rle_coverage",
     "invalid-rle-dimensions.h5": "rle_needs_dimensions",
     "invalid-rle-offsets.h5": "rle_offsets",

@@ -936,16 +936,17 @@ def _offsets(h5: h5py.File, path: str) -> np.ndarray | None:
         path: The dataset's path.
 
     Returns:
-        The offsets, or None when the path is not a one-dimensional dataset.
+        The offsets, or None when the path is not a one-dimensional ``uint64``
+        dataset.
     """
     node = h5.get(path)
     if not isinstance(node, h5py.Dataset):
         return None
     values = np.asarray(node[()])
-    # Unsigned by specification. A float offset cannot index an array, and a
-    # signed one admits negatives, so neither is usable even when its values
-    # happen to look right.
-    if values.ndim != 1 or values.dtype.kind != "u":
+    # uint64 by specification. A float offset cannot index an array, a signed
+    # one admits negatives, and a narrower unsigned one is refused by the
+    # reader, so none is usable even when its values happen to look right.
+    if values.ndim != 1 or values.dtype != np.uint64:
         return None
     return values.astype(np.int64, copy=False)
 
@@ -984,7 +985,7 @@ def _check_offsets(
                     ERROR,
                     check,
                     f"{component_id}: group_offsets at {encoding['group_offsets']} is missing, "
-                    "not one-dimensional, or not an unsigned integer",
+                    "not one-dimensional, or not uint64",
                 )
             )
         elif encoding.get("level", "leaf") == "leaf":
@@ -1015,7 +1016,7 @@ def _check_offsets(
                 ERROR,
                 check,
                 f"{component_id}: instance_offsets at {encoding['instance_offsets']} is "
-                "missing, not one-dimensional, or not an unsigned integer",
+                "missing, not one-dimensional, or not uint64",
             )
         )
         return

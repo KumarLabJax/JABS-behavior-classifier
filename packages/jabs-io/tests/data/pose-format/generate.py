@@ -898,6 +898,15 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
                 path, f"{RAGGED}/instance_offsets", lambda a: a.astype(np.int64)
             ),
         ),
+        # Unsigned but narrower than the uint64 the encoding requires: a
+        # reader that builds its index as uint64 refuses it.
+        (
+            "invalid-ragged-uint32-offsets.h5",
+            ragged,
+            lambda path: _with_offsets(
+                path, f"{RAGGED}/contour_offsets", lambda a: a.astype(np.uint32)
+            ),
+        ),
         (
             "invalid-ragged-pairing.h5",
             ragged,
