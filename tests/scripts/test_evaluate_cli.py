@@ -874,9 +874,11 @@ def test_save_predictions_writes_one_file_per_video(
 
     result = _run(save_predictions_dir=tmp_path)
 
+    # the fake pose files are unified ``<video>_pose.h5`` names, whose stem is
+    # the video's
     assert sorted(p.name for p in result.prediction_files) == [
-        "a.mp4_pose_behavior.h5",
-        "b.mp4_pose_behavior.h5",
+        "a.mp4_behavior.h5",
+        "b.mp4_behavior.h5",
     ]
     assert all(beh == "Grooming" for beh, _ in written.values())
 

@@ -1,5 +1,6 @@
 """JABS pose file handler module"""
 
+import os
 import re
 from pathlib import Path
 
@@ -10,6 +11,10 @@ from jabs.core.exceptions import PoseHashException
 from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE
 from jabs.core.utils.static_objects import lixit_keypoint_count
 
+from .conversion_cache import open_unified
+from .discovery import find_pose_file, is_legacy_pose_file, is_unified_pose_file
+from .errors import PoseOpenError
+from .pose import Pose
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
 from .pose_est_v4 import PoseEstimationV4
@@ -23,9 +28,12 @@ from .pose_est_v8 import PoseEstimationV8
 # supply the version.
 _POSE_VERSION_RE = re.compile(r"_v(\d+)\.h5$")
 
-# reader class for each pose file major version JABS can open. This is the single
-# source of truth for the supported versions: open_pose_file() dispatches on it and
-# get_pose_path() searches for these versions, newest first.
+# when "1", legacy pose files open through the conversion cache as Pose instead
+# of their legacy reader
+_FORCE_UNIFIED_ENV = "JABS_FORCE_UNIFIED"
+
+# reader class for each legacy pose file major version JABS can open;
+# open_pose_file() dispatches legacy files on it.
 _POSE_READERS: dict[int, type[PoseEstimation]] = {
     2: PoseEstimationV2,
     3: PoseEstimationV3,
@@ -59,25 +67,33 @@ def get_pose_file_major_version(path: Path) -> int:
     return int(match.group(1))
 
 
-def open_pose_file(path: Path, cache_dir: Path | None = None) -> PoseEstimation:
-    """open a pose file using the reader for the version declared by its filename
+def open_pose_file(path: Path, cache_dir: Path | None = None) -> PoseEstimation | Pose:
+    """Open a pose file.
 
-    The version comes from :func:`get_pose_file_major_version`, so a file name
-    this function accepts is one the rest of JABS also recognizes.
+    A unified ``*_pose.h5`` file opens as :class:`Pose`. A legacy
+    ``*_pose_est_v<N>.h5`` file opens with the legacy reader for the version
+    its name declares (see :func:`get_pose_file_major_version`), unless the
+    environment variable ``JABS_FORCE_UNIFIED`` is ``1``, which converts it
+    through the conversion cache and opens it as :class:`Pose` too.
 
     Args:
-        path: path of pose file, named following the JABS convention
-            ``<video name>_pose_est_v<major version>.h5``
+        path: path of pose file
         cache_dir: optional directory the reader may use to cache the converted
             pose data
 
     Returns:
+        :class:`Pose` for a unified (or forced) file, otherwise the
         PoseEstimation subclass instance for the file's format version
 
     Raises:
+        PoseOpenError: if a unified (or forced) file cannot be opened
         ValueError: if the file name does not declare a major version, or declares
             a version JABS is unable to open
     """
+    if is_unified_pose_file(path) or (
+        is_legacy_pose_file(path) and os.environ.get(_FORCE_UNIFIED_ENV) == "1"
+    ):
+        return open_unified(path, cache_dir)
     version = get_pose_file_major_version(path)
     try:
         reader = _POSE_READERS[version]
@@ -89,7 +105,10 @@ def open_pose_file(path: Path, cache_dir: Path | None = None) -> PoseEstimation:
 
 
 def get_pose_path(video_path: Path, pose_dir: Path | None = None) -> Path:
-    """take a path to a video file and return the path to the corresponding pose_est h5 file
+    """take a path to a video file and return the path to its pose file
+
+    The unified ``<video>_pose.h5`` wins; otherwise the highest version legacy
+    ``<video>_pose_est_v<N>.h5`` (see :func:`find_pose_file`).
 
     Args:
         video_path: Path to video file in project
@@ -97,20 +116,15 @@ def get_pose_path(video_path: Path, pose_dir: Path | None = None) -> Path:
             search beside ``video_path``.
 
     Returns:
-        Path object representing location of corresponding pose_est h5 file
+        Path object representing location of corresponding pose file
 
     Raises:
-        ValueError: if video_path does not have corresponding pose_est file
+        ValueError: if video_path does not have corresponding pose file
     """
-    file_base = video_path.with_suffix("")
-    search_dir = pose_dir if pose_dir is not None else video_path.parent
-
-    # default to the highest version pose file for a video
-    for version in sorted(_POSE_READERS, reverse=True):
-        pose_file = search_dir / f"{file_base.name}_pose_est_v{version}.h5"
-        if pose_file.exists():
-            return pose_file
-    raise ValueError("Video does not have pose file")
+    pose_file = find_pose_file(video_path, pose_dir)
+    if pose_file is None:
+        raise ValueError("Video does not have pose file")
+    return pose_file
 
 
 def get_frames_from_file(path: Path):
