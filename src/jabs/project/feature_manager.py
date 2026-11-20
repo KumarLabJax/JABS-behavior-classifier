@@ -1,17 +1,45 @@
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import jabs.feature_extraction as feature_extraction
-from jabs.core.enums import ProjectDistanceUnit
+from jabs.core.enums import PoseCapability, ProjectDistanceUnit
 from jabs.pose_estimation import (
     get_pose_file_major_version,
     get_pose_path,
 )
+from jabs.pose_estimation.discovery import is_unified_pose_file
 
 from .project_paths import ProjectPaths
 from .video_manager import VideoManager
 
 if TYPE_CHECKING:
     from .parallel_workers import VideoScanResult
+
+# The legacy major version a unified pose file stands in for until features are
+# gated on capabilities: 6 (segmentation) when it has segmentation, else 5
+# (social and static objects; static objects are still checked by name).
+_UNIFIED_SEGMENTATION_VERSION = 6
+_UNIFIED_VERSION = 5
+
+
+def _pose_version(pose_path: Path, capabilities: list[str]) -> int:
+    """Return the pose version that gates a video's features.
+
+    A legacy file's version comes from its name; a unified file has none, so
+    one is derived from its scanned capabilities.
+
+    Args:
+        pose_path: The video's pose file.
+        capabilities: Its scanned ``PoseCapability`` values.
+
+    Returns:
+        The pose major version to gate features on.
+    """
+    if is_unified_pose_file(pose_path):
+        if PoseCapability.SEGMENTATION.value in capabilities:
+            return _UNIFIED_SEGMENTATION_VERSION
+        return _UNIFIED_VERSION
+    return get_pose_file_major_version(pose_path)
 
 
 class FeatureManager:
@@ -31,7 +59,9 @@ class FeatureManager:
             :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
             by video filename. Every entry in ``videos`` must have a
             corresponding key. Required fields: ``static_objects``,
-            ``lixit_keypoints``, ``has_cm_per_pixel``.
+            ``lixit_keypoints``, ``has_cm_per_pixel``, ``capabilities``,
+            ``error``. Videos whose scan failed (``error`` set) do not
+            restrict the project's features.
     """
 
     def __init__(
@@ -86,10 +116,14 @@ class FeatureManager:
                     self._project_paths.pose_dir,
                 )
 
-            # Get pose version (filename regex — no I/O)
-            pose_versions.append(get_pose_file_major_version(pose_path))
-
             result = scan_results[vid]
+            # an unusable video must not strip features from the others
+            if result["error"] is not None:
+                continue
+
+            # filename regex, or scanned capabilities for a unified file - no I/O
+            pose_versions.append(_pose_version(pose_path, result["capabilities"]))
+
             static_objs = result["static_objects"]
             if "lixit" in static_objs:
                 lixit_keypoints.append(result["lixit_keypoints"])

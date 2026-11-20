@@ -43,9 +43,9 @@ _POINT_VALID = "jabs.pose.point_valid"
 _SLOT_OCCUPIED = "jabs.pose.slot_occupied"
 _SLOT_USABLE = "jabs.pose.slot_usable"
 _TRACKLET_ID = "jabs.pose.tracklet_id"
-_BBOX = "jabs.pose.bbox"
+BBOX_COMPONENT = "jabs.pose.bbox"
 _EXTERNAL_IDS = "jabs.identity.external_ids"
-_STATIC_PREFIX = "jabs.static_objects."
+STATIC_OBJECT_PREFIX = "jabs.static_objects."
 _DYNAMIC_PREFIX = "jabs.dynamic_objects."
 _DYNAMIC_PARTS = ("frame_index", "points", "counts")
 
@@ -118,6 +118,87 @@ def _last_convert_entry(history: tuple[HistoryEntry, ...]) -> HistoryEntry | Non
     return None
 
 
+def converted_from_format(convert: HistoryEntry | None) -> str | None:
+    """Return the source format a ``convert`` history entry names, or None.
+
+    Args:
+        convert: The file's last ``convert`` history entry, or None.
+
+    Returns:
+        The entry's ``source.format``, such as ``"pose_est_v3"``; None without one.
+    """
+    return (convert.source or {}).get("format") if convert is not None else None
+
+
+def tracks_are_identities(manifest: dict, converted_from: str | None) -> bool:
+    """Return True when every slot of a unified file is an identity.
+
+    That is a legacy v3 conversion: ``dimensions.identity == 0``, a
+    ``jabs.pose.tracklet_id`` component, and a last ``convert`` entry from
+    ``pose_est_v3``. Any other ``identity == 0`` file (such as a v4+ file
+    whose instances are all masked, which keeps its tracklets) has no
+    identities.
+
+    Args:
+        manifest: The file's manifest.
+        converted_from: :func:`converted_from_format` of its last convert entry.
+
+    Returns:
+        Whether the file's tracks are its identities.
+    """
+    component_ids = {spec["id"] for spec in manifest["components"]}
+    return (
+        manifest["dimensions"]["identity"] == 0
+        and _TRACKLET_ID in component_ids
+        and converted_from == _V3_FORMAT
+    )
+
+
+def identity_count(manifest: dict, converted_from: str | None) -> int:
+    """Return a unified file's number of identities.
+
+    ``dimensions.slot`` when its tracks are its identities (see
+    :func:`tracks_are_identities`), otherwise ``dimensions.identity``.
+
+    Args:
+        manifest: The file's manifest.
+        converted_from: :func:`converted_from_format` of its last convert entry.
+
+    Returns:
+        The number of identities.
+    """
+    dimensions = manifest["dimensions"]
+    if tracks_are_identities(manifest, converted_from):
+        return int(dimensions["slot"])
+    return int(dimensions["identity"])
+
+
+def has_segmentation_components(component_ids: set[str]) -> bool:
+    """Return True when the components needed to read segmentation are all present.
+
+    Args:
+        component_ids: The ids of a file's components.
+    """
+    return all(c in component_ids for c in _SEGMENTATION_REQUIRED)
+
+
+def resolve_source_format(path: Path, converted_from: str | None) -> str:
+    """Return the ``source_format`` of the pose file the user has.
+
+    Taken from ``path``'s name; when that follows neither naming convention,
+    from the convert history entry, else native.
+
+    Args:
+        path: The pose file the user has.
+        converted_from: :func:`converted_from_format` of its last convert
+            entry, or None (always None for a legacy file).
+
+    Returns:
+        ``"pose_est_v<N>"`` or ``"jabs.pose-file"``.
+    """
+    return source_format_from_path(path) or converted_from or NATIVE_SOURCE_FORMAT
+
+
 class Pose:
     """Read access to one video's pose, from a unified pose file.
 
@@ -183,20 +264,11 @@ class Pose:
 
         convert = _last_convert_entry(self._reader.read_provenance().history)
         extra = (convert.extra or {}) if convert is not None else {}
-        converted_from = (convert.source or {}).get("format") if convert is not None else None
+        converted_from = converted_from_format(convert)
 
-        dimensions = manifest["dimensions"]
-        self._num_frames = int(dimensions["frame"])
-        has_tracklets = _TRACKLET_ID in self._component_ids
-        # A v3 conversion: tracks placed one per slot, so each slot is an identity.
-        # Any other identity = 0 file (such as a v4+ file whose instances are all
-        # masked, which keeps its tracklets) has no identities.
-        self._tracks_are_identities = (
-            dimensions["identity"] == 0 and has_tracklets and converted_from == _V3_FORMAT
-        )
-        num_identities = (
-            int(dimensions["slot"]) if self._tracks_are_identities else int(dimensions["identity"])
-        )
+        self._num_frames = int(manifest["dimensions"]["frame"])
+        self._tracks_are_identities = tracks_are_identities(manifest, converted_from)
+        num_identities = identity_count(manifest, converted_from)
         self._identities = list(range(num_identities))
 
         video = manifest["video"]
@@ -216,16 +288,14 @@ class Pose:
             names = self._reader.read(_EXTERNAL_IDS)
             self._external_identities = [str(name) for name in names.tolist()]
 
-        self._has_segmentation = all(c in self._component_ids for c in _SEGMENTATION_REQUIRED)
+        self._has_segmentation = has_segmentation_components(self._component_ids)
         self._segmentation_capacity: tuple[int, int] = (0, 0)
         if self._has_segmentation:
             spec = next(s for s in manifest["components"] if s["id"] == _CONTOURS)
             self._segmentation_capacity = (int(spec["shape"][2]), int(spec["shape"][3]))
 
         self._model_metadata = parse_model_metadata(extra.get("model_metadata_json"))
-        self._source_format = (
-            source_format_from_path(self._path) or converted_from or NATIVE_SOURCE_FORMAT
-        )
+        self._source_format = resolve_source_format(self._path, converted_from)
 
     def _check_skeleton(self, manifest: dict) -> tuple[str, ...]:
         """Return the points' body parts, refusing anything but the JABS mouse skeleton."""
@@ -270,8 +340,8 @@ class Pose:
             )
 
         self._bboxes: npt.NDArray[np.float32] | None = None
-        if _BBOX in self._component_ids:
-            boxes = self._reader.read(_BBOX)[:, identity_slots].astype(np.float32)
+        if BBOX_COMPONENT in self._component_ids:
+            boxes = self._reader.read(BBOX_COMPONENT)[:, identity_slots].astype(np.float32)
             self._bboxes = np.ascontiguousarray(boxes.transpose(1, 0, 2, 3))
 
     def _load_objects(self, manifest: dict) -> None:
@@ -281,8 +351,8 @@ class Pose:
         dynamic_names: list[str] = []
         for spec in manifest["components"]:
             component_id = spec["id"]
-            if component_id.startswith(_STATIC_PREFIX):
-                name = component_id[len(_STATIC_PREFIX) :]
+            if component_id.startswith(STATIC_OBJECT_PREFIX):
+                name = component_id[len(STATIC_OBJECT_PREFIX) :]
                 data = self._reader.read(component_id).astype(np.float32)
                 if name == "lixit":
                     self._lixit_keypoints = int(data.shape[1])
