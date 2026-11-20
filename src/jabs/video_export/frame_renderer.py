@@ -73,11 +73,9 @@ def render_overlay_frame(
         frame_index: Index of this frame within the video.
         draw_pose: Whether to draw the pose keypoints and skeleton.
         draw_segmentation: Whether to draw the segmentation contours as well.
-            Ignored when the pose file carries no segmentation data - it predates
-            v6, or is v6+ but was generated without it.
+            Ignored when the pose file carries no segmentation data.
         draw_bounding_boxes: Whether to draw each identity's bounding box and ID.
-            Ignored when the pose file has no bounding boxes (before v8, or v8+
-            generated without them).
+            Ignored when the pose file has no bounding boxes.
         draw_landmarks: Whether to draw the arena landmarks (corners, lixit and
             food hopper). Ignored when the pose file records none of them.
         label_overlay: Labels and/or predictions to mark next to each identity,
@@ -91,9 +89,8 @@ def render_overlay_frame(
     if img.dtype != np.uint8:
         img = img.astype(np.uint8)
 
-    # `has_segmentation` rather than a version check: segmentation is optional even
-    # in v6+ files, and this skips a no-op call per identity per frame.
-    segmentation = draw_segmentation and getattr(pose_est, "has_segmentation", False)
+    # checked once here, which skips a no-op call per identity per frame
+    segmentation = draw_segmentation and pose_est.has_segmentation
 
     bounding_boxes = draw_bounding_boxes and pose_has_bounding_boxes(pose_est)
 

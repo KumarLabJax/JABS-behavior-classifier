@@ -111,15 +111,13 @@ def _fake_pose(
 ) -> mock.Mock:
     """Build a stand-in pose file with 100 frames.
 
-    It is a v8 pose file when it has bounding boxes, and v6 otherwise. With landmarks it
-    records the arena corners.
+    With landmarks it records the arena corners.
     """
     pose = mock.Mock()
     pose.identities = [0, 1, 2]
     pose.num_frames = 100
     pose.has_segmentation = has_segmentation
     pose.has_bounding_boxes = has_bounding_boxes
-    pose.format_major_version = 8 if has_bounding_boxes else 6
     pose.static_objects = {"corners": np.zeros((4, 2))} if has_landmarks else {}
     return pose
 
@@ -427,7 +425,7 @@ def test_failed_load_does_not_leave_loading_message(
 
 
 def test_bounding_box_control_follows_the_pose_file(monkeypatch, window) -> None:
-    """Only a pose file with bounding boxes (v8+) enables the bounding box toggle."""
+    """Only a pose file with bounding boxes enables the bounding box toggle."""
     assert not window._bbox_action.isEnabled()
 
     _patch_pose_lookup(monkeypatch, POSE_PATH, _fake_pose(has_bounding_boxes=False))
@@ -760,3 +758,10 @@ def test_unreadable_video_frame_count_still_opens_with_the_pose(
     window.open_video(VIDEO_PATH)
 
     window._player.load_video.assert_called_once_with(VIDEO_PATH, pose)
+
+
+def test_pose_file_filter_accepts_unified_and_legacy_names() -> None:
+    """The open dialog lists unified ``*_pose.h5`` and legacy ``*_pose_est_v*.h5`` files."""
+    assert viewer_window.POSE_FILE_FILTER == (
+        "Pose Files (*_pose.h5 *_pose_est_v*.h5);;All Files (*)"
+    )

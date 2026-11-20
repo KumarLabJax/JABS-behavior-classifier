@@ -1,15 +1,19 @@
-"""Tests for the feature cache section of the video info dialog."""
+"""Tests for the pose and feature cache sections of the video info dialog."""
 
+import json
+import shutil
 from pathlib import Path
 
 import pytest
 
 from jabs.core.enums import CacheFormat
+from jabs.core.utils import hash_file
 from jabs.io.feature_cache import IdentityCacheInfo
+from jabs.pose_estimation import conversion_cache
 from jabs.project import VideoFeatureCacheStatus
 
 try:
-    from PySide6.QtWidgets import QApplication, QLabel
+    from PySide6.QtWidgets import QApplication, QLabel, QPlainTextEdit
 
     from jabs.ui.dialogs.video_info_dialog import VideoInfoDialog
 
@@ -190,3 +194,48 @@ def test_dialog_reports_distance_units(scale, expected):
     dialog = _dialog(_status(distance_scale_factor=scale))
 
     assert _value_for(dialog, "Distance units:") == expected
+
+
+# a v8 file with corners and model metadata
+_V8_SOURCE = (
+    Path(__file__).parents[2]
+    / "packages"
+    / "jabs-io"
+    / "tests"
+    / "data"
+    / "legacy-pose"
+    / "v8-with-centers.h5"
+)
+
+
+def _pose_file(tmp_path: Path, kind: str) -> Path:
+    """Copy the v8 fixture as a legacy file, or as its unified conversion."""
+    legacy = tmp_path / "video1_pose_est_v8.h5"
+    shutil.copyfile(_V8_SOURCE, legacy)
+    if kind == "legacy":
+        return legacy
+    converted = conversion_cache.ensure_converted(legacy, hash_file(legacy), tmp_path / "cache")
+    unified = tmp_path / "video1_pose.h5"
+    shutil.copyfile(converted, unified)
+    return unified
+
+
+@pytest.mark.parametrize("kind", ["legacy", "unified"])
+def test_dialog_shows_static_objects_and_model_metadata(tmp_path: Path, kind: str):
+    """Static objects and model metadata are read from legacy and unified pose files."""
+    dialog = VideoInfoDialog(_VIDEO_PATH, _pose_file(tmp_path, kind), identity_count=3)
+
+    assert _value_for(dialog, "Static objects:") == "corners"
+    (metadata_view,) = dialog.findChildren(QPlainTextEdit)
+    assert json.loads(metadata_view.toPlainText())["experiment_name"] == "synthetic_seg_and_pose"
+
+
+def test_dialog_reports_why_a_pose_file_cannot_be_read(tmp_path: Path):
+    """An unreadable pose file is reported with the reason, not a crash."""
+    pose = tmp_path / "video1_pose.h5"
+    pose.write_bytes(b"not hdf5")
+
+    dialog = VideoInfoDialog(_VIDEO_PATH, pose)
+
+    assert _value_for(dialog, "Pose file:").startswith("Unable to read pose file")
+    assert not dialog.findChildren(QPlainTextEdit)

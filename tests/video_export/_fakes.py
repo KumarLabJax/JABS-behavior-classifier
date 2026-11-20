@@ -4,6 +4,8 @@ import numpy as np
 from shapely.geometry import Polygon
 
 from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, KeypointIndex
+from jabs.core.types import SegmentationWindow
+from jabs.pose_estimation.pose_est_v6 import pack_segmentation
 
 # Uniform frame value, so any pixel change is attributable to the overlay.
 BACKGROUND = 60
@@ -29,8 +31,7 @@ class StubPose:
         # Segmentation is optional even in v6+ pose files, so the renderer keys off
         # this rather than the pose version.
         self.has_segmentation = has_segmentation
-        # overlay_segmentation() checks the pose version before asking for contours
-        self.format_major_version = 6 if has_segmentation else 5
+        self.has_bounding_boxes = False
         self.segmentation_calls: list[tuple[int, int]] = []
         # The PoseEstimation base class defaults this to an empty dict.
         self.static_objects: dict = {}
@@ -42,10 +43,17 @@ class StubPose:
             self._contours[0, :4] = [(20, 20), (40, 20), (40, 40), (20, 40)]
         self._frame_offsets = np.arange(num_frames)
 
-    def get_segmentation_data_per_frame(self, frame_index: int, identity: int):
+    def segmentation_window(self, identity: int, start: int, stop: int) -> SegmentationWindow:
         """Record the request and return contours only when asked to carry them."""
-        self.segmentation_calls.append((frame_index, identity))
-        return self._contours
+        if not self.has_segmentation:
+            raise NotImplementedError("no segmentation")
+        self.segmentation_calls.append((start, identity))
+        contours = self._contours
+        if contours is None:
+            contours = np.full((2, 6, 2), -1, dtype=np.int32)
+        return pack_segmentation(
+            np.repeat(contours[np.newaxis], stop - start, axis=0), None, start
+        )
 
     @staticmethod
     def get_connected_segments():

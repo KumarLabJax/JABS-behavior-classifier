@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 import pytest
 
+from jabs.core.enums import PoseCapability
 from jabs.core.utils import hash_file
 from jabs.io.internal.pose_file.convert import LegacyConversionError
 from jabs.pose_estimation import PoseOpenError, conversion_cache
@@ -321,3 +322,32 @@ def test_malformed_legacy_file_during_prepare_poses_does_not_abort_the_batch(
     assert project.is_usable("good.avi")
     good = project_dir / "good_pose_est_v2.h5"
     assert converted_path(good, hash_file(good), _cache_dir(project_dir)).exists()
+
+
+def test_refusal_during_prepare_poses_refreshes_identities_and_capabilities(
+    legacy_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A video refused after the scan stops counting identities or restricting features."""
+    real_convert = conversion_cache.convert_legacy
+
+    def refuse_a(source: Path, destination: Path) -> None:
+        if source.name.startswith("a_"):
+            raise LegacyConversionError(f"{source}: refused")
+        real_convert(source, destination)
+
+    monkeypatch.setattr(conversion_cache, "convert_legacy", refuse_a)
+    project = _open(legacy_project)
+    # a (v2) has a single mouse, so the project starts without social features
+    assert project.video_manager.get_video_identity_count("a.avi") == 1
+    b_identities = project.video_manager.get_video_identity_count("b.avi")
+    assert b_identities > 1
+    assert PoseCapability.SOCIAL not in project.feature_manager.capabilities
+    assert project.total_project_identities == 1 + b_identities
+
+    project.prepare_poses(lambda i, n: None)
+
+    assert not project.is_usable("a.avi")
+    assert project.video_manager.get_video_identity_count("a.avi") == 0
+    assert project.total_project_identities == b_identities
+    assert PoseCapability.SOCIAL in project.feature_manager.capabilities
+    assert project.feature_manager.can_use_social_features

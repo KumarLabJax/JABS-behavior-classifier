@@ -11,7 +11,7 @@ from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE
 from .conversion_cache import open_unified
 from .discovery import find_pose_file, is_legacy_pose_file, is_pose_file, is_unified_pose_file
 from .errors import PoseOpenError
-from .metadata import PoseMetadata, scan_pose_metadata
+from .metadata import PoseMetadata, scan_model_metadata, scan_pose_metadata
 from .pose import Pose
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3

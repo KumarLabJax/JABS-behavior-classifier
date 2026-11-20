@@ -15,8 +15,11 @@ try:
 
     from jabs.ui.main_window.video_list_widget import (
         _EXCLUDED_ROLE,
+        _UNUSABLE_ROLE,
         VideoListDockWidget,
+        VideoRow,
         _VideoListWidget,
+        video_rows,
     )
 
     SKIP_UI_TESTS = False
@@ -40,11 +43,12 @@ def qapp():
     yield app
 
 
-def _mock_project(videos, excluded):
-    """Build a mock project exposing videos and per-video exclusion state."""
+def _mock_project(videos, excluded, unusable=None):
+    """Build a mock project exposing videos, per-video exclusion and unusable videos."""
     project = MagicMock()
     project.video_manager.videos = videos
     project.settings_manager.is_video_excluded.side_effect = lambda v: v in excluded
+    project.unusable_videos = dict(unusable or {})
     return project
 
 
@@ -290,3 +294,77 @@ def test_filter_with_no_current_item_is_safe():
 
     assert _visible_videos(widget) == ["walk_01.avi"]
     assert widget._file_list.currentItem() is None
+
+
+def test_video_rows_carry_exclusion_and_unusable_reason():
+    """Each row says whether its video is excluded and, when unusable, why."""
+    rows = video_rows(
+        ["a.avi", "b.avi", "c.avi"],
+        unusable={"b.avi": "shared tracklet"},
+        is_excluded=lambda v: v == "c.avi",
+    )
+
+    assert rows == [
+        VideoRow("a.avi", excluded=False, unusable_reason=None),
+        VideoRow("b.avi", excluded=False, unusable_reason="shared tracklet"),
+        VideoRow("c.avi", excluded=True, unusable_reason=None),
+    ]
+    assert not rows[1].usable
+    assert rows[1].tooltip == "Pose file unusable: shared tracklet"
+    assert rows[0].tooltip is None
+
+
+def test_unusable_video_is_disabled_with_reason_tooltip():
+    """An unusable video is listed, disabled, with the reason as its tooltip."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi", "b.avi"], set(), {"b.avi": "shared tracklet"}))
+
+    bad = _item_for(widget, "b.avi")
+    assert not bad.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert not bad.flags() & Qt.ItemFlag.ItemIsSelectable
+    assert bad.toolTip() == "Pose file unusable: shared tracklet"
+    assert bad.data(_UNUSABLE_ROLE) == "shared tracklet"
+    good = _item_for(widget, "a.avi")
+    assert good.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert good.data(_UNUSABLE_ROLE) is None
+
+
+def test_first_usable_video_is_selected():
+    """Opening a project selects the first usable video, never an unusable one."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi", "b.avi"], set(), {"a.avi": "refused"}))
+
+    assert widget._file_list.currentItem().data(Qt.ItemDataRole.UserRole) == "b.avi"
+
+
+def test_no_selection_when_every_video_is_unusable():
+    """With nothing usable, nothing is selected and nothing is loaded."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi"], set(), {"a.avi": "refused"}))
+
+    assert widget._file_list.currentItem() is None
+    assert widget._pending_selection is None
+
+
+def test_next_and_previous_skip_unusable_videos():
+    """Stepping through the list jumps over unusable videos."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi", "b.avi", "c.avi"], set(), {"b.avi": "refused"}))
+
+    widget.select_next_video()
+    assert widget._file_list.currentItem().data(Qt.ItemDataRole.UserRole) == "c.avi"
+    widget.select_previous_video()
+    assert widget._file_list.currentItem().data(Qt.ItemDataRole.UserRole) == "a.avi"
+
+
+def test_selecting_an_unusable_video_does_not_request_a_load():
+    """Making an unusable row current (e.g. via select_video) emits no selection."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi", "b.avi"], set(), {"b.avi": "refused"}))
+    widget._debounce_timer.stop()
+    widget._pending_selection = None
+
+    widget.select_video("b.avi")
+
+    assert widget._pending_selection is None
+    assert not widget._debounce_timer.isActive()

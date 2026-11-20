@@ -2,10 +2,8 @@
 
 import json
 import logging
-import re
 from pathlib import Path
 
-import h5py
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
@@ -19,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabs.pose_estimation import PoseOpenError, scan_model_metadata, scan_pose_metadata
 from jabs.project import VideoFeatureCacheStatus
 from jabs.ui.feature_cache_text import (
     format_byte_size,
@@ -112,36 +111,18 @@ class VideoInfoDialog(QDialog):
         # tallest element, so it belongs at the bottom of the dialog.
         model_metadata: str | None = None
 
-        # if this looks like a JABS style hdf5 pose file:
-        #   look for static objects and the model_metadata_json attribute
-        if re.search(r"pose_est_v\d+\.h5$", pose_path.name):
-            try:
-                with h5py.File(pose_path, "r") as pose_h5:
-                    # show static objects, if present
-                    if "static_objects" in pose_h5:
-                        names = ", ".join(pose_h5["static_objects"].keys())
-                        pose_form.addRow("Static objects:", QLabel(names))
-
-                    raw_json = pose_h5["poseest"].attrs.get("model_metadata_json")
-                    if raw_json:
-                        if isinstance(raw_json, bytes):
-                            raw_json = raw_json.decode("utf-8")
-                        try:
-                            # Enforce consistent formatting by round-tripping through json
-                            formatted = json.dumps(json.loads(raw_json), indent=2)
-                        except json.JSONDecodeError:
-                            logger.exception(
-                                "Pose file model metadata is not valid JSON: %s", pose_path
-                            )
-                        else:
-                            model_metadata = formatted
-
-            except OSError:
-                logger.exception("Could not open pose file for info: %s", pose_path)
-                pose_form.addRow("Pose file:", QLabel("Unable to read pose file"))
-            except KeyError as e:
-                logger.exception("Missing expected key in pose file %s: %s", pose_path, e)
-                pose_form.addRow("Pose file:", QLabel("Unable to parse pose file"))
+        # static objects and model metadata, read without loading any keypoints
+        try:
+            static_objects = scan_pose_metadata(pose_path).static_objects
+            metadata = scan_model_metadata(pose_path)
+        except PoseOpenError as e:
+            logger.warning("Could not read pose file for info: %s: %s", pose_path, e.reason)
+            pose_form.addRow("Pose file:", QLabel(f"Unable to read pose file: {e.reason}"))
+        else:
+            if static_objects:
+                pose_form.addRow("Static objects:", QLabel(", ".join(static_objects)))
+            if metadata is not None:
+                model_metadata = json.dumps(metadata, indent=2)
 
         self._add_feature_cache_section(layout, feature_cache_status)
 

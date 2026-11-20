@@ -131,6 +131,18 @@ class VideoManager:
         self._pose_path_cache.pop(video_name, None)
         self._settings_manager.remove_video_from_project_file(video_name)
 
+    def mark_unusable(self, video_name: str) -> None:
+        """Stop counting the identities of a video whose pose file became unusable.
+
+        The video stays in the project; its identity count becomes 0 and is
+        removed from ``total_project_identities``.
+
+        Args:
+            video_name: Name of the video file.
+        """
+        self._total_project_identities -= self._video_identity_count.get(video_name, 0)
+        self._video_identity_count[video_name] = 0
+
     @property
     def total_project_identities(self) -> int:
         """Get the total number of identities across all videos."""

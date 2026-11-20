@@ -496,7 +496,7 @@ class PlayerWidget(QtWidgets.QWidget):
             frame_number: Frame index to export. Defaults to the currently selected frame.
             draw_pose: Whether to draw the pose keypoints and skeleton.
             draw_segmentation: Whether to draw segmentation contours, when available.
-            draw_bounding_boxes: Whether to draw bounding boxes, when available (v8+).
+            draw_bounding_boxes: Whether to draw bounding boxes, when available.
             draw_landmarks: Whether to draw the arena landmarks, when the pose file
                 records any.
 
@@ -576,7 +576,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """Toggle or set whether bounding boxes are drawn.
 
         Boxes are only drawn while the identity overlay mode is
-        :attr:`IdentityOverlayMode.BBOX` and the pose file has them (v8+).
+        :attr:`IdentityOverlayMode.BBOX` and the pose file has them.
         """
         self._toggle_overlay("bounding_box_overlay_enabled", enabled)
 

@@ -355,11 +355,10 @@ def test_segmentation_contours_can_be_switched_off(blank_frame: np.ndarray) -> N
 
 
 class _BoxedPose(StubPose):
-    """StubPose from a v8 pose file, with one fixed bounding box per frame."""
+    """StubPose with bounding boxes, one fixed box per frame."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.format_major_version = 8
         self.has_bounding_boxes = True
 
     def get_bounding_boxes(self, identity: int) -> np.ndarray:

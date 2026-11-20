@@ -15,7 +15,7 @@ from jabs.io.internal.pose_file import ComponentReader
 from jabs.io.internal.pose_file import reader as pose_file_reader
 from jabs.pose_estimation import PoseOpenError, open_pose_file
 from jabs.pose_estimation.conversion_cache import ensure_converted
-from jabs.pose_estimation.metadata import PoseMetadata, scan_pose_metadata
+from jabs.pose_estimation.metadata import PoseMetadata, scan_model_metadata, scan_pose_metadata
 
 from .conftest import build_pose_file
 from .contract import sample_path
@@ -219,3 +219,30 @@ def test_malformed_manifest_raises_pose_open_error(tmp_path: Path) -> None:
         scan_pose_metadata(path)
     assert excinfo.value.path == path
     assert excinfo.value.reason
+
+
+def test_model_metadata_of_legacy_and_its_conversion_agree(tmp_path: Path) -> None:
+    """The model metadata scan matches the opened pose, for a legacy file and its conversion."""
+    legacy, unified = _legacy_and_converted(
+        tmp_path, _LEGACY_CORPUS / "v8-with-centers.h5", "vid_pose_est_v8.h5"
+    )
+    with open_pose_file(unified) as pose:
+        expected = pose.model_metadata
+    assert expected is not None
+
+    assert scan_model_metadata(legacy) == expected
+    assert scan_model_metadata(unified) == expected
+
+
+def test_model_metadata_absent_is_none(tmp_path: Path) -> None:
+    """A file without model metadata scans as None."""
+    legacy, unified = _legacy_and_converted(tmp_path, sample_path(5), "vid_pose_est_v5.h5")
+
+    assert scan_model_metadata(legacy) is None
+    assert scan_model_metadata(unified) is None
+
+
+def test_model_metadata_of_a_missing_file_raises_pose_open_error(tmp_path: Path) -> None:
+    """An unreadable file is a PoseOpenError, as for scan_pose_metadata."""
+    with pytest.raises(PoseOpenError):
+        scan_model_metadata(tmp_path / "gone_pose.h5")
