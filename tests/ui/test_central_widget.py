@@ -9,6 +9,7 @@ import pytest
 from jabs.classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.project.unusable_report import UnusableNotice
 
 try:
     import jabs.ui.main_window.central_widget as central_widget_module
@@ -27,11 +28,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _stub_widget(excluded: set[str]) -> SimpleNamespace:
+def _stub_widget(excluded: set[str], unusable: frozenset[str] = frozenset()) -> SimpleNamespace:
     """Minimal stand-in exposing what _included_counts reads from self."""
     return SimpleNamespace(
         _project=SimpleNamespace(
-            settings_manager=SimpleNamespace(is_video_excluded=lambda v: v in excluded)
+            settings_manager=SimpleNamespace(is_video_excluded=lambda v: v in excluded),
+            is_trainable=lambda v: v not in excluded and v not in unusable,
         )
     )
 
@@ -48,6 +50,24 @@ def test_included_counts_drops_excluded_videos():
     assert set(result.keys()) == {"a.avi", "c.avi"}
     # surviving entries are passed through unchanged
     assert result["a.avi"] == counts["a.avi"]
+
+
+def test_included_counts_drops_unusable_videos():
+    """An unusable video is not trained on, so its labels do not count toward readiness."""
+    counts = {"a.avi": {0: {}}, "b.avi": {0: {}}}
+    result = CentralWidget._included_counts(_stub_widget(set(), frozenset({"b.avi"})), counts)
+    assert set(result.keys()) == {"a.avi"}
+
+
+def test_included_project_bout_totals_excludes_unusable_videos():
+    """Bout totals for the training report leave out unusable videos."""
+    counts = {
+        "a.avi": {0: {"unfragmented_bout_counts": (3, 2)}},
+        "b.avi": {0: {"unfragmented_bout_counts": (10, 10)}},  # unusable
+    }
+    stub = _stub_widget(set(), frozenset({"b.avi"}))
+    stub._counts = counts
+    assert CentralWidget._included_project_bout_totals(stub) == (3, 2)
 
 
 def test_included_counts_no_exclusions_returns_all():
@@ -724,7 +744,9 @@ def test_behavior_change_replaces_predictions_left_over_from_the_other_mode():
     assert stub._predictions == {}, "stale binary predictions were kept"
 
 
-def _training_completion_stub(cv_warning: str | None) -> SimpleNamespace:
+def _training_completion_stub(
+    cv_warning: str | None, skipped: UnusableNotice | None = None
+) -> SimpleNamespace:
     """Stand-in exposing what _training_thread_complete() reads from self."""
     return SimpleNamespace(
         _cleanup_training_thread=MagicMock(),
@@ -734,7 +756,27 @@ def _training_completion_stub(cv_warning: str | None) -> SimpleNamespace:
         _training_cv_warning=cv_warning,
         # no report markdown, so the report-dialog branch is skipped
         _training_report_markdown=None,
+        _training_behaviors=lambda: ["Walk"],
+        _project=SimpleNamespace(skipped_training_notice=MagicMock(return_value=skipped)),
     )
+
+
+def test_training_completion_reports_labeled_videos_left_out(monkeypatch):
+    """Labeled videos skipped as unusable are named in a dialog when training finishes."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    notice = UnusableNotice("1 video with labels was left out", "b.avi: refused")
+    stub = _training_completion_stub(None, notice)
+
+    CentralWidget._training_thread_complete(stub, 1234)
+
+    stub._project.skipped_training_notice.assert_called_once_with(["Walk"])
+    assert len(warnings) == 1
+    assert warnings[0][1]["message"] == notice.message
+    assert warnings[0][1]["details"] == "b.avi: refused"
 
 
 def test_training_completion_warns_when_cross_validation_was_skipped(monkeypatch):

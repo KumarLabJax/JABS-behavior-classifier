@@ -7,6 +7,7 @@ cost labels.
 
 import gzip
 import json
+import logging
 import shutil
 from pathlib import Path
 
@@ -124,3 +125,40 @@ def test_overlap_query_reads_labels_of_an_unusable_video(project: Project) -> No
     project.annotation_store.document_path("b.avi").write_text(json.dumps(document))
 
     assert project.get_overlapping_behavior_label_videos() == ["b.avi"]
+
+
+def test_unusable_video_is_not_trainable(project: Project) -> None:
+    """Training and its readiness counts leave out an unusable video."""
+    assert project.is_trainable("a.avi")
+    assert not project.is_trainable("b.avi")
+    project.settings_manager.set_video_excluded("a.avi", True)
+    assert not project.is_trainable("a.avi")
+
+
+def test_project_unusable_videos_notice_flags_labeled_videos(project: Project) -> None:
+    """The project summary lists the unusable video as labeled."""
+    notice = project.unusable_videos_notice()
+
+    assert notice is not None
+    assert notice.details == "b.avi (labeled): poseest/mystery is not a legacy pose dataset"
+
+
+def test_project_skipped_training_notice_only_for_labeled_behaviors(project: Project) -> None:
+    """A training run is told about an unusable video only when it has labels for it."""
+    notice = project.skipped_training_notice(["foo"])
+    assert notice is not None
+    assert notice.details.startswith("b.avi:")
+    assert project.skipped_training_notice(["baz"]) is None
+
+
+def test_warn_unusable_videos_logs_one_summary(
+    project: Project, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Command-line tools get one WARNING naming the unusable video and its reason."""
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        project.warn_unusable_videos()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "b.avi (labeled): poseest/mystery" in warnings[0].getMessage()

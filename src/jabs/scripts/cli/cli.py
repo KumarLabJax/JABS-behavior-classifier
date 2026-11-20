@@ -120,6 +120,8 @@ def export_training(
     """
     classifier_type = ClassifierType[classifier.upper()]
     jabs_project = Project(directory, enable_session_tracker=False)
+    # unusable videos are left out of the export; say so once
+    jabs_project.warn_unusable_videos()
     classifier_mode = jabs_project.settings_manager.classifier_mode
 
     if classifier_mode == ClassifierMode.MULTICLASS:

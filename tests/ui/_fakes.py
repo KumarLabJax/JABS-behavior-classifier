@@ -177,6 +177,10 @@ class FakeTrainingProject:
         self.multiclass_calls = 0
         self.save_classifier = MagicMock()
 
+    def is_trainable(self, video: str) -> bool:
+        """Every video of the fake project is usable and included in training."""
+        return not self.settings_manager.is_video_excluded(video)
+
     def get_project_defaults(self) -> dict:
         """Return the default project settings used when classifier has none."""
         return dict(self._DEFAULT_BEHAVIOR_SETTINGS)
