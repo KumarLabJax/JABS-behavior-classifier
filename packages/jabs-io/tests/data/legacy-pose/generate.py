@@ -9,8 +9,10 @@ These are ``pose_est_v7`` and ``v8`` files, the input the legacy converter
 reads, built for the cases the public samples in the repository root's
 ``tests/data`` lack: dynamic objects, v8 with and without
 ``instance_id_center``, every placement edge case, and files the converter must
-refuse. Each file carries one case, and a refusal file carries no other
-refusal, so a test that expects one fails for the reason it names.
+refuse; and one ``pose_est_v2`` file, a single animal with no instance axis,
+whose confidences cross the validity threshold and leave one frame empty.
+Each file carries one case, and a refusal file carries no other refusal, so a
+test that expects one fails for the reason it names.
 
 Dataset names, dtypes and shapes follow the public samples and upstream's
 ``pose_est_v5.py``..``pose_est_v8.py`` readers: ``points`` is ``(y, x)``,
@@ -294,6 +296,47 @@ def write_legacy(
             edits(h5)
 
 
+# v2-single.h5: 120 frames of one animal; V2_EMPTY_FRAME has every
+# confidence 0, and V2_THRESHOLD has confidence exactly float32 0.3
+# (0.30000001192, valid under float64 > 0.3).
+V2_FRAMES = 120
+V2_EMPTY_FRAME = 60
+V2_THRESHOLD = (30, 4)
+# The share of keypoints given a low confidence, in (0, 0.3].
+V2_LOW_SHARE = 0.2
+
+
+def write_v2(path: Path, *, frames: int = V2_FRAMES) -> None:
+    """Write a ``pose_est_v2`` file: one animal and no instance axis.
+
+    As the public v2 sample stores it: ``points`` ``(F, 12, 2)`` ``uint16``
+    ``(y, x)``, ``confidence`` ``(F, 12)`` ``float32``, and no attributes at all, not even
+    ``version``. Most confidences are in ``[0.4, 1)``; about
+    ``V2_LOW_SHARE`` of them are in ``(0, 0.3]``, one is exactly float32 0.3
+    at ``V2_THRESHOLD`` (frame, keypoint), and frame ``V2_EMPTY_FRAME`` has
+    every confidence and coordinate 0, as a frame with no animal does.
+
+    Args:
+        path: The file to write. It is overwritten.
+        frames: Number of frames; more than ``V2_EMPTY_FRAME``.
+    """
+    rng = np.random.default_rng(SEED)
+    points = np.zeros((frames, KEYPOINTS, 2), dtype=np.uint16)
+    points[..., 0] = rng.integers(*Y_RANGE, (frames, KEYPOINTS))
+    points[..., 1] = rng.integers(*X_RANGE, (frames, KEYPOINTS))
+    confidence = rng.uniform(0.4, 1.0, (frames, KEYPOINTS)).astype(np.float32)
+    low = rng.random((frames, KEYPOINTS)) < V2_LOW_SHARE
+    confidence[low] = rng.uniform(0.01, 0.3, int(low.sum())).astype(np.float32)
+    confidence[V2_THRESHOLD] = np.float32(0.3)
+    confidence[V2_EMPTY_FRAME] = 0
+    points[V2_EMPTY_FRAME] = 0
+
+    with h5py.File(path, "w") as h5:
+        pose = h5.create_group("poseest")
+        pose.create_dataset("points", data=points)
+        pose.create_dataset("confidence", data=confidence)
+
+
 def _bbox(
     points: npt.NDArray[np.uint16], occupied: npt.NDArray[np.bool_]
 ) -> npt.NDArray[np.float32]:
@@ -553,6 +596,7 @@ def main(out: Path = HERE) -> None:
     write_legacy(
         out / "v7-bad-dynamic-object.h5", **small, version=V7, seg=False, edits=_bad_dynamic_object
     )
+    write_v2(out / "v2-single.h5")
 
     for path in sorted(out.glob("*.h5")):
         print(f"{path.name:28s} {path.stat().st_size / 1024:6.1f} KiB")

@@ -2,11 +2,13 @@
 
 A legacy file's ``version`` attribute does not say what it holds (the public
 v5 sample records ``3.0``), so the converter reads what is there instead and
-refuses anything outside the catalog of ``pose_est_v4``..``v8`` paths, naming
-it. A path it does not know is one it would silently lose. Before any of that
-it refuses a file whose data is not all inside it (an external or soft link,
-external or virtual storage), since the Hub converts uploads on its own
-machines.
+refuses anything outside the catalog of ``pose_est_v2`` and ``v4``..``v8``
+paths, naming it. A path it does not know is one it would silently lose. A
+``points`` dataset with no instance axis, ``(frame, 12, 2)``, is a
+``pose_est_v2`` file: one animal, with only ``points`` and ``confidence``.
+Before any of that it refuses a file whose data is not all inside it (an
+external or soft link, external or virtual storage), since the Hub converts
+uploads on its own machines.
 
 Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 ``id_mask``, which it reads in frame blocks when the identity count has to
@@ -61,6 +63,8 @@ _POSEEST = frozenset(
 )
 # What a v4 file has and older ones lack; without them nothing can be placed.
 _REQUIRED = ("points", "confidence", "id_mask", "instance_embed_id")
+# Everything a v2 file has: one animal, so no per-instance identity data.
+_SINGLE = frozenset({"points", "confidence"})
 _STATIC_OBJECTS = frozenset({"corners", "lixit", "food_hopper"})
 _DYNAMIC_DATASETS = ("points", "counts", "sample_indices")
 _AXIS_ORDERS = frozenset({"xy", "yx"})
@@ -89,11 +93,16 @@ class LegacyLayout:
     Attributes:
         path: The legacy file.
         frames: ``poseest/points.shape[0]``.
-        instances: ``poseest/points.shape[1]``, the legacy instance slots.
-        keypoints: ``poseest/points.shape[2]``; always 12.
+        instances: ``poseest/points.shape[1]``, the legacy instance slots; 1
+            without an instance axis.
+        keypoints: The keypoint axis of ``poseest/points``; always 12.
         identity: Rows of ``instance_id_center`` when it has any, otherwise the
             largest embed id of a valid instance (ADR 0002:1294-1295); 0 when
-            there is none.
+            there is none. 1 without an instance axis: the one animal.
+        instance_axis: Whether ``poseest/points`` has an instance axis,
+            ``(frame, instance, 12, 2)``. False for a ``pose_est_v2`` file,
+            ``(frame, 12, 2)``, whose ``confidence`` is ``(frame, 12)``; every
+            per-instance read then adds the axis, as the one instance.
         version: The ``poseest`` ``version`` attribute as whole numbers,
             parsed from text such as ``"6.0"``; empty when the file has none or
             it is neither whole numbers nor dotted whole-number text, since the
@@ -118,6 +127,7 @@ class LegacyLayout:
     instances: int
     keypoints: int
     identity: int
+    instance_axis: bool
     version: tuple[int, ...]
     has_segmentation: bool
     contour_axis: int
@@ -131,7 +141,7 @@ class LegacyLayout:
 
 
 def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout:
-    """Identify a legacy ``pose_est_v4``..``v8`` file by its contents.
+    """Identify a legacy ``pose_est_v2`` or ``v4``..``v8`` file by its contents.
 
     Shapes and attributes are checked before any data is read: first that
     the file is self-contained, then its paths, that no attribute declares
@@ -156,9 +166,11 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             or a dataset with external or virtual storage (checked first,
             before anything is read), holds a path outside the catalog, has
             an attribute declaring more than 16 MiB or whose metadata cannot
-            be read, lacks a dataset v4 introduced, has other than 12
-            keypoints, has datasets whose shapes disagree, names other than
-            one identity per ``external_identity_mapping`` entry, or has a malformed dynamic
+            be read, has an instance axis but lacks a dataset v4 introduced,
+            has no instance axis but holds a dataset other than ``points``
+            and ``confidence``, has other than 12 keypoints, has datasets
+            whose shapes disagree, names other than one identity per
+            ``external_identity_mapping`` entry, or has a malformed dynamic
             object (datasets that disagree on the sample count, counts above
             its object axis, or sample frames out of order or past the last
             frame), would need more than ``max_memory`` by its declared
@@ -176,26 +188,16 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
         # Before any attribute is read: version, axis_order and the scale are.
         check_attributes(path, h5)
         pose = h5["poseest"]
-        missing = [name for name in _REQUIRED if name not in pose]
-        if missing:
-            raise LegacyConversionError(
-                f"{path}: not a pose_est_v4 or later file; missing poseest/{', poseest/'.join(missing)}"
-            )
-        shape = pose["points"].shape
-        if len(shape) != 4 or shape[3] != 2:
-            raise LegacyConversionError(
-                f"{path}: poseest/points has shape {shape}; expected (frame, instance, 12, 2)"
-            )
-        frames, instances, keypoints = pose["points"].shape[:3]
-        if keypoints != KEYPOINTS:
-            raise LegacyConversionError(
-                f"{path}: poseest/points has {keypoints} keypoints; expected {KEYPOINTS}"
-            )
-        _check_shapes(path, pose, frames, instances)
+        instance_axis = not ("points" in pose and pose["points"].ndim == 3)
+        if instance_axis:
+            frames, instances, keypoints = _check_instance_layout(path, pose)
+        else:
+            frames, keypoints = _check_single_layout(path, pose)
+            instances = 1
         # Before any data is read: the reads below are sized by the shapes.
         if max_memory is not None:
             centers = pose.get("instance_id_center")
-            floor = int(centers.shape[0]) if centers is not None else 0
+            floor = int(centers.shape[0]) if centers is not None else int(not instance_axis)
             require_memory(
                 path, estimate_memory(h5, identity=floor, block_frames=BLOCK_FRAMES), max_memory
             )
@@ -211,7 +213,7 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
         for name in dynamics:
             _check_dynamic_object(path, dynamics[name], int(frames))
 
-        identity = _identity(pose)
+        identity = _identity(pose) if instance_axis else 1
         names = pose.get("external_identity_mapping")
         # jabs.identity.external_ids is on the identity axis.
         if names is not None and names.shape[0] != identity:
@@ -232,6 +234,7 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             instances=int(instances),
             keypoints=int(keypoints),
             identity=identity,
+            instance_axis=instance_axis,
             version=version,
             has_segmentation=seg is not None,
             contour_axis=int(seg.shape[2]) if seg is not None else 0,
@@ -245,6 +248,65 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             dynamic_objects=tuple(sorted(dynamics)),
             dropped=tuple(dropped),
         )
+
+
+def _check_instance_layout(path: Path, pose: h5py.Group) -> tuple[int, int, int]:
+    """Check a ``pose_est_v4``..``v8`` file's required datasets and shapes.
+
+    Returns:
+        Its frames, legacy instances and keypoints.
+    """
+    missing = [name for name in _REQUIRED if name not in pose]
+    if missing:
+        raise LegacyConversionError(
+            f"{path}: not a pose_est_v4 or later file; missing poseest/{', poseest/'.join(missing)}"
+        )
+    shape = pose["points"].shape
+    if len(shape) != 4 or shape[3] != 2:
+        raise LegacyConversionError(
+            f"{path}: poseest/points has shape {shape}; expected (frame, instance, 12, 2)"
+        )
+    frames, instances, keypoints = (int(n) for n in shape[:3])
+    if keypoints != KEYPOINTS:
+        raise LegacyConversionError(
+            f"{path}: poseest/points has {keypoints} keypoints; expected {KEYPOINTS}"
+        )
+    _check_shapes(path, pose, frames, instances)
+    return frames, instances, keypoints
+
+
+def _check_single_layout(path: Path, pose: h5py.Group) -> tuple[int, int]:
+    """Check a ``pose_est_v2`` file: ``points`` ``(frame, 12, 2)``, ``confidence`` ``(frame, 12)``.
+
+    Any other ``poseest`` dataset is refused: a per-instance one would be read
+    along an instance axis the file does not have.
+
+    Returns:
+        Its frames and keypoints.
+    """
+    for name in pose:
+        if name not in _SINGLE:
+            _refuse(
+                path,
+                f"poseest/{name}",
+                "is not in a pose_est_v2 file, whose poseest/points has no instance axis",
+            )
+    if "confidence" not in pose:
+        _refuse(path, "poseest/confidence", "is missing")
+    shape = pose["points"].shape
+    if shape[2] != 2:
+        raise LegacyConversionError(
+            f"{path}: poseest/points has shape {shape}; expected (frame, 12, 2)"
+        )
+    frames, keypoints = (int(n) for n in shape[:2])
+    if keypoints != KEYPOINTS:
+        raise LegacyConversionError(
+            f"{path}: poseest/points has {keypoints} keypoints; expected {KEYPOINTS}"
+        )
+    confidence = pose["confidence"].shape
+    if confidence != (frames, KEYPOINTS):
+        _refuse_shapes(path, "confidence", confidence, "poseest/points", shape)
+    return frames, keypoints
 
 
 def _check_paths(path: Path, h5: h5py.File) -> None:

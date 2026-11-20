@@ -28,6 +28,7 @@ CORPUS = {
     "v8-tracklet-two-slots.h5",
     "v8-unknown-dataset.h5",
     "v7-bad-dynamic-object.h5",
+    "v2-single.h5",
 }
 
 # The datasets a real v8 file from the `pose_v4` model has, and nothing else
@@ -377,7 +378,29 @@ def test_each_file_carries_its_case(name: str) -> None:
         CASES[name](h5)
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
+def test_v2_file_carries_its_case() -> None:
+    """The v2 file is one animal with no instance axis or attributes, its confidences mixed.
+
+    Some confidences are in ``(0, 0.3]``, one is exactly float32 0.3, and one
+    frame is empty, so ``point_valid`` and ``slot_occupied`` are each tested
+    both ways.
+    """
+    g = generator()
+    with h5py.File(legacy("v2-single.h5"), "r") as h5:
+        pose = h5["poseest"]
+        assert set(pose) == {"points", "confidence"}
+        assert dict(pose.attrs) == {}
+        points, confidence = pose["points"][()], pose["confidence"][()]
+    assert points.shape == (g.V2_FRAMES, 12, 2) and points.dtype == np.uint16
+    assert confidence.shape == (g.V2_FRAMES, 12) and confidence.dtype == np.float32
+    assert (confidence[g.V2_EMPTY_FRAME] == 0).all() and (points[g.V2_EMPTY_FRAME] == 0).all()
+    assert (np.delete(confidence, g.V2_EMPTY_FRAME, axis=0) > 0).all()
+    assert confidence[g.V2_THRESHOLD] == np.float32(0.3)
+    assert ((confidence > 0) & (confidence < np.float32(0.3))).any()
+    assert (confidence > 0.4).any()
+
+
+@pytest.mark.parametrize("name", sorted(CORPUS))
 def test_coordinates_are_asymmetric(name: str) -> None:
     """No stored keypoint has ``y == x``, so a missing flip cannot pass a test."""
     with h5py.File(legacy(name), "r") as h5:

@@ -3,9 +3,9 @@
 Real files are large and not in the repository, so this runs only when the
 variable names a directory of ``*_pose_est_v*.h5`` files; a directory with
 none fails rather than passing on nothing. Real directories mix versions, and
-the converter covers ``v4``..``v8`` by decision, so a file lacking **both**
-``poseest/id_mask`` and ``poseest/instance_embed_id`` predates v4 and is
-skipped. A damaged v4+ file missing only one of them fails, as does any other
+the converter covers ``v2`` and ``v4``..``v8``, so a file with an instance
+axis lacking **both** ``poseest/id_mask`` and ``poseest/instance_embed_id`` is
+a v3 file and is skipped. A damaged v4+ file missing only one of them fails, as does any other
 refusal or an error from the deep check.
 """
 
@@ -33,12 +33,16 @@ def _real_files() -> list[Path]:
     return sorted(Path(_DIRECTORY).glob("*_pose_est_v*.h5"))
 
 
-def _predates_v4(path: Path) -> bool:
-    """Return whether a legacy file has none of the datasets v4 introduced."""
+def _is_v3(path: Path) -> bool:
+    """Return whether a legacy file has an instance axis but none of the datasets v4 introduced."""
     with h5py.File(path, "r") as h5:
         # Without poseest it is no legacy pose file at all, which must fail.
         pose = h5.get("poseest")
-        return pose is not None and not any(name in pose for name in _V4_DATASETS)
+        if pose is None or any(name in pose for name in _V4_DATASETS):
+            return False
+        # A v2 file's points have no instance axis; it converts.
+        points = pose.get("points")
+        return points is not None and points.ndim == 4
 
 
 @_requires_directory
@@ -50,8 +54,8 @@ def test_real_files_are_found() -> None:
 @_requires_directory
 @pytest.mark.parametrize("source", _real_files(), ids=lambda path: path.name)
 def test_real_files(tmp_path: Path, source: Path) -> None:
-    """The file converts and the deep check finds no errors, unless it predates v4."""
-    if _predates_v4(source):
+    """The file converts and the deep check finds no errors, unless it is a v3 file."""
+    if _is_v3(source):
         pytest.skip(f"{source.name} has neither poseest/id_mask nor poseest/instance_embed_id")
 
     out = tmp_path / "out.h5"

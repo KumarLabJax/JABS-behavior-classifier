@@ -1,4 +1,4 @@
-"""Conversion of legacy ``pose_est_v4``..``v8`` HDF5 files to ``jabs.pose-file``."""
+"""Conversion of legacy ``pose_est_v2`` and ``v4``..``v8`` HDF5 files to ``jabs.pose-file``."""
 
 import logging
 
