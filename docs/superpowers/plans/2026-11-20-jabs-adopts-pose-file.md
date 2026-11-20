@@ -16,7 +16,7 @@
 - Repo style (CLAUDE.md): full type hints, Google docstrings, `logger = logging.getLogger(__name__)`, lazy log formatting, no `print`, pytest functions with `monkeypatch`/`unittest.mock` (no `mocker`), no EN DASH in docstrings.
 - Filenames: unified `<video stem>_pose.h5`; legacy `<video stem>_pose_est_v<N>.h5`, N in 2..8. Unified wins when both exist; among legacy, highest N wins. Dotfiles (`._*`) are never pose files.
 - Conversion cache file: `<cache root>/converted/<video stem>.<legacy hash>-<jabs-io version>.h5`. `<cache root>` is the project's `cache_dir`, or `platformdirs.user_cache_dir("jabs")` when there is none. Legacy hash = `jabs.core.utils.hash_file(legacy path)`; version from a module-level helper `_converter_version()` in `conversion_cache.py` (wrapping `importlib.metadata.version("jabs-io")`).
-- `Pose.hash` = `hash_file(<the file the user has>)`, computed once and passed along (never hash a file twice per open).
+- `Pose.hash` = `hash_file(<the file the user has>)`, computed once and passed along (never hash a file twice per open, except that an open which converts re-hashes the source after converting to detect a file replaced mid-conversion).
 - Point validity = `jabs.pose.point_valid`; invalid points are NaN in returned arrays. Identity present = `jabs.pose.slot_usable` when present, else `>= 3` valid keypoints among skeleton body parts other than `MID_TAIL`, `TIP_TAIL` (by name).
 - Identities = slots `0..dimensions["identity"]-1`. When `dimensions["identity"] == 0` and the file is a v3 conversion (last convert entry source `pose_est_v3`), every slot is an identity; otherwise `identity == 0` means no identities.
 - fps = manifest `video.fps`, else 30 (INFO log once per `Pose`). Features read fps **only** from the pose object.
