@@ -328,7 +328,7 @@ class IdentityFeatures:
                 raise NotImplementedError(f"Unsupported cache format: {fmt}")
 
     def __initialize_from_pose_estimation(self, pose_est: PoseLike):
-        """Compute per-frame features from a PoseEstimation object and cache them
+        """Compute per-frame features from a PoseLike object and cache them
 
         The features are written to the feature cache only when this instance was
         given a project directory; with ``directory=None`` they are kept in memory.

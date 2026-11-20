@@ -26,7 +26,8 @@ from jabs.core.enums import (
     ClassifierType,
     PredictionType,
 )
-from jabs.pose_estimation import PoseEstimation, PoseOpenError
+from jabs.core.pose_protocol import PoseLike
+from jabs.pose_estimation import PoseOpenError
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 from jabs.video_export import LabelMarkerOverlay
 
@@ -185,7 +186,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels: VideoLabels | None = None
         self._prediction_list = None
         self._probability_list = None
-        self._pose_est: PoseEstimation | None = None
+        self._pose_est: PoseLike | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
         # whether the player widget currently has label overlay values, so an overlay
         # that is already empty is not cleared again every time labels or predictions

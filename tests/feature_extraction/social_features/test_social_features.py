@@ -16,6 +16,7 @@ from shapely.geometry import Polygon
 
 import jabs.pose_estimation as pose_est
 from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types import SegmentationWindow
 from jabs.feature_extraction import FEATURE_VERSION
@@ -28,7 +29,6 @@ from jabs.feature_extraction.social_features import (
     social_distance,
 )
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation
 
 
 def _square_hull(cx: float, cy: float, size: float = 10.0) -> Polygon:
@@ -565,7 +565,7 @@ def test_equidistant_neighbors_rank_by_identity_order() -> None:
 
 
 @pytest.fixture(scope="module")
-def sample_pose_v6() -> Iterator[PoseEstimation]:
+def sample_pose_v6() -> Iterator[PoseLike]:
     """Real v6 pose data (4 identities, with segmentation) from a temporary copy."""
     sample_v6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -581,7 +581,7 @@ _INFO_PROPERTIES = [
 
 
 def test_contour_chunking_does_not_change_results(
-    sample_pose_v6: PoseEstimation, monkeypatch: pytest.MonkeyPatch
+    sample_pose_v6: PoseLike, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Contour distances computed in many small frame chunks equal a single chunk."""
     social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
@@ -602,7 +602,7 @@ def test_contour_chunking_does_not_change_results(
     ids=["python_float", "numpy_float32", "numpy_float64", "python_int", "numpy_int"],
 )
 def test_scaled_distances_keep_scalar_precision(
-    sample_pose_v6: PoseEstimation, pixel_scale: float
+    sample_pose_v6: PoseLike, pixel_scale: float
 ) -> None:
     """Scaled distances match the original per-frame ``python_float * pixel_scale``.
 
@@ -627,7 +627,7 @@ def test_scaled_distances_keep_scalar_precision(
 
 
 def _reference_pairwise_social_distances(
-    poses: PoseEstimation,
+    poses: PoseLike,
     identity: int,
     pixel_scale: float,
     social_points: list[KeypointIndex],
@@ -661,7 +661,7 @@ def _reference_pairwise_social_distances(
 )
 @pytest.mark.parametrize("neighbor", ["closest", "closest_fov"])
 def test_pairwise_social_distances_match_reference(
-    sample_pose_v6: PoseEstimation, pixel_scale: float, neighbor: str
+    sample_pose_v6: PoseLike, pixel_scale: float, neighbor: str
 ) -> None:
     """Pairwise social distances equal the original per-frame loop, for every identity."""
     points = [
@@ -752,7 +752,7 @@ def test_torso_blob_morphological_opening_strips_tail_bridge_and_preserves_torso
 
 
 def test_torso_blob_standard_resolution_strips_tail_and_handles_sample_v6(
-    sample_pose_v6: PoseEstimation,
+    sample_pose_v6: PoseLike,
 ) -> None:
     """Body-size scaling strips tails and measures real group topology at standard resolution."""
     # Synthetic open-field scale (~50 px body length, 50x40 torsos, 4 px tail bridge).

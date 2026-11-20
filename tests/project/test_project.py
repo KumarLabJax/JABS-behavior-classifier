@@ -523,7 +523,7 @@ def test_overlapping_labels_multiple_videos_sorted(tmp_path: Path) -> None:
 def _prediction_test_pose(num_identities: int, num_frames: int):
     """Minimal pose stand-in exposing the attributes save_predictions reads."""
     return type(
-        "PoseEstimation",
+        "PoseLike",
         (object,),
         {
             "num_identities": num_identities,

@@ -3,7 +3,7 @@ import contextlib
 import typing
 
 from jabs.core.enums import PoseCapability
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 
 from .feature_base_class import Feature
 from .feature_timing import GROUP_SETUP_FEATURE, FeatureTimings, TimingStage
@@ -30,7 +30,7 @@ class FeatureGroup(abc.ABC):
     _features: typing.ClassVar[dict[str, type[Feature]]] = {}
     _name = None
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__()
         self._enabled_features = []
         self._poses = poses

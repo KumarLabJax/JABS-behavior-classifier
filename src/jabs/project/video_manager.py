@@ -2,10 +2,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.utils import find_video_files
 from jabs.io.annotations import AnnotationStore
 from jabs.pose_estimation import (
-    PoseEstimation,
     get_pose_path,
     open_pose_file,
 )
@@ -149,13 +149,13 @@ class VideoManager:
         return self._total_project_identities
 
     def load_video_labels(
-        self, video_name: Path | str, pose: PoseEstimation = None
+        self, video_name: Path | str, pose: PoseLike = None
     ) -> VideoLabels | None:
         """load labels for a video
 
         Args:
             video_name: filename of the video: string or pathlib.Path
-            pose: optional PoseEstimation object to use for identity mapping, if None we will open the pose file
+            pose: optional PoseLike object to use for identity mapping, if None we will open the pose file
 
         Returns:
             initialized VideoLabels object if annotations exist, otherwise None

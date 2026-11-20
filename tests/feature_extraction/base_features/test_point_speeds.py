@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.base_features import PointSpeeds
-from jabs.pose_estimation import PoseEstimation
 
 
 def test_point_speeds_per_frame_dimensions(pose_est_v5):
@@ -72,7 +72,7 @@ def test_point_speeds_scaled_by_fps() -> None:
         # like a real pose, convert the points from pixels to cm when given a scale
         return (points if scale is None else points * scale), point_mask
 
-    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose = MagicMock(spec=PoseLike)
     mock_pose.fps = fps
     mock_pose.get_identity_poses.side_effect = _get_identity_poses
 
@@ -92,7 +92,7 @@ def test_point_speeds_stationary_point():
     num_frames = 10
     num_keypoints = len(KeypointIndex)
 
-    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose = MagicMock(spec=PoseLike)
     mock_pose.num_frames = num_frames
     mock_pose.num_identities = 1
     mock_pose.cm_per_pixel = 1.0

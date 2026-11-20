@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 import jabs.pose_estimation as pose_est_module
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.features import IdentityFeatures
 
 _SAMPLE_POSE_V5 = Path(__file__).parent.parent / "data" / "sample_pose_est_v5.h5"
@@ -62,9 +63,7 @@ def test_per_frame_cache_round_trip(tmp_path, pose_est_v5) -> None:
         np.testing.assert_array_equal(cached_flat[key], computed_flat[key], err_msg=key)
 
 
-def test_window_feature_cache_round_trip(
-    tmp_path: Path, pose_est_v5_short: pose_est_module.PoseEstimation
-) -> None:
+def test_window_feature_cache_round_trip(tmp_path: Path, pose_est_v5_short: PoseLike) -> None:
     """Window features loaded from cache must equal freshly computed values."""
     computed = _make_identity_features(pose_est_v5_short, tmp_path, force=True)
     computed_window = computed.get_window_features(_WINDOW_SIZE, force=True)

@@ -6,7 +6,7 @@ from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
     from .social_distance import ClosestIdentityInfo
 
@@ -20,7 +20,7 @@ class ClosestFovAngles(Feature):
     windowed operations.
 
     Args:
-        poses (PoseEstimation): Pose estimation data for a video.
+        poses (PoseLike): Pose estimation data for a video.
         pixel_scale (float): Scale factor to convert pixel distances to cm.
         social_distance_info (ClosestIdentityInfo): Object providing closest identity and FoV angle information.
     """
@@ -31,7 +31,7 @@ class ClosestFovAngles(Feature):
 
     def __init__(
         self,
-        poses: "PoseEstimation",
+        poses: "PoseLike",
         pixel_scale: float,
         social_distance_info: "ClosestIdentityInfo",
     ):

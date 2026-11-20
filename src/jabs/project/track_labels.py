@@ -87,7 +87,7 @@ class TrackLabels:
 
         Args:
             identity_mask: Per-frame mask, truthy where the identity exists, as
-                returned by ``PoseEstimation.identity_mask``. Any dtype that
+                returned by ``PoseLike.identity_mask``. Any dtype that
                 converts to bool is accepted.
 
         Returns:
@@ -127,7 +127,7 @@ class TrackLabels:
 
         Args:
             mask: Optional per-frame identity-presence mask, truthy where the
-                identity exists, as returned by ``PoseEstimation.identity_mask``.
+                identity exists, as returned by ``PoseLike.identity_mask``.
                 When given, frames the identity is absent from are cleared first,
                 so a block is split wherever the identity is missing from the pose
                 file. The clearing is delegated to

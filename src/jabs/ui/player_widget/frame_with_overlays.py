@@ -5,7 +5,7 @@ import numpy.typing as npt
 from intervaltree import IntervalTree
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 
 from .overlays.annotation_overlay import AnnotationOverlay
 from .overlays.bounding_box import BoundingBoxOverlay
@@ -85,7 +85,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._scaled_pix_height = 0
         self._frame_number = 0
         self._active_identity = 0
-        self._pose: PoseEstimation | None = None
+        self._pose: PoseLike | None = None
         self._annotations: IntervalTree | None = None
         self._manual_labels: list[np.ndarray] | None = None
         self._predicted_labels: list[np.ndarray] | None = None
@@ -323,7 +323,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._annotations = value
 
     @property
-    def pose(self) -> PoseEstimation:
+    def pose(self) -> PoseLike:
         """Returns the pose estimation object associated with this widget."""
         return self._pose
 
@@ -368,7 +368,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             return self._pose.identity_index_to_display(identity)
         return str(identity)
 
-    def set_pose(self, pose: PoseEstimation | None) -> None:
+    def set_pose(self, pose: PoseLike | None) -> None:
         """Set the pose estimation for the frame widget.
 
         Pose is used to annotate the frame, this method muse be called any time the

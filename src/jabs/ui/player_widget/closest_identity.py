@@ -8,17 +8,17 @@ changes, so the result wants computing once per frame and reusing.
 
 import numpy as np
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation
 
 # Beyond this half-angle either side of the subject's nose, an animal is behind it.
 HALF_FOV_DEGREES = ClosestIdentityInfo.HALF_FOV_DEGREE
 
 
 def closest_identity(
-    pose: PoseEstimation,
+    pose: PoseLike,
     subject: int,
     frame_index: int,
     half_fov_degrees: float | None = None,

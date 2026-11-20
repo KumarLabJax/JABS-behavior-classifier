@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.base_features import PairwisePointDistances
-from jabs.pose_estimation import PoseEstimation
 
 
 def test_pairwise_distances_per_frame_dimensions(pose_est_v5):
@@ -90,7 +90,7 @@ def test_pairwise_distances_scaled_correctly() -> None:
         # like a real pose, convert the points from pixels to cm when given a scale
         return (points if scale is None else points * scale), point_mask
 
-    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose = MagicMock(spec=PoseLike)
     mock_pose.get_identity_poses.side_effect = _get_identity_poses
 
     pixel_scale = 0.5
@@ -135,7 +135,7 @@ def test_pairwise_distances_known_values():
     # Frame 1: NOSE at (0, 0), BASE_NECK at (6, 8) -> distance = 10
     # Frame 2: NOSE at (1, 1), BASE_NECK at (4, 5) -> distance = 5
 
-    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose = MagicMock(spec=PoseLike)
     mock_pose.num_frames = 3
     mock_pose.num_identities = 1
     mock_pose.cm_per_pixel = 1.0  # No scaling for simplicity

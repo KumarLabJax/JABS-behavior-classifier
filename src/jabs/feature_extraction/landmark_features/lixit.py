@@ -3,11 +3,11 @@ import typing
 import numpy as np
 
 from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 
 class LixitDistanceInfo:
@@ -23,7 +23,7 @@ class LixitDistanceInfo:
     with the MouseLixitAngle feature to avoid recomputing it.
     """
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         # Distances include all keypoints
         self._keypoint_indices = list(KeypointIndex)
 
@@ -218,14 +218,14 @@ class DistanceToLixit(Feature):
     Results are cached for efficient reuse by multiple feature extraction classes.
 
     Args:
-        poses (PoseEstimation): Pose estimation data containing keypoints and static objects.
+        poses (PoseLike): Pose estimation data containing keypoints and static objects.
         pixel_scale (float): Scale factor to convert pixel distances to centimeters.
     """
 
     _name = "lixit_distances"
     _static_objects: typing.ClassVar[list[str]] = ["lixit"]
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo):
+    def __init__(self, poses: PoseLike, pixel_scale: float, distances: LixitDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -247,7 +247,7 @@ class BearingToLixit(Feature):
     """This class computes the bearing to the nearest lixit for each frame.
 
     Args:
-        poses (PoseEstimation): Pose estimation data for a video.
+        poses (PoseLike): Pose estimation data for a video.
         pixel_scale (float): Scale factor to convert pixel distances to cm.
         distances (LixitDistanceInfo): Object providing pre-computed lixit distance and bearing information.
     """
@@ -256,7 +256,7 @@ class BearingToLixit(Feature):
     _static_objects: typing.ClassVar[list[str]] = ["lixit"]
     _use_circular = True
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo):
+    def __init__(self, poses: PoseLike, pixel_scale: float, distances: LixitDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -297,7 +297,7 @@ class MouseLixitAngle(Feature):
     _name = "mouse_lixit_angle"
     _static_objects: typing.ClassVar[list[str]] = ["lixit"]
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo):
+    def __init__(self, poses: PoseLike, pixel_scale: float, distances: LixitDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances

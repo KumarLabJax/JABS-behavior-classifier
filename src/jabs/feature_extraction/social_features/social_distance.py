@@ -23,12 +23,12 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types import SegmentationWindow
 from jabs.core.utils import signed_angle_degrees
 from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.segmentation_features.moment_cache import MomentInfo
-from jabs.pose_estimation import PoseEstimation
 
 # yields an identity's segmentation windows covering every frame
 SegmentationWindows = Callable[[int], Iterator[SegmentationWindow]]
@@ -205,7 +205,7 @@ def _populate_segmentation_fallback_hulls(
 
 
 def _compute_identity_centroid_speeds(
-    poses: PoseEstimation,
+    poses: PoseLike,
     identity: int,
 ) -> npt.NDArray[np.float32]:
     """Compute per-frame convex-hull centroid speed for one identity, in pixels per second.
@@ -647,7 +647,7 @@ class _VideoSocialCache:
     """Video-level pre-computed hulls, distances, and contact topology for all identities.
 
     ``IdentityFeatures`` builds a new ``SocialFeatureGroup`` (and ``ClosestIdentityInfo``)
-    for each identity, but callers reuse the same ``PoseEstimation`` object across
+    for each identity, but callers reuse the same ``PoseLike`` object across
     identities. ``for_pose()`` keys the cache on that object so the per-video work is
     done once rather than once per subject animal.
 
@@ -716,7 +716,7 @@ class _VideoSocialCache:
         return result
 
     @classmethod
-    def for_pose(cls, poses: PoseEstimation) -> _VideoSocialCache:
+    def for_pose(cls, poses: PoseLike) -> _VideoSocialCache:
         """Return the shared cache for ``poses``, building it on first use."""
         cache = _VIDEO_SOCIAL_CACHES.get(poses)
         if cache is None:
@@ -725,7 +725,7 @@ class _VideoSocialCache:
         return cache
 
     @classmethod
-    def build(cls, poses: PoseEstimation) -> _VideoSocialCache:
+    def build(cls, poses: PoseLike) -> _VideoSocialCache:
         """Build shared social geometry and contact caches for all identities in ``poses``."""
         num_frames = poses.num_frames
         identities = list(poses.identities)
@@ -902,9 +902,9 @@ def _gather_by_identity(
     return result
 
 
-# Shared caches keyed weakly on the PoseEstimation object, so a cache is released
+# Shared caches keyed weakly on the PoseLike object, so a cache is released
 # together with the pose data it was built from.
-_VIDEO_SOCIAL_CACHES: weakref.WeakKeyDictionary[PoseEstimation, _VideoSocialCache] = (
+_VIDEO_SOCIAL_CACHES: weakref.WeakKeyDictionary[PoseLike, _VideoSocialCache] = (
     weakref.WeakKeyDictionary()
 )
 
@@ -926,7 +926,7 @@ class ClosestIdentityInfo:
     # Taken from the ICY paper where the full field of view is 240 degrees.
     HALF_FOV_DEGREE = 120
 
-    def __init__(self, poses: PoseEstimation, identity: int, pixel_scale: float) -> None:
+    def __init__(self, poses: PoseLike, identity: int, pixel_scale: float) -> None:
         idx = KeypointIndex
 
         self._poses = poses

@@ -22,7 +22,7 @@ pytestmark = pytest.mark.skipif(SKIP_UI_TESTS, reason=SKIP_REASON)
 
 
 class _StubPose:
-    """Minimal stand-in for PoseEstimation exposing what draw_identity_pose needs."""
+    """Minimal stand-in for PoseLike exposing what draw_identity_pose needs."""
 
     def __init__(self, num_keypoints: int, *, points_present: bool) -> None:
         self._n = num_keypoints

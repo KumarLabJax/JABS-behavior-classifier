@@ -12,7 +12,7 @@ from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
     from .social_distance import ClosestIdentityInfo
 
@@ -38,7 +38,7 @@ class ClosestDistances(Feature):
 
     def __init__(
         self,
-        poses: PoseEstimation,
+        poses: PoseLike,
         pixel_scale: float,
         social_distance_info: ClosestIdentityInfo,
     ) -> None:
