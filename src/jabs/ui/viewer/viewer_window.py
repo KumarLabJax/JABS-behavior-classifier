@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 VIDEO_FILE_FILTER = "Video Files (*.mp4 *.avi);;All Files (*)"
 POSE_FILE_FILTER = "Pose Files (*_pose_est_v*.h5);;All Files (*)"
+
+OPEN_PROMPT = "Open a video or pose file to begin (File menu)"
 
 # How long a pose file may take to open before the busy dialog appears; quicker
 # loads finish without flashing it.
@@ -61,6 +64,8 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._frame_size: tuple[int, int] | None = None
         # set while a pose file is opening in the background
         self._pose_loader: PoseLoaderThread | None = None
+        # set when the window was asked to close while a pose file was opening
+        self._close_when_loaded = False
 
         self.setWindowTitle(app_name)
 
@@ -147,7 +152,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._player.overlay_bounding_boxes(self._bbox_action.isChecked())
         self._update_overlay_controls()
 
-        self.statusBar().showMessage("Open a video or pose file to begin (File menu)")
+        self.statusBar().showMessage(OPEN_PROMPT)
 
     @property
     def pose_est(self) -> PoseEstimation | None:
@@ -172,9 +177,9 @@ class ViewerWindow(QtWidgets.QMainWindow):
         the video's, is reported to the user, and the video is still opened without
         overlays.
 
-        The pose file is opened in the background (see :meth:`_start_pose_load`), so
-        with one this returns before the video is open. Does nothing while another
-        pose file is still opening.
+        The pose file is opened in the background (see :meth:`_start_pose_load`),
+        along with the video's frame count, so with one this returns before the video
+        is open. Does nothing while another pose file is still opening.
 
         Args:
             path: Path to the video file.
@@ -197,14 +202,23 @@ class ViewerWindow(QtWidgets.QMainWindow):
             )
             self._finish_open_video(path, pose_path, None)
 
-        self._start_pose_load(
-            pose_path,
-            on_loaded=lambda pose_est: self._finish_open_video(path, pose_path, pose_est),
-            on_error=on_error,
-        )
+        def load(pose_file: Path) -> tuple[PoseEstimation, int | None]:
+            # Reading the frame count can be slow for a video on a network share, so
+            # it is done here, off the GUI thread, too.
+            return open_pose_file(pose_file), self._try_video_frame_count(path)
+
+        def on_loaded(result: tuple[PoseEstimation, int | None]) -> None:
+            pose_est, video_frames = result
+            self._finish_open_video(path, pose_path, pose_est, video_frames)
+
+        self._start_pose_load(pose_path, load, on_loaded=on_loaded, on_error=on_error)
 
     def _finish_open_video(
-        self, path: Path, pose_path: Path | None, pose_est: PoseEstimation | None
+        self,
+        path: Path,
+        pose_path: Path | None,
+        pose_est: PoseEstimation | None,
+        video_frames: int | None = None,
     ) -> None:
         """Open the video once its pose file, if any, has been opened.
 
@@ -213,8 +227,11 @@ class ViewerWindow(QtWidgets.QMainWindow):
             pose_path: The pose file found beside the video, or None if there is none.
             pose_est: The opened pose, or None when there is no pose file or it could
                 not be opened.
+            video_frames: The video's frame count, or None if it could not be read.
         """
-        if pose_est is not None and not self._pose_matches_video(pose_est, pose_path, path):
+        if pose_est is not None and not self._pose_matches_video(
+            pose_est, pose_path, path, video_frames
+        ):
             pose_status = f"{pose_path.name} does not match the video"
             pose_est = None
         elif pose_est is not None:
@@ -238,7 +255,11 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"{path.name}: {pose_status}")
 
     def _pose_matches_video(
-        self, pose_est: PoseEstimation, pose_path: Path, video_path: Path
+        self,
+        pose_est: PoseEstimation,
+        pose_path: Path,
+        video_path: Path,
+        video_frames: int | None,
     ) -> bool:
         """Check that a pose file has one frame per video frame, warning the user if not.
 
@@ -246,15 +267,17 @@ class ViewerWindow(QtWidgets.QMainWindow):
         count would fail past its last frame. The labeling GUI rejects such a pair when a
         project is opened; the viewer plays the video without the pose instead.
 
+        Args:
+            pose_est: The opened pose.
+            pose_path: The pose file it was opened from.
+            video_path: The video it should match.
+            video_frames: The video's frame count, or None if it could not be read.
+
         Returns:
             True if the frame counts match, or if the video's frame count can't be read
             (opening the video reports that error).
         """
-        try:
-            video_frames = self._video_frame_count(video_path)
-        except Exception:
-            return True
-        if video_frames == pose_est.num_frames:
+        if video_frames is None or video_frames == pose_est.num_frames:
             return True
         logger.warning(
             "%s: video frame count (%d) does not match pose file frame count (%d)",
@@ -274,6 +297,14 @@ class ViewerWindow(QtWidgets.QMainWindow):
     def _video_frame_count(video_path: Path) -> int:
         """Return the number of frames in a video file."""
         return VideoReader.get_nframes_from_file(video_path)
+
+    def _try_video_frame_count(self, video_path: Path) -> int | None:
+        """Return the number of frames in a video file, or None if it can't be read."""
+        try:
+            return self._video_frame_count(video_path)
+        except Exception:
+            logger.debug("Unable to read the frame count of %s", video_path, exc_info=True)
+            return None
 
     def open_pose_file(self, path: Path) -> None:
         """Open a pose file on its own and play it over a solid background.
@@ -295,6 +326,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         logger.info("Opening pose file %s", path)
         self._start_pose_load(
             path,
+            open_pose_file,
             on_loaded=lambda pose_est: self._finish_open_pose_file(path, pose_est),
             on_error=lambda error: self._report_pose_file_error(path, error),
         )
@@ -455,19 +487,42 @@ class ViewerWindow(QtWidgets.QMainWindow):
         )
         return True
 
+    def _release_open_file(self) -> None:
+        """Close whatever is open, so its pose is freed before the next one loads.
+
+        Otherwise the old and new pose files are both in memory while the new one
+        opens, several GB each for an hour of video with segmentation.
+        """
+        self._player.reset()
+        self._pose_est = None
+        self._pose_only_path = None
+        self._estimated_frame_size = None
+        self._frame_size = None
+        self.setWindowTitle(self._app_name)
+        self._update_overlay_controls()
+        self.statusBar().showMessage(OPEN_PROMPT)
+
+    def _set_open_actions_enabled(self, enabled: bool) -> None:
+        """Enable or disable the actions that open a file."""
+        self._open_action.setEnabled(enabled)
+        self._open_pose_action.setEnabled(enabled)
+
     def _start_pose_load(
         self,
         pose_path: Path,
-        on_loaded: Callable[[PoseEstimation], None],
+        loader: Callable[[Path], object],
+        on_loaded: Callable[[Any], None],
         on_error: Callable[[Exception], None],
     ) -> None:
         """Open a pose file in a background thread, showing that the viewer is busy.
 
         Large pose files take seconds to open, which would otherwise freeze the window.
-        The status bar names the file while it loads, and if loading takes longer than
-        :data:`BUSY_DIALOG_DELAY_MS` a busy dialog appears too. Both are cleared before
-        ``on_loaded`` or ``on_error`` runs on the GUI thread; the previous status
-        message is restored, and callers that open the file then replace it.
+        Whatever is open is released first, and the open and export actions are
+        disabled until the load is done. The status bar names the file while it
+        loads, and if loading takes longer than :data:`BUSY_DIALOG_DELAY_MS` a busy
+        dialog appears too. Both are cleared before ``on_loaded`` or ``on_error`` runs
+        on the GUI thread; callers that open the file then replace the status message.
+        Neither runs if the window was closed meanwhile.
 
         This deliberately does not set a busy override cursor: on macOS, Qt builds the
         wait cursor from an image, and with Qt 6.11 that conversion crashes the app
@@ -475,40 +530,58 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
         Args:
             pose_path: Pose file to open.
-            on_loaded: Called with the opened pose.
+            loader: Opens the pose file on the background thread; its result is passed
+                to ``on_loaded``.
+            on_loaded: Called with the loader's result.
             on_error: Called with the exception if the file could not be opened.
         """
-        previous_message = self.statusBar().currentMessage()
+        self._release_open_file()
+        self._set_open_actions_enabled(False)
         self.statusBar().showMessage(f"Loading pose file {pose_path.name}...")
 
-        # the module-level open_pose_file, looked up now so tests can replace it
-        thread = PoseLoaderThread(pose_path, open_pose_file, parent=self)
+        thread = PoseLoaderThread(pose_path, loader, parent=self)
         self._pose_loader = thread
 
-        busy_dialog = create_progress_dialog(self, f"Loading {pose_path.name}...", 0)
+        # Built only once the delay has passed, so a quick load creates no dialog.
+        busy_dialog: QtWidgets.QProgressDialog | None = None
         busy_timer = QtCore.QTimer(self)
         busy_timer.setSingleShot(True)
-        busy_timer.timeout.connect(busy_dialog.show)
+
+        def show_busy() -> None:
+            nonlocal busy_dialog
+            busy_dialog = create_progress_dialog(self, f"Loading {pose_path.name}...", 0)
+            busy_dialog.show()
+
+        busy_timer.timeout.connect(show_busy)
 
         def clear_busy() -> None:
             busy_timer.stop()
             busy_timer.deleteLater()
-            busy_dialog.close()
-            busy_dialog.deleteLater()
-            self.statusBar().showMessage(previous_message)
+            if busy_dialog is not None:
+                # hide(), not close(): the progress dialog ignores close events, and
+                # deleteLater() alone would leave it up over the next modal dialog.
+                busy_dialog.hide()
+                busy_dialog.deleteLater()
+            self.statusBar().showMessage(OPEN_PROMPT)
+            self._set_open_actions_enabled(True)
+            self._update_overlay_controls()
 
-        def loaded(pose_est: PoseEstimation) -> None:
+        def loaded(result: object) -> None:
             clear_busy()
-            on_loaded(pose_est)
+            if not self._close_when_loaded:
+                on_loaded(result)
 
         def failed(error: Exception) -> None:
             clear_busy()
             logger.error("Unable to open pose file %s", pose_path, exc_info=error)
-            on_error(error)
+            if not self._close_when_loaded:
+                on_error(error)
 
         def release_thread() -> None:
             if self._pose_loader is thread:
                 self._pose_loader = None
+            if self._close_when_loaded:
+                self.close()
 
         thread.pose_loaded.connect(loaded)
         thread.load_error.connect(failed)
@@ -564,15 +637,21 @@ class ViewerWindow(QtWidgets.QMainWindow):
         """Stop background work before the window and its threads are destroyed.
 
         A running video export is cancelled. A pose file that is still opening cannot
-        be interrupted, so closing waits for it to finish.
+        be interrupted, and destroying its running thread would abort the app, so the
+        close is put off until it has loaded: the window stays responsive and says so
+        meanwhile, and the loaded file is then discarded rather than shown.
 
         Args:
             event: The close event.
         """
-        self._exporter.shutdown()
         if self._pose_loader is not None:
-            logger.info("Waiting for %s to finish loading", self._pose_loader.pose_path.name)
-            self._pose_loader.wait()
+            name = self._pose_loader.pose_path.name
+            logger.info("Closing once %s has finished loading", name)
+            self._close_when_loaded = True
+            self.statusBar().showMessage(f"Closing once {name} has finished loading...")
+            event.ignore()
+            return
+        self._exporter.shutdown()
         super().closeEvent(event)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
