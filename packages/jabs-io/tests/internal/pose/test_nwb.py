@@ -1321,8 +1321,8 @@ def test_static_object_timestamps_span_first_and_last_frame(
 def test_bounding_box_description_documents_fill_value_ambiguity(tmp_path, adapter):
     """The bounding box description must not promise a single missing-value sentinel.
 
-    Missing boxes are usually NaN: PoseEstimationV8 initializes its regrouped array with
-    NaN and fills only slots where id_mask marks the instance valid. That is not
+    Missing boxes are usually NaN: the legacy v8 reader initialized its regrouped array
+    with NaN and filled only slots where id_mask marks the instance valid. That is not
     guaranteed, though - convert_parquet rewrites every NaN coordinate to -1, including
     rows it marks valid in id_mask, so -1 does reach this writer, and an integer-typed
     poseest/bbox dataset cannot hold NaN at all (the NaN fill casts to 0). The

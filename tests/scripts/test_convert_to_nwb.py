@@ -17,7 +17,7 @@ from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types.pose import PoseData, SegmentationWindow
 from jabs.core.utils import hash_file
 from jabs.io.internal.pose import resolve_identity_subjects
-from jabs.pose_estimation import PoseEstimationV6, conversion_cache, open_pose_file
+from jabs.pose_estimation import conversion_cache, open_pose_file
 from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
@@ -330,29 +330,6 @@ def unified_v6(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return unified
 
 
-@pytest.mark.legacy_reader
-def test_pose_to_pose_data_builds_segmentation():
-    """A v6 pose file's contours reach PoseData, identity-ordered and unflipped.
-
-    seg_data is stored (x, y) in the pose file, unlike poseest/points which is (y, x),
-    so the contours must come through with no axis flip. The sample stores each
-    frame's contours packed first and padded with -1, which the export reproduces.
-    """
-    # the v6 reader itself: its raw arrays are the reference
-    pose = PoseEstimationV6(SAMPLE_POSE_V6)
-    data = pose_to_pose_data(pose)
-
-    seg = data.segmentation_data
-    assert seg is not None
-    num_identities = len(list(pose.identities))
-    assert seg.contours.shape[0] == num_identities
-    assert seg.contours.shape[1] == pose.num_frames
-
-    for i in pose.identities:
-        np.testing.assert_array_equal(seg.contours[i], pose.get_segmentation_data(i))
-        np.testing.assert_array_equal(seg.is_external[i], pose.get_segmentation_flags(i) > 0)
-
-
 def test_unified_file_exports_its_segmentation_windows(unified_v6: Path):
     """A unified file's contours are exported slot by slot from its segmentation windows.
 
@@ -470,23 +447,6 @@ def test_cli_segmentation_flag_forwarded(monkeypatch, tmp_path, flag, expected):
 
     assert result.exit_code == 0, result.output
     assert run_mock.call_args.kwargs["segmentation"] is expected
-
-
-@pytest.mark.legacy_reader
-def test_unused_contour_slots_are_not_marked_external():
-    """The -1 that the v6 reader leaves in unused flag slots must not read as True.
-
-    PoseEstimationV6._segmentation_sort fills its output with -1 before scattering the
-    per-identity flags into it, so an identity's unused contour slots come back as -1
-    rather than False. They must not be exported as external boundaries.
-    """
-    # the v6 reader itself: its raw arrays are the reference
-    pose = PoseEstimationV6(SAMPLE_POSE_V6)
-    seg = pose_to_pose_data(pose).segmentation_data
-
-    raw_flags = np.stack([pose.get_segmentation_flags(i) for i in pose.identities], axis=0)
-    assert (raw_flags == -1).any(), "fixture no longer exercises the -1 sentinel"
-    assert not seg.is_external[raw_flags == -1].any()
 
 
 @pytest.mark.parametrize("kind", ["legacy", "unified"])

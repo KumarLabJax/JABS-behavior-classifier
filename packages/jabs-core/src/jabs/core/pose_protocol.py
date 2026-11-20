@@ -1,10 +1,12 @@
 """The ``PoseLike`` protocol: the pose API JABS callers program against.
 
-Both the legacy per-version readers (:class:`jabs.core.abstract.PoseEstimation`
-and its subclasses) and the unified ``Pose`` class implement this protocol, so
-callers typed against ``PoseLike`` work with either.
+The unified ``Pose`` class (``jabs.pose_estimation.Pose``) implements this
+protocol; callers and test stand-ins are typed against ``PoseLike`` so they do
+not depend on it.
 """
 
+import json
+import logging
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,9 +21,12 @@ from jabs.core.enums import PoseCapability
 from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types import DynamicObjectData, SegmentationWindow
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "NATIVE_SOURCE_FORMAT",
     "PoseLike",
+    "parse_model_metadata",
     "source_format_from_path",
 ]
 
@@ -54,15 +59,42 @@ def source_format_from_path(path: Path) -> str | None:
     return None
 
 
+def parse_model_metadata(raw: Any) -> dict[str, Any] | None:
+    """Parse a ``model_metadata_json`` attribute value.
+
+    Args:
+        raw: The attribute as h5py returns it: None, str, bytes, or a 0-d array
+            of either.
+
+    Returns:
+        The parsed JSON object, or None when the value is absent, empty, not
+        valid JSON, or not a JSON object.
+    """
+    if isinstance(raw, np.ndarray) and raw.shape == ():
+        raw = raw.item()
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        metadata = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Pose model_metadata_json is not valid JSON; ignoring it")
+        return None
+    if not isinstance(metadata, dict):
+        logger.warning("Pose model_metadata_json is not a JSON object; ignoring it")
+        return None
+    return metadata
+
+
 @runtime_checkable
 class PoseLike(Protocol):
     """Read access to one video's pose data.
 
     Shapes use ``F`` for frames, ``K`` for keypoints (12) and ``I`` for identities.
-    Point coordinates are ``(x, y)`` pixels. Dtypes are given for both
-    implementations where they differ: legacy readers return float64 points and
-    integer (0/1) masks, ``Pose`` returns float32 points and bool masks. Callers
-    must treat masks as truthy values, not compare them to a dtype.
+    Point coordinates are ``(x, y)`` pixels. ``Pose`` returns float32 points and
+    bool masks; callers must treat masks as truthy values, not compare them to a
+    dtype.
 
     Attributes:
         num_frames: Number of frames.
@@ -72,7 +104,6 @@ class PoseLike(Protocol):
         fps: Frames per second.
         pose_file: Path of the pose file the user has.
         hash: Hash of that file (``jabs.core.utils.hash_file``).
-        format_major_version: Major version of the legacy format the data came from.
         identity_to_track: ``(I, F)`` int32 track id of each identity in each frame,
             -1 where it has no track; None when the file has no tracks (only legacy
             v3 files have them).
@@ -125,11 +156,6 @@ class PoseLike(Protocol):
     @property
     def hash(self) -> str:
         """Hash of the pose file."""
-        ...
-
-    @property
-    def format_major_version(self) -> int:
-        """Major version of the legacy pose format the data came from."""
         ...
 
     @property
@@ -349,9 +375,8 @@ class PoseLike(Protocol):
         ``NotImplementedError`` and the ``ValueError`` for a non-positive
         ``block`` are raised on the call, not on the first ``next()``.
 
-        An out-of-range ``identity`` is a ``ValueError`` too, raised at a time
-        that depends on the implementation: ``Pose`` checks it on the call, the
-        legacy readers only when the first window is read.
+        An out-of-range ``identity`` is a ``ValueError`` too; ``Pose`` raises it
+        on the call, but an implementation may defer it to the first window.
 
         Args:
             identity: Identity index.
@@ -359,7 +384,7 @@ class PoseLike(Protocol):
 
         Raises:
             NotImplementedError: If the source has no segmentation.
-            ValueError: If ``block`` is not positive, or (``Pose``, on the call;
-                legacy readers, lazily) the identity is out of range.
+            ValueError: If ``block`` is not positive, or the identity is out of
+                range.
         """
         ...

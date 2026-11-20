@@ -7,7 +7,6 @@ import pytest
 
 from jabs.core import pose_skeleton
 from jabs.core.abstract import pose_est
-from jabs.core.abstract.pose_est import PoseEstimation
 from jabs.core.enums import PoseCapability
 from jabs.core.types import SegmentationWindow
 
@@ -30,13 +29,6 @@ EXPECTED_KEYPOINTS = {
 def test_keypoint_index_names_and_values():
     """KeypointIndex has the 12 keypoints with their historical indexes."""
     assert {k.name: k.value for k in pose_skeleton.KeypointIndex} == EXPECTED_KEYPOINTS
-
-
-def test_pose_estimation_attributes_are_aliases():
-    """The ABC's class attributes are the same objects as the module's."""
-    assert PoseEstimation.KeypointIndex is pose_skeleton.KeypointIndex
-    assert PoseEstimation.FULL_CONNECTED_SEGMENTS is pose_skeleton.FULL_CONNECTED_SEGMENTS
-    assert PoseEstimation.NVSN_CONNECTED_SEGMENTS is pose_skeleton.NVSN_CONNECTED_SEGMENTS
 
 
 def test_minimum_confidence():

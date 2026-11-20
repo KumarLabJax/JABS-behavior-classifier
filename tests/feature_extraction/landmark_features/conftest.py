@@ -19,7 +19,7 @@ def pose_est_v5_with_static_objects():
     lixit and food hopper static objects to it.
 
     Yields:
-        PoseEstimationV5: Pose estimation object with static objects added.
+        Pose: Pose estimation object with static objects added.
     """
     test_file = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v5.h5"
 

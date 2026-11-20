@@ -2,7 +2,7 @@
 
 ADR 0002's conversion table and the design spec: ``dimensions.identity`` is 0,
 each legacy track keeps one slot for its whole run, assigned by the free list
-of today's ``PoseEstimationV3._build_identity_map`` (a freed slot is reused
+of the legacy v3 reader's identity map (a freed slot is reused
 from the frame after its track's last, lowest first), and a legacy track id is
 stored as ``id + 1``, since tracklet 0 means none. A track id that ends and
 comes back starts a new run in a fresh slot, and takes a new id.
@@ -44,14 +44,24 @@ RUN_SLOTS = (0, 1, 2, 2, 0, 3)
 # split, and so is track 5 after its unoccupied frame (V3_UNOCCUPIED).
 SPLITS = {"id": [13, 14], "from": [6, 8], "first_frame": [11, 25], "last_frame": [39, 34]}
 
-# Frames of tracks that end and come back, which today's reader mishandles
-# (it keeps the first run's identity and stacks the runs' frames), excluded
-# from the golden comparison. Neither public sample has one;
-# v3_sample_expected.py asserts that when it records the goldens.
+# Frames of tracks that end and come back, which the legacy v3 reader mishandled
+# (it kept the first run's identity and stacked the runs' frames), excluded
+# from the golden comparison. Neither public sample has one; the recording
+# script asserted that when it recorded the goldens.
 REAPPEARING_FRAMES: dict[str, tuple[int, ...]] = {
     "sample_pose_est_v3": (),
     "identity_with_no_data_pose_est_v3": (),
 }
+# What the legacy v3 reader (``jabs/pose_estimation/pose_est_v3.py``) read from
+# the two public v3 samples. The archive is data: it was recorded by the script
+# ``v3_sample_expected.py`` beside it, committed in 13cb266e, which needed that
+# reader. The reader and the script no longer exist, so it cannot be re-recorded.
+# For each sample, keyed ``<file stem>/<name>``, it holds:
+#   identity_to_track (I, F) int32: the legacy track id of each identity, -1 for none
+#   point_mask (I, F, 12) bool: confidence above 0.3
+#   identity_mask (I, F) bool: at least one body keypoint valid
+#   frames: every 10th frame, the frames ``points`` holds
+#   points (I, len(frames), 12, 2) float32 (x, y); the samples store uint16, held exactly
 EXPECTED = LEGACY / "v3-sample-expected.npz"
 
 
@@ -288,10 +298,10 @@ def test_v3_without_tracks_is_refused(tmp_path: Path) -> None:
 @requires_samples
 @pytest.mark.parametrize("stem", sorted(REAPPEARING_FRAMES))
 def test_public_v3_samples_match_todays_reader(tmp_path: Path, stem: str) -> None:
-    """Slot i is today's identity i: same tracks, masks and points.
+    """Slot i is the legacy v3 reader's identity i: same tracks, masks and points.
 
     The masks agree exactly because neither sample has a confidence of
-    exactly float32 0.3, which today's reader compares in float32 and the
+    exactly float32 0.3, which the legacy reader compared in float32 and the
     converter in float64. ``slot_occupied`` matches the track mask because
     neither sample has a counted instance with every confidence 0.
     """

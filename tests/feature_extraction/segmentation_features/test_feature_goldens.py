@@ -1,8 +1,7 @@
 """The segmentation-dependent features on the sample v6 file match their goldens.
 
-The goldens were recorded with the legacy reader (``feature_goldens.py``). The
-unified ``Pose`` over a conversion of the same file (``JABS_FORCE_UNIFIED=1``)
-must match them except where spec §2 (docs/superpowers/specs/
+The goldens were recorded with the legacy reader (see ``feature_goldens.py``). The
+unified ``Pose`` over a conversion of the same file must match them except where spec §2 (docs/superpowers/specs/
 2026-11-20-jabs-adopts-pose-file-design.md) or the global return-dtype rule
 changes a value. Each allowed difference is named below; nothing else may differ.
 

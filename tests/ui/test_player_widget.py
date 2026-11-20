@@ -141,7 +141,6 @@ def test_bounding_box_overlay_follows_the_capability(has_boxes: bool) -> None:
     widget = PlayerWidget()
     frame_widget = widget._frame_widget
     pose = mock.Mock(has_bounding_boxes=has_boxes, identities=[0])
-    del pose.format_major_version
     pose.get_bounding_boxes.return_value = np.array([[[10, 10], [40, 40]]], dtype=np.float32)
     pose.identity_index_to_display.side_effect = str
     frame_widget.set_pose(pose)

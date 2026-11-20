@@ -1,94 +1,27 @@
-"""PoseLike contract tests for the legacy pose readers (the bridge API).
+"""PoseLike behavior of legacy pose files, which ``open_pose_file`` converts.
 
-Tests marked ``legacy_reader`` run the legacy readers. The rest open their files
-with ``open_pose_file``, which in the test session converts legacy files and
-opens them as ``Pose``.
+The recorded contract goldens are checked on ``Pose`` in
+``test_contract_unified.py``.
 """
 
 import json
-from collections.abc import Iterator
 from pathlib import Path
 
 import h5py
 import numpy as np
-import numpy.typing as npt
 import pytest
 
 from jabs.core.enums import PoseCapability
-from jabs.core.pose_protocol import PoseLike, source_format_from_path
+from jabs.core.pose_protocol import source_format_from_path
 from jabs.pose_estimation import open_pose_file
 
 from .contract import (
-    SAMPLE_VERSIONS,
-    check_pose_contract,
-    golden_path,
-    load_golden,
     sample_path,
 )
 
-_EXPECTED_CAPABILITIES = {
-    2: frozenset(),
-    3: frozenset({PoseCapability.SOCIAL}),
-    4: frozenset({PoseCapability.SOCIAL}),
-    6: frozenset({PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}),
-}
-
-
-# Only legacy_reader tests use this fixture, so it always opens the legacy reader;
-# test_contract_unified.py checks the same goldens on Pose.
-@pytest.fixture(scope="module", params=SAMPLE_VERSIONS, ids=lambda v: f"v{v}")
-def sample_pose(request: pytest.FixtureRequest) -> Iterator[tuple[int, PoseLike]]:
-    """Open each sample legacy pose file once per module."""
-    version = request.param
-    with open_pose_file(sample_path(version)) as pose:
-        yield version, pose
-
-
-@pytest.mark.legacy_reader
-def test_legacy_readers_satisfy_protocol(sample_pose: tuple[int, PoseLike]) -> None:
-    """Every legacy reader is structurally a PoseLike."""
-    _, pose = sample_pose
-    assert isinstance(pose, PoseLike)
-
-
-@pytest.mark.legacy_reader
-def test_legacy_matches_golden(sample_pose: tuple[int, PoseLike]) -> None:
-    """The legacy readers match the recorded contract goldens."""
-    version, pose = sample_pose
-    path = golden_path(version)
-    assert path.exists(), f"missing golden {path}; see contract.py for how to record it"
-    check_pose_contract(pose, load_golden(path))
-
-
-@pytest.mark.legacy_reader
-def test_capabilities(sample_pose: tuple[int, PoseLike]) -> None:
-    """Capability sets follow identities, segmentation and bounding boxes."""
-    version, pose = sample_pose
-    assert pose.capabilities == _EXPECTED_CAPABILITIES[version]
-
-
-@pytest.mark.legacy_reader
-def test_source_format_from_filename(sample_pose: tuple[int, PoseLike]) -> None:
-    """source_format comes from the filename, not the file's version attribute."""
-    version, pose = sample_pose
-    assert pose.source_format == f"pose_est_v{version}"
-
-
-@pytest.mark.legacy_reader
-def test_identity_to_track(sample_pose: tuple[int, PoseLike]) -> None:
-    """Only v3 has tracks: (identities, frames) int32, -1 where no track."""
-    version, pose = sample_pose
-    if version != 3:
-        assert pose.identity_to_track is None
-        return
-    track = pose.identity_to_track
-    assert track.dtype == np.int32
-    assert track.shape == (pose.num_identities, pose.num_frames)
-    assert track.min() >= -1
-
 
 def test_v3_identity_to_track_from_cache_is_int32(tmp_path: Path) -> None:
-    """The cached v3 mapping is int32 too."""
+    """A v3 identity_to_track read back from a cached conversion is int32 too."""
     cache = tmp_path / "cache"
     cache.mkdir()
     first = open_pose_file(sample_path(3), cache)
@@ -112,7 +45,7 @@ def test_source_format_from_path(name: str, expected: str | None) -> None:
 
 
 def test_close_and_context_manager() -> None:
-    """close() is a no-op on legacy readers and the context manager returns self."""
+    """The context manager returns self, and the pose stays readable after close()."""
     pose = open_pose_file(sample_path(2))
     with pose as entered:
         assert entered is pose
@@ -121,44 +54,12 @@ def test_close_and_context_manager() -> None:
 
 
 def test_segmentation_requires_capability() -> None:
-    """Readers without segmentation raise NotImplementedError."""
+    """A pose without segmentation raises NotImplementedError."""
     pose = open_pose_file(sample_path(4))
     with pytest.raises(NotImplementedError):
         pose.segmentation_window(0, 0, 10)
     with pytest.raises(NotImplementedError):
         pose.iter_segmentation(0)
-
-
-def _trimmed_contours(frame_seg: npt.NDArray[np.integer]) -> list[npt.NDArray[np.int32]]:
-    """Independent oracle: drop -1 points, keep contours with any non -1 value."""
-    return [c[np.all(c != -1, axis=1)].astype(np.int32) for c in frame_seg if np.any(c != -1)]
-
-
-@pytest.mark.legacy_reader
-def test_iter_segmentation_agrees_with_get_segmentation_data() -> None:
-    """Concatenated iter_segmentation blocks hold the same valid contours as the raw data."""
-    pose = open_pose_file(sample_path(6))
-    for identity in pose.identities:
-        raw = pose.get_segmentation_data(identity)
-        raw_flags = pose.get_segmentation_flags(identity)
-        windows = list(pose.iter_segmentation(identity, block=700))
-        assert [w.start for w in windows] == list(range(0, pose.num_frames, 700))
-        assert sum(len(w.contour_count) for w in windows) == pose.num_frames
-        for window in windows:
-            for i in range(len(window.contour_count)):
-                frame = window.start + i
-                oracle = _trimmed_contours(raw[frame])
-                count = int(window.contour_count[i])
-                assert count == len(oracle), frame
-                for c in range(count):
-                    length = int(window.contour_length[i, c])
-                    np.testing.assert_array_equal(window.contours[i, c, :length], oracle[c])
-                oracle_flags = [
-                    f > 0
-                    for f, s in zip(raw_flags[frame], raw[frame], strict=True)
-                    if np.any(s != -1)
-                ]
-                np.testing.assert_array_equal(window.external_flag[i, :count], oracle_flags)
 
 
 def test_segmentation_window_bounds() -> None:

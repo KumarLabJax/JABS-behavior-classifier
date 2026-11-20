@@ -4,12 +4,12 @@ from types import TracebackType
 from typing import Any
 
 import numpy as np
+from legacy_contours import pack_segmentation
 from shapely.geometry import Polygon
 
 from jabs.core.enums import PoseCapability
 from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, KeypointIndex
 from jabs.core.types import SegmentationWindow
-from jabs.pose_estimation.pose_est_v6 import pack_segmentation
 
 # Uniform frame value, so any pixel change is attributable to the overlay.
 BACKGROUND = 60

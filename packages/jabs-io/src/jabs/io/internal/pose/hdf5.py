@@ -82,7 +82,7 @@ class PoseHDF5Adapter(HDF5Adapter):
     def read(self, path: str | Path, data_type: type | None = None, **kwargs):  # noqa: D102
         raise NotImplementedError(
             "Reading pose HDF5 into PoseData is not implemented; use "
-            "jabs.pose_estimation.PoseEstimationV2 for legacy v2 reads, or "
+            "jabs.pose_estimation.open_pose_file to open a pose file as Pose, or "
             "jabs.io.internal.pose_file.read_pose_file for revision-1 files, which "
             "returns a PoseFile rather than PoseData."
         )

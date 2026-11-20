@@ -16,7 +16,6 @@ import pytest
 from jabs.core.types import SegmentationWindow
 from jabs.feature_extraction.segmentation_features.moment_cache import MomentInfo
 from jabs.pose_estimation.conversion_cache import open_unified
-from jabs.pose_estimation.pose_est_v6 import PoseEstimationV6
 
 _SAMPLE_V6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
 
@@ -24,20 +23,14 @@ _SAMPLE_V6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.
 _BLOCK = 7
 
 
-@pytest.fixture(
-    scope="module",
-    params=[pytest.param("legacy_v6", marks=pytest.mark.legacy_reader), "unified"],
-)
-def pose(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Iterator:
-    """The sample v6 file through the legacy V6 reader and through ``Pose``."""
-    root = tmp_path_factory.mktemp(request.param)
+@pytest.fixture(scope="module")
+def pose(tmp_path_factory: pytest.TempPathFactory) -> Iterator:
+    """The sample v6 file, converted and opened as ``Pose``."""
+    root = tmp_path_factory.mktemp("unified")
     path = root / _SAMPLE_V6.name
     shutil.copyfile(_SAMPLE_V6, path)
-    if request.param == "legacy_v6":
-        yield PoseEstimationV6(path)
-    else:
-        with open_unified(path, root / "cache") as unified:
-            yield unified
+    with open_unified(path, root / "cache") as unified:
+        yield unified
 
 
 def test_iter_segmentation_tiles_all_frames_in_order(pose) -> None:

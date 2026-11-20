@@ -2,33 +2,33 @@
 
 :func:`check_pose_contract` compares a pose object against expectations recorded
 in a golden ``.npz`` file. It touches only ``PoseLike`` members, so the same
-goldens apply to any implementation: the legacy readers that recorded them and
-the unified ``Pose`` reading a converted copy of the same sample file.
+goldens apply to any implementation, such as the unified ``Pose`` reading a
+converted copy of the same sample file.
 
 The goldens are kept small and portable:
 
 * Per-frame data (points, point masks, segmentation) is recorded for a subset of
-  frames only (:func:`golden_frames`, :func:`segmentation_windows`).
-* Values are compared, never dtypes: legacy readers return float64 points and
-  integer masks, ``Pose`` returns float32 points and bool masks.
+  frames only (every 50th frame plus :func:`segmentation_windows`; the golden
+  stores the list as ``frames``).
+* Values are compared, never dtypes: the legacy readers that recorded the
+  goldens returned float64 points and integer masks, ``Pose`` returns float32
+  points and bool masks.
 * Points are compared only where the point mask is true, segmentation only on
   valid contours (the first ``contour_count`` contours of a frame and their
   first ``contour_length`` points), since padding is unspecified.
 * Scalar and string expectations live in one JSON document stored as a 0-d
   string array, so loading never needs ``allow_pickle``.
 
-Recording goldens:
-    Goldens are written from the legacy readers and committed. They are never
-    recorded by a test run; a test fails when its golden is missing. To
-    (re)record them after an intended behavior change, run from the repo root::
-
-        uv run python tests/pose_estimation/contract.py --record
-
-    which calls :func:`record_sample_goldens`. Review the diff of the
-    regenerated files before committing them.
+Provenance of the goldens:
+    The ``goldens/*.npz`` files are data. They were recorded from the legacy
+    per-version readers (``jabs/pose_estimation/pose_est_v2.py`` .. ``v6.py``)
+    and committed in 668124ea ("feat(pose): PoseLike
+    protocol implemented by the legacy readers"). Those readers no longer
+    exist, so the goldens cannot be re-recorded; they keep what the legacy
+    readers returned, and ``test_contract_unified.py`` checks ``Pose`` against
+    them, adjusting only for the documented rulings.
 """
 
-import argparse
 import json
 import logging
 from collections.abc import Iterable
@@ -49,10 +49,8 @@ GOLDEN_DIR = Path(__file__).parent / "goldens"
 SAMPLE_DIR = Path(__file__).parent.parent / "data"
 SAMPLE_VERSIONS = (2, 3, 4, 6)
 
-# frames between sampled frames for per-frame expectations
-_FRAME_STRIDE = 50
 # frames between frames whose segmentation is sampled on its own; sparser than
-# _FRAME_STRIDE because contours are by far the largest expectations
+# the 50-frame stride of per-frame data because contours are by far the largest expectations
 _SEGMENTATION_STRIDE = 300
 # length of each fixed window of consecutive frames
 _WINDOW_LENGTH = 10
@@ -114,23 +112,6 @@ def segmentation_windows(num_frames: int) -> list[tuple[int, int]]:
     return sorted(w for w in windows if w[0] < w[1])
 
 
-def golden_frames(num_frames: int) -> npt.NDArray[np.int64]:
-    """Return the frame indexes per-frame expectations are recorded at.
-
-    Every 50th frame plus every frame of :func:`segmentation_windows`.
-
-    Args:
-        num_frames: Number of frames in the pose file.
-
-    Returns:
-        Sorted unique frame indexes.
-    """
-    frames = set(range(0, num_frames, _FRAME_STRIDE))
-    for start, stop in segmentation_windows(num_frames):
-        frames.update(range(start, stop))
-    return np.array(sorted(frames), dtype=np.int64)
-
-
 def _valid_segmentation(
     window: SegmentationWindow,
 ) -> tuple[
@@ -174,89 +155,8 @@ def _segments_to_json(segments: Iterable[Iterable[KeypointIndex]]) -> list[list[
     return [[int(k.value) for k in segment] for segment in segments]
 
 
-def record_expectations(pose: PoseLike) -> dict[str, npt.NDArray[Any]]:
-    """Record the contract expectations of a pose object.
-
-    Args:
-        pose: Pose object to record. Only ``PoseLike`` members are read.
-
-    Returns:
-        Mapping of ``.npz`` key to array, suitable for :func:`save_golden`.
-    """
-    frames = golden_frames(pose.num_frames)
-    has_track = pose.identity_to_track is not None
-    meta = {
-        "num_frames": pose.num_frames,
-        "num_identities": pose.num_identities,
-        "identities": [int(i) for i in pose.identities],
-        "cm_per_pixel": None if pose.cm_per_pixel is None else float(pose.cm_per_pixel),
-        "capabilities": sorted(c.value for c in pose.capabilities),
-        "source_format": pose.source_format,
-        "model_metadata": pose.model_metadata,
-        "has_identity_to_track": has_track,
-        "static_objects": sorted(pose.static_objects),
-        "external_identities": pose.external_identities,
-        "num_lixit_keypoints": pose.num_lixit_keypoints,
-        "hash": pose.hash,
-        "fps": pose.fps,
-        "dynamic_objects": sorted(pose.dynamic_objects),
-        "connected_segments": _segments_to_json(pose.get_connected_segments()),
-        "display_names": [pose.identity_index_to_display(i) for i in pose.identities],
-    }
-    expected: dict[str, npt.NDArray[Any]] = {
-        _META_KEY: np.array(json.dumps(meta)),
-        "frames": frames,
-        "reduced_point_mask": np.asarray(pose.get_reduced_point_mask(), dtype=bool),
-    }
-    if has_track:
-        expected["identity_to_track"] = np.asarray(pose.identity_to_track, dtype=np.int32)
-    for name, value in pose.static_objects.items():
-        expected[f"static/{name}"] = np.asarray(value, dtype=np.float64)
-
-    segmentation = PoseCapability.SEGMENTATION in pose.capabilities
-    for identity in pose.identities:
-        points, point_mask = pose.get_identity_poses(identity)
-        mask = np.asarray(point_mask[frames], dtype=bool)
-        # padding where the mask is false is not compared; zero it so it compresses
-        expected[f"id{identity}/points"] = np.where(
-            mask[..., np.newaxis], np.asarray(points[frames], dtype=np.float64), 0.0
-        )
-        expected[f"id{identity}/point_mask"] = mask
-        expected[f"id{identity}/identity_mask"] = np.asarray(
-            pose.identity_mask(identity), dtype=bool
-        )
-        expected[f"id{identity}/bearings"] = np.asarray(
-            pose.compute_all_bearings(identity)[frames], dtype=np.float32
-        )
-        if not segmentation:
-            continue
-        for start, stop in _segmentation_samples(pose.num_frames):
-            count, lengths, seg_points, flags = _valid_segmentation(
-                pose.segmentation_window(identity, start, stop)
-            )
-            key = f"id{identity}/seg/{start}-{stop}"
-            expected[f"{key}/count"] = count
-            expected[f"{key}/lengths"] = lengths
-            # legacy contours are int16; storing them that way halves the golden
-            expected[f"{key}/points"] = seg_points.astype(np.int16)
-            if flags is not None:
-                expected[f"{key}/flags"] = flags
-    return expected
-
-
-def save_golden(path: Path, expected: dict[str, npt.NDArray[Any]]) -> None:
-    """Write expectations to a compressed ``.npz`` file.
-
-    Args:
-        path: Destination ``.npz`` path; its directory is created if needed.
-        expected: Expectations from :func:`record_expectations`.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(path, **expected)
-
-
 def load_golden(path: Path) -> dict[str, npt.NDArray[Any]]:
-    """Load expectations written by :func:`save_golden`.
+    """Load the expectations of a golden ``.npz`` file.
 
     Args:
         path: The golden ``.npz`` file.
@@ -265,7 +165,7 @@ def load_golden(path: Path) -> dict[str, npt.NDArray[Any]]:
         Mapping of ``.npz`` key to array.
 
     Raises:
-        FileNotFoundError: If the golden has not been recorded.
+        FileNotFoundError: If the golden does not exist.
     """
     with np.load(path, allow_pickle=False) as data:
         return {key: data[key] for key in data.files}
@@ -479,46 +379,3 @@ def check_pose_contract(pose: PoseLike, expected: dict[str, npt.NDArray[Any]]) -
         if PoseCapability.SEGMENTATION in capabilities:
             _check_segmentation(pose, identity, expected)
             _check_iter_segmentation(pose, identity, expected)
-
-
-def record_sample_goldens(versions: tuple[int, ...] = SAMPLE_VERSIONS) -> list[Path]:
-    """Record the goldens of the sample legacy pose files with the legacy readers.
-
-    Args:
-        versions: Sample file versions to record.
-
-    Returns:
-        Paths of the written golden files.
-    """
-    # imported here: recording is a legacy-reader job, checking is not
-    from jabs.pose_estimation import open_pose_file
-
-    written = []
-    for version in versions:
-        path = golden_path(version)
-        with open_pose_file(sample_path(version)) as pose:
-            save_golden(path, record_expectations(pose))
-        logger.info("Recorded %s (%d bytes)", path, path.stat().st_size)
-        written.append(path)
-    return written
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Command line entry point; ``--record`` rewrites the sample goldens.
-
-    Args:
-        argv: Command line arguments, defaults to ``sys.argv[1:]``.
-    """
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--record", action="store_true", help="record goldens from the legacy readers"
-    )
-    args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    if not args.record:
-        parser.error("nothing to do; pass --record to rewrite the goldens")
-    record_sample_goldens()
-
-
-if __name__ == "__main__":
-    main()

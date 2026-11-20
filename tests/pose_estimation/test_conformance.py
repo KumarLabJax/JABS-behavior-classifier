@@ -11,7 +11,6 @@ import pytest
 
 from jabs.core.utils import hash_file
 from jabs.io.internal.pose_file import validate
-from jabs.pose_estimation import open_pose_file
 from jabs.pose_estimation.conversion_cache import converted_path, open_unified
 
 from .contract import sample_path
@@ -93,11 +92,3 @@ def test_all_masked_v4_has_no_identities(tmp_path: Path) -> None:
     with open_unified(path, tmp_path / "cache") as pose:
         assert pose.identities == []
         assert pose.num_identities == 0
-
-
-@pytest.mark.legacy_reader
-def test_all_masked_v4_legacy_reader_agrees(tmp_path: Path) -> None:
-    """The legacy v4 reader also finds no identities in an all-masked v4 file."""
-    path = _write_all_masked_v4(tmp_path / "vid_pose_est_v4.h5")
-    with open_pose_file(path, tmp_path) as legacy:
-        assert legacy.identities == []

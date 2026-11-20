@@ -35,7 +35,7 @@ def pose_est_v5():
     """Load the sample v5 pose estimation from a temporary copy.
 
     Yields:
-        PoseEstimationV5: Pose estimation object backed by a temporary file.
+        Pose: Pose estimation object backed by a temporary file.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         pose_path = Path(tmpdir) / _SAMPLE_POSE_V5.name

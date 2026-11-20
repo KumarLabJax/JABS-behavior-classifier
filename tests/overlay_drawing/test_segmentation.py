@@ -6,10 +6,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from legacy_contours import pack_segmentation
 
 from jabs.core.types import SegmentationWindow
 from jabs.pose_estimation import open_pose_file
-from jabs.pose_estimation.pose_est_v6 import pack_segmentation
 
 from .conftest import POSE_KINDS
 

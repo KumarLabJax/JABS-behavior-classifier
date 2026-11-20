@@ -15,13 +15,13 @@ from jabs.feature_extraction.landmark_features import lixit
 
 @pytest.fixture
 def fresh_pose_v5():
-    """A fresh PoseEstimationV5 with its own tempdir copy and no lixit set.
+    """A fresh Pose with its own tempdir copy and no lixit set.
 
     Lets tests install custom lixit positions without mutating the shared,
     module-scoped ``pose_est_v5_with_static_objects`` fixture.
 
     Yields:
-        PoseEstimationV5: pose estimation object with no static lixit object.
+        Pose: pose estimation object with no static lixit object.
     """
     test_file = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v5.h5"
     with tempfile.TemporaryDirectory() as tmpdir:
