@@ -6,18 +6,18 @@ file contains, never how old it is.
 
 Typical use::
 
-    from jabs.io.internal.pose_file import read_component, read_manifest, read_pose_file, validate
+    from jabs.io.internal.pose_file import (
+        ComponentReader, read_component, read_manifest, read_pose_file, validate
+    )
 
     findings = validate(path)
     pose = read_pose_file(path)                       # everything
     window = read_component(path, "jabs.pose.points", frames=slice(0, 1800))
 
-    # Reading many windows: read and validate the manifest once.
-    manifest = read_manifest(path)
-    for start in range(0, frame_count, 1800):
-        window = read_component(
-            path, "jabs.pose.points", frames=slice(start, start + 1800), manifest=manifest
-        )
+    # Reading many windows: open the file, and validate the manifest, once.
+    with ComponentReader(path) as pose:
+        for start in range(0, frame_count, 1800):
+            window = pose.read("jabs.pose.points", frames=slice(start, start + 1800))
 
 ``dense`` is the only baseline encoding written or read: the specification
 makes the baseline encoding the mandatory one and ``ragged`` and ``rle``
@@ -52,6 +52,7 @@ from jabs.io.internal.pose_file.manifest import (
     parse_provenance,
 )
 from jabs.io.internal.pose_file.reader import (
+    ComponentReader,
     NotAPoseFileError,
     PoseFileError,
     read_component,
@@ -88,6 +89,7 @@ __all__ = [
     "Attachment",
     "BlockSource",
     "Component",
+    "ComponentReader",
     "EmbeddingDescriptor",
     "EmbeddingInfo",
     "EmbeddingModel",
