@@ -1060,7 +1060,8 @@ class Project:
             behavior: Behavior name for binary classifiers. Ignored in multi-class mode.
 
         Returns:
-            True if load is successful and False if the file does not exist.
+            True if load is successful; False if the file cannot be read (any
+            ``OSError``, such as a missing file).
 
         Raises:
             ClassifierFeatureVersionError: If the saved classifier was trained on

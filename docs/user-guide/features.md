@@ -4,9 +4,7 @@
 > or unified, through the unified pose file format, and features follow that format's rules.
 > Feature names do not change, but values can, so every feature cache is recomputed and
 > **classifiers trained with earlier versions must be retrained** (JABS refuses to load them, and
-> training data exported with earlier versions must be exported again). The user-visible changes
-> (the full list of semantic changes is the table in section 2 of
-> `docs/superpowers/specs/2026-11-20-jabs-adopts-pose-file-design.md` in the JABS repository):
+> training data exported with earlier versions must be exported again). The user-visible changes:
 > 1. **No social features for single-identity files:** social features need more than one
 >    identity in the pose file. A file with one identity (every v2 file, and any other file
 >    holding one animal) has none.
