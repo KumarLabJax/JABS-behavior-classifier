@@ -760,13 +760,19 @@ def _descriptor(component_id: str, **fields: object) -> Mutation:
 
 
 def _embedding_float64(component_id: str) -> Mutation:
-    """Store an embedding as float64, declared as such, which no embedding may be."""
+    """Store an embedding as float64, declared as such, which no embedding may be.
+
+    The float64 dataset keeps the original's chunking, so its declared layout
+    still matches and the dtype is the fixture's only defect.
+    """
 
     def mutate(path: Path) -> None:
-        with h5py.File(path, "r") as h5:
+        with h5py.File(path, "r+") as h5:
             dataset = _entry(json.loads(h5["manifest"][()]), component_id)["path"]
+            chunks = h5[dataset].chunks
             data = h5[dataset][()].astype(np.float64)
-        _replace_dataset(dataset, data)(path)
+            del h5[dataset]
+            h5.create_dataset(dataset, data=data, chunks=chunks)
         _rewrite_manifest(path, lambda m: _declare(m, component_id, data))
 
     return mutate
@@ -1231,6 +1237,16 @@ def main() -> None:
     shutil.copy(HERE / "valid-ragged-alternate.h5", HERE / "invalid-alternate-disagrees.h5")
     with h5py.File(HERE / "invalid-alternate-disagrees.h5", "r+") as h5:
         h5["/jabs/segmentation/ragged/contours"][0, 0] += 1
+
+    # Embedding rows that pass every structural check and break a row rule only
+    # the opt-in deep check reads: a vector with one element missing, and a
+    # vector stored for a slot that holds no animal.
+    shutil.copy(HERE / "valid-embedding.h5", HERE / "invalid-embedding-partial-nan.h5")
+    with h5py.File(HERE / "invalid-embedding-partial-nan.h5", "r+") as h5:
+        h5["/jabs/embedding/trunk/instance"][0, 0, 3] = np.nan
+    shutil.copy(HERE / "valid-embedding.h5", HERE / "invalid-embedding-unoccupied.h5")
+    with h5py.File(HERE / "invalid-embedding-unoccupied.h5", "r+") as h5:
+        h5["/jabs/embedding/blk31/instance"][EMPTY_SLOT] = 0
 
     # The invalid fixtures are copies of a clean base, taken BEFORE the
     # undeclared attachment goes in: injecting it first gave every invalid

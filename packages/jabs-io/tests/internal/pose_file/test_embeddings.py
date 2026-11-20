@@ -1,8 +1,10 @@
 """Tests for the embedding descriptor, its fingerprint and embedding component ids."""
 
 import dataclasses
+import json
 from collections.abc import Iterator
 
+import h5py
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -268,3 +270,44 @@ def test_embedding_from_block_source(tmp_path):
     assert restored.embedding == original.embedding
     assert restored.data.dtype == np.float16
     np.testing.assert_array_equal(restored.data, rows)
+
+
+def _written_with_manifest(tmp_path, mutate) -> list:
+    """Write the embedding sample, mutate its manifest, and return the file's errors."""
+    path = tmp_path / "mutated.h5"
+    write_pose_file(build_pose_file_with_embeddings(), path)
+    with h5py.File(path, "r+") as h5:
+        manifest = json.loads(h5["manifest"][()])
+        mutate(manifest)
+        del h5["manifest"]
+        h5.create_dataset(
+            "manifest", data=json.dumps(manifest), dtype=h5py.string_dtype(encoding="utf-8")
+        )
+    return _errors(path)
+
+
+@pytest.mark.parametrize(
+    "field,value", [("name", "other"), ("kind", "frame")], ids=["name", "kind"]
+)
+def test_a_descriptor_naming_another_embedding_is_an_error(tmp_path, field, value):
+    """The descriptor's name and kind must agree with the id; the fingerprint omits both."""
+    errors = _written_with_manifest(
+        tmp_path, lambda m: _entry(m, _INSTANCE)["embedding"].update({field: value})
+    )
+    assert {f.check for f in errors} == {"embedding_descriptor_matches"}
+
+
+def test_an_embedding_without_the_nan_policy_is_an_error(tmp_path):
+    """A missing vector is an all-NaN row, so no other missing policy fits an embedding."""
+    errors = _written_with_manifest(
+        tmp_path, lambda m: _entry(m, _INSTANCE).update(missing={"policy": "none"})
+    )
+    assert {f.check for f in errors} == {"embedding_storage"}
+
+
+def test_an_empty_shape_is_reported_not_raised(tmp_path):
+    """With no feature axis, dim is compared against nothing rather than indexed out of range."""
+    errors = _written_with_manifest(tmp_path, lambda m: _entry(m, _INSTANCE).update(shape=[]))
+    checks = {f.check for f in errors}
+    assert "embedding_descriptor_matches" in checks
+    assert "axes_arity" in checks

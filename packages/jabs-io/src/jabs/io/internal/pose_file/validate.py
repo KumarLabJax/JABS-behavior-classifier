@@ -57,6 +57,14 @@ VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
 # sits in memory at once. A block is at least one frame.
 DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
 
+# The deep check reads each embedding this many frames at a time. A frame of
+# the largest plausible embedding (a few thousand features for each of a
+# handful of slots) is tens of kilobytes, so a block stays in the tens of
+# megabytes.
+_DEEP_FRAME_BLOCK: int = 1024
+
+_SLOT_OCCUPIED = "jabs.pose.slot_occupied"
+
 # The alternates this revision defines, by name and component, with the level
 # each must declare. The deep check can decode exactly these.
 _SEGMENTATION_ALTERNATE = "ragged"
@@ -633,6 +641,8 @@ def _check_embeddings(manifest: dict, findings: list[Finding]) -> None:
                 )
             )
 
+        # A duplicate id overwrites the earlier entry here; component_id_unique
+        # already reports the duplicate.
         by_name.setdefault(name, {})[kind] = descriptor
 
     for name, kinds in sorted(by_name.items()):
@@ -1746,6 +1756,117 @@ def _compare_segmentation_alternate(
             return
 
 
+def _embedding_rows_node(h5: h5py.File, spec: dict, kind: str) -> h5py.Dataset | None:
+    """An embedding's payload, or None when the row check cannot index it.
+
+    The structural pass reports a missing payload, a wrong rank or a dtype
+    other than float; the deep check skips such a component rather than raise.
+    """
+    node = h5.get(spec["path"])
+    if not isinstance(node, h5py.Dataset):
+        return None
+    if node.ndim != len(EMBEDDING_AXES[kind]) or node.dtype.kind != "f":
+        return None
+    return node
+
+
+def _slot_occupied_node(
+    h5: h5py.File, by_id: dict[str, dict], frame_slot_shape: tuple[int, ...]
+) -> h5py.Dataset | None:
+    """``jabs.pose.slot_occupied`` when present and usable against an instance embedding."""
+    spec = by_id.get(_SLOT_OCCUPIED)
+    if spec is None:
+        return None
+    node = h5.get(spec["path"])
+    if not isinstance(node, h5py.Dataset):
+        return None
+    if node.shape != frame_slot_shape or node.dtype != np.bool_:
+        return None
+    return node
+
+
+def _row_position(index: tuple[int, ...], first: int) -> str:
+    """Name a row by its absolute frame, and its slot for a per-instance row."""
+    frame = first + int(index[0])
+    if len(index) == 1:
+        return f"frame {frame}"
+    return f"frame {frame}, slot {int(index[1])}"
+
+
+def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """The opt-in deep check on embedding rows.
+
+    A row (the last axis is the feature axis) is either a whole vector or
+    all-NaN, which is how a producer records a vector it did not compute. For
+    a ``.instance`` embedding, a slot that ``jabs.pose.slot_occupied`` marks
+    empty has no vector, so its row must be all-NaN. Without
+    ``slot_occupied`` nothing says which slots are empty, and that rule is
+    skipped.
+
+    Each embedding is read ``_DEEP_FRAME_BLOCK`` frames at a time. Only
+    components whose id parses are read, and only payloads the structural
+    pass could index; each rule reports at most one finding per component,
+    naming the first offending row.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    for spec in manifest["components"]:
+        component_id = spec["id"]
+        if not is_embedding_id(component_id):
+            continue
+        parsed = parse_embedding_id(component_id)
+        if parsed is None:
+            continue
+        kind = parsed[1]
+        node = _embedding_rows_node(h5, spec, kind)
+        if node is None:
+            continue
+        occupied_node = (
+            _slot_occupied_node(h5, by_id, node.shape[:2]) if kind == "instance" else None
+        )
+
+        block = _DEEP_FRAME_BLOCK
+        dim = node.shape[-1]
+        rows_whole, unoccupied_nan = True, occupied_node is not None
+        for first in range(0, node.shape[0], block):
+            last = min(node.shape[0], first + block)
+            nan = np.isnan(np.asarray(node[first:last]))
+            nan_count = nan.sum(axis=-1)
+            if rows_whole:
+                partial = np.argwhere((nan_count != 0) & (nan_count != dim))
+                if partial.size:
+                    index = tuple(partial[0])
+                    findings.append(
+                        Finding(
+                            ERROR,
+                            "embedding_rows_whole",
+                            f"{component_id}: the row at {_row_position(index, first)} has "
+                            f"{int(nan_count[index])} of {dim} features NaN; a row is a whole "
+                            "vector or all-NaN",
+                        )
+                    )
+                    rows_whole = False
+            if unoccupied_nan and occupied_node is not None:
+                empty = ~np.asarray(occupied_node[first:last])
+                stored = np.argwhere(empty & (nan_count != dim))
+                if stored.size:
+                    findings.append(
+                        Finding(
+                            ERROR,
+                            "embedding_unoccupied_nan",
+                            f"{component_id}: {_row_position(tuple(stored[0]), first)} is "
+                            "unoccupied in jabs.pose.slot_occupied but its row is not all-NaN",
+                        )
+                    )
+                    unoccupied_nan = False
+            if not (rows_whole or unoccupied_nan):
+                break
+
+
 def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
     """Validate a pose file.
 
@@ -1754,9 +1875,12 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
     Args:
         path: The file to validate.
         deep: Also run ADR 0002's opt-in deep check: decode every alternate
-            and compare it with its baseline, per ``(frame, slot)``. It reads
-            the baseline in full, so it costs as much as reading the payload.
-            A tool that writes or ingests alternates runs it; a reader need not.
+            and compare it with its baseline, per ``(frame, slot)``, and read
+            every embedding row to check that each is a whole vector or
+            all-NaN, and all-NaN wherever ``jabs.pose.slot_occupied`` marks
+            the slot empty. It reads the baseline and the embeddings in full,
+            so it costs as much as reading the payload. A tool that writes or
+            ingests alternates or embeddings runs it; a reader need not.
 
     Returns:
         Findings, errors first. An empty list means the file conforms.
@@ -1789,6 +1913,9 @@ def validate(path: str | Path, *, deep: bool = False) -> list[Finding]:
             _check_alternates(h5, spec, manifest, findings)
         _check_contour_count(h5, manifest, findings)
         if deep:
+            # After the alternates: their decode stops on any earlier error,
+            # and a bad embedding row says nothing about an alternate.
             _check_alternates_decode(h5, manifest, findings)
+            _check_embedding_rows(h5, manifest, findings)
 
     return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))

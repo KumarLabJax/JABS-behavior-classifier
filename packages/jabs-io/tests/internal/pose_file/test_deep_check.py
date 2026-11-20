@@ -11,6 +11,7 @@ the same fixture one instance at a time, exactly as the ADR spells it out, so
 the two are independent implementations checking each other.
 """
 
+import dataclasses
 import importlib
 import json
 import shutil
@@ -22,7 +23,15 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from jabs.io.internal.pose_file import Finding, validate
+from jabs.io.internal.pose_file import (
+    Finding,
+    PoseFile,
+    VideoInfo,
+    validate,
+    write_pose_file,
+)
+
+from .conftest import build_embedding_component, build_pose_file_with_embeddings
 
 # The package re-exports the function under the module's name, so reach the
 # module itself to patch it.
@@ -503,3 +512,128 @@ def test_a_flag_disagreement_names_both_values(tmp_path: Path) -> None:
     _flip(path, FLAGS, 0)
     (error,) = _deep_errors(path)
     assert "True" in error.message and "False" in error.message
+
+
+# --- Embedding rows: each row is a whole vector or all-NaN ------------------
+
+EMBEDDING_INSTANCE = "jabs.embedding.trunk.instance"
+
+
+def _row_errors(path: Path, check: str) -> list[Finding]:
+    """The deep check's errors of one embedding row rule."""
+    return [f for f in validate(path, deep=True) if f.severity == "error" and f.check == check]
+
+
+def test_deep_check_reads_float16_in_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A partly NaN row in a later frame block is found, and named by its absolute frame.
+
+    With three frames per block, frame 7 is the second row of the third block,
+    so a message naming frame 1 would mean the block offset was dropped.
+    """
+    monkeypatch.setattr(validate_module, "_DEEP_FRAME_BLOCK", 3)
+    component = build_embedding_component("trunk", "frame", frames=10)
+    rows = np.array(component.data, copy=True)
+    assert rows.dtype == np.float16
+    rows[7, 2] = np.nan
+    pose_file = PoseFile(
+        dimensions={"frame": 10, "slot": 1, "identity": 1},
+        video=VideoInfo(frame_count=10),
+        components=(dataclasses.replace(component, data=rows),),
+    )
+    path = tmp_path / "blocks.h5"
+    write_pose_file(pose_file, path)
+
+    assert _checks(validate(path), "error") == []
+    errors = _row_errors(path, "embedding_rows_whole")
+    assert len(errors) == 1
+    assert "jabs.embedding.trunk.frame" in errors[0].message
+    assert "frame 7" in errors[0].message
+
+
+def _with_instance_rows(
+    pose_file: PoseFile, edit: Callable[[npt.NDArray[np.float16]], None]
+) -> PoseFile:
+    """The pose file with its trunk.instance rows edited in place on a copy."""
+    rows = np.array(pose_file.component(EMBEDDING_INSTANCE).data, copy=True)
+    edit(rows)
+    return dataclasses.replace(
+        pose_file,
+        components=tuple(
+            dataclasses.replace(c, data=rows) if c.id == EMBEDDING_INSTANCE else c
+            for c in pose_file.components
+        ),
+    )
+
+
+def _fill_empty_slot(rows: npt.NDArray[np.float16]) -> None:
+    """Store a vector at slot (0, 1), which the builder leaves unoccupied."""
+    rows[0, 1] = 1.0
+
+
+def test_instance_embedding_without_slot_occupied_is_not_checked(tmp_path: Path) -> None:
+    """Without jabs.pose.slot_occupied, nothing says which slots are empty, so no row is held to it."""
+    with_vector = _with_instance_rows(build_pose_file_with_embeddings(), _fill_empty_slot)
+    without_occupancy = dataclasses.replace(
+        with_vector,
+        components=tuple(c for c in with_vector.components if c.id != "jabs.pose.slot_occupied"),
+    )
+    path = tmp_path / "no-occupancy.h5"
+    write_pose_file(without_occupancy, path)
+
+    assert _checks(validate(path, deep=True), "error") == []
+
+
+def test_a_vector_in_an_unoccupied_slot_is_an_error(tmp_path: Path) -> None:
+    """The same rows, with slot_occupied present, break the unoccupied-slot rule."""
+    pose_file = _with_instance_rows(build_pose_file_with_embeddings(), _fill_empty_slot)
+    path = tmp_path / "occupancy.h5"
+    write_pose_file(pose_file, path)
+
+    assert _checks(validate(path), "error") == []
+    errors = _row_errors(path, "embedding_unoccupied_nan")
+    assert len(errors) == 1
+    assert EMBEDDING_INSTANCE in errors[0].message
+    assert "frame 0, slot 1" in errors[0].message
+
+
+def test_many_bad_rows_give_one_finding_naming_the_first(tmp_path: Path) -> None:
+    """One finding per component and rule, naming the first offending row."""
+
+    def damage(rows: npt.NDArray[np.float16]) -> None:
+        rows[2, 1, 0] = np.nan
+        rows[3, 0, 5] = np.nan
+
+    pose_file = _with_instance_rows(build_pose_file_with_embeddings(), damage)
+    path = tmp_path / "many.h5"
+    write_pose_file(pose_file, path)
+
+    errors = _row_errors(path, "embedding_rows_whole")
+    assert len(errors) == 1
+    assert "frame 2, slot 1" in errors[0].message
+
+
+def test_embedding_rows_are_checked_only_when_asked(tmp_path: Path) -> None:
+    """Reading every vector costs as much as the payload, so it waits for deep=True."""
+    path = _copy(tmp_path, DATA / "invalid-embedding-partial-nan.h5")
+    assert not any(f.check == "embedding_rows_whole" for f in validate(path))
+    assert _row_errors(path, "embedding_rows_whole")
+
+
+def test_an_unusable_slot_occupied_skips_the_occupancy_rule(tmp_path: Path) -> None:
+    """A slot_occupied of the wrong shape is a structural error, not a crash here."""
+    path = _copy(tmp_path, DATA / "invalid-embedding-unoccupied.h5")
+    _replace(path, "/jabs/pose/slot_occupied", np.ones((2, 2), dtype=bool))
+    findings = validate(path, deep=True)
+    assert _checks(findings, "error")
+    assert not any(f.check == "embedding_unoccupied_nan" for f in findings)
+
+
+def test_an_embedding_of_the_wrong_rank_is_not_read(tmp_path: Path) -> None:
+    """The structural pass reports the shape; the row check skips what it cannot index."""
+    path = _copy(tmp_path, DATA / "invalid-embedding-partial-nan.h5")
+    _replace(path, "/jabs/embedding/trunk/instance", np.full((8,), np.nan, dtype=np.float16))
+    findings = validate(path, deep=True)
+    assert _checks(findings, "error")
+    assert not any(f.check == "embedding_rows_whole" for f in findings)
