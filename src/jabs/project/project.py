@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 from collections.abc import Callable, Collection, Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from concurrent.futures import as_completed
 from datetime import datetime
 from pathlib import Path
@@ -817,10 +818,10 @@ class Project:
         Returns:
             dictionary of project settings
         """
-        return self.settings_by_pose_version(
-            self._feature_manager.min_pose_version,
-            self._feature_manager.distance_unit,
+        return self.settings_by_capabilities(
+            self._feature_manager.capabilities,
             self._feature_manager.static_objects,
+            self._feature_manager.distance_unit,
         )
 
     def _save_project_defaults(self) -> None:
@@ -832,9 +833,10 @@ class Project:
     def refresh_feature_manager(self) -> None:
         """Rebuild the FeatureManager from the project's current set of videos.
 
-        The FeatureManager derives the project's capabilities -- minimum pose
-        version, the static objects common to every video, whether cm units are
-        available, and the enabled extended features -- once, from the videos
+        The FeatureManager derives the project's capabilities -- the pose
+        capabilities every usable video provides, the static objects common to
+        every video, whether cm units are available, and the enabled extended
+        features -- once, from the videos
         present when the project was opened. Removing a video (the GUI's
         "Prune Project" action) leaves those values describing a video set that
         no longer exists, so callers that change the video set must call this
@@ -859,17 +861,22 @@ class Project:
         self._save_project_defaults()
 
     @staticmethod
-    def settings_by_pose_version(
-        pose_version: int = 2,
+    def settings_by_capabilities(
+        capabilities: AbstractSet[PoseCapability],
+        static_objects: AbstractSet[str] | None = None,
         distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL,
-        static_objects: set[str] | None = None,
-    ):
-        """obtain project settings for a specified pose version
+    ) -> dict:
+        """Obtain default per-behavior settings for a set of pose capabilities.
 
         Args:
-            pose_version: pose version to indicate settings
-            distance_unit: distance unit for settings
-            static_objects: keys of static objects to include
+            capabilities: Pose capabilities available (for a project, the
+                intersection over its usable videos).
+            static_objects: Names of the static objects available; each landmark
+                object is enabled when it is among them.
+            distance_unit: Distance unit for the settings.
+
+        Returns:
+            Dictionary of default per-behavior settings.
         """
         if static_objects is None:
             static_objects = set()
@@ -877,12 +884,12 @@ class Project:
         return {
             "cm_units": distance_unit == ProjectDistanceUnit.CM,
             "window_size": fe.DEFAULT_WINDOW_SIZE,
-            "social": pose_version >= 3,
+            "social": PoseCapability.SOCIAL in capabilities,
             "static_objects": {
-                obj: bool(pose_version >= 5 and obj in static_objects)
+                obj: obj in static_objects
                 for obj in fe.landmark_features.LandmarkFeatureGroup.feature_map
             },
-            "segmentation": pose_version >= 6,
+            "segmentation": PoseCapability.SEGMENTATION in capabilities,
             "window": True,
             "fft": True,
             "balance_labels": False,

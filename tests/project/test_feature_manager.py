@@ -2,11 +2,9 @@
 
 from pathlib import Path
 
-import pytest
-
 from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
-from jabs.project.feature_manager import FeatureManager, pose_version_for_capabilities
+from jabs.project.feature_manager import FeatureManager
 from jabs.project.parallel_workers import VideoScanResult
 from jabs.project.project_paths import ProjectPaths
 
@@ -69,7 +67,6 @@ def test_no_usable_videos_has_no_capabilities(tmp_path: Path) -> None:
     """With no usable video the project has no capabilities."""
     manager = _manager(tmp_path, [_scan("a.avi", [], error="bad file")])
     assert manager.capabilities == frozenset()
-    assert manager.min_pose_version == 0
 
 
 def test_single_identity_project_has_no_social_features(tmp_path: Path) -> None:
@@ -85,25 +82,3 @@ def test_extended_features_follow_static_objects_not_version(tmp_path: Path) -> 
     assert set(manager.extended_features[LandmarkFeatureGroup.name()]) == set(
         LandmarkFeatureGroup.feature_map["lixit"]
     )
-
-
-@pytest.mark.parametrize(
-    ("capabilities", "expected"),
-    [
-        (frozenset(), 5),
-        (frozenset({_SOCIAL}), 5),
-        (frozenset({_SEGMENTATION}), 6),
-        (frozenset({_SOCIAL, _SEGMENTATION, PoseCapability.BOUNDING_BOXES}), 6),
-    ],
-)
-def test_pose_version_for_capabilities(
-    capabilities: frozenset[PoseCapability], expected: int
-) -> None:
-    """The deprecated pose version: 6 with segmentation, else 5."""
-    assert pose_version_for_capabilities(capabilities) == expected
-
-
-def test_min_pose_version_derives_from_capabilities(tmp_path: Path) -> None:
-    """min_pose_version is derived from capabilities, not from file names."""
-    manager = _manager(tmp_path, [_scan("a.avi", ["segmentation", "social"])])
-    assert manager.min_pose_version == 6

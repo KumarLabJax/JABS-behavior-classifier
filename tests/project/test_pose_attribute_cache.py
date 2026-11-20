@@ -277,7 +277,7 @@ def test_cached_load_matches_fresh_scan(tmp_path):
     cached = _open(project_dir)  # cache hits
 
     assert cached.total_project_identities == fresh.total_project_identities
-    assert cached.feature_manager.min_pose_version == fresh.feature_manager.min_pose_version
+    assert cached.feature_manager.capabilities == fresh.feature_manager.capabilities
     assert cached.feature_manager.static_objects == fresh.feature_manager.static_objects
     assert cached.feature_manager.is_cm_unit == fresh.feature_manager.is_cm_unit
 

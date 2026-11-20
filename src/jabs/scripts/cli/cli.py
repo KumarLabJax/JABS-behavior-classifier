@@ -134,7 +134,7 @@ def export_training(
         with console.status(status_text, spinner="dots"):
             outfile = export_training_data_multiclass(
                 jabs_project,
-                jabs_project.feature_manager.min_pose_version,
+                jabs_project.feature_manager.capabilities,
                 classifier_type,
                 out_file=outfile,
             )
@@ -156,7 +156,7 @@ def export_training(
             outfile = export_training_data(
                 jabs_project,
                 behavior,
-                jabs_project.feature_manager.min_pose_version,
+                jabs_project.feature_manager.capabilities,
                 classifier_type,
                 out_file=outfile,
             )

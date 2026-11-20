@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, call
 import numpy as np
 import pytest
 
-from jabs.pose_estimation import PoseEstimationV5, PoseEstimationV6
-
 try:
     from PySide6.QtWidgets import QApplication
 
@@ -433,40 +431,23 @@ def test_export_overlay_video_without_video_warns(handler_setup, monkeypatch):
     warning.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    ("pose_class", "has_segmentation", "expected_reason"),
-    [
-        (PoseEstimationV6, True, None),
-        (PoseEstimationV6, False, "generated without it"),
-        (PoseEstimationV5, False, "requires pose version 6 or newer"),
-    ],
-    ids=["v6-with-segmentation", "v6-without-segmentation", "before-v6"],
-)
+@pytest.mark.parametrize("has_segmentation", [True, False], ids=["with", "without"])
 def test_export_overlay_video_reports_segmentation_availability(
-    video_export_setup,
-    monkeypatch,
-    pose_class: type,
-    has_segmentation: bool,
-    expected_reason: str | None,
+    video_export_setup, monkeypatch, has_segmentation: bool
 ):
-    """Segmentation is optional even in v6+, so the box tracks the data, not the version.
-
-    A v6+ pose file without the data and an older pose version give different reasons.
-    """
+    """The segmentation box follows the pose file's segmentation capability."""
     handlers, _window, player, _thread_cls, _thread = video_export_setup
-    player.pose_est = MagicMock(spec=pose_class)
-    # every reader has has_segmentation (PoseLike); a bare spec mock would be truthy
+    player.pose_est = MagicMock()
     player.pose_est.has_segmentation = has_segmentation
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
 
     handlers.export_overlay_video()
 
     reason = options_cls.call_args.kwargs["segmentation_unavailable"]
-    if expected_reason is None:
+    if has_segmentation:
         assert reason is None
     else:
-        assert reason.startswith("No segmentation data available")
-        assert expected_reason in reason
+        assert reason == "No segmentation data available: this pose file was generated without it"
 
 
 @pytest.mark.parametrize(

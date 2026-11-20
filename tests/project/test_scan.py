@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from jabs.core.enums import PoseCapability
 from jabs.core.utils import hash_file
 from jabs.pose_estimation.conversion_cache import ensure_converted
 from jabs.project import Project
@@ -81,7 +82,7 @@ def test_unscannable_pose_does_not_restrict_project_features(
     _add_video(alone, "good.avi", DATA_DIR / "sample_pose_est_v6.h5", "good_pose_est_v6.h5")
     reference = _open(alone)
 
-    assert project.feature_manager.min_pose_version == reference.feature_manager.min_pose_version
+    assert project.feature_manager.capabilities == reference.feature_manager.capabilities
     # the good v6 video has corners and a scale; the unusable one must not erase them
     assert project.feature_manager.static_objects == {"corners"}
     assert project.feature_manager.is_cm_unit
@@ -111,8 +112,9 @@ def test_project_opens_with_unified_pose_file(tmp_path: Path) -> None:
     assert project.video_manager.get_video_identity_count("vid.avi") == 4
     assert project.feature_manager.static_objects == {"corners"}
     assert project.feature_manager.is_cm_unit
-    # segmentation, so it stands in for pose version 6
-    assert project.feature_manager.min_pose_version == 6
+    assert project.feature_manager.capabilities == frozenset(
+        {PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}
+    )
     entry = _cached_videos(project_dir)["vid.avi"]
     assert entry["pose_file"] == "vid_pose.h5"
     assert "segmentation" in entry["capabilities"]

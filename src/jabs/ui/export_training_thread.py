@@ -13,6 +13,9 @@ from jabs.core.enums import ClassifierMode, ClassifierType
 from jabs.project import export_training_data, export_training_data_multiclass
 
 if TYPE_CHECKING:
+    from collections.abc import Set as AbstractSet
+
+    from jabs.core.enums import PoseCapability
     from jabs.project import Project
 
 
@@ -32,7 +35,7 @@ class ExportTrainingDataThread(QThread):
     def __init__(
         self,
         project: Project,
-        pose_version: int,
+        capabilities: AbstractSet[PoseCapability],
         classifier_type: ClassifierType,
         classifier_mode: ClassifierMode = ClassifierMode.BINARY,
         behavior: str | None = None,
@@ -43,7 +46,7 @@ class ExportTrainingDataThread(QThread):
 
         Args:
             project: The JABS project to export training data from.
-            pose_version: Minimum required pose version for the classifier.
+            capabilities: Pose capabilities the project's features were computed with.
             classifier_type: Classifier algorithm type for the export metadata.
             classifier_mode: Whether to export in binary or multi-class format.
             behavior: Name of the behavior to export. Required when
@@ -54,7 +57,7 @@ class ExportTrainingDataThread(QThread):
         super().__init__(parent=parent)
         self._project = project
         self._behavior = behavior
-        self._pose_version = pose_version
+        self._capabilities = capabilities
         self._classifier_type = classifier_type
         self._classifier_mode = classifier_mode
         self._training_seed = training_seed
@@ -66,7 +69,7 @@ class ExportTrainingDataThread(QThread):
             if self._classifier_mode == ClassifierMode.MULTICLASS:
                 out_path = export_training_data_multiclass(
                     self._project,
-                    self._pose_version,
+                    self._capabilities,
                     self._classifier_type,
                     self._training_seed,
                 )
@@ -76,7 +79,7 @@ class ExportTrainingDataThread(QThread):
                 out_path = export_training_data(
                     self._project,
                     self._behavior,
-                    self._pose_version,
+                    self._capabilities,
                     self._classifier_type,
                     self._training_seed,
                 )
