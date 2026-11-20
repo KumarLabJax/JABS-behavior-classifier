@@ -308,6 +308,8 @@ def test_references_expanding_over_the_cap_are_refused(
         legacy_attributes(h5)
 
     assert "'targets'" in str(refused.value)
+    # Stopped while expanding, not by the total once expanded.
+    assert "expands past the cap" in str(refused.value)
 
 
 def test_attributes_under_the_cap_are_recorded(tmp_path: Path) -> None:
@@ -355,7 +357,34 @@ def test_attributes_over_the_cap_in_total_write_nothing(
             h5["poseest"].attrs[f"note{index:02d}"] = "x" * 64
     out = tmp_path / "out.h5"
 
-    with pytest.raises(LegacyConversionError, match="legacy attributes"):
+    with pytest.raises(LegacyConversionError, match="in total"):
         convert_legacy(src, out)
 
     assert not out.exists()
+
+
+@pytest.mark.parametrize("key", ["cm_per_pixel", "note"])
+def test_an_unreadable_attribute_header_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    """An attribute whose metadata cannot be read is a refusal naming it, not a raw error."""
+    src = tmp_path / "header.h5"
+    shutil.copyfile(legacy("v8-with-centers.h5"), src)
+    with h5py.File(src, "r+") as h5:
+        h5["poseest"].attrs[key] = 1.0
+    original = h5py.AttributeManager.get_id
+
+    def broken(self: h5py.AttributeManager, name: str) -> object:
+        if name == key:
+            raise OSError("corrupt attribute header")
+        return original(self, name)
+
+    monkeypatch.setattr(h5py.AttributeManager, "get_id", broken)
+    out = tmp_path / "out.h5"
+
+    with pytest.raises(LegacyConversionError, match=f"attribute '{key}' of poseest"):
+        convert_legacy(src, out)
+
+    assert not out.exists()
+    with h5py.File(src, "r") as h5, pytest.raises(LegacyConversionError, match=f"'{key}'"):
+        legacy_attributes(h5)

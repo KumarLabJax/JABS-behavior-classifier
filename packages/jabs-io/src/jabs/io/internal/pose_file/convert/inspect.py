@@ -155,9 +155,10 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
         LegacyConversionError: If the file has a link other than a hard link,
             or a dataset with external or virtual storage (checked first,
             before anything is read), holds a path outside the catalog, has
-            an attribute declaring more than 16 MiB, lacks a dataset v4 introduced, has other than 12 keypoints, has
-            datasets whose shapes disagree, names other than one identity per
-            ``external_identity_mapping`` entry, or has a malformed dynamic
+            an attribute declaring more than 16 MiB or whose metadata cannot
+            be read, lacks a dataset v4 introduced, has other than 12
+            keypoints, has datasets whose shapes disagree, names other than
+            one identity per ``external_identity_mapping`` entry, or has a malformed dynamic
             object (datasets that disagree on the sample count, counts above
             its object axis, or sample frames out of order or past the last
             frame), would need more than ``max_memory`` by its declared

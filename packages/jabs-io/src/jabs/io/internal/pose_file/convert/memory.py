@@ -244,7 +244,8 @@ def check_attributes(path: Path, h5: h5py.File) -> None:
 
     Raises:
         LegacyConversionError: If an attribute declares more than
-            ``MAX_ATTRIBUTE_BYTES``. The message names its object and name.
+            ``MAX_ATTRIBUTE_BYTES``, or its metadata cannot be read. The
+            message names its object and name.
     """
     found: list[str] = []
 
@@ -252,7 +253,11 @@ def check_attributes(path: Path, h5: h5py.File) -> None:
         if found:
             return
         for key in obj.attrs:
-            declared = attribute_bytes(obj.attrs, key)
+            try:
+                declared = attribute_bytes(obj.attrs, key)
+            except (TypeError, ValueError, OSError) as error:
+                found.append(f"{path}: attribute {key!r} of {name} cannot be recorded: {error}")
+                return
             if declared > MAX_ATTRIBUTE_BYTES:
                 found.append(
                     f"{path}: attribute {key!r} of {name} declares {declared} bytes; refusing "

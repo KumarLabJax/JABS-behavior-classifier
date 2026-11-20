@@ -115,11 +115,11 @@ def legacy_attributes(h5: h5py.File) -> dict[str, dict]:
             return
         values = {}
         for key in obj.attrs:
-            declared = memory.attribute_bytes(obj.attrs, key)
-            if declared > cap - total:
-                raise too_large(name, key, f"declares {declared} bytes")
             pending = 0
             try:
+                declared = memory.attribute_bytes(obj.attrs, key)
+                if declared > cap - total:
+                    raise too_large(name, key, f"declares {declared} bytes")
                 value = _json_value(obj.attrs[key], h5, spend)
             except _OverCap:
                 raise too_large(name, key, "expands past the cap") from None
