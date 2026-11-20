@@ -28,6 +28,7 @@ VALID = [
     "valid-ragged.h5",
     "valid-ragged-alternate.h5",
     "valid-rle.h5",
+    "valid-embedding.h5",
 ]
 INVALID = {
     "invalid-alternate-duplicate.h5": "alternate_unique",
@@ -41,6 +42,14 @@ INVALID = {
     "invalid-coord-declarations.h5": "manifest_schema",
     "invalid-dangling-mask.h5": "mask_reference",
     "invalid-duplicate-component-id.h5": "component_id_unique",
+    "invalid-embedding-axes.h5": "embedding_axes",
+    "invalid-embedding-descriptor-elsewhere.h5": "manifest_schema",
+    "invalid-embedding-descriptor-missing.h5": "manifest_schema",
+    "invalid-embedding-dim.h5": "embedding_descriptor_matches",
+    "invalid-embedding-dtype.h5": "embedding_storage",
+    "invalid-embedding-fingerprint.h5": "embedding_fingerprint",
+    "invalid-embedding-id.h5": "embedding_id_shape",
+    "invalid-embedding-pair.h5": "embedding_pair_consistent",
     "invalid-external-link.h5": "self_contained",
     "invalid-frame-axis-length.h5": "frame_axis_length",
     "invalid-frame-count.h5": "dimensions_match_video",
@@ -119,6 +128,10 @@ SCHEMA_MESSAGES = {
     "invalid-keypoint-without-skeleton.h5": "'skeleton' is a required property",
     "invalid-sample-without-sparse.h5": "'sparse' is a required property",
     "invalid-rle-shape.h5": "axes: ['run'] was expected",
+    "invalid-embedding-descriptor-missing.h5": "'embedding' is a required property",
+    "invalid-embedding-descriptor-elsewhere.h5": (
+        "should not be valid under {'required': ['embedding']}"
+    ),
 }
 
 

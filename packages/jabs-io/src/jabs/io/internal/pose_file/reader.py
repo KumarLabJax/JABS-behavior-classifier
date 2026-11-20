@@ -22,6 +22,7 @@ axis, an encoding this build cannot decode — the read fails with
 """
 
 import json
+import logging
 from pathlib import Path
 
 import h5py
@@ -45,6 +46,8 @@ from jabs.io.internal.pose_file.types import (
     alternate_key,
     requested_layout_problems,
 )
+
+logger = logging.getLogger(__name__)
 
 # Only the baseline encoding can be decoded. Handing back RLE run values or a
 # ragged point buffer as though it were a dense array is worse than failing.
@@ -455,11 +458,15 @@ def _requested_layout(spec: dict, ndim: int) -> dict | None:
         The layout, or None when there is none to request.
     """
     layout = spec.get("layout")
-    if (
-        layout is None
-        or not accepts_requested_layout(spec["id"])
-        or requested_layout_problems(layout, ndim)
-    ):
+    if layout is None or not accepts_requested_layout(spec["id"]):
+        return None
+    problems = requested_layout_problems(layout, ndim)
+    if problems:
+        logger.debug(
+            "%s: dropping recorded layout the writer cannot honor (%s)",
+            spec["id"],
+            "; ".join(problems),
+        )
         return None
     return layout
 

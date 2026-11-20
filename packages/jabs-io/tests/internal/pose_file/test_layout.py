@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import logging
 
 import h5py
 import numpy as np
@@ -315,7 +316,7 @@ def test_foreign_without_request_keeps_default_policy(tmp_path):
     }
 
 
-def test_unusable_foreign_layout_reads_as_no_request(tmp_path):
+def test_unusable_foreign_layout_reads_as_no_request(tmp_path, caplog):
     """A foreign layout the writer cannot honor is not a request, and never fails a read."""
     path = tmp_path / "szip.h5"
     write_pose_file(_single(_foreign(), 4), path)
@@ -323,9 +324,11 @@ def test_unusable_foreign_layout_reads_as_no_request(tmp_path):
         path,
         lambda m: m["components"][0]["layout"].update(compression="szip"),
     )
-    component = read_pose_file(path).component(_FOREIGN)
+    with caplog.at_level(logging.DEBUG, logger="jabs.io.internal.pose_file.reader"):
+        component = read_pose_file(path).component(_FOREIGN)
     assert component.requested_layout is None
     assert component.layout["compression"] == "szip"
+    assert any(_FOREIGN in r.getMessage() and "szip" in r.getMessage() for r in caplog.records)
 
 
 def test_reader_does_not_request_layouts_for_jabs_components(tmp_path, sample_pose_file):

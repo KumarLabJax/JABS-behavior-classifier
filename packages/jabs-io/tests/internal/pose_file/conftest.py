@@ -226,12 +226,15 @@ def build_pose_file_with_embeddings() -> PoseFile:
     """
     base = build_sample_pose_file()
     points = np.array(base.component("jabs.pose.points").data, copy=True)
+    confidence = np.array(base.component("jabs.pose.confidence").data, copy=True)
     point_valid = np.array(base.component("jabs.pose.point_valid").data, copy=True)
     point_valid[0, 1] = False
     points[0, 1] = np.nan
+    confidence[0, 1] = 0
     occupied = point_valid.any(axis=2)
     replaced = {
         "jabs.pose.points": points,
+        "jabs.pose.confidence": confidence,
         "jabs.pose.point_valid": point_valid,
         "jabs.pose.slot_occupied": occupied,
     }
