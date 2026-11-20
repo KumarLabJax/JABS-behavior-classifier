@@ -46,6 +46,10 @@ is removed when the `Pose` is closed.
 **v2/v3 support in the converter.** `convert_legacy` gains v2 (single mouse,
 12 keypoints, no identity datasets) and v3 (`instance_count`,
 `instance_embedding`, `instance_track_id`). jabs-vision still writes v2.
+Per ADR 0002, v2 converts to 1 slot and `identity = 1`; v3 converts to
+`identity = 0` with tracklets. **`Pose` treats every slot of an `identity = 0`
+file as an identity** (today's v3 behavior) and reports
+`has_identity_tracking = False`.
 
 **Discovery.** Every place that globs `*_pose_est_v*.h5` or derives a video
 stem from a pose name (`pose_file_stem`, the viewer's file filter, project
@@ -61,10 +65,10 @@ version wins (today's rule).
 | Point validity | conf ≤ 0.3 → NaN, float64 compare | `jabs.pose.point_valid`; invalid points are NaN in `get_points`/`get_identity_poses` (coordinates stay in the file) |
 | Identity present | ≥3 valid body keypoints (v3: 1) | `jabs.pose.slot_usable[:, identity]`; when the file has none (it is optional, ADR 0002), derived from `point_valid` with ≥3 valid keypoints excluding the skeleton's tail keypoints, by name, not position |
 | Slots iterated | all | identity slots only (`dimensions.identity`); tail slots never become JABS identities |
-| fps | always 30 in features | manifest `video.fps`; 30 only when absent (logged once) |
+| fps | always 30 in features | manifest `video.fps`; 30 when absent (logged once). Converted legacy files record no fps, so in practice legacy projects stay at 30 until files carry it |
 | `cm_per_pixel` | float32 attr | manifest value, Python float; `None` when absent |
-| Static objects | per-version shapes | always `(P, 2)`; single-point objects (lixit with P=1) squeezed in one helper, `static_object(name)` |
-| Segmentation pairing | `longterm_seg_id` | the format's instance→slot mapping |
+| Static objects | per-version shapes | stored `(O, P, 2)` xy; `static_objects` returns today's shapes by squeezing P when P=1 (corners `(4, 2)`, one-point lixit `(O, 2)`) in one helper |
+| Segmentation pairing | `longterm_seg_id` | contours are indexed by slot (the converter places them in the instance's pose slot); no pairing step |
 | Segmentation access | whole array | `segmentation_window(identity, start, stop)`; whole-file reads are not offered |
 
 Feature names do not change: keypoint names (`KeypointIndex`) stay the column
@@ -84,8 +88,12 @@ names.
 - **Replaced:** `format_major_version` and every `>= N` check (feature
   manager, read/export training, lixit/corner features, CLI, UI overlays) by
   capability properties: `has_segmentation`, `has_identity_tracking`,
-  `has_static_object(name)`, `has_bounding_boxes`. The project-level
-  `_min_pose_version` becomes "all files have capability X".
+  `has_static_object(name)`, `has_bounding_boxes`, `has_social` (the file has
+  more than one slot). Features declare required capabilities instead of
+  `_min_pose`. The project-level `_min_pose_version` becomes the intersection
+  of every file's capabilities; training exports write `pose_capabilities`, and
+  reading an old export maps `min_pose_version` (≥3 social, ≥6 segmentation, ≥8
+  bounding boxes).
 - **Deleted:** `packages/jabs-core/src/jabs/core/abstract/pose_est.py`'s
   `PoseEstimation`, `src/jabs/pose_estimation/pose_est_v2.py`…`v8.py`,
   `identity_indexed_pose.py` if nothing else uses it.
