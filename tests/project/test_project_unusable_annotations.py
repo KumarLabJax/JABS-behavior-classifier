@@ -162,3 +162,43 @@ def test_warn_unusable_videos_logs_one_summary(
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "b.avi (labeled): poseest/mystery" in warnings[0].getMessage()
+
+
+def test_archive_and_rename_open_one_pose_at_a_time(tmp_path: Path) -> None:
+    """Each video's pose is closed before the next one opens, so large projects stay in fd limits."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    for video in ("a.avi", "c.avi"):
+        (project_dir / video).touch()
+        shutil.copyfile(USABLE_POSE, project_dir / f"{Path(video).stem}_pose_est_v8.h5")
+        _write_labels(project_dir, video, {"foo": (10, 20), "bar": (30, 40)})
+    project = Project(project_dir, enable_session_tracker=False)
+    for behavior in ("foo", "bar"):
+        project.settings_manager.save_behavior(behavior, {})
+
+    open_poses: list[object] = []
+    most_open = 0
+    real_load = project.load_pose_est
+
+    def tracking_load(video_path: Path) -> object:
+        nonlocal most_open
+        pose = real_load(video_path)
+        real_close = pose.close
+
+        def close() -> None:
+            if pose in open_poses:
+                open_poses.remove(pose)
+            real_close()
+
+        pose.close = close
+        open_poses.append(pose)
+        most_open = max(most_open, len(open_poses))
+        return pose
+
+    project.load_pose_est = tracking_load
+
+    project.rename_behavior("foo", "baz")
+    project.archive_behavior("bar")
+
+    assert most_open == 1
+    assert open_poses == []
