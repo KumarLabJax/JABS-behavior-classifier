@@ -439,9 +439,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._frame_size = (width, height)
         self._show_pose_only_status()
 
-    def _play_pose_only(
-        self, path: Path, pose_est: PoseLike, frame_size: tuple[int, int]
-    ) -> None:
+    def _play_pose_only(self, path: Path, pose_est: PoseLike, frame_size: tuple[int, int]) -> None:
         """Load solid-color frames of the given size to play the pose over."""
         self._player.load_blank_frames(self._blank_frames(path, pose_est, frame_size), pose_est)
 
@@ -479,9 +477,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
             if (width, height) != self._frame_size:
                 self.set_frame_size(width, height)
 
-    def _show_opened(
-        self, path: Path, pose_est: PoseLike | None, *, pose_only: bool
-    ) -> None:
+    def _show_opened(self, path: Path, pose_est: PoseLike | None, *, pose_only: bool) -> None:
         """Update the window for a newly opened file and its pose."""
         self._pose_est = pose_est
         self._last_dir = path.parent
