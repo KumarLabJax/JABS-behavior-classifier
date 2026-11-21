@@ -699,15 +699,22 @@ class Project:
                 continue
             pose_path = self._video_manager.get_cached_pose_path(video)
             if is_legacy_pose_file(pose_path):
-                tokens[video] = pose_attribute_cache.pose_token(pose_path)
+                known_hash = None
+                try:
+                    tokens[video] = pose_attribute_cache.pose_token(pose_path)
+                except OSError:
+                    # gone or unreadable since the scan: the job reports why
+                    pass
+                else:
+                    known_hash = _cached_source_hash(
+                        attribute_cache.get(video), tokens[video], pose_path.name
+                    )
                 jobs.append(
                     PoseConversionJobSpec(
                         video=video,
                         pose_path=pose_path,
                         cache_dir=self._paths.cache_dir,
-                        known_hash=_cached_source_hash(
-                            attribute_cache.get(video), tokens[video], pose_path.name
-                        ),
+                        known_hash=known_hash,
                     )
                 )
         if not jobs:
