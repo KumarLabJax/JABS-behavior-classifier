@@ -292,9 +292,8 @@ def run_cross_validation(
             f"The specified directory is not a valid JABS project directory: {project_dir}"
         )
 
-    # load the project; unusable videos are left out of training, say so once
+    # load the project
     project = Project(project_dir, enable_session_tracker=False)
-    project.warn_unusable_videos()
 
     console = Console()
     is_multiclass = project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
@@ -384,6 +383,9 @@ def run_cross_validation(
                 grouping_strategy=grouping_strategy,
                 grouping_regex=grouping_regex,
             )
+    # unusable videos (including any refused while collecting features) are
+    # left out of training; say so once
+    project.warn_unusable_videos()
 
     with progress:
         if k == 0:
