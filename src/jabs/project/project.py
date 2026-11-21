@@ -1088,6 +1088,12 @@ class Project:
         Returns:
             None
         """
+        self._save_annotation_documents(
+            {annotations.filename: self._annotation_document(annotations, pose)}
+        )
+
+    def _annotation_document(self, annotations: VideoLabels, pose: PoseLike | None) -> dict:
+        """Serialize a video's labels as they are saved, with the project metadata and labeler."""
         video_filename = annotations.filename
         document = annotations.as_dict(
             pose,
@@ -1095,11 +1101,15 @@ class Project:
             video_metadata=self.settings_manager.video_metadata(video_filename),
         )
         document["labeler"] = self.labeler
+        return document
 
-        self._annotation_store.save_document(video_filename, document)
-
-        # update app version saved in project metadata if necessary
-        self._settings_manager.update_version()
+    def _save_annotation_documents(self, documents: Mapping[str, dict]) -> None:
+        """Save serialized annotation documents, keyed by video filename."""
+        for video, document in documents.items():
+            self._annotation_store.save_document(video, document)
+        if documents:
+            # update app version saved in project metadata if necessary
+            self._settings_manager.update_version()
 
     def get_project_defaults(self):
         """obtain the default per-behavior settings
@@ -1403,36 +1413,43 @@ class Project:
         safe_behavior = to_safe_name(behavior)
 
         archived_labels: dict[str, dict] = {}
-        to_save: list[tuple[str, VideoLabels | dict, PoseLike | None]] = []
+        to_save: dict[str, dict] = {}
         for video in self._video_manager.videos:
             if (document := self._video_manager.load_annotations(video)) is None:
                 continue
+            # one pose open at a time: each is closed before the next video's opens
             pose = self._open_pose_for_annotations(video)
-            if pose is None:
-                annotations = copy.deepcopy(document)
-            else:
-                annotations = VideoLabels.load(document, pose).as_dict(pose)
+            try:
+                if pose is None:
+                    annotations = copy.deepcopy(document)
+                else:
+                    annotations = VideoLabels.load(document, pose).as_dict(pose)
 
-            # the behavior is keyed by its name as provided (not to_safe_name())
-            # in the archive. Both label sections are archived: "labels" holds
-            # the blocks masked to frames where the identity has pose data,
-            # "unfragmented_labels" holds them unmasked.
-            archived_labels[video] = {
-                "num_frames": annotations["num_frames"],
-                **_pop_behavior(annotations, behavior),
-            }
-            if pose is None:
-                to_save.append((video, annotations, None))
-            else:
-                to_save.append((video, VideoLabels.load(annotations, pose), pose))
+                # the behavior is keyed by its name as provided (not to_safe_name())
+                # in the archive. Both label sections are archived: "labels" holds
+                # the blocks masked to frames where the identity has pose data,
+                # "unfragmented_labels" holds them unmasked.
+                archived_labels[video] = {
+                    "num_frames": annotations["num_frames"],
+                    **_pop_behavior(annotations, behavior),
+                }
+                if pose is None:
+                    annotations["labeler"] = self.labeler
+                    to_save[video] = annotations
+                else:
+                    to_save[video] = self._annotation_document(
+                        VideoLabels.load(annotations, pose), pose
+                    )
+            finally:
+                if pose is not None:
+                    pose.close()
 
         # write the archive before any annotation document loses the behavior
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt") as f:
             json.dump(archived_labels, f, indent=2)
 
-        for video, labels, pose in to_save:
-            self._save_edited_annotations(video, labels, pose)
+        self._save_annotation_documents(to_save)
 
         # remove predictions
         shutil.rmtree(self._paths.prediction_dir / safe_behavior, ignore_errors=True)
@@ -1461,23 +1478,6 @@ class Project:
                 "Editing the annotations of %s without its pose file: %s", video, error.reason
             )
             return None
-
-    def _save_edited_annotations(
-        self, video: str, labels: "VideoLabels | dict", pose: PoseLike | None
-    ) -> None:
-        """Save annotations edited by a project-wide behavior operation.
-
-        Args:
-            video: Video filename.
-            labels: The edited labels, or (without a pose) the edited saved document.
-            pose: The video's pose, or None when ``labels`` is a document.
-        """
-        if isinstance(labels, VideoLabels):
-            self.save_annotations(labels, pose)
-            return
-        labels["labeler"] = self.labeler
-        self._annotation_store.save_document(video, labels)
-        self._settings_manager.update_version()
 
     def counts(self, behavior: str) -> dict[str, dict[int, dict[str, tuple[int, int]]]]:
         """get the labeled frame counts and bout counts for each video in the project
@@ -2144,19 +2144,25 @@ class Project:
         # (mode-independent: labels are always keyed by behavior name on disk),
         # so a refusal for any video changes nothing. A video without a usable
         # pose has its saved document renamed directly.
-        to_save: list[tuple[str, VideoLabels | dict, PoseLike | None]] = []
+        to_save: dict[str, dict] = {}
         for video in self._video_manager.videos:
             if (document := self._video_manager.load_annotations(video)) is None:
                 continue
+            # one pose open at a time: each is closed before the next video's opens
             pose = self._open_pose_for_annotations(video)
-            if pose is None:
-                edited = copy.deepcopy(document)
-                _rename_behavior_in_document(edited, old_name, new_name)
-                to_save.append((video, edited, None))
-            else:
-                labels = VideoLabels.load(document, pose)
-                labels.rename_behavior(old_name, new_name)
-                to_save.append((video, labels, pose))
+            try:
+                if pose is None:
+                    edited = copy.deepcopy(document)
+                    _rename_behavior_in_document(edited, old_name, new_name)
+                    edited["labeler"] = self.labeler
+                    to_save[video] = edited
+                else:
+                    labels = VideoLabels.load(document, pose)
+                    labels.rename_behavior(old_name, new_name)
+                    to_save[video] = self._annotation_document(labels, pose)
+            finally:
+                if pose is not None:
+                    pose.close()
 
         # Classifier and prediction storage differs between modes, so update the
         # mode-specific artifacts separately.
@@ -2165,8 +2171,7 @@ class Project:
         else:
             self._rename_behavior_binary_artifacts(old_name, new_name)
 
-        for video, labels, pose in to_save:
-            self._save_edited_annotations(video, labels, pose)
+        self._save_annotation_documents(to_save)
 
         # update project settings
         self._settings_manager.rename_behavior(old_name, new_name)

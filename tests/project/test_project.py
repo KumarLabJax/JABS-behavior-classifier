@@ -1064,10 +1064,9 @@ def test_archive_behavior_removes_only_archived_behavior_from_annotations(tmp_pa
 
     project.archive_behavior("Walk")
 
-    project.save_annotations.assert_called_once()
-    saved_labels = project.save_annotations.call_args.args[0]
-    remaining = dict(saved_labels.iter_behavior_labels("0"))
-    assert list(remaining) == ["Grooming"]
+    saved = project.annotation_store.load_document("video1.avi").content
+    assert list(saved["unfragmented_labels"]["0"]) == ["Grooming"]
+    assert list(saved["labels"]["0"]) == ["Grooming"]
 
 
 def _mixed_pose_version_project(tmp_path: Path) -> Project:
