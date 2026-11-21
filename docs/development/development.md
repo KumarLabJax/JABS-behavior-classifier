@@ -752,6 +752,9 @@ FEATURE_VERSION = N + 1
 Beyond version checking, `FeatureCacheReader._validate()` also invalidates the cache when:
 
 - **Pose file changes**: `pose_hash` mismatch raises `PoseHashException`
+- **Converter changes**: for a converted legacy pose file, a `converter_revision` mismatch
+  (jabs-io's `CONVERTER_REVISION`, bumped when converter output changes) raises
+  `PoseHashException`; unified pose files record none
 - **Distance scale changes**: switching between pixel/cm units changes
   `distance_scale_factor` and raises `DistanceScaleException`
 
