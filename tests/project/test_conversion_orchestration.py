@@ -456,3 +456,14 @@ def test_prepare_poses_reconverts_after_a_revision_bump(
     _open(legacy_project).prepare_poses(lambda i, n: None)
 
     assert convert_spy.call_count == 4
+
+
+def test_prepare_poses_survives_a_pose_file_gone_since_the_scan(legacy_project: Path) -> None:
+    """A legacy file deleted after the scan marks its video unusable; the load goes on."""
+    project = _open(legacy_project)
+    (legacy_project / "a_pose_est_v2.h5").unlink()
+
+    project.prepare_poses(lambda i, n: None)
+
+    assert not project.is_usable("a.avi")
+    assert project.is_usable("b.avi")
