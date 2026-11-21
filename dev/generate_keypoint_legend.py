@@ -18,10 +18,10 @@ import matplotlib
 matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
 
-from jabs.overlay_drawing import KEYPOINT_COLOR_MAP  # QColor map keyed by KeypointIndex
+from jabs.core.pose_skeleton import KeypointIndex
 
 # Import the actual map so colors 100% match what's used in the app
-from jabs.pose_estimation import PoseEstimation  # provides KeypointIndex
+from jabs.overlay_drawing import KEYPOINT_COLOR_MAP  # QColor map keyed by KeypointIndex
 
 
 def qcolor_to_rgb_tuple(qc: object) -> tuple[float, float, float]:
@@ -39,10 +39,10 @@ def qcolor_to_rgb_tuple(qc: object) -> tuple[float, float, float]:
 
 
 def collect_entries() -> list[tuple[str, tuple[float, float, float]]]:
-    """Collect (label, rgb) entries from KEYPOINT_COLOR_MAP in order of PoseEstimation.KeypointIndex."""
+    """Collect (label, rgb) entries from KEYPOINT_COLOR_MAP in order of KeypointIndex."""
     entries = []
-    # Preserve the order as defined in PoseEstimation.KeypointIndex
-    for kp in PoseEstimation.KeypointIndex:
+    # Preserve the order as defined in KeypointIndex
+    for kp in KeypointIndex:
         raw_name = getattr(kp, "name", str(kp))
         parts = raw_name.split("_")
         name = " ".join(word.capitalize() for word in parts)

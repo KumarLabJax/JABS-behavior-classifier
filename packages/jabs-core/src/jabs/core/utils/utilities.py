@@ -67,24 +67,30 @@ def get_bool_env_var(var_name, default_value=False) -> bool:
 
 
 _POSE_SUFFIX_RE = re.compile(r"_pose_est_v\d+$")
+# an .h5 pose file: legacy ``_pose_est_vN`` or unified ``_pose``, stripped once
+_H5_POSE_SUFFIX_RE = re.compile(r"(_pose_est_v\d+|_pose)$")
 
 
 def pose_file_stem(path: str | Path) -> str:
-    """Return the base name of a pose file with the ``_pose_est_vN`` suffix removed.
+    """Return the base name of a pose file with its pose suffix removed.
 
-    For example, ``"video_pose_est_v6.h5"`` becomes ``"video"``. If the input does
-    not include the ``_pose_est_vN`` suffix, the stem is returned unchanged
-    (this allows callers to pass either a pose file path or a video file path
-    and get a consistent identifier).
+    ``"video_pose_est_v6.h5"`` and ``"video_pose.h5"`` both become ``"video"``.
+    The unified ``_pose`` suffix is stripped only from ``.h5`` paths, so a video
+    named ``"trial_pose.mp4"`` keeps its stem ``"trial_pose"``; the legacy
+    ``_pose_est_vN`` suffix is stripped from any path. Other stems are returned
+    unchanged, so callers can pass either a pose file path or a video file path
+    and get a consistent identifier.
 
     Args:
         path: A pose file path (or any path-like value) whose stem may include
-            the ``_pose_est_vN`` suffix.
+            a pose suffix.
 
     Returns:
-        The stem with any trailing ``_pose_est_vN`` suffix stripped.
+        The stem with one trailing pose suffix stripped.
     """
-    return _POSE_SUFFIX_RE.sub("", Path(path).stem)
+    path = Path(path)
+    pattern = _H5_POSE_SUFFIX_RE if path.suffix == ".h5" else _POSE_SUFFIX_RE
+    return pattern.sub("", path.stem)
 
 
 def copy_file_atomic(source: Path, destination: Path) -> None:

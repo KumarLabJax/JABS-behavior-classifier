@@ -177,6 +177,10 @@ class FakeTrainingProject:
         self.multiclass_calls = 0
         self.save_classifier = MagicMock()
 
+    def is_trainable(self, video: str) -> bool:
+        """Every video of the fake project is usable and included in training."""
+        return not self.settings_manager.is_video_excluded(video)
+
     def get_project_defaults(self) -> dict:
         """Return the default project settings used when classifier has none."""
         return dict(self._DEFAULT_BEHAVIOR_SETTINGS)
@@ -245,6 +249,12 @@ class FakeClassifyingProject:
             num_frames=5,
             fps=30,
         )
+
+        self.unusable_videos: dict[str, str] = {}
+
+    def is_usable(self, video: str) -> bool:
+        """Return whether the video is usable (not in ``unusable_videos``)."""
+        return video not in self.unusable_videos
 
     def load_pose_est(self, _video_path) -> SimpleNamespace:
         """Return the fixed pose-estimation stand-in."""

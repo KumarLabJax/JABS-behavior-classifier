@@ -79,7 +79,6 @@ from jabs.feature_extraction import IdentityFeatures
 from jabs.project import Project
 from jabs.project.prediction_manager import PredictionManager
 from jabs.scripts.classify import load_classifier_from_pickle
-from jabs.video_reader.utilities import get_fps_and_nframes
 
 from . import evaluate_report
 from .evaluate_results import (
@@ -435,7 +434,6 @@ def _predict_identity(
     pose_est: Any,
     identity: int,
     feature_dir: Path | None,
-    fps: int,
     cache_format: Any,
 ) -> tuple[npt.NDArray[np.int8], npt.NDArray[np.floating]]:
     """Run the classifier over one identity of one pose file.
@@ -443,10 +441,9 @@ def _predict_identity(
     Args:
         classifier: Trained binary classifier.
         pose_path: Path to the pose file, used as the feature-cache key.
-        pose_est: Open ``PoseEstimation`` for that file.
+        pose_est: Open ``PoseLike`` for that file.
         identity: Identity index to classify.
         feature_dir: Feature cache directory, or None to compute without caching.
-        fps: Frames per second, used for time-derived features.
         cache_format: Feature cache format to read and write.
 
     Returns:
@@ -460,7 +457,6 @@ def _predict_identity(
         identity,
         feature_dir,
         pose_est,
-        fps=fps,
         op_settings=settings,
         cache_window=True,
         cache_format=cache_format,
@@ -621,7 +617,6 @@ def run_evaluation(
     criteria: Sequence[MatchCriterion],
     plan: PostprocessingPlan | None,
     feature_dir: Path | None,
-    fps_override: int | None,
     collect_bout_records: bool,
     save_predictions_dir: Path | None = None,
     progress_callback: Any = None,
@@ -644,8 +639,6 @@ def run_evaluation(
             evaluate raw predictions only. A plan with several combinations is
             a sweep: all of them are applied to one classification pass.
         feature_dir: Feature cache directory. Defaults to the project's own.
-        fps_override: Frames per second to use for every video, skipping the
-            per-video lookup. None reads it from each video.
         collect_bout_records: Whether to build the per-bout detail rows.
         save_predictions_dir: Directory to write one prediction HDF5 file per
             video into, in the same format `jabs-classify` produces. None
@@ -712,6 +705,11 @@ def run_evaluation(
                 progress_callback(remaining)
 
     for video in project.video_manager.videos:
+        if not project.is_usable(video):
+            reason = f"pose file is unusable: {project.unusable_videos[video]}"
+            skip_video(video, reason)
+            logger.warning("Skipping %s: %s", video, reason)
+            continue
         try:
             pose_path = project.video_manager.get_cached_pose_path(video)
             pose_est = project.load_pose_est(project.video_manager.video_path(video))
@@ -721,123 +719,116 @@ def run_evaluation(
             logger.warning("Skipping %s: %s", video, exc, exc_info=True)
             continue
 
-        if video_labels is None:
-            skip_video(video, "no annotations in the project")
-            continue
-
-        if fps_override is not None:
-            fps = fps_override
-        else:
-            try:
-                fps, _ = get_fps_and_nframes(project.video_manager.video_path(video))
-            except OSError as exc:
-                skip_video(video, f"cannot read frame rate: {exc}")
+        # close the pose (an open file for a unified pose) before the next video
+        with pose_est:
+            if video_labels is None:
+                skip_video(video, "no annotations in the project")
                 continue
 
-        # accumulated across identities so the saved file matches the shape
-        # jabs-classify writes: one record per video, all identities in it
-        # a sweep has no single postprocessed array to save, so only the raw
-        # predictions are written; see the note in the command's help
-        save_postprocessed = plan is not None and not plan.is_sweep
-        saved = (
-            _PredictionAccumulator(
-                pose_est.num_identities, pose_est.num_frames, save_postprocessed
+            # accumulated across identities so the saved file matches the shape
+            # jabs-classify writes: one record per video, all identities in it
+            # a sweep has no single postprocessed array to save, so only the raw
+            # predictions are written; see the note in the command's help
+            save_postprocessed = plan is not None and not plan.is_sweep
+            saved = (
+                _PredictionAccumulator(
+                    pose_est.num_identities, pose_est.num_frames, save_postprocessed
+                )
+                if save_predictions_dir is not None
+                else None
             )
-            if save_predictions_dir is not None
-            else None
-        )
 
-        for identity in pose_est.identities:
-            try:
-                predicted, confidence = _predict_identity(
-                    classifier, pose_path, pose_est, identity, cache_dir, fps, project.cache_format
-                )
-            except Exception as exc:
-                result.skipped_videos.append((f"{video} (identity {identity})", str(exc)))
-                logger.warning(
-                    "Skipping identity %s of %s: %s", identity, video, exc, exc_info=True
-                )
-                if progress_callback is not None:
-                    progress_callback()
-                continue
-
-            truth = video_labels.get_track_labels(str(identity), behavior).get_labels()
-            truth, predicted_aligned, dropped = _align(truth, predicted)
-            if dropped:
-                logger.warning(
-                    "%s identity %s: label and prediction lengths differ by %s frame(s); "
-                    "compared the first %s",
-                    video,
-                    identity,
-                    dropped,
-                    len(truth),
-                )
-
-            if not np.any(truth != ClassLabels.NONE):
-                result.unlabeled_identities.append((video, int(identity)))
-
-            stage_vectors = {RAW_STAGE: predicted_aligned}
-            postprocessed = None
-            if plan is not None:
-                for key, pipeline in zip(plan.stage_keys, plan.pipelines, strict=True):
-                    vector = predicted.copy()
-                    for stage in pipeline.stages:
-                        vector = stage.apply(vector, confidence)
-                    stage_vectors[key] = vector[: len(truth)]
-                    if not plan.is_sweep:
-                        postprocessed = vector
-
-            # the saved file records the full pose-length vectors, not the ones
-            # truncated to the labels, so it stands on its own as a prediction file
-            if saved is not None:
-                saved.add(int(identity), predicted, confidence, postprocessed)
-
-            for stage_name, vector in stage_vectors.items():
-                comparison = compare_identity(truth, vector, criteria)
-                result.identity_results.append(
-                    IdentityResult(
-                        video=video,
-                        identity=int(identity),
-                        stage=stage_name,
-                        frame_metrics=comparison.frame_metrics,
-                        bout_metrics=comparison.bout_metrics,
+            for identity in pose_est.identities:
+                try:
+                    predicted, confidence = _predict_identity(
+                        classifier, pose_path, pose_est, identity, cache_dir, project.cache_format
                     )
-                )
-                if collect_bout_records:
-                    result.bout_records.extend(
-                        build_bout_records(
-                            comparison,
-                            video,
-                            int(identity),
-                            stage_name,
-                            overlap_label,
-                            iou_label,
+                except Exception as exc:
+                    result.skipped_videos.append((f"{video} (identity {identity})", str(exc)))
+                    logger.warning(
+                        "Skipping identity %s of %s: %s", identity, video, exc, exc_info=True
+                    )
+                    if progress_callback is not None:
+                        progress_callback()
+                    continue
+
+                truth = video_labels.get_track_labels(str(identity), behavior).get_labels()
+                truth, predicted_aligned, dropped = _align(truth, predicted)
+                if dropped:
+                    logger.warning(
+                        "%s identity %s: label and prediction lengths differ by %s frame(s); "
+                        "compared the first %s",
+                        video,
+                        identity,
+                        dropped,
+                        len(truth),
+                    )
+
+                if not np.any(truth != ClassLabels.NONE):
+                    result.unlabeled_identities.append((video, int(identity)))
+
+                stage_vectors = {RAW_STAGE: predicted_aligned}
+                postprocessed = None
+                if plan is not None:
+                    for key, pipeline in zip(plan.stage_keys, plan.pipelines, strict=True):
+                        vector = predicted.copy()
+                        for stage in pipeline.stages:
+                            vector = stage.apply(vector, confidence)
+                        stage_vectors[key] = vector[: len(truth)]
+                        if not plan.is_sweep:
+                            postprocessed = vector
+
+                # the saved file records the full pose-length vectors, not the ones
+                # truncated to the labels, so it stands on its own as a prediction file
+                if saved is not None:
+                    saved.add(int(identity), predicted, confidence, postprocessed)
+
+                for stage_name, vector in stage_vectors.items():
+                    comparison = compare_identity(truth, vector, criteria)
+                    result.identity_results.append(
+                        IdentityResult(
+                            video=video,
+                            identity=int(identity),
+                            stage=stage_name,
+                            frame_metrics=comparison.frame_metrics,
+                            bout_metrics=comparison.bout_metrics,
                         )
                     )
+                    if collect_bout_records:
+                        result.bout_records.extend(
+                            build_bout_records(
+                                comparison,
+                                video,
+                                int(identity),
+                                stage_name,
+                                overlap_label,
+                                iou_label,
+                            )
+                        )
 
-            if progress_callback is not None:
-                progress_callback()
+                if progress_callback is not None:
+                    progress_callback()
 
-        if saved is not None and saved.has_predictions:
-            output_path = save_predictions_dir / f"{pose_file_stem(pose_path)}_behavior.h5"
-            try:
-                PredictionManager.write_predictions(
-                    behavior,
-                    output_path,
-                    saved.predictions,
-                    saved.probabilities,
-                    pose_est,
-                    classifier,
-                    postprocessed_predictions=saved.postprocessed,
-                )
-            except Exception as exc:
-                # the metrics this run just computed are worth more than the
-                # side output, so record the failure and keep going
-                result.prediction_write_errors.append((video, str(exc)))
-                logger.error("Cannot write predictions for %s: %s", video, exc, exc_info=True)
-            else:
-                result.prediction_files.append(output_path)
-                logger.info("Wrote predictions for %s to %s", video, output_path)
+            if saved is not None and saved.has_predictions:
+                output_path = save_predictions_dir / f"{pose_file_stem(pose_path)}_behavior.h5"
+                try:
+                    PredictionManager.write_predictions(
+                        behavior,
+                        output_path,
+                        saved.predictions,
+                        saved.probabilities,
+                        pose_est,
+                        classifier,
+                        postprocessed_predictions=saved.postprocessed,
+                    )
+                except Exception as exc:
+                    # the metrics this run just computed are worth more than the
+                    # side output, so record the failure and keep going
+                    result.prediction_write_errors.append((video, str(exc)))
+                    logger.error("Cannot write predictions for %s: %s", video, exc, exc_info=True)
+                else:
+                    result.prediction_files.append(output_path)
+                    logger.info("Wrote predictions for %s to %s", video, output_path)
 
     if plan is not None and plan.is_sweep:
         best = select_best_stage(result, plan.stage_keys)
@@ -923,10 +914,7 @@ def run_evaluation(
     "--fps",
     default=None,
     type=int,
-    help=(
-        "Frames per second to assume for every video, skipping the per-video lookup. "
-        "Defaults to reading it from each video file."
-    ),
+    help="Deprecated and ignored: the frame rate is read from each pose file.",
 )
 @click.option(
     "--save-predictions",
@@ -992,6 +980,8 @@ def evaluate_command(
     per_video: bool,
 ) -> None:
     """Evaluate a trained classifier against a densely labeled JABS project."""
+    if fps is not None:
+        logger.warning("--fps is deprecated and ignored; each pose file's frame rate is used")
     console = Console()
 
     # the criterion order here is load-bearing: run_evaluation labels the
@@ -1083,7 +1073,6 @@ def evaluate_command(
             criteria=criteria,
             plan=plan,
             feature_dir=feature_dir,
-            fps_override=fps,
             collect_bout_records=csv_out is not None,
             save_predictions_dir=save_predictions,
             project=project,

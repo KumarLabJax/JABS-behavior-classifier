@@ -36,14 +36,15 @@ from jabs.pose_estimation import get_pose_path, open_pose_file
     "pose_path",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Pose file to use. Defaults to the highest-version pose file beside the video.",
+    help="Pose file to use. Defaults to the pose file beside the video: <video>_pose.h5, "
+    "else the highest-version <video>_pose_est_v<N>.h5.",
 )
 @click.option(
     "--segmentation/--no-segmentation",
     "draw_segmentation",
     default=True,
-    help="Include segmentation contours alongside the pose skeleton. Requires a v6 or "
-    "newer pose file; ignored otherwise. Use --no-segmentation for pose only.",
+    help="Include segmentation contours alongside the pose skeleton. Requires a pose file "
+    "with segmentation; ignored otherwise. Use --no-segmentation for pose only.",
 )
 @click.option(
     "--landmarks/--no-landmarks",
@@ -109,43 +110,44 @@ def export_video_command(
         # Pose loading surfaces OSError, KeyError and h5py errors depending on how
         # the file is malformed; none of them are useful as a raw traceback.
         raise click.ClickException(f"Could not read pose file {pose_path}: {e}") from e
-    console.print(f"Video:  {video_path}")
-    console.print(f"Pose:   {pose_path}")
-    console.print(f"Output: {output_path}")
+    with pose_est:
+        console.print(f"Video:  {video_path}")
+        console.print(f"Pose:   {pose_path}")
+        console.print(f"Output: {output_path}")
 
-    # Segmentation is optional even in v6+ pose files. Say so up front rather than
-    # letting the user wait out a full export and wonder where the contours went.
-    if draw_segmentation and not getattr(pose_est, "has_segmentation", False):
-        console.print(
-            "[yellow]This pose file carries no segmentation data; "
-            "exporting the pose overlay only.[/yellow]"
-        )
-        draw_segmentation = False
-
-    with Progress(
-        TextColumn("{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task_id = progress.add_task("Rendering overlay", total=None)
-
-        def on_progress(written: int, total: int) -> None:
-            progress.update(task_id, completed=written, total=total)
-
-        try:
-            frames_written = export_overlay_video(
-                video_path,
-                output_path,
-                pose_est,
-                draw_segmentation=draw_segmentation,
-                draw_landmarks=draw_landmarks,
-                codec=codec,
-                progress_callback=on_progress,
+        # Segmentation is optional in a pose file. Say so up front rather than
+        # letting the user wait out a full export and wonder where the contours went.
+        if draw_segmentation and not pose_est.has_segmentation:
+            console.print(
+                "[yellow]This pose file carries no segmentation data; "
+                "exporting the pose overlay only.[/yellow]"
             )
-        except VideoExportError as e:
-            raise click.ClickException(str(e)) from e
+            draw_segmentation = False
 
-    console.print(f"Wrote {frames_written:,} frames to {output_path}")
+        with Progress(
+            TextColumn("{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task_id = progress.add_task("Rendering overlay", total=None)
+
+            def on_progress(written: int, total: int) -> None:
+                progress.update(task_id, completed=written, total=total)
+
+            try:
+                frames_written = export_overlay_video(
+                    video_path,
+                    output_path,
+                    pose_est,
+                    draw_segmentation=draw_segmentation,
+                    draw_landmarks=draw_landmarks,
+                    codec=codec,
+                    progress_callback=on_progress,
+                )
+            except VideoExportError as e:
+                raise click.ClickException(str(e)) from e
+
+        console.print(f"Wrote {frames_written:,} frames to {output_path}")

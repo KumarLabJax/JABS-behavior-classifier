@@ -9,8 +9,9 @@ from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.overlay_drawing import pose_has_bounding_boxes, pose_has_landmarks
-from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
+from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.ui.dialogs import MessageDialog
 from jabs.ui.dialogs.progress_dialog import create_progress_dialog
 from jabs.ui.player_widget import PlayerWidget
@@ -24,7 +25,7 @@ from .pose_loader_thread import PoseLoaderThread
 logger = logging.getLogger(__name__)
 
 VIDEO_FILE_FILTER = "Video Files (*.mp4 *.avi);;All Files (*)"
-POSE_FILE_FILTER = "Pose Files (*_pose_est_v*.h5);;All Files (*)"
+POSE_FILE_FILTER = "Pose Files (*_pose.h5 *_pose_est_v*.h5);;All Files (*)"
 
 OPEN_PROMPT = "Open a video or pose file to begin (File menu)"
 
@@ -39,12 +40,15 @@ POSE_ONLY_BACKGROUND = (40, 40, 40)
 class ViewerWindow(QtWidgets.QMainWindow):
     """Window that plays a video or a pose file with pose and segmentation overlays.
 
-    When the opened video has a JABS pose file beside it (``<video>_pose_est_v<N>.h5``)
-    the pose skeletons and, when the pose file has them, segmentation contours,
-    bounding boxes and arena landmarks are drawn over the video. A pose file can also
-    be opened on its own, and is played over a solid background. Each overlay can be
-    toggled from the View menu or the toolbar, and the current frame or the whole
-    video can be exported with the overlays drawn from the File menu.
+    When the opened video has a JABS pose file beside it (``<video>_pose.h5`` or
+    ``<video>_pose_est_v<N>.h5``) the pose skeletons and, when the pose file has them,
+    segmentation contours, bounding boxes and arena landmarks are drawn over the video.
+    A pose file can also be opened on its own, and is played over a solid background.
+    Each overlay can be toggled from the View menu or the toolbar, and the current frame
+    or the whole video can be exported with the overlays drawn from the File menu.
+
+    Pose files are opened on a worker thread, behind a busy indicator, since opening a
+    legacy file may convert it first.
     """
 
     def __init__(self, app_name: str, parent: QtWidgets.QWidget | None = None) -> None:
@@ -56,7 +60,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         """
         super().__init__(parent)
         self._app_name = app_name
-        self._pose_est: PoseEstimation | None = None
+        self._pose_est: PoseLike | None = None
         self._last_dir: Path | None = None
         # set only while a pose file is open without a video
         self._pose_only_path: Path | None = None
@@ -167,9 +171,14 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(OPEN_PROMPT)
 
     @property
-    def pose_est(self) -> PoseEstimation | None:
+    def pose_est(self) -> PoseLike | None:
         """Pose estimation for the open video or pose file, or None when there is none."""
         return self._pose_est
+
+    @property
+    def is_loading_pose(self) -> bool:
+        """Whether a pose file is being opened in the background."""
+        return self._pose_loader is not None
 
     def open_file(self, path: Path) -> None:
         """Open a video or, for an ``.h5`` file, a pose file on its own.
@@ -214,12 +223,12 @@ class ViewerWindow(QtWidgets.QMainWindow):
             )
             self._finish_open_video(path, pose_path, None)
 
-        def load(pose_file: Path) -> tuple[PoseEstimation, int | None]:
+        def load(pose_file: Path) -> tuple[PoseLike, int | None]:
             # Reading the frame count can be slow for a video on a network share, so
             # it is done here, off the GUI thread, too.
             return open_pose_file(pose_file), self._try_video_frame_count(path)
 
-        def on_loaded(result: tuple[PoseEstimation, int | None]) -> None:
+        def on_loaded(result: tuple[PoseLike, int | None]) -> None:
             pose_est, video_frames = result
             self._finish_open_video(path, pose_path, pose_est, video_frames)
 
@@ -229,7 +238,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self,
         path: Path,
         pose_path: Path | None,
-        pose_est: PoseEstimation | None,
+        pose_est: PoseLike | None,
         video_frames: int | None = None,
     ) -> None:
         """Open the video once its pose file, if any, has been opened.
@@ -268,7 +277,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
     def _pose_matches_video(
         self,
-        pose_est: PoseEstimation,
+        pose_est: PoseLike,
         pose_path: Path,
         video_path: Path,
         video_frames: int | None,
@@ -323,15 +332,15 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
         The frames start at the size estimated from the pose (see
         :func:`estimate_frame_size`), which can be corrected with
-        :meth:`set_frame_size`, and play at 30 fps, since pose files do not record a
-        frame rate.
+        :meth:`set_frame_size`, and play at the pose's frame rate.
 
         The file is opened in the background (see :meth:`_start_pose_load`), so this
         returns before it is shown. Does nothing while another pose file is still
         opening.
 
         Args:
-            path: Path to a JABS pose file (``<name>_pose_est_v<N>.h5``).
+            path: Path to a JABS pose file (``<name>_pose.h5`` or
+                ``<name>_pose_est_v<N>.h5``).
         """
         if self._pose_load_in_progress():
             return
@@ -343,7 +352,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
             on_error=lambda error: self._report_pose_file_error(path, error),
         )
 
-    def _finish_open_pose_file(self, path: Path, pose_est: PoseEstimation) -> None:
+    def _finish_open_pose_file(self, path: Path, pose_est: PoseLike) -> None:
         """Play an opened pose file over a solid background of its estimated size."""
         try:
             frame_size = estimate_frame_size(pose_est)
@@ -430,15 +439,13 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._frame_size = (width, height)
         self._show_pose_only_status()
 
-    def _play_pose_only(
-        self, path: Path, pose_est: PoseEstimation, frame_size: tuple[int, int]
-    ) -> None:
+    def _play_pose_only(self, path: Path, pose_est: PoseLike, frame_size: tuple[int, int]) -> None:
         """Load solid-color frames of the given size to play the pose over."""
         self._player.load_blank_frames(self._blank_frames(path, pose_est, frame_size), pose_est)
 
     @staticmethod
     def _blank_frames(
-        path: Path, pose_est: PoseEstimation, frame_size: tuple[int, int]
+        path: Path, pose_est: PoseLike, frame_size: tuple[int, int]
     ) -> BlankFrameReader:
         """Return solid-color frames of the given size, one per pose frame."""
         width, height = frame_size
@@ -470,9 +477,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
             if (width, height) != self._frame_size:
                 self.set_frame_size(width, height)
 
-    def _show_opened(
-        self, path: Path, pose_est: PoseEstimation | None, *, pose_only: bool
-    ) -> None:
+    def _show_opened(self, path: Path, pose_est: PoseLike | None, *, pose_only: bool) -> None:
         """Update the window for a newly opened file and its pose."""
         self._pose_est = pose_est
         self._last_dir = path.parent
@@ -631,7 +636,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
                 case where the frame size can be set.
         """
         has_pose = self._pose_est is not None
-        has_segmentation = has_pose and getattr(self._pose_est, "has_segmentation", False)
+        has_segmentation = has_pose and bool(self._pose_est.has_segmentation)
         has_bboxes = has_pose and pose_has_bounding_boxes(self._pose_est)
         has_landmarks = has_pose and pose_has_landmarks(self._pose_est)
         self._pose_action.setEnabled(has_pose)

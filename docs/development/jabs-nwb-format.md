@@ -471,7 +471,7 @@ otherwise scramble the keypoint ordering.
 | `cm_per_pixel`          | `float \| null`         | Always                       | Pixel-to-centimetre scale factor. `null` if not available in the source pose file. |
 | `external_ids`          | `list[str] \| null`     | Always                       | Original external identity names from the pose file (e.g. mouse cage IDs). `null` if the pose file had no external IDs. |
 | `subjects`              | `dict[str, dict] \| null` | Always                     | Per-identity subject metadata keyed by identity name. `null` if no subject metadata is available. Inner dict may contain `subject_id`, `sex`, `species`, `age` (ISO 8601 duration), `date_of_birth` (ISO 8601 datetime), `genotype`, `strain`, `weight`, and `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. Values are `null` when not available. |
-| `metadata`              | `dict`                  | Always                       | Provenance metadata from the source pose file. Includes `source_file`, `pose_format_version`, and optionally `source_file_hash`. |
+| `metadata`              | `dict`                  | Always                       | Provenance metadata from the source pose file. Includes `source_file`, `pose_source_format`, and optionally `source_file_hash`. |
 | `has_segmentation`      | `bool`                  | Always                       | `true` if per-identity segmentation `ContourSeries` were written to the behavior module. Absent in files written before contour export existed; readers treat a missing key as `false`. |
 | `static_object_names`   | `list[str]`             | When static objects present  | Names of all `PoseEstimation` containers that are static objects. |
 | `dynamic_object_names`  | `list[str]`             | When dynamic objects present | Names of all `PoseEstimation` containers that are dynamic objects. |
@@ -516,7 +516,7 @@ otherwise scramble the keypoint ordering.
   },
   "metadata": {
     "source_file": "/data/session_pose_est_v7.h5",
-    "pose_format_version": 7,
+    "pose_source_format": "pose_est_v7",
     "source_file_hash": "a3f1c8..."
   },
   "has_segmentation": true,
@@ -542,7 +542,7 @@ otherwise scramble the keypoint ordering.
     "subject_2": { "subject_id": "M124", "sex": "F", "species": "Mus musculus", "age": "P72D", "genotype": "Shank3+/-" },
     "subject_3": { "subject_id": "M125", "sex": "M", "species": "Mus musculus", "age": "P68D", "genotype": "WT" }
   },
-  "metadata": { "source_file": "...", "pose_format_version": 7 },
+  "metadata": { "source_file": "...", "pose_source_format": "pose_est_v7" },
   "has_segmentation": true,
   "static_object_names": ["corners", "lixit"],
   "dynamic_object_names": ["fecal_boli"],

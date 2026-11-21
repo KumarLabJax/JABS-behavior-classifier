@@ -2,6 +2,7 @@
 
 import pytest
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.base_features import (
     Angles,
     AngularVelocity,
@@ -12,7 +13,6 @@ from jabs.feature_extraction.base_features import (
     PointSpeeds,
     PointVelocityDirs,
 )
-from jabs.pose_estimation import PoseEstimation
 
 
 def test_base_feature_group_name():
@@ -41,7 +41,7 @@ def test_base_feature_group_features_dict():
     ids=["all-features", "subset", "none"],
 )
 def test_base_feature_group_init_feature_mods(
-    pose_est_v5: PoseEstimation, enabled_features: list[str]
+    pose_est_v5: PoseLike, enabled_features: list[str]
 ) -> None:
     """Test that _init_feature_mods initializes exactly the enabled feature modules.
 

@@ -45,6 +45,7 @@ class Classifier(BaseClassifier):
         "_project_settings",
         "_classifier_type",
         "_feature_names",
+        "_feature_version",
     )
 
     def __init__(
@@ -87,6 +88,7 @@ class Classifier(BaseClassifier):
             {
                 "training_data": training_features,
                 "training_labels": loaded_training_data["labels"],
+                "file_version": loaded_training_data["file_version"],
             },
             random_seed=loaded_training_data["training_seed"],
         )
@@ -198,14 +200,18 @@ class Classifier(BaseClassifier):
         """Train the classifier.
 
         Args:
-            data: dict returned from train_test_split().
+            data: dict returned from train_test_split(). Data loaded from an
+                exported training file also carries its ``file_version``.
             random_seed: optional random seed for reproducibility.
 
         Raises:
+            ClassifierFeatureVersionError: If ``data`` was exported with another
+                feature version.
             ValueError: If project settings are unset.
         """
         if self._project_settings is None:
             raise ValueError("Project settings for classifier unset, cannot train classifier.")
+        feature_version = self._training_feature_version(data)
 
         if "feature_names" in data:
             self._feature_names = data["feature_names"]
@@ -228,6 +234,7 @@ class Classifier(BaseClassifier):
             warnings.simplefilter("ignore", category=FutureWarning)
             self._classifier = classifier.fit(cleaned_features, labels)
 
+        self._feature_version = feature_version
         self.reset_persistence_identity()
 
     def predict(

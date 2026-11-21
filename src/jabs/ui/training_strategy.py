@@ -387,12 +387,11 @@ class MultiClassTrainingStrategy(TrainingStrategy):
             name: int(np.sum(merged_labels == class_idx))
             for class_idx, name in enumerate(class_names)
         }
-        settings_manager = self._project.settings_manager
         class_bout_counts: dict[str, int] = {}
         for class_name in class_names:
             bouts = 0
             for video, video_counts in self._project.counts(class_name).items():
-                if settings_manager.is_video_excluded(video):
+                if not self._project.is_trainable(video):
                     continue
                 for identity_counts in video_counts.values():
                     bouts += identity_counts["unfragmented_bout_counts"][0]

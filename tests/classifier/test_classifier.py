@@ -10,6 +10,7 @@ from sklearn.ensemble import RandomForestClassifier
 from jabs.classifier.classifier import Classifier
 from jabs.classifier.factories import CATBOOST_AVAILABLE
 from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
+from jabs.feature_extraction import FEATURE_VERSION
 from jabs.project import TrackLabels
 
 # CatBoost is an optional extra; tests that train or select it skip without it.
@@ -935,6 +936,7 @@ class TestFromTrainingFile:
             "window": sample_features[["feature_3"]],
             "labels": sample_labels,
             "training_seed": 42,
+            "file_version": FEATURE_VERSION,
         }
 
         # Mock both load_training_data and hash_file

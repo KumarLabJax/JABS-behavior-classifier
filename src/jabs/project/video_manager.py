@@ -2,10 +2,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.core.utils import find_video_files
 from jabs.io.annotations import AnnotationStore
 from jabs.pose_estimation import (
-    PoseEstimation,
     get_pose_path,
     open_pose_file,
 )
@@ -131,19 +131,31 @@ class VideoManager:
         self._pose_path_cache.pop(video_name, None)
         self._settings_manager.remove_video_from_project_file(video_name)
 
+    def mark_unusable(self, video_name: str) -> None:
+        """Stop counting the identities of a video whose pose file became unusable.
+
+        The video stays in the project; its identity count becomes 0 and is
+        removed from ``total_project_identities``.
+
+        Args:
+            video_name: Name of the video file.
+        """
+        self._total_project_identities -= self._video_identity_count.get(video_name, 0)
+        self._video_identity_count[video_name] = 0
+
     @property
     def total_project_identities(self) -> int:
         """Get the total number of identities across all videos."""
         return self._total_project_identities
 
     def load_video_labels(
-        self, video_name: Path | str, pose: PoseEstimation = None
+        self, video_name: Path | str, pose: PoseLike = None
     ) -> VideoLabels | None:
         """load labels for a video
 
         Args:
             video_name: filename of the video: string or pathlib.Path
-            pose: optional PoseEstimation object to use for identity mapping, if None we will open the pose file
+            pose: optional PoseLike object to use for identity mapping, if None we will open the pose file
 
         Returns:
             initialized VideoLabels object if annotations exist, otherwise None
@@ -259,6 +271,9 @@ class VideoManager:
         """
         err = False
         for v in self._videos:
+            if scan_results[v]["error"] is not None:
+                # unusable pose file: reported by Project.unusable_videos
+                continue
             pose_frames = scan_results[v]["hdf5_frame_count"]
             vid_frames = scan_results[v]["video_frame_count"]
             if vid_frames is None:

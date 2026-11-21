@@ -21,9 +21,14 @@ toolbar.
 ## Opening a Video
 
 Use **File→Open Video...** (or the **Open Video** toolbar button). If a JABS pose file
-named `<video name>_pose_est_v<N>.h5` is in the same directory as the video, it is
-opened as well and drawn over the video. When more than one version is present, the
-highest version is used.
+is in the same directory as the video, it is opened as well and drawn over the video.
+Two names are recognized: `<video name>_pose.h5` (the unified pose file) and the legacy
+`<video name>_pose_est_v<N>.h5` (versions 2 to 8). When both are present the unified
+file is used; among legacy files the highest version is used.
+
+A legacy file is converted to the unified format when it is opened, so the first open
+of a large legacy file can take a moment. The original file is not changed: the
+converted copy is kept in a per-user cache and reused until the legacy file changes.
 
 A video with no pose file beside it plays without overlays, and the status bar
 reports that no pose file was found. If the pose file exists but cannot be opened,
@@ -33,8 +38,9 @@ video without overlays.
 ## Opening a Pose File Without Video
 
 Use **File→Open Pose File...** (or the **Open Pose File** toolbar button) to play a
-pose file on its own. The pose is drawn over a solid dark gray background at 30
-fps, since pose files do not record the frame rate of the video they came from.
+pose file on its own. The pose is drawn over a solid dark gray background at the
+frame rate recorded in the pose file, or 30 fps when it records none (legacy pose
+files never do).
 
 ### Frame Size
 
@@ -42,7 +48,7 @@ Pose files do not record the size of the video they were produced from, so the
 viewer estimates it from the pose coordinates: it takes the largest x and y of the
 animals' keypoints and the arena landmarks (such as the arena corners), and rounds
 each up to the next multiple of 100 pixels. For pose files that include arena corners
-(version 5 and newer) this normally matches the original video, e.g. 800 x 800.
+(version 5 and newer legacy files, and unified files with corners) this normally matches the original video, e.g. 800 x 800.
 Older files without corners can come out smaller than the original video, since the
 estimate only covers where the animals went. The status bar shows the frame size in
 use and whether it was estimated or set by you.
@@ -60,15 +66,16 @@ All animals are drawn the same way. There is no selected animal in the viewer.
 - **Overlay Pose** (`P`): Show or hide the pose keypoints and skeleton for every
   animal.
 - **Overlay Segmentation** (`S`): Show or hide the segmentation contours. This is
-  only available when the pose file contains segmentation data (version 6 or newer,
-  and generated with segmentation, which is optional).
+  only available when the pose file contains segmentation data (for legacy files,
+  version 6 or newer and generated with segmentation, which is optional).
 - **Overlay Bounding Boxes** (`B`): Show or hide each animal's bounding box, labeled
   with its identity. This is only available when the pose file contains bounding
-  boxes (version 8 or newer, and generated with bounding boxes, which is optional).
+  boxes (for legacy files, version 8 or newer and generated with bounding boxes, which
+  is optional).
 - **Overlay Landmarks** (`L`): Show or hide the arena landmarks (static objects): the
   arena corners, the lixit and the food hopper. This is only available when the pose
-  file records at least one of them (version 5 or newer); each is drawn only if the
-  pose file records it.
+  file records at least one of them (for legacy files, version 5 or newer); each is
+  drawn only if the pose file records it.
 
 All are on by default and can be toggled from the **View** menu or the toolbar.
 They are unavailable when no pose file is open.
@@ -95,7 +102,8 @@ where to save the file. The export runs in the background with a progress dialog
 and can be cancelled, which removes the partial file.
 
 With a pose file open without a video, the pose is drawn over the same dark gray
-background, at the frame size in use, at 30 fps. Exporting a video needs a pose
+background, at the frame size in use, at the pose file's frame rate (30 fps when it
+records none). Exporting a video needs a pose
 file; it is unavailable for a video with no pose.
 
 ## Video Controls

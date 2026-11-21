@@ -1,5 +1,31 @@
 # Per-Frame Features
 
+> **Unified pose file semantics (`FEATURE_VERSION = 20`):** JABS now reads every pose file, legacy
+> or unified, through the unified pose file format, and features follow that format's rules.
+> Feature names do not change, but values can, so every feature cache is recomputed and
+> **classifiers trained with earlier versions must be retrained** (JABS refuses to load them, and
+> training data exported with earlier versions must be exported again). The user-visible changes:
+> 1. **No social features for single-identity files:** social features need more than one
+>    identity in the pose file. A file with one identity (every v2 file, and any other file
+>    holding one animal) has none.
+> 2. **Social features are project-wide:** a project offers social features only if every usable
+>    video's pose file has more than one identity (the intersection of the pose files'
+>    capabilities across the project's videos, as for segmentation and landmarks).
+> 3. **v3 bearings:** the bearing of a v3 identity (and features built on it, such as angular
+>    velocity) is `NaN` in frames where its base neck or base tail keypoint is invalid, as for
+>    other versions.
+> 4. **v4 and later identities:** an instance whose embedding id is 0 (not assigned to an
+>    identity) goes to a tail slot, which is never a JABS identity; such files could not be
+>    opened before. An identity is present in a frame when the pose file marks it usable or,
+>    when the file does not say, when it has at least 3 valid keypoints other than the mid and
+>    tip of the tail.
+> 5. **Frame rate from the file:** velocities and signal (frequency) features use the frame rate
+>    recorded in the pose file, falling back to 30 fps when it records none. Converted legacy
+>    files record none, so legacy projects keep 30 fps.
+>
+> Invalid keypoints (by the format's point validity rule) are `NaN` throughout, and
+> segmentation contours are paired with identities by pose slot.
+
 ## Egocentric Animal Features
 
 142 features from 12 animal keypoints
@@ -23,9 +49,9 @@
     * centroid
     * 12 keypoints
 
-## Social features (v3+ pose files)
+## Social features (pose files with more than one identity)
 
-37 features from social context (available when multi-animal tracking is present in v3+ pose files, with automatic segmentation-contour refinement when `seg_data` masks are present in v6+ pose files):
+37 features from social context (available when every pose file in the project has more than one identity, such as legacy v3+ files with several animals, with automatic segmentation-contour refinement when the pose files have segmentation, such as legacy v6+ files):
 
 * **Nearest-neighbor & coat-contact distances (`closest_distances`, 5 values):**
     * `closest social distance`: Euclidean distance between the subject's skeletal body convex hull and the nearest cagemate's skeletal convex hull (scaled by `pixel_scale` to `cm` when `cm_per_pixel` is set, or `px` otherwise).
@@ -61,7 +87,7 @@
 
 ![Social Chain Bottleneck Distance: Solving the 3-Mouse Sandwich Row Problem](imgs/social_chain_bottleneck_explainer.png)
 
-## Static object features (v5 pose files)
+## Static object features (pose files with landmarks, such as legacy v5+)
 
 ### Arena Corners
 
@@ -117,7 +143,7 @@ Optionally supports extended set of lixit features if the lixit is labeled with 
     * right rear paw
     * base tail
 
-## Segmentation (v6 pose files)
+## Segmentation (pose files with segmentation, such as legacy v6+)
 
 32 features from segmentation data
 

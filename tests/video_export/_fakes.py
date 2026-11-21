@@ -1,9 +1,15 @@
 """Shared stand-ins for the video-export tests."""
 
+from types import TracebackType
+from typing import Any
+
 import numpy as np
+from legacy_contours import pack_segmentation
 from shapely.geometry import Polygon
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.enums import PoseCapability
+from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, KeypointIndex
+from jabs.core.types import SegmentationWindow
 
 # Uniform frame value, so any pixel change is attributable to the overlay.
 BACKGROUND = 60
@@ -11,7 +17,7 @@ WIDTH, HEIGHT, FRAMES = 160, 120, 10
 
 
 class StubPose:
-    """Minimal PoseEstimation stand-in covering what the renderer touches."""
+    """Minimal ``PoseLike`` stand-in covering what the renderer touches."""
 
     def __init__(
         self,
@@ -29,8 +35,7 @@ class StubPose:
         # Segmentation is optional even in v6+ pose files, so the renderer keys off
         # this rather than the pose version.
         self.has_segmentation = has_segmentation
-        # overlay_segmentation() checks the pose version before asking for contours
-        self.format_major_version = 6 if has_segmentation else 5
+        self.has_bounding_boxes = False
         self.segmentation_calls: list[tuple[int, int]] = []
         # The PoseEstimation base class defaults this to an empty dict.
         self.static_objects: dict = {}
@@ -42,15 +47,64 @@ class StubPose:
             self._contours[0, :4] = [(20, 20), (40, 20), (40, 40), (20, 40)]
         self._frame_offsets = np.arange(num_frames)
 
-    def get_segmentation_data_per_frame(self, frame_index: int, identity: int):
+    @property
+    def num_identities(self) -> int:
+        """Number of identities."""
+        return len(self.identities)
+
+    @property
+    def capabilities(self) -> frozenset[PoseCapability]:
+        """Optional data this stub provides."""
+        caps = set()
+        if self.num_identities > 1:
+            caps.add(PoseCapability.SOCIAL)
+        if self.has_segmentation:
+            caps.add(PoseCapability.SEGMENTATION)
+        if self.has_bounding_boxes:
+            caps.add(PoseCapability.BOUNDING_BOXES)
+        return frozenset(caps)
+
+    @property
+    def has_social(self) -> bool:
+        """True when there is more than one identity."""
+        return PoseCapability.SOCIAL in self.capabilities
+
+    fps = 30.0
+    source_format = "jabs.pose-file"
+    model_metadata: dict[str, Any] | None = None
+
+    def close(self) -> None:
+        """No file handles to release."""
+
+    def __enter__(self) -> "StubPose":
+        """Return self, for use as a context manager."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Call :meth:`close`."""
+        self.close()
+
+    def segmentation_window(self, identity: int, start: int, stop: int) -> SegmentationWindow:
         """Record the request and return contours only when asked to carry them."""
-        self.segmentation_calls.append((frame_index, identity))
-        return self._contours
+        if not self.has_segmentation:
+            raise NotImplementedError("no segmentation")
+        self.segmentation_calls.append((start, identity))
+        contours = self._contours
+        if contours is None:
+            contours = np.full((2, 6, 2), -1, dtype=np.int32)
+        return pack_segmentation(
+            np.repeat(contours[np.newaxis], stop - start, axis=0), None, start
+        )
 
     @staticmethod
     def get_connected_segments():
         """Return the standard full skeleton connections."""
-        return PoseEstimation.FULL_CONNECTED_SEGMENTS
+        return FULL_CONNECTED_SEGMENTS
 
     def get_points(self, frame_index: int, identity: int):
         """Return points offset per identity and per frame, all marked visible.
@@ -62,7 +116,7 @@ class StubPose:
         Indexes a real frame-backed array so that asking for a frame beyond
         ``num_frames`` raises ``IndexError``, exactly as a real pose object does.
         """
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         base = self._frame_offsets[frame_index]
         points = np.array(
             [[20 + base + i * 3, 20 + identity * 40 + i * 2] for i in range(n_kp)],

@@ -1,7 +1,7 @@
 """The skeletons this specification defines by name.
 
 Derived from ``jabs.core`` rather than transcribed. The keypoint names and
-connections already exist as ``PoseEstimation.KeypointIndex`` and
+connections already exist as ``jabs.core.pose_skeleton.KeypointIndex`` and
 ``FULL_CONNECTED_SEGMENTS``, and a second hand-written copy would drift — the
 first copy had already picked up a case mismatch against the enum.
 
@@ -13,7 +13,7 @@ exists to do, so the conversion loses nothing.
 
 import itertools
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, KeypointIndex
 from jabs.io.internal.pose_file.types import Skeleton
 
 JABS_MOUSE12 = "jabs.mouse12"
@@ -43,7 +43,7 @@ def jabs_mouse12() -> Skeleton:
         The skeleton, with body-part names and edges taken from ``jabs.core``.
     """
     return Skeleton(
-        body_parts=tuple(keypoint.name for keypoint in PoseEstimation.KeypointIndex),
-        edges=_edges_from(PoseEstimation.FULL_CONNECTED_SEGMENTS),
+        body_parts=tuple(keypoint.name for keypoint in KeypointIndex),
+        edges=_edges_from(FULL_CONNECTED_SEGMENTS),
         description="JABS 12-keypoint mouse skeleton",
     )

@@ -1,9 +1,9 @@
-"""Tests for parallel_workers — scan_video_metadata and _get_identity_count."""
+"""Tests for parallel_workers — scan_video_metadata and the feature-load workers."""
 
 import logging
 import shutil
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import h5py
 import numpy as np
@@ -12,11 +12,10 @@ import pytest
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
 from jabs.io.annotations import LocalAnnotationStore, write_document
-from jabs.pose_estimation.pose_est_v5 import PoseEstimationV5
+from jabs.pose_estimation.conversion_cache import open_unified
 from jabs.project.parallel_workers import (
     VideoScanJobSpec,
     VideoScanResult,
-    _get_identity_count,
     _load_video_labels,
     _warn_on_frame_count_mismatch,
     collect_multiclass_labeled_features,
@@ -164,71 +163,33 @@ def test_collect_labeled_features_multiclass_requires_behavior_names(
         )
 
 
-def _h5_like(pose_grp_dict: dict) -> dict:
-    """Wrap a pose group dict in a minimal h5-like file dict."""
-    return {"poseest": pose_grp_dict}
-
-
-class TestGetIdentityCount:
-    """Tests for _get_identity_count."""
-
-    def test_v2_always_returns_one(self):
-        """V2 is single-identity regardless of HDF5 contents."""
-        assert _get_identity_count(_h5_like({}), major_version=2) == 1
-
-    def test_v3_uses_points_shape(self):
-        """V3 reads identity count from points.shape[1]."""
-        points_mock = MagicMock()
-        points_mock.shape = (500, 3, 12, 2)
-        pose_grp = {"points": points_mock}
-        assert _get_identity_count(_h5_like(pose_grp), major_version=3) == 3
-
-    def test_v4_uses_instance_id_center(self):
-        """V4+ with instance_id_center reads identity count from its shape[0]."""
-        id_center_mock = MagicMock()
-        id_center_mock.shape = (4,)
-        pose_grp = {"instance_id_center": id_center_mock}
-        assert _get_identity_count(_h5_like(pose_grp), major_version=4) == 4
-
-    def test_v4_fallback_no_instance_id_center_returns_zero(self):
-        """V4+ without instance_id_center or embed_id data returns 0."""
-        assert _get_identity_count(_h5_like({}), major_version=4) == 0
-
-    def test_v4_fallback_embed_id(self):
-        """V4+ without instance_id_center falls back to instance_embed_id max."""
-        id_mask = np.array([[0, 0], [0, 1]])  # 0 = valid
-        embed_id = np.array([[1, 2], [1, 0]])  # 1-based; max valid = 2
-
-        pose_grp = {"instance_embed_id": embed_id, "id_mask": id_mask}
-        assert _get_identity_count(_h5_like(pose_grp), major_version=4) == 2
-
-
 # ---------------------------------------------------------------------------
 # scan_video_metadata — integration test with real pose files
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path(__file__).parent.parent / "data"
+LEGACY_CORPUS = (
+    Path(__file__).parents[2] / "packages" / "jabs-io" / "tests" / "data" / "legacy-pose"
+)
 
 
 @pytest.mark.parametrize(
     (
         "pose_filename",
-        "major_version",
         "hdf5_frame_count",
         "identity_count",
         "static_objects",
         "has_cm_per_pixel",
     ),
     [
-        ("sample_pose_est_v3.h5", 3, 1800, 5, [], False),
-        ("sample_pose_est_v6.h5", 6, 3600, 4, ["corners"], True),
+        ("sample_pose_est_v3.h5", 1800, 5, [], False),
+        ("sample_pose_est_v6.h5", 3600, 4, ["corners"], True),
     ],
     ids=["v3", "v6"],
 )
 def test_scan_video_metadata_reports_pose_file_contents(
     tmp_path: Path,
     pose_filename: str,
-    major_version: int,
     hdf5_frame_count: int,
     identity_count: int,
     static_objects: list[str],
@@ -239,7 +200,6 @@ def test_scan_video_metadata_reports_pose_file_contents(
     Args:
         tmp_path: Temporary project directory.
         pose_filename: Sample pose file to scan.
-        major_version: Pose file major version passed to the scan job.
         hdf5_frame_count: Expected frame count of the pose file.
         identity_count: Expected number of identities in the pose file.
         static_objects: Expected static object names in the pose file.
@@ -255,7 +215,6 @@ def test_scan_video_metadata_reports_pose_file_contents(
         video=video_name,
         video_path=video_path,
         pose_path=pose_path,
-        pose_major_version=major_version,
         scan_frame_counts=False,
     )
 
@@ -268,33 +227,34 @@ def test_scan_video_metadata_reports_pose_file_contents(
     assert result["static_objects"] == static_objects
     assert result["lixit_keypoints"] == 0
     assert result["has_cm_per_pixel"] is has_cm_per_pixel
+    assert result["error"] is None
 
 
-def test_scan_video_metadata_ignores_static_objects_before_v5(tmp_path: Path) -> None:
-    """Static objects are only read for pose major version 5 and later.
-
-    The v6 sample file does contain a ``corners`` static object, so scanning it as
-    a v4 file shows the version gate (not the file contents) is what hides it.
+def test_scan_video_metadata_reports_an_unscannable_pose_file(tmp_path: Path) -> None:
+    """A pose file the scan cannot read gives an ``error`` result instead of raising.
 
     Args:
         tmp_path: Temporary project directory.
     """
     video_path = tmp_path / "vid.mp4"
     video_path.touch()
-    pose_path = tmp_path / "vid_pose_est_v6.h5"
-    shutil.copy(DATA_DIR / "sample_pose_est_v6.h5", pose_path)
+    pose_path = tmp_path / "vid_pose_est_v8.h5"
+    shutil.copy(LEGACY_CORPUS / "v8-unknown-dataset.h5", pose_path)
 
     job = VideoScanJobSpec(
         video="vid.mp4",
         video_path=video_path,
         pose_path=pose_path,
-        pose_major_version=4,
-        scan_frame_counts=False,
+        scan_frame_counts=True,
     )
     result = scan_video_metadata(job)
 
+    assert result["error"]
+    assert result["video"] == "vid.mp4"
+    assert result["identity_count"] == 0
     assert result["static_objects"] == []
-    assert result["lixit_keypoints"] == 0
+    assert result["capabilities"] == []
+    assert result["video_frame_count"] is None
 
 
 def _v5_pose_with_lixit(tmp_path: Path, lixit: np.ndarray) -> Path:
@@ -330,7 +290,7 @@ def test_scan_video_metadata_lixit_matches_the_pose_reader(
     has_lixit: bool,
     lixit_keypoints: int,
 ) -> None:
-    """An empty lixit dataset is reported the way PoseEstimationV5 treats it: absent.
+    """An empty lixit dataset is reported the way the pose reader treats it: absent.
 
     A project whose scan reported a lixit the pose reader drops would offer the
     lixit landmark features in the GUI while LandmarkFeatureGroup never enables
@@ -350,7 +310,6 @@ def test_scan_video_metadata_lixit_matches_the_pose_reader(
         video="vid.mp4",
         video_path=video_path,
         pose_path=pose_path,
-        pose_major_version=5,
         scan_frame_counts=False,
     )
     result = scan_video_metadata(job)
@@ -360,9 +319,9 @@ def test_scan_video_metadata_lixit_matches_the_pose_reader(
     assert result["lixit_keypoints"] == lixit_keypoints
 
     # the pose reader is the authority the scan has to agree with
-    pose_est = PoseEstimationV5(pose_path)
-    assert ("lixit" in pose_est.static_objects) is has_lixit
-    assert pose_est.num_lixit_keypoints == lixit_keypoints
+    with open_unified(pose_path, tmp_path / "cache") as pose_est:
+        assert ("lixit" in pose_est.static_objects) is has_lixit
+        assert pose_est.num_lixit_keypoints == lixit_keypoints
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +353,8 @@ def test_video_manager_with_scan_results_no_pose_open(tmp_path):
             static_objects=[],
             lixit_keypoints=0,
             has_cm_per_pixel=False,
+            capabilities=[],
+            error=None,
         )
     }
 
@@ -434,6 +395,8 @@ def test_video_manager_with_scan_results_frame_count_validation(tmp_path):
             static_objects=[],
             lixit_keypoints=0,
             has_cm_per_pixel=True,
+            capabilities=[],
+            error=None,
         )
     }
 
@@ -470,6 +433,8 @@ def test_video_manager_scan_results_frame_mismatch_raises(tmp_path):
             static_objects=[],
             lixit_keypoints=0,
             has_cm_per_pixel=True,
+            capabilities=[],
+            error=None,
         )
     }
 
@@ -523,6 +488,8 @@ def test_feature_manager_with_scan_results_no_hdf5_open(tmp_path):
             static_objects=[],
             lixit_keypoints=0,
             has_cm_per_pixel=True,
+            capabilities=[],
+            error=None,
         )
     }
 
@@ -551,6 +518,8 @@ def test_feature_manager_scan_results_no_cm_per_pixel(tmp_path):
             static_objects=[],
             lixit_keypoints=0,
             has_cm_per_pixel=False,
+            capabilities=[],
+            error=None,
         )
     }
 

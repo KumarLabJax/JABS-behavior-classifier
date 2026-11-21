@@ -8,8 +8,8 @@ import click
 import numpy as np
 import numpy.typing as npt
 
-from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.enums import JabsPoseVersion
+from jabs.core.pose_skeleton import FULL_CONNECTED_SEGMENTS, MINIMUM_CONFIDENCE, KeypointIndex
 from jabs.core.types import PoseData
 from jabs.io import save
 from jabs.vision.cli._logging import configure_logging
@@ -18,13 +18,13 @@ from jabs.vision.io import read_frames, video_fps
 
 logger = logging.getLogger(__name__)
 
-_BODY_PARTS = [kp.name.lower() for kp in PoseEstimation.KeypointIndex]
+_BODY_PARTS = [kp.name.lower() for kp in KeypointIndex]
 
 
 def _skeleton_edges() -> list[tuple[int, int]]:
     """Build keypoint edge pairs from the canonical connected segments."""
     edges: list[tuple[int, int]] = []
-    for segment in PoseEstimation.FULL_CONNECTED_SEGMENTS:
+    for segment in FULL_CONNECTED_SEGMENTS:
         for a, b in pairwise(segment):
             edges.append((int(a), int(b)))
     return edges

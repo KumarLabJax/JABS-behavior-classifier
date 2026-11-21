@@ -37,6 +37,7 @@ class HDF5FeatureCacheReader(FeatureCacheReader):
             Metadata populated from file attributes and group structure.
         """
         scale = f.attrs.get("distance_scale_factor", None)
+        revision = f.attrs.get("converter_revision", None)
         cached_window_sizes: frozenset[int] = frozenset()
         if "features" in f:
             cached_window_sizes = frozenset(
@@ -52,6 +53,7 @@ class HDF5FeatureCacheReader(FeatureCacheReader):
             distance_scale_factor=float(scale) if scale is not None else None,
             avg_wall_length=(float(f["avg_wall_length"][...]) if "avg_wall_length" in f else None),
             cached_window_sizes=cached_window_sizes,
+            converter_revision=int(revision) if revision is not None else None,
         )
 
     def read_metadata(self, identity_dir: Path) -> FeatureCacheMetadata:
@@ -198,6 +200,10 @@ class HDF5FeatureCacheWriter(FeatureCacheWriter):
         f.attrs["pose_hash"] = metadata.pose_hash
         if metadata.distance_scale_factor is not None:
             f.attrs["distance_scale_factor"] = metadata.distance_scale_factor
+        if metadata.converter_revision is not None:
+            f.attrs["converter_revision"] = metadata.converter_revision
+        elif "converter_revision" in f.attrs:
+            del f.attrs["converter_revision"]
 
     def write_per_frame(
         self,

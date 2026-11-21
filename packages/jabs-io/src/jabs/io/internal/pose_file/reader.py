@@ -10,8 +10,9 @@ h5py would follow the reference, and the Hub reads uploads on its own machines.
 
 Three entry points, in increasing cost. :func:`read_manifest` learns the
 contents without touching a payload. :func:`read_component` reads one
-component, optionally only a window of its frame axis. :func:`read_pose_file`
-loads everything.
+component, optionally only a window of its frame axis; a
+:class:`ComponentReader` does the same for many reads over one open file.
+:func:`read_pose_file` loads everything.
 
 **The reader refuses rather than guesses.** The manifest is a second source of
 truth about shapes, dtypes and skeletons, so it can disagree with the arrays
@@ -23,6 +24,7 @@ axis, an encoding this build cannot decode — the read fails with
 
 import json
 from pathlib import Path
+from types import TracebackType
 
 import h5py
 import numpy as np
@@ -36,7 +38,13 @@ from jabs.io.internal.pose_file.schema import (
     validate_manifest,
     validate_provenance,
 )
-from jabs.io.internal.pose_file.types import Attachment, Component, PoseFile, alternate_key
+from jabs.io.internal.pose_file.types import (
+    Attachment,
+    Component,
+    PoseFile,
+    Provenance,
+    alternate_key,
+)
 
 # Only the baseline encoding can be decoded. Handing back RLE run values or a
 # ragged point buffer as though it were a dense array is worse than failing.
@@ -128,6 +136,42 @@ def _require_self_contained(h5: h5py.File, path: str | Path) -> None:
         )
 
 
+def _manifest_from(h5: h5py.File, path: str | Path) -> dict:
+    """Read and validate the manifest of an open file.
+
+    Args:
+        h5: The open file.
+        path: The file's path, for messages.
+
+    Returns:
+        The parsed manifest document.
+
+    Raises:
+        NotAPoseFileError: If the file is not a ``jabs.pose-file``.
+        PoseFileError: If the manifest is unreadable or fails its schema, or
+            the file has a link or dataset referring to data outside it.
+    """
+    if attr_text(h5.attrs.get("jabs_format")) != FORMAT_ID:
+        # Describing the file reads /poseest, which may be a link.
+        if check_self_contained(h5):
+            raise NotAPoseFileError(f"{path} is not a {FORMAT_ID}")
+        raise NotAPoseFileError(f"{path} is {_describe_other_format(h5)}, not a {FORMAT_ID}")
+    _require_self_contained(h5, path)
+    try:
+        raw = h5["manifest"][()]
+    except (KeyError, TypeError) as error:
+        raise PoseFileError(f"{path}: /manifest is missing or unreadable: {error}") from error
+    try:
+        manifest = json.loads(raw)
+    except ValueError as error:
+        raise PoseFileError(f"{path}: /manifest is not valid JSON: {error}") from error
+
+    errors = validate_manifest(manifest)
+    if errors:
+        raise PoseFileError(f"{path}: manifest does not satisfy the schema: " + "; ".join(errors))
+    return manifest
+
+
 def read_manifest(path: str | Path) -> dict:
     """Read and validate a pose file's contents declaration.
 
@@ -143,25 +187,38 @@ def read_manifest(path: str | Path) -> dict:
             the file has a link or dataset referring to data outside it.
     """
     with h5py.File(path, "r") as h5:
-        if attr_text(h5.attrs.get("jabs_format")) != FORMAT_ID:
-            # Describing the file reads /poseest, which may be a link.
-            if check_self_contained(h5):
-                raise NotAPoseFileError(f"{path} is not a {FORMAT_ID}")
-            raise NotAPoseFileError(f"{path} is {_describe_other_format(h5)}, not a {FORMAT_ID}")
-        _require_self_contained(h5, path)
-        try:
-            raw = h5["manifest"][()]
-        except (KeyError, TypeError) as error:
-            raise PoseFileError(f"{path}: /manifest is missing or unreadable: {error}") from error
-    try:
-        manifest = json.loads(raw)
-    except ValueError as error:
-        raise PoseFileError(f"{path}: /manifest is not valid JSON: {error}") from error
+        return _manifest_from(h5, path)
 
-    errors = validate_manifest(manifest)
-    if errors:
-        raise PoseFileError(f"{path}: manifest does not satisfy the schema: " + "; ".join(errors))
-    return manifest
+
+def _provenance_from(h5: h5py.File, path: str | Path) -> Provenance:
+    """Read and validate the provenance document of an open, checked file.
+
+    Args:
+        h5: The open file, already checked to be self-contained.
+        path: The file's path, for messages.
+
+    Returns:
+        The parsed provenance.
+
+    Raises:
+        PoseFileError: If ``/provenance`` is missing, unreadable, not a JSON
+            object, or fails its schema.
+    """
+    try:
+        provenance_raw = json.loads(h5["provenance"][()])
+    except (KeyError, TypeError, ValueError) as error:
+        raise PoseFileError(f"{path}: /provenance is missing or unreadable: {error}") from error
+    if not isinstance(provenance_raw, dict):
+        raise PoseFileError(f"{path}: /provenance is not a JSON object")
+    # Validated before parsing: parse_provenance indexes required fields,
+    # so a schema-invalid record would leak a KeyError past the documented
+    # PoseFileError contract.
+    provenance_errors = validate_provenance(provenance_raw)
+    if provenance_errors:
+        raise PoseFileError(
+            f"{path}: provenance does not satisfy the schema: " + "; ".join(provenance_errors)
+        )
+    return parse_provenance(provenance_raw)
 
 
 def _spec_for(manifest: dict, component_id: str) -> dict:
@@ -425,6 +482,130 @@ def _component_from(
     )
 
 
+class ComponentReader:
+    """Read many components, or many windows of them, from one open pose file.
+
+    The file is opened once; its manifest is read and validated, and the file
+    checked to be self-contained, on open rather than on every read. Each
+    :meth:`read` applies the same checks as :func:`read_component`. A pose file
+    is read-only once written, so neither can change while the reader is open.
+
+    Use as a context manager, or call :meth:`close`.
+
+    Args:
+        path: The pose file.
+        manifest: The file's manifest, as returned by ``read_manifest``. When
+            given, the file's own manifest is neither re-read nor
+            re-validated; the self-containment check still runs. Passing any
+            other document is the caller's error.
+
+    Raises:
+        NotAPoseFileError: If the file is not a ``jabs.pose-file``.
+        PoseFileError: If the manifest is unreadable or fails its schema, or
+            the file has a link or dataset referring to data outside it.
+    """
+
+    def __init__(self, path: str | Path, *, manifest: dict | None = None) -> None:
+        self._path = path
+        self._h5: h5py.File | None = h5py.File(path, "r")
+        try:
+            if manifest is None:
+                manifest = _manifest_from(self._h5, path)
+            else:
+                # The manifest is the caller's, so this open has not been checked.
+                _require_self_contained(self._h5, path)
+        except BaseException:
+            self.close()
+            raise
+        self._manifest = manifest
+
+    @property
+    def manifest(self) -> dict:
+        """The file's validated manifest document."""
+        return self._manifest
+
+    def _file(self) -> h5py.File:
+        """Return the open file.
+
+        Raises:
+            ValueError: If the reader has been closed.
+        """
+        if self._h5 is None:
+            raise ValueError(f"{self._path}: the component reader is closed")
+        return self._h5
+
+    def read(self, component_id: str, frames: slice | None = None) -> np.ndarray:
+        """Read one component's payload.
+
+        Args:
+            component_id: The component to read.
+            frames: An optional window over the component's ``frame`` axis. Only
+                that window is read from disk, and it is applied to whichever
+                axis the manifest names ``frame``, not necessarily axis 0.
+
+        Returns:
+            The payload, or the requested window of it.
+
+        Raises:
+            KeyError: If the manifest declares no such component.
+            ValueError: If ``frames`` is given for a component with no frame
+                axis, or the reader is closed.
+            NotImplementedError: If the encoding cannot be decoded.
+            PoseFileError: If the file disagrees with its own manifest.
+        """
+        h5 = self._file()
+        spec = _spec_for(self._manifest, component_id)
+        _check_decodable(spec)
+        _check_skeleton(self._manifest, spec)
+        if frames is not None and "frame" not in spec["axes"]:
+            raise ValueError(
+                f"{component_id} has axes {spec['axes']} and no frame axis, so a frame "
+                "window is meaningless; a sparse component is windowed through its index"
+            )
+        dataset = _dataset_for(h5, spec)
+        if frames is None:
+            return _payload(dataset, spec)
+        axis = spec["axes"].index("frame")
+        selector = (slice(None),) * axis + (frames,)
+        # asstr() on the window too, so a string component does not hand back
+        # bytes for a window and str for a whole read.
+        if spec["dtype"] == "string":
+            return np.asarray(dataset.asstr()[selector])
+        return dataset[selector]
+
+    def read_provenance(self) -> Provenance:
+        """Read the file's provenance records and history.
+
+        Returns:
+            The parsed provenance.
+
+        Raises:
+            PoseFileError: If ``/provenance`` is missing, unreadable or fails
+                its schema.
+            ValueError: If the reader is closed.
+        """
+        return _provenance_from(self._file(), self._path)
+
+    def close(self) -> None:
+        """Close the file; a no-op when already closed."""
+        if self._h5 is not None:
+            self._h5.close()
+            self._h5 = None
+
+    def __enter__(self) -> "ComponentReader":
+        """Return self, for use as a context manager."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Call :meth:`close`."""
+        self.close()
+
+
 def read_component(
     path: str | Path,
     component_id: str,
@@ -436,9 +617,10 @@ def read_component(
 
     Reading the manifest means opening the file and running a full JSON Schema
     validation. A caller reading many windows of one file -- a viewer
-    following a playhead, especially over a network -- should call
-    ``read_manifest`` once and pass the result as ``manifest``: a pose file is
-    read-only once written, so the manifest cannot change between calls.
+    following a playhead, especially over a network -- should keep a
+    :class:`ComponentReader` open, or call ``read_manifest`` once and pass the
+    result as ``manifest``: a pose file is read-only once written, so the
+    manifest cannot change between calls.
 
     Args:
         path: The pose file.
@@ -463,28 +645,8 @@ def read_component(
     """
     if manifest is None:
         manifest = read_manifest(path)
-    spec = _spec_for(manifest, component_id)
-    _check_decodable(spec)
-    _check_skeleton(manifest, spec)
-
-    if frames is not None and "frame" not in spec["axes"]:
-        raise ValueError(
-            f"{component_id} has axes {spec['axes']} and no frame axis, so a frame "
-            "window is meaningless; a sparse component is windowed through its index"
-        )
-    with h5py.File(path, "r") as h5:
-        # The manifest may be the caller's, so this open has not been checked.
-        _require_self_contained(h5, path)
-        dataset = _dataset_for(h5, spec)
-        if frames is None:
-            return _payload(dataset, spec)
-        axis = spec["axes"].index("frame")
-        selector = (slice(None),) * axis + (frames,)
-        # asstr() on the window too, so a string component does not hand back
-        # bytes for a window and str for a whole read.
-        if spec["dtype"] == "string":
-            return np.asarray(dataset.asstr()[selector])
-        return dataset[selector]
+    with ComponentReader(path, manifest=manifest) as reader:
+        return reader.read(component_id, frames)
 
 
 def read_pose_file(path: str | Path, *, alternates: bool = True) -> PoseFile:
@@ -521,23 +683,7 @@ def read_pose_file(path: str | Path, *, alternates: bool = True) -> PoseFile:
     manifest = read_manifest(path)
     parsed = parse_manifest(manifest)
     with h5py.File(path, "r") as h5:
-        try:
-            provenance_raw = json.loads(h5["provenance"][()])
-        except (KeyError, TypeError, ValueError) as error:
-            raise PoseFileError(
-                f"{path}: /provenance is missing or unreadable: {error}"
-            ) from error
-        if not isinstance(provenance_raw, dict):
-            raise PoseFileError(f"{path}: /provenance is not a JSON object")
-        # Validated before parsing: parse_provenance indexes required fields,
-        # so a schema-invalid record would leak a KeyError past the documented
-        # PoseFileError contract.
-        provenance_errors = validate_provenance(provenance_raw)
-        if provenance_errors:
-            raise PoseFileError(
-                f"{path}: provenance does not satisfy the schema: " + "; ".join(provenance_errors)
-            )
-        provenance = parse_provenance(provenance_raw)
+        provenance = _provenance_from(h5, path)
 
         components = []
         indexes: dict[tuple[str, str], RaggedIndex] = {}

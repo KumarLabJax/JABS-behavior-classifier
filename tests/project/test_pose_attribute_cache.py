@@ -128,6 +128,7 @@ def _valid_entry() -> dict:
         "static_objects": ["lixit", "food_hopper"],
         "lixit_keypoints": 3,
         "has_cm_per_pixel": True,
+        "capabilities": ["social"],
     }
 
 
@@ -158,6 +159,13 @@ def test_no_match_when_not_dict():
     assert not _pose_cache_entry_matches(None, "1:2", "v.h5")
 
 
+def test_matches_empty_capabilities():
+    """An empty capabilities list is valid (a single-identity file without extras)."""
+    entry = _valid_entry()
+    entry["capabilities"] = []
+    assert _pose_cache_entry_matches(entry, "1:2", "v.h5")
+
+
 def test_no_match_on_missing_field():
     """An entry missing a required field is a miss."""
     entry = _valid_entry()
@@ -175,6 +183,8 @@ def test_no_match_on_missing_field():
         ("static_objects", {"lixit": 1}),
         ("static_objects", "lixit"),
         ("static_objects", [1, 2]),
+        ("capabilities", "social"),
+        ("capabilities", ["telepathy"]),
     ],
     ids=[
         "count-as-str",
@@ -184,6 +194,8 @@ def test_no_match_on_missing_field():
         "static-objects-as-dict",
         "static-objects-as-str",
         "static-objects-non-str-items",
+        "capabilities-as-str",
+        "capabilities-unknown-value",
     ],
 )
 def test_no_match_on_wrong_type(field, bad_value):
@@ -265,6 +277,37 @@ def test_cached_load_matches_fresh_scan(tmp_path):
     cached = _open(project_dir)  # cache hits
 
     assert cached.total_project_identities == fresh.total_project_identities
-    assert cached.feature_manager.min_pose_version == fresh.feature_manager.min_pose_version
+    assert cached.feature_manager.capabilities == fresh.feature_manager.capabilities
     assert cached.feature_manager.static_objects == fresh.feature_manager.static_objects
     assert cached.feature_manager.is_cm_unit == fresh.feature_manager.is_cm_unit
+
+
+def test_schema_version_is_4():
+    """Entries carry capabilities from schema 3 on, and legacy file hashes from 4 on."""
+    assert pose_attribute_cache.SCHEMA_VERSION == 4
+
+
+def test_cache_entry_records_capabilities(tmp_path):
+    """A scanned video's cache entry records its capabilities."""
+    project_dir = _make_project(tmp_path / "proj", ["v1.avi"])
+    _open(project_dir)
+    data = json.loads((project_dir / CACHE_RELPATH).read_text())
+    assert data["schema_version"] == 4
+    # the v3 sample has five track slots, so it is social
+    assert data["videos"]["v1.avi"]["capabilities"] == ["social"]
+
+
+def test_schema_2_entries_are_rescanned(tmp_path, monkeypatch):
+    """A cache written by schema 2 (no capabilities) is ignored and rescanned."""
+    project_dir = _make_project(tmp_path / "proj", ["v1.avi"])
+    _open(project_dir)
+    cache_file = project_dir / CACHE_RELPATH
+    data = json.loads(cache_file.read_text())
+    data["schema_version"] = 2
+    del data["videos"]["v1.avi"]["capabilities"]
+    cache_file.write_text(json.dumps(data))
+
+    calls = _spy_scan(monkeypatch)
+    _open(project_dir)
+    assert calls == ["v1.avi"]
+    assert json.loads(cache_file.read_text())["schema_version"] == 4

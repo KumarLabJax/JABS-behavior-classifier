@@ -1,21 +1,4 @@
-import numpy as np
-
 from jabs.feature_extraction.segmentation_features import Moments
-
-
-def test_posev6_get_segmentation_data_selects_identity(seg_data):
-    """Test that PoseEstimationV6.get_segmentation_data returns each identity's contours.
-
-    Verifies that the data returned for an identity is that identity's slice of the
-    segmentation array, for every identity the file stores.
-    """
-    pose_est_v6 = seg_data["pose_est_v6"]
-
-    seg_data_array = pose_est_v6._segmentation_dict["seg_data"]
-
-    # test get_segmentation data for each identity
-    for i in range(seg_data_array.shape[1]):
-        assert np.array_equal(seg_data_array[:, i, ...], pose_est_v6.get_segmentation_data(i))
 
 
 def test_create_moment(seg_data):

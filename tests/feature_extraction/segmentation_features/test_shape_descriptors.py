@@ -7,13 +7,13 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.segmentation_features.moment_cache import MomentInfo
 from jabs.feature_extraction.segmentation_features.shape_descriptors import ShapeDescriptors
-from jabs.pose_estimation import PoseEstimation
 
 
 def _reference_per_frame(
-    poses: PoseEstimation, moments: MomentInfo, pixel_scale: float
+    poses: PoseLike, moments: MomentInfo, pixel_scale: float
 ) -> dict[str, npt.NDArray[np.floating]]:
     """Original per-frame loop from ShapeDescriptors.per_frame, kept as a reference."""
     n = poses.num_frames

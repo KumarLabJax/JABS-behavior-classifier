@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.landmark_features.food_hopper import _EXCLUDED_POINTS
-from jabs.pose_estimation import PoseEstimation
 
 
 def test_dimensions(pose_est_v5_with_static_objects, food_hopper_feature):
@@ -45,7 +45,7 @@ def test_signed_dist(pose_est_v5_with_static_objects, food_hopper_feature):
         0, pose_est_v5_with_static_objects.cm_per_pixel
     )
 
-    for key_point in PoseEstimation.KeypointIndex:
+    for key_point in KeypointIndex:
         # skip over the key points we don't care about
         if key_point in _EXCLUDED_POINTS:
             continue

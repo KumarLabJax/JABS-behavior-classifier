@@ -1,7 +1,8 @@
 import numpy as np
 
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 
 class PairwisePointDistances(Feature):
@@ -13,7 +14,7 @@ class PairwisePointDistances(Feature):
 
     _name = "pairwise_distances"
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
@@ -28,7 +29,7 @@ class PairwisePointDistances(Feature):
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
         values = {}
-        point_names = [p.name for p in PoseEstimation.KeypointIndex]
+        point_names = [p.name for p in KeypointIndex]
 
         for i in range(0, len(point_names)):
             p1_name = point_names[i]

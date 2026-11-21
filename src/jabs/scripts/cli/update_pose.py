@@ -4,11 +4,13 @@ This is intended for keeping existing labels when pose files for the same
 videos have been regenerated or otherwise updated. The script validates the
 updated pose set first, then performs the label remap in two disposable
 staging projects so the live project stays unchanged while the update is
-underway. The updated pose directory must provide the same latest pose version
-for every project video, and only that latest version is copied back into the
-live project. Only after the staged label remap succeeds does it copy the
-staged annotations and project metadata back to the live project and swap in
-the updated pose files.
+underway. The updated pose directory must provide pose files of the same
+format for every project video (unified ``<video>_pose.h5`` files, or legacy
+files of one ``_pose_est_v<N>.h5`` version), and only the pose file JABS would
+pick for each video (``find_pose_file``: the unified file, else the highest
+legacy version) is copied back into the live project. Only after the staged
+label remap succeeds does it copy the staged annotations and project metadata
+back to the live project and swap in the updated pose files.
 
 Before the live project is modified, the script creates a timestamped backup
 zip under ``<project>/.backup`` containing every live file the update may
@@ -56,12 +58,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 import click
-import h5py
 import numpy as np
 
 from jabs.core.utils import copy_file_atomic, find_video_files
 from jabs.io.annotations import annotation_filename
-from jabs.pose_estimation import get_pose_path, open_pose_file
+from jabs.pose_estimation import PoseOpenError, get_pose_path, is_pose_file, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
@@ -89,16 +90,25 @@ def _project_videos(project_dir: Path) -> list[str]:
     project video. That matters here because every video found is sent straight
     to a pose file lookup: a macOS AppleDouble ``._<video>.mp4`` sidecar, which
     appears whenever a project is copied to an exFAT/NTFS drive, would otherwise
-    be checked for a ``._<video>_pose_est_v*.h5`` pose file that is not valid
+    be checked for a ``._<video>_pose.h5`` pose file that is not valid
     HDF5, failing the update of a project that is perfectly fine.
     """
     return find_video_files(project_dir)
 
 
 def _pose_files_for_video(video: str, pose_dir: Path) -> list[Path]:
-    """Return all pose files in ``pose_dir`` that correspond to ``video``."""
+    """Return all pose files in ``pose_dir`` that correspond to ``video``.
+
+    That is the unified ``<video>_pose.h5`` file and every legacy
+    ``<video>_pose_est_v<N>.h5`` file, so replacing a video's pose removes (and
+    backs up) both kinds.
+    """
     video_base = Path(video).with_suffix("").name
-    return sorted(pose_dir.glob(f"{video_base}_pose_est_v*.h5"))
+    candidates = [
+        pose_dir / f"{video_base}_pose.h5",
+        *pose_dir.glob(f"{video_base}_pose_est_v*.h5"),
+    ]
+    return sorted(path for path in candidates if path.is_file() and is_pose_file(path))
 
 
 def _require_writable_directory(path: Path, description: str) -> None:
@@ -351,12 +361,11 @@ def _remap_labels_for_video(
         label_dest_project.video_manager.video_path(video)
     )
 
-    # Require pose v8+ with bounding boxes
+    # Require bounding boxes
     for name, pose in (("source", source_pose), ("destination", dest_pose)):
-        version = getattr(pose, "format_major_version", 0)
-        if version < 8 or not getattr(pose, "has_bounding_boxes", False):
+        if not pose.has_bounding_boxes:
             print(
-                f"WARNING: {video} {name} pose v{version} lacks bounding boxes; skipping.",
+                f"WARNING: {video} {name} pose lacks bounding boxes; skipping.",
                 file=sys.stderr,
             )
             return 0, 0
@@ -564,25 +573,36 @@ def _validate_pose_file(
     pose_path: Path,
     role: str,
     require_bboxes: bool,
-) -> tuple[int, int]:
+) -> tuple[str, int]:
     """Validate that a pose file is readable and matches the video frame count.
 
     Returns:
-        Tuple of ``(format_major_version, num_identities)``.
-    """
-    pose = open_pose_file(pose_path, None)
-    version = getattr(pose, "format_major_version", 0)
-    if require_bboxes and (version < 8 or not getattr(pose, "has_bounding_boxes", False)):
-        raise ValueError(f"{video} {role} pose v{version} lacks bounding boxes")
+        Tuple of ``(source_format, num_identities)``; ``source_format`` is
+        ``"pose_est_v<N>"`` for a legacy file, ``"jabs.pose-file"`` for a unified one.
 
-    pose_frames = pose.num_frames
+    Raises:
+        ValueError: If the pose file cannot be opened, lacks bounding boxes when
+            they are required, or does not match the video's frame count.
+    """
+    try:
+        with open_pose_file(pose_path, None) as pose:
+            source_format = pose.source_format
+            has_bounding_boxes = pose.has_bounding_boxes
+            pose_frames = pose.num_frames
+            num_identities = pose.num_identities
+    except PoseOpenError as exc:
+        raise ValueError(f"{video} {role} pose cannot be opened: {exc}") from exc
+
+    if require_bboxes and not has_bounding_boxes:
+        raise ValueError(f"{video} {role} pose ({source_format}) lacks bounding boxes")
+
     video_frames = VideoReader.get_nframes_from_file(video_path)
     if pose_frames != video_frames:
         raise ValueError(
             f"{video} {role} pose frame count ({pose_frames}) does not match video ({video_frames})"
         )
 
-    return int(version), int(pose.num_identities)
+    return source_format, int(num_identities)
 
 
 def _orphan_identities_in_annotation(
@@ -769,7 +789,7 @@ class _VideoPoseCheck(NamedTuple):
     video: str
     replacement_pose_path: Path
     live_num_identities: int
-    replacement_version: int
+    replacement_source_format: str
     replacement_num_identities: int
 
 
@@ -780,7 +800,7 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
         job: ``(video, project_dir, new_pose_dir)``.
 
     Returns:
-        The replacement pose path, its version and identity count, and the live pose
+        The replacement pose path, its source format and identity count, and the live pose
         file's identity count.
 
     Raises:
@@ -798,7 +818,7 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
         "source",
         require_bboxes=True,
     )
-    replacement_version, replacement_num_identities = _validate_pose_file(
+    replacement_source_format, replacement_num_identities = _validate_pose_file(
         video,
         video_path,
         replacement_pose_path,
@@ -809,7 +829,7 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
         video,
         replacement_pose_path,
         live_num_identities,
-        replacement_version,
+        replacement_source_format,
         replacement_num_identities,
     )
 
@@ -862,7 +882,7 @@ def _preflight_update_inputs(
     replacement_pose_files: dict[str, Path] = {}
     live_annotations: set[str] = set()
     annotations_dir = project_dir / "jabs" / "annotations"
-    replacement_version: int | None = None
+    replacement_source_format: str | None = None
     orphan_issues: list[tuple[str, int, list[int]]] = []
 
     replacement_identity_counts: dict[str, int] = {}
@@ -877,14 +897,14 @@ def _preflight_update_inputs(
             video = check.video
             live_num_identities = check.live_num_identities
             replacement_pose_path = check.replacement_pose_path
-            video_replacement_version = check.replacement_version
+            video_source_format = check.replacement_source_format
             replacement_identity_counts[video] = check.replacement_num_identities
-            if replacement_version is None:
-                replacement_version = video_replacement_version
-            elif video_replacement_version != replacement_version:
+            if replacement_source_format is None:
+                replacement_source_format = video_source_format
+            elif video_source_format != replacement_source_format:
                 raise ValueError(
-                    f"{video} replacement pose version v{video_replacement_version} does not "
-                    f"match replacement pose version v{replacement_version} used by other videos"
+                    f"{video} replacement pose format {video_source_format} does not match "
+                    f"replacement pose format {replacement_source_format} used by other videos"
                 )
             replacement_pose_files[video] = replacement_pose_path
             annotation_path = annotations_dir / Path(video).with_suffix(".json")
@@ -1023,37 +1043,19 @@ def _refresh_project_identity_counts(
 
 
 def _load_pose_file_model_metadata(pose_path: Path) -> dict[str, object] | None:
-    """Return parsed model metadata from a pose file, or ``None`` if it is absent."""
+    """Return a pose file's model metadata, or ``None`` if it has none.
+
+    Read through the pose (``model_metadata``), so a unified file and a legacy
+    file are read alike; metadata that is not a JSON object counts as none.
+
+    Raises:
+        ValueError: If the pose file cannot be opened.
+    """
     try:
-        with h5py.File(pose_path, "r") as pose_h5:
-            raw_json = pose_h5["poseest"].attrs.get("model_metadata_json")
-    except OSError as exc:
+        with open_pose_file(pose_path, None) as pose:
+            return pose.model_metadata
+    except PoseOpenError as exc:
         raise ValueError(f"Could not read pose file metadata from {pose_path}: {exc}") from exc
-    except KeyError as exc:
-        raise ValueError(f"Pose file is missing the poseest group: {pose_path}") from exc
-
-    if raw_json is None:
-        return None
-    if isinstance(raw_json, np.ndarray) and raw_json.shape == ():
-        raw_json = raw_json.item()
-    if isinstance(raw_json, bytes):
-        raw_json = raw_json.decode("utf-8")
-    if isinstance(raw_json, str):
-        raw_json = raw_json.strip()
-        if raw_json == "":
-            return None
-
-    try:
-        metadata = json.loads(raw_json)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Pose file model metadata is not valid JSON in {pose_path}: {exc}"
-        ) from exc
-
-    if not isinstance(metadata, dict):
-        raise ValueError(f"Pose file model metadata must be a JSON object in {pose_path}")
-
-    return metadata
 
 
 def _inject_consistent_pose_model_metadata(project: Project) -> dict[str, object] | None:

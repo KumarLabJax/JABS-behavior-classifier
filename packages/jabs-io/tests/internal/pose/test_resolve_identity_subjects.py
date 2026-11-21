@@ -8,14 +8,14 @@ working without the ``[nwb]`` extra installed.
 import numpy as np
 import pytest
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types import PoseData
 from jabs.io.internal.pose import IdentitySubject, resolve_identity_subjects
 
 
 def _pose_data(num_identities=2, external_ids=None, subjects=None):
     """Build a minimal PoseData with the given identities and subject metadata."""
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     num_keypoints = len(body_parts)
     return PoseData(
         points=np.zeros((num_identities, 3, num_keypoints, 2)),

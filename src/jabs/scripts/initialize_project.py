@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from multiprocessing.pool import Pool
 from pathlib import Path
@@ -39,7 +40,7 @@ DEFAULT_PROCESSES = os.cpu_count() or 1
 def generate_files_worker(params: dict) -> FeatureTimings | None:
     """worker function used for generating project feature and cache files for one video
 
-    All identities in the video are processed with the same PoseEstimation object, so
+    All identities in the video are processed with the same PoseLike object, so
     per-video work that feature groups cache on it (such as the social contact graph
     shared by every identity) is done once per video rather than once per identity.
 
@@ -77,8 +78,23 @@ def generate_files_worker(params: dict) -> FeatureTimings | None:
     return timings
 
 
-def validate_video_worker(params: dict):
-    """worker function for validating project video"""
+def validate_video_worker(params: dict) -> dict:
+    """worker function for validating project video
+
+    Checks that the video opens, that its pose file's frame count (read from the
+    pose metadata) matches the video's, and that the pose file opens. A legacy
+    pose file is converted into the project cache (``params["cache_dir"]``) when
+    it is opened as unified.
+
+    Args:
+        params: ``video``, ``project_dir`` and ``cache_dir``.
+
+    Returns:
+        ``{"video", "okay"}``, plus ``"message"`` when the video is not okay. A
+        pose file that cannot be opened (refused or unreadable) does not fail
+        validation: the result is okay and its ``"unusable"`` names the file and
+        the reason, so the other videos still get features.
+    """
     vid_path = params["project_dir"] / params["video"]
 
     # make sure we can open the video
@@ -91,24 +107,27 @@ def validate_video_worker(params: dict):
             "message": "Unable to open video",
         }
 
-    # make sure the video and pose file have the same number of frames
     pose_path = jabs.pose_estimation.get_pose_path(vid_path)
-    if jabs.pose_estimation.get_frames_from_file(pose_path) != vid_frames:
-        return {
-            "video": params["video"],
-            "okay": False,
-            "message": "Video and Pose File frame counts differ",
-        }
-
-    # make sure we can initialize a PoseEstimation object from this pose file
     try:
-        _ = jabs.pose_estimation.open_pose_file(pose_path)
-    except OSError:
+        # make sure the video and pose file have the same number of frames
+        if jabs.pose_estimation.scan_pose_metadata(pose_path).frames != vid_frames:
+            return {
+                "video": params["video"],
+                "okay": False,
+                "message": "Video and Pose File frame counts differ",
+            }
+
+        # make sure the pose file can be opened
+        with jabs.pose_estimation.open_pose_file(pose_path, params["cache_dir"]):
+            pass
+    except jabs.pose_estimation.PoseOpenError as e:
         return {
             "video": params["video"],
-            "okay": False,
-            "message": "Unable to open pose file",
+            "okay": True,
+            "unusable": f"{pose_path.name}: {e.reason}",
         }
+    except OSError as e:
+        return {"video": params["video"], "okay": True, "unusable": f"{pose_path.name}: {e}"}
 
     return {"video": params["video"], "okay": True}
 
@@ -154,11 +173,13 @@ def compute_project_features(
     pool: Pool,
     cache_format: CacheFormat = CacheFormat.PARQUET,
     collect_timings: bool = False,
+    unusable: Mapping[str, str] | None = None,
 ) -> FeatureTimings | None:
     """Compute features for all identities in the project.
 
     Work is split into one job per video, so parallelism is limited to the number of
-    videos in the project.
+    videos in the project. Videos whose pose file is unusable (in the project, or in
+    ``unusable``) are skipped with a warning.
 
     Args:
         project: Project to compute features for.
@@ -167,14 +188,23 @@ def compute_project_features(
         pool: Worker pool used to compute features in parallel.
         cache_format: Feature cache storage format.
         collect_timings: Record how long each feature module takes to compute.
+        unusable: Further videos to skip, mapped to the reason; for pose files
+            that failed to open after the project scan accepted them.
 
     Returns:
         Feature compute times merged across all identities if ``collect_timings`` is
         set, otherwise None.
     """
+    skipped = {**project.unusable_videos, **(unusable or {})}
+    videos = []
+    for video in project.video_manager.videos:
+        if video in skipped:
+            logger.warning("Skipping %s: its pose file is unusable: %s", video, skipped[video])
+        else:
+            videos.append(video)
 
     def feature_job_producer():
-        for video in project.video_manager.videos:
+        for video in videos:
             yield {
                 "video": video,
                 "project": project,
@@ -186,7 +216,7 @@ def compute_project_features(
 
     timings = FeatureTimings() if collect_timings else None
     with Progress() as progress:
-        task = progress.add_task(" Computing Features", total=len(project.video_manager.videos))
+        task = progress.add_task(" Computing Features", total=len(videos))
         for result in pool.imap_unordered(generate_files_worker, feature_job_producer()):
             if timings is not None and result is not None:
                 timings.merge(result)
@@ -291,6 +321,24 @@ def _exit_on_validation_failures(failures: list[dict]) -> None:
     raise click.exceptions.Exit(1)
 
 
+def _exit_on_unopenable_pose_files(unopenable: Mapping[str, str]) -> None:
+    """Name the videos whose pose file could not be opened and exit 1, if there are any.
+
+    Args:
+        unopenable: Video to ``"<pose file>: <reason>"``.
+    """
+    if not unopenable:
+        return
+
+    click.echo(
+        " The pose files of these videos could not be opened; they were skipped "
+        "(features for the other videos were computed):"
+    )
+    for video, reason in sorted(unopenable.items()):
+        click.echo(f"  {video}: {reason}")
+    raise click.exceptions.Exit(1)
+
+
 def run_initialize_project(
     force: bool,
     processes: int,
@@ -305,6 +353,10 @@ def run_initialize_project(
 ) -> None:
     """Run project initialization and optional feature generation.
 
+    A video whose pose file cannot be opened (refused by the converter, or
+    unreadable) does not stop the run: it is skipped, the other videos get their
+    features, and the skipped videos are listed at the end.
+
     Args:
         force: Recompute features even if they already exist.
         processes: Number of worker processes.
@@ -316,7 +368,14 @@ def run_initialize_project(
         cache_format: Feature cache format, or None to keep the project setting.
         timing_report: If given, write a Markdown report of feature compute times here.
         timing_top_n: Limit the timing report to the slowest ``timing_top_n`` entries.
+
+    Raises:
+        click.exceptions.Exit: With status 1 when validation fails, or (after
+            feature generation) when any pose file could not be opened.
     """
+    # videos whose pose file could not be opened: reported at the end, exit 1
+    unopenable: dict[str, str] = {}
+
     if timing_report is not None and skip_feature_generation:
         click.echo("Warning: --timing-report is ignored with --skip-feature-generation")
         timing_report = None
@@ -374,7 +433,11 @@ def run_initialize_project(
 
         def validation_job_producer():
             for video_name in videos:
-                yield {"video": video_name, "project_dir": project_dir}
+                yield {
+                    "video": video_name,
+                    "project_dir": project_dir,
+                    "cache_dir": project.project_paths.cache_dir,
+                }
 
         # do work in parallel (not really necessary for this test, but we already
         # have the worker pool for generating features)
@@ -386,6 +449,7 @@ def run_initialize_project(
                 results.append(result)
 
         _exit_on_validation_failures([result for result in results if result["okay"] is False])
+        unopenable = {r["video"]: r["unusable"] for r in results if r.get("unusable")}
 
         # compute features in parallel, this might take a while
         if not skip_feature_generation:
@@ -397,6 +461,7 @@ def run_initialize_project(
                 pool,
                 cache_format,
                 collect_timings=timing_report is not None,
+                unusable=unopenable,
             )
             elapsed = time.perf_counter() - start
 
@@ -444,6 +509,8 @@ def run_initialize_project(
     else:
         pool.close()
         pool.join()
+
+    _exit_on_unopenable_pose_files(unopenable)
 
 
 @click.command(name="jabs-init", context_settings={"max_content_width": 120}, help=__doc__)
