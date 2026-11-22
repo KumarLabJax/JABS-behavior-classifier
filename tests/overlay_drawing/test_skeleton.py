@@ -141,3 +141,42 @@ def test_draw_identity_pose_skips_points_filtered_by_transform() -> None:
     )
 
     painter.drawEllipse.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["legacy", "unified"])
+def test_pose_overlay_paints_a_real_pose(segmentation_poses, kind) -> None:
+    """The player's pose overlay paints the float32 points a real Pose returns.
+
+    Qt's ``QRect.contains`` rejects ``np.float32`` coordinates with OverflowError, so
+    passing a Pose's points through unconverted broke every repaint of the player.
+    """
+    from PySide6 import QtCore, QtGui
+    from PySide6.QtWidgets import QApplication
+
+    from jabs.pose_estimation import open_pose_file
+    from jabs.ui.player_widget.frame_with_overlays import FrameWithOverlaysWidget
+    from jabs.ui.player_widget.overlays.pose_overlay import PoseOverlay
+
+    _app = QApplication.instance() or QApplication([])
+    pose = open_pose_file(segmentation_poses[kind])
+    widget = FrameWithOverlaysWidget()
+    widget.set_pose(pose)
+    widget.update_frame(QtGui.QImage(800, 800, QtGui.QImage.Format.Format_RGB888), 0)
+    widget.pose_overlay_mode = FrameWithOverlaysWidget.PoseOverlayMode.ALL
+    widget.set_active_identity(0)
+    # what paintEvent records for an unscaled, uncropped 800x800 frame
+    widget._scaled_pix_x = widget._scaled_pix_y = 0
+    widget._scaled_pix_width = widget._scaled_pix_height = 800
+    overlay = next(o for o in widget.overlays if isinstance(o, PoseOverlay))
+
+    image = QtGui.QImage(800, 800, QtGui.QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QtGui.QPainter(image)
+    try:
+        overlay.paint(painter, QtCore.QRect(0, 0, 800, 800))
+    finally:
+        painter.end()
+
+    # the skeletons were drawn
+    drawn = sum(image.pixel(x, y) != 0 for x in range(800) for y in range(800))
+    assert drawn > 0

@@ -83,7 +83,7 @@ def draw_identity_pose(
     painter.setPen(pen)
 
     for seg in gen_line_fragments(pose.get_connected_segments(), np.flatnonzero(mask == 0)):
-        segment_points = [to_output(p[0], p[1]) for p in points[seg]]
+        segment_points = [to_output(float(p[0]), float(p[1])) for p in points[seg]]
         segment_points = [pt for pt in segment_points if pt is not None]
         if len(segment_points) >= 2:
             for i in range(len(segment_points) - 1):
@@ -99,7 +99,7 @@ def draw_identity_pose(
         point_index = keypoint.value
         if not mask[point_index]:
             continue
-        out = to_output(points[point_index][0], points[point_index][1])
+        out = to_output(float(points[point_index][0]), float(points[point_index][1]))
         if out is None:
             continue
         color = KEYPOINT_COLOR_MAP[keypoint]
