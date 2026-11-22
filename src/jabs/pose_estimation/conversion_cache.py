@@ -14,6 +14,7 @@ written.
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -37,6 +38,11 @@ _APP_NAME = "jabs"
 _CONVERTED_DIR = "converted"
 # overrides the per-user cache directory for opens without a project
 CACHE_DIR_ENV = "JABS_CACHE_DIR"
+
+# the key after ``<stem>.<hash>-`` of a conversion: a converter revision, or
+# the jabs-io version earlier JABS keyed copies by (such as ``0.4.0.dev1``)
+_REVISION_KEY = re.compile(r"r(\d+)")
+_VERSION_KEY = re.compile(r"\d+(\.\d+)*\S*")
 
 # per-user cache roots already reported as unwritable, so each is reported once
 _reported_unwritable: set[Path] = set()
@@ -94,10 +100,26 @@ def converted_path(source: Path, source_hash: str, cache_dir: Path | None) -> Pa
     return cache_root(cache_dir) / _CONVERTED_DIR / name
 
 
-def _remove_other_versions(destination: Path, source: Path, source_hash: str) -> None:
-    """Delete conversions of the same file (same stem and hash) by other converter revisions.
+def _is_older_conversion(key: str) -> bool:
+    """Return whether a conversion's name key (after ``<stem>.<hash>-``) is from an older converter.
 
-    This includes copies keyed by a jabs-io version, as earlier JABS named them.
+    ``r<N>`` is older when ``N`` is below the current revision; a jabs-io
+    version, as earlier JABS named copies (``0.4.0``), is always older. Anything
+    else, a newer revision included, is left alone: another JABS sharing the
+    cache may be using it.
+    """
+    revision = _REVISION_KEY.fullmatch(key)
+    if revision is not None:
+        return int(revision.group(1)) < _converter_revision()
+    return _VERSION_KEY.fullmatch(key) is not None
+
+
+def _remove_older_versions(destination: Path, source: Path, source_hash: str) -> None:
+    """Delete conversions of the same file (same stem and hash) by older converter revisions.
+
+    This includes copies keyed by a jabs-io version, as earlier JABS named
+    them. Copies by a newer revision are kept: a newer JABS sharing the
+    project or the per-user cache uses them.
 
     A copy that cannot be deleted (Windows blocks deleting an open file) is
     logged and left for a later prune.
@@ -105,6 +127,8 @@ def _remove_other_versions(destination: Path, source: Path, source_hash: str) ->
     prefix = f"{pose_file_stem(source)}.{source_hash}-"
     for path in destination.parent.iterdir():
         if path == destination or not path.name.startswith(prefix) or path.suffix != ".h5":
+            continue
+        if not _is_older_conversion(path.name[len(prefix) : -len(path.suffix)]):
             continue
         try:
             path.unlink()
@@ -178,7 +202,7 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
         if not destination.exists():
             raise PoseOpenError(source, f"cannot convert: {error}") from error
         logger.info("Using the conversion of %s another process wrote: %s", source, error)
-    _remove_other_versions(destination, source, source_hash)
+    _remove_older_versions(destination, source, source_hash)
     return destination
 
 

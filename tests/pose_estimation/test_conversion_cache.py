@@ -478,3 +478,32 @@ def test_unwritable_user_cache_converts_into_a_temporary_directory(
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert str(read_only) in warnings[0].getMessage()
+
+
+def test_newer_revision_copy_is_kept(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A conversion deletes only older revisions' copies, never a newer JABS's.
+
+    Two JABS versions sharing a project would otherwise delete each other's
+    conversions on every open.
+    """
+    cache = tmp_path / "cache"
+    digest = hash_file(legacy_v4)
+    converted = cache / "converted"
+    converted.mkdir(parents=True)
+    older = converted / f"vid.{digest}-r2.h5"
+    newer = converted / f"vid.{digest}-r4.h5"
+    much_newer = converted / f"vid.{digest}-r10.h5"
+    version_named = converted / f"vid.{digest}-0.4.0.h5"
+    unrecognized = converted / f"vid.{digest}-something.h5"
+    for path in (older, newer, much_newer, version_named, unrecognized):
+        path.touch()
+    monkeypatch.setattr(conversion_cache, "_converter_revision", lambda: 3)
+    destination = ensure_converted(legacy_v4, digest, cache)
+    assert destination == converted / f"vid.{digest}-r3.h5"
+    assert not older.exists()
+    assert not version_named.exists()
+    assert newer.exists()
+    assert much_newer.exists()
+    assert unrecognized.exists()
