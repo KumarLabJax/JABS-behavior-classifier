@@ -1,5 +1,6 @@
 """The keyed conversion cache and open_unified."""
 
+import errno
 import logging
 import os
 import shutil
@@ -561,3 +562,65 @@ def test_unsearchable_conversion_directory_is_pose_open_error(
             assert pose.num_frames > 0
     finally:
         converted.chmod(0o700)
+
+
+_NO_SPACE_ERRORS = [
+    pytest.param(
+        lambda: OSError(
+            "Can't synchronously write data (file write failed: time = Fri Nov 20 2026, "
+            "filename = 'x.tmp', file descriptor = 5, errno = 28, error message = "
+            "'No space left on device', buf = 0x1, total write size = 8, bytes this sub-write "
+            "= 8, bytes actually written = 18446744073709551615, offset = 0)"
+        ),
+        id="h5py-message",
+    ),
+    pytest.param(lambda: OSError(errno.ENOSPC, "No space left on device"), id="enospc"),
+]
+if hasattr(errno, "EDQUOT"):
+    _NO_SPACE_ERRORS.append(
+        pytest.param(lambda: OSError(errno.EDQUOT, "Disk quota exceeded"), id="edquot")
+    )
+
+
+@pytest.mark.parametrize("make_error", _NO_SPACE_ERRORS)
+def test_full_user_cache_converts_into_a_temporary_directory(
+    legacy_v4: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    make_error: object,
+) -> None:
+    """A per-user cache with no space (or quota) left falls back to a temporary directory."""
+    root = tmp_path / "user-cache"
+    monkeypatch.setenv("JABS_CACHE_DIR", str(root))
+    real_convert = conversion_cache.convert_legacy
+
+    def full_cache_convert(source: Path, destination: Path, **kwargs: object) -> None:
+        if destination.is_relative_to(root):
+            raise make_error()
+        real_convert(source, destination, **kwargs)
+
+    monkeypatch.setattr(conversion_cache, "convert_legacy", full_cache_convert)
+    with (
+        caplog.at_level(logging.WARNING, logger=conversion_cache.__name__),
+        open_unified(legacy_v4) as pose,
+    ):
+        assert pose.num_frames > 0
+        temporary = pose._pose_path.parents[1]
+        assert not temporary.is_relative_to(root)
+    assert not temporary.exists()
+    assert list((root / "converted").iterdir()) == []
+    assert any("JABS_CACHE_DIR" in r.getMessage() for r in caplog.records)
+
+
+def test_full_project_cache_is_pose_open_error(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project's cache is not bypassed: a full one is reported."""
+
+    def full_convert(source: Path, destination: Path, **kwargs: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(conversion_cache, "convert_legacy", full_convert)
+    with pytest.raises(PoseOpenError, match="No space left"):
+        open_unified(legacy_v4, tmp_path / "cache")

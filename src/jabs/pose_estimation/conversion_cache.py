@@ -7,11 +7,12 @@ and reused while the legacy file's bytes and the converter revision
 converter's output changes) are unchanged.
 The cache root is the project's ``cache_dir``; without one it is
 ``$JABS_CACHE_DIR`` when that is set, else the per-user cache directory. When
-that directory cannot be written, a one-off open converts into a temporary
-directory removed when the ``Pose`` is closed. The video directory is never
+that directory cannot be written, or has no space or quota left, a one-off
+open converts into a temporary directory removed when the ``Pose`` is closed. The video directory is never
 written.
 """
 
+import errno
 import logging
 import os
 import re
@@ -43,6 +44,13 @@ CACHE_DIR_ENV = "JABS_CACHE_DIR"
 # the jabs-io version earlier JABS keyed copies by (such as ``0.4.0.dev1``)
 _REVISION_KEY = re.compile(r"r(\d+)")
 _VERSION_KEY = re.compile(r"\d+(\.\d+)*\S*")
+
+# a full disk, or an exceeded quota (not defined on Windows)
+_NO_SPACE_ERRNOS = frozenset(
+    code for code in (errno.ENOSPC, getattr(errno, "EDQUOT", None)) if code is not None
+)
+# how h5py names the errno in an OSError it raises without setting errno
+_MESSAGE_ERRNO = re.compile(r"\berrno = (\d+)")
 
 # per-user cache roots already reported as unwritable, so each is reported once
 _reported_unwritable: set[Path] = set()
@@ -240,7 +248,9 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
     The user's file is hashed once; the hash keys the conversion and is the
     returned ``Pose.hash``. A cached conversion that cannot be opened (a
     truncated or invalid file) is deleted and converted again, once. A unified
-    file is never deleted.
+    file is never deleted. Without ``cache_dir``, a per-user cache that cannot
+    be written, or runs out of space or quota while converting, is bypassed:
+    the file is converted into a temporary directory the ``Pose`` removes.
 
     Args:
         path: A unified ``*_pose.h5`` or legacy ``*_pose_est_v<N>.h5`` file.
@@ -274,6 +284,43 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
         if temporary is not None:
             return _open_in_temporary_cache(path, source_hash, temporary)
 
+    try:
+        return _open_converted(path, source_hash, cache_dir)
+    except PoseOpenError as error:
+        # a project's cache is never bypassed: its conversions are kept
+        if cache_dir is not None or not _out_of_space(error.__cause__):
+            raise
+        logger.warning(
+            "No space left in the pose conversion cache %s (%s); converting into a "
+            "temporary directory removed after use. Free space, or set %s to a directory "
+            "with room, to keep conversions between runs.",
+            cache_root(None),
+            error.__cause__,
+            CACHE_DIR_ENV,
+        )
+    return _open_in_temporary_cache(path, source_hash, Path(tempfile.mkdtemp(prefix="jabs-pose-")))
+
+
+def _out_of_space(error: BaseException | None) -> bool:
+    """Return whether ``error`` is a disk-full or quota-exceeded ``OSError``.
+
+    h5py often raises an ``OSError`` without ``errno`` set, naming it in the
+    message (``errno = 28``) instead, so both are checked.
+    """
+    if not isinstance(error, OSError):
+        return False
+    if error.errno in _NO_SPACE_ERRNOS:
+        return True
+    named = _MESSAGE_ERRNO.search(str(error))
+    return named is not None and int(named.group(1)) in _NO_SPACE_ERRNOS
+
+
+def _open_converted(path: Path, source_hash: str, cache_dir: Path | None) -> Pose:
+    """Open a legacy file's cached conversion, converting it if missing or damaged.
+
+    Raises:
+        PoseOpenError: If the file cannot be converted or its conversion opened.
+    """
     pose_path = ensure_converted(path, source_hash, cache_dir)
     try:
         return Pose(

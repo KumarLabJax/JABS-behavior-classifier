@@ -71,10 +71,11 @@ runs on the same file skip the conversion. The legacy file is never modified.
   not evicted automatically. Delete the `converted/` directory to reclaim the space; files
   are converted again when next opened. On a cluster, point `JABS_CACHE_DIR` at scratch
   space rather than a home directory with a quota.
-- **Read-only cache.** If the cache directory cannot be written (for example a read-only
-  home directory in a container), each file is converted into a temporary directory that
-  is removed when the run finishes, and a warning is logged once. Conversions are then
-  repeated on every run.
+- **Read-only or full cache.** If the cache directory cannot be written (for example a
+  read-only home directory in a container), each file is converted into a temporary
+  directory that is removed when the run finishes, and a warning is logged once.
+  Conversions are then repeated on every run. The same happens, with a warning per file,
+  when the cache's disk or quota fills up during a conversion.
 
 A pose file that cannot be opened (for example a legacy file the converter refuses) ends
 `jabs-classify` with an error naming the file and the reason, and a nonzero exit status.
