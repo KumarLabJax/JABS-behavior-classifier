@@ -323,9 +323,7 @@ def _check_instance_layout(path: Path, pose: h5py.Group) -> tuple[int, int, int]
     return _check_instance_shapes(path, pose)
 
 
-def _check_track_layout(
-    path: Path, pose: h5py.Group, names: list[str]
-) -> tuple[int, int, int]:
+def _check_track_layout(path: Path, pose: h5py.Group, names: list[str]) -> tuple[int, int, int]:
     """Check a ``pose_est_v3`` file's datasets and shapes.
 
     Any dataset a v3 file does not have is refused: a dataset from v4 on would
