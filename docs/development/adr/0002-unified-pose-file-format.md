@@ -1302,7 +1302,9 @@ about the HDF5 layout, and `validate()` warns when it disagrees with the file.
 > because only the first `instance_count` instances of a frame hold tracks. Each concurrent
 > track gets its own slot for its whole run (a free slot is assigned when the track starts and
 > released when it ends, as the v3 reader did), legacy track ids are stored as `id + 1`, and JABS
-> treats every slot of a v3 conversion as an identity rather than declining the file.
+> treats every slot of a v3 conversion as an identity rather than declining the file. JABS
+> recognizes a v3 conversion by the `tracklet_id_offset` its convert entry records, not by
+> `source.format`, and maps tracklet ids back through `tracklet_splits` to the legacy track ids.
 
 **v4–v8 rules.** Each of these was measured against real files, and each is a place where a
 plausible converter goes wrong:

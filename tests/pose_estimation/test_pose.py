@@ -104,7 +104,7 @@ def test_identity_zero_with_tracklets_makes_every_slot_an_identity(
         identity=0,
         tracklet_id=tracklets,
         point_valid=valid,
-        convert_extra={},
+        convert_extra={"tracklet_id_offset": 1},
         convert_format="pose_est_v3",
     )
     with Pose(path) as pose:
@@ -115,6 +115,27 @@ def test_identity_zero_with_tracklets_makes_every_slot_an_identity(
         assert track.shape == (2, 6)
         np.testing.assert_array_equal(track[0], [0, 0, 1, 0, 0, 1])
         np.testing.assert_array_equal(track[1], [2, 2, -1, 2, 2, -1])
+
+
+def test_identity_to_track_undoes_tracklet_splits(pose_file_factory: Factory) -> None:
+    """A run the converter gave a new tracklet id reports the track id it split from."""
+    # track 4 (stored 5) in slot 0; its second run got tracklet 9
+    tracklets = np.array([[5], [5], [0], [9], [9], [9]], dtype=np.uint32)
+    valid = _valid(6, 1)
+    valid[2] = False
+    path = pose_file_factory(
+        slots=1,
+        identity=0,
+        tracklet_id=tracklets,
+        point_valid=valid,
+        convert_extra={
+            "tracklet_id_offset": 1,
+            "tracklet_splits": {"id": [9], "from": [5], "first_frame": [3], "last_frame": [5]},
+        },
+        convert_format="pose_est_v3",
+    )
+    with Pose(path) as pose:
+        np.testing.assert_array_equal(pose.identity_to_track[0], [4, 4, -1, 4, 4, 4])
 
 
 def test_identity_to_track_is_none_when_identities_are_not_tracks(
@@ -130,8 +151,8 @@ def test_identity_to_track_is_none_when_identities_are_not_tracks(
 
 @pytest.mark.parametrize(
     "convert",
-    [None, "pose_est_v4", "pose_est_v8"],
-    ids=["native", "converted-v4", "converted-v8"],
+    [None, "pose_est_v4", "pose_est_v8", "pose_est_v3"],
+    ids=["native", "converted-v4", "converted-v8", "v3-version-without-offset"],
 )
 def test_identity_zero_with_tracklets_not_from_v3_has_no_identities(
     pose_file_factory: Factory, convert: str | None
@@ -139,7 +160,9 @@ def test_identity_zero_with_tracklets_not_from_v3_has_no_identities(
     """Only a v3 conversion makes slots identities; other identity = 0 files have none.
 
     A v4+ file whose instances are all masked converts to identity = 0 and keeps
-    its tracklets; the legacy readers gave it no identities.
+    its tracklets; the legacy readers gave it no identities. It may still record
+    version 3.0 (as the public v5 sample does), so only the converter's
+    ``tracklet_id_offset`` marks a v3 conversion.
     """
     tracklets = np.ones((6, 2), dtype=np.uint32)
     if convert is None:

@@ -84,8 +84,9 @@ def _scan_unified(path: Path) -> PoseMetadata:
     with ComponentReader(path) as reader:
         manifest = reader.manifest
         history = reader.read_provenance().history
-    converted_from = converted_from_format(_last_convert_entry(history))
-    num_identities = identity_count(manifest, converted_from)
+    convert = _last_convert_entry(history)
+    converted_from = converted_from_format(convert)
+    num_identities = identity_count(manifest, convert)
 
     component_ids = {spec["id"] for spec in manifest["components"]}
     static_objects: list[str] = []

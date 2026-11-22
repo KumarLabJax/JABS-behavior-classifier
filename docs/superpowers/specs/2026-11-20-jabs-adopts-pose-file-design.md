@@ -60,8 +60,13 @@ track keeps one slot for its whole run (the free-list assignment of
 `pose_est_v3._build_identity_map`), legacy track ids are stored as `id + 1`
 because 0 means "no tracklet", and `instance_embedding` is dropped as the ADR
 says. **`Pose` treats every slot of a v3 conversion (an
-`identity = 0` file whose last convert entry's source is `pose_est_v3`) as an
+`identity = 0` file whose last convert entry records `tracklet_id_offset`, which
+the converter writes for a file it identified as v3 by its contents) as an
 identity** (today's v3 behavior); any other `identity = 0` file has no identities.
+The convert entry's `source.format` is not used: it comes from the legacy `version`
+attribute, which can be wrong (the public v5 sample records 3.0). `identity_to_track`
+maps tracklet ids back through the entry's `tracklet_splits` and subtracts the
+recorded offset, so it holds the legacy file's own track ids.
 
 **Discovery.** Every place that globs `*_pose_est_v*.h5` or derives a video
 stem from a pose name (`pose_file_stem`, the viewer's file filter, project

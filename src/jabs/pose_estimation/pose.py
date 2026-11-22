@@ -85,9 +85,11 @@ _MISSING_FROM_NVSN = (
     KeypointIndex.MID_TAIL.value,
 )
 
-# The convert history's source format of a legacy v3 conversion, whose tracks
-# are its identities.
-_V3_FORMAT = "pose_est_v3"
+# The convert entry's extra key a legacy v3 conversion records, whose tracks
+# are its identities: v3 track ids are stored plus this offset. The converter
+# writes it from the file's contents, unlike the source format, which comes
+# from the legacy version attribute (the public v5 sample records 3.0).
+_TRACKLET_ID_OFFSET = "tracklet_id_offset"
 
 _POSE_NAME_SUFFIX_RE = re.compile(r"(_pose_est_v\d+|_pose)$")
 
@@ -130,18 +132,24 @@ def converted_from_format(convert: HistoryEntry | None) -> str | None:
     return (convert.source or {}).get("format") if convert is not None else None
 
 
-def tracks_are_identities(manifest: dict, converted_from: str | None) -> bool:
+def _convert_extra(convert: HistoryEntry | None) -> dict:
+    """Return a ``convert`` history entry's ``extra``; empty without one."""
+    return (convert.extra or {}) if convert is not None else {}
+
+
+def tracks_are_identities(manifest: dict, convert: HistoryEntry | None) -> bool:
     """Return True when every slot of a unified file is an identity.
 
     That is a legacy v3 conversion: ``dimensions.identity == 0``, a
-    ``jabs.pose.tracklet_id`` component, and a last ``convert`` entry from
-    ``pose_est_v3``. Any other ``identity == 0`` file (such as a v4+ file
-    whose instances are all masked, which keeps its tracklets) has no
-    identities.
+    ``jabs.pose.tracklet_id`` component, and a last ``convert`` entry that
+    records the ``tracklet_id_offset`` the converter writes for a file it
+    found to be ``pose_est_v3`` by its contents. Any other ``identity == 0``
+    file (such as a v4+ file whose instances are all masked, which keeps its
+    tracklets) has no identities.
 
     Args:
         manifest: The file's manifest.
-        converted_from: :func:`converted_from_format` of its last convert entry.
+        convert: The file's last ``convert`` history entry, or None.
 
     Returns:
         Whether the file's tracks are its identities.
@@ -150,11 +158,11 @@ def tracks_are_identities(manifest: dict, converted_from: str | None) -> bool:
     return (
         manifest["dimensions"]["identity"] == 0
         and _TRACKLET_ID in component_ids
-        and converted_from == _V3_FORMAT
+        and _TRACKLET_ID_OFFSET in _convert_extra(convert)
     )
 
 
-def identity_count(manifest: dict, converted_from: str | None) -> int:
+def identity_count(manifest: dict, convert: HistoryEntry | None) -> int:
     """Return a unified file's number of identities.
 
     ``dimensions.slot`` when its tracks are its identities (see
@@ -162,15 +170,43 @@ def identity_count(manifest: dict, converted_from: str | None) -> int:
 
     Args:
         manifest: The file's manifest.
-        converted_from: :func:`converted_from_format` of its last convert entry.
+        convert: The file's last ``convert`` history entry, or None.
 
     Returns:
         The number of identities.
     """
     dimensions = manifest["dimensions"]
-    if tracks_are_identities(manifest, converted_from):
+    if tracks_are_identities(manifest, convert):
         return int(dimensions["slot"])
     return int(dimensions["identity"])
+
+
+def legacy_track_ids(tracklets: npt.NDArray[np.int64], extra: dict) -> npt.NDArray[np.int64]:
+    """Return a v3 conversion's tracklet ids as the legacy file's track ids.
+
+    The converter gives each later run of a track (one that ends and comes
+    back, or skips an unoccupied frame) a new tracklet id and records it in
+    ``tracklet_splits`` (``id`` and the ``from`` id it split from); every
+    track id is stored plus ``tracklet_id_offset``. Both are undone here.
+
+    Args:
+        tracklets: Stored tracklet ids; only those of occupied slots mean anything.
+        extra: The last ``convert`` entry's ``extra``.
+
+    Returns:
+        The legacy track ids, the same shape as ``tracklets``.
+    """
+    splits = extra.get("tracklet_splits") or {}
+    split_ids = np.asarray(splits.get("id", ()), dtype=np.int64)
+    original = tracklets
+    if split_ids.size:
+        # ``from`` is always an id the file had: splits do not chain
+        from_ids = np.asarray(splits["from"], dtype=np.int64)
+        order = np.argsort(split_ids)
+        split_ids, from_ids = split_ids[order], from_ids[order]
+        at = np.minimum(np.searchsorted(split_ids, tracklets), split_ids.size - 1)
+        original = np.where(split_ids[at] == tracklets, from_ids[at], tracklets)
+    return original - int(extra[_TRACKLET_ID_OFFSET])
 
 
 def has_segmentation_components(component_ids: set[str]) -> bool:
@@ -214,8 +250,9 @@ class Pose:
 
     Implements :class:`jabs.core.pose_protocol.PoseLike`. Identities are slots
     ``0..dimensions.identity - 1``; a legacy v3 conversion (``dimensions.identity
-    == 0``, ``jabs.pose.tracklet_id``, and a ``convert`` history entry from
-    ``pose_est_v3``) has every slot as an identity. Any other
+    == 0``, ``jabs.pose.tracklet_id``, and a ``convert`` history entry recording
+    a ``tracklet_id_offset``) has every slot as an identity, and its
+    ``identity_to_track`` holds the legacy file's track ids. Any other
     ``dimensions.identity == 0`` file has no identities. Points are float32
     with invalid points NaN; masks are bool.
 
@@ -285,8 +322,8 @@ class Pose:
         converted_from = converted_from_format(convert)
 
         self._num_frames = int(manifest["dimensions"]["frame"])
-        self._tracks_are_identities = tracks_are_identities(manifest, converted_from)
-        num_identities = identity_count(manifest, converted_from)
+        self._tracks_are_identities = tracks_are_identities(manifest, convert)
+        num_identities = identity_count(manifest, convert)
         self._identities = list(range(num_identities))
 
         video = manifest["video"]
@@ -299,7 +336,7 @@ class Pose:
         scale = video.get("cm_per_pixel")
         self._cm_per_pixel = None if scale is None else float(scale)
 
-        self._load_pose(num_identities, body_parts)
+        self._load_pose(num_identities, body_parts, extra)
         self._load_objects(manifest)
         self._external_identities: list[str] | None = None
         if _EXTERNAL_IDS in self._component_ids:
@@ -328,8 +365,12 @@ class Pose:
             )
         return body_parts
 
-    def _load_pose(self, num_identities: int, body_parts: tuple[str, ...]) -> None:
-        """Read points, validity, presence, tracks and boxes for the identity slots."""
+    def _load_pose(self, num_identities: int, body_parts: tuple[str, ...], extra: dict) -> None:
+        """Read points, validity, presence, tracks and boxes for the identity slots.
+
+        ``extra`` is the last ``convert`` entry's, which maps a v3
+        conversion's tracklets back to the legacy track ids.
+        """
         identity_slots = slice(0, num_identities)
         # identity-major copies, so one identity's frames are contiguous
         valid = np.ascontiguousarray(
@@ -352,9 +393,10 @@ class Pose:
         if self._tracks_are_identities:
             occupied = self._reader.read(_SLOT_OCCUPIED)[:, identity_slots].astype(bool)
             tracklets = self._reader.read(_TRACKLET_ID)[:, identity_slots].astype(np.int64)
-            # tracklet 0 means none; v3 track ids are stored plus one
+            # an unoccupied slot has no track: tracklet 0 means none
+            tracks = legacy_track_ids(tracklets, extra)
             self._identity_to_track = np.ascontiguousarray(
-                np.where(occupied, tracklets - 1, -1).T.astype(np.int32)
+                np.where(occupied, tracks, -1).T.astype(np.int32)
             )
 
         self._bboxes: npt.NDArray[np.float32] | None = None

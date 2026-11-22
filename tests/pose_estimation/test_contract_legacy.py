@@ -5,6 +5,7 @@ The recorded contract goldens are checked on ``Pose`` in
 """
 
 import json
+import shutil
 from pathlib import Path
 
 import h5py
@@ -14,6 +15,7 @@ import pytest
 from jabs.core.enums import PoseCapability
 from jabs.core.pose_protocol import source_format_from_path
 from jabs.pose_estimation import open_pose_file
+from jabs.pose_estimation.metadata import scan_pose_metadata
 
 from .contract import (
     sample_path,
@@ -180,3 +182,68 @@ def test_model_metadata_edge_cases(tmp_path: Path, raw: object, expected: object
     path = tmp_path / "meta_pose_est_v6.h5"
     _write_hole_v6(path, raw)
     assert open_pose_file(path).model_metadata == expected
+
+
+_LEGACY_CORPUS = (
+    Path(__file__).parents[2] / "packages" / "jabs-io" / "tests" / "data" / "legacy-pose"
+)
+
+
+def test_v3_identity_to_track_reports_the_file_track_ids(tmp_path: Path) -> None:
+    """identity_to_track holds the v3 file's own track ids, not the converter's split ids.
+
+    In ``v3-tracklets.h5`` track 5 runs over every frame (counted with every
+    confidence 0 at frame 10), and track 7 ends at frame 14 and returns at
+    frame 25; the converter gives the later runs new tracklet ids.
+    """
+    source = tmp_path / "vid_pose_est_v3.h5"
+    shutil.copyfile(_LEGACY_CORPUS / "v3-tracklets.h5", source)
+    with open_pose_file(source, tmp_path / "cache") as pose:
+        mapping = pose.identity_to_track
+    assert mapping is not None
+    # only the file's track ids, or -1
+    assert set(np.unique(mapping).tolist()) <= {-1, 0, 5, 7, 9, 11}
+    (track_5,) = [i for i in range(mapping.shape[0]) if mapping[i, 0] == 5]
+    present = np.ones(40, dtype=bool)
+    present[10] = False  # unoccupied there: no identity to map
+    assert (mapping[track_5, present] == 5).all()
+    assert mapping[track_5, 10] == -1
+    # both runs of track 7 report 7
+    assert sorted(set(np.flatnonzero((mapping == 7).any(axis=0)).tolist())) == [
+        *range(5, 15),
+        *range(25, 35),
+    ]
+
+
+def _v5_with_every_instance_masked(path: Path) -> Path:
+    """Copy the v5 sample (version attribute 3.0) with no centers and every instance masked."""
+    shutil.copyfile(sample_path(5), path)
+    with h5py.File(path, "r+") as h5:
+        pose = h5["poseest"]
+        assert tuple(pose.attrs["version"]) == (3, 0)
+        del pose["instance_id_center"]
+        pose["id_mask"][...] = 1
+    return path
+
+
+def test_masked_v5_with_a_v3_version_has_no_identities(tmp_path: Path) -> None:
+    """A v4+ file that records version 3.0 is not a v3 conversion: its tail slots are no identities."""
+    source = _v5_with_every_instance_masked(tmp_path / "vid_pose_est_v5.h5")
+    assert scan_pose_metadata(source).num_identities == 0
+    with open_pose_file(source, tmp_path / "cache") as pose:
+        assert pose.num_identities == 0
+        assert pose.identity_to_track is None
+        assert PoseCapability.SOCIAL not in pose.capabilities
+
+
+def test_v3_without_a_version_keeps_its_track_identities(tmp_path: Path) -> None:
+    """A v3 file is recognized by its contents, as the scan does, not by its version attribute."""
+    source = tmp_path / "vid_pose_est_v3.h5"
+    shutil.copyfile(sample_path(3), source)
+    with h5py.File(source, "r+") as h5:
+        del h5["poseest"].attrs["version"]
+    expected = scan_pose_metadata(source).num_identities
+    assert expected > 0
+    with open_pose_file(source, tmp_path / "cache") as pose:
+        assert pose.num_identities == expected
+        assert pose.identity_to_track is not None
