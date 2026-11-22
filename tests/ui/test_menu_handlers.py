@@ -717,3 +717,29 @@ def test_prune_cancelled_leaves_feature_support_alone(monkeypatch):
     handler.move_files_to_recycle_bin_with_delete_fallback.assert_not_called()
     handler.window.display_status_message.assert_not_called()
     assert recorder.mock_calls == []
+
+
+def test_clear_pose_cache_reloads_through_the_guarded_selection(monkeypatch):
+    """The reload after clearing goes through the path that reports a pose that fails to open.
+
+    Reloading with load_video directly let a PoseOpenError escape the slot, unloading
+    the video with no message.
+    """
+    dialog = MagicMock()
+    dialog.confirm.return_value = True
+    monkeypatch.setattr(menu_handlers_module, "MessageDialog", dialog)
+    central = SimpleNamespace(
+        loaded_video=Path("/project/a.avi"),
+        load_video=MagicMock(side_effect=AssertionError("unguarded reload")),
+    )
+    window = SimpleNamespace(
+        _project=MagicMock(),
+        _central_widget=central,
+        _video_list_selection=MagicMock(),
+        display_status_message=MagicMock(),
+    )
+
+    MenuHandlers(window).clear_cache()
+
+    window._project.clear_cache.assert_called_once()
+    window._video_list_selection.assert_called_once_with("a.avi")

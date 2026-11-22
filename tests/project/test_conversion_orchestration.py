@@ -496,3 +496,26 @@ def test_convert_pose_reports_an_unsearchable_cache(
         }
     )
     assert video == "vid.avi"
+
+
+def test_clear_cache_keeps_the_conversions(legacy_project: Path, convert_spy: mock.Mock) -> None:
+    """Clear Pose Cache removes the derived pose cache but not the converted pose files.
+
+    Reconverting a legacy file with segmentation takes far longer than rebuilding the
+    derived cache, and the reload after a clear runs on the GUI thread.
+    """
+    project = _open(legacy_project)
+    project.prepare_poses(lambda _done, _total: None)
+    converted = sorted((_cache_dir(legacy_project) / "converted").iterdir())
+    assert converted
+    derived = _cache_dir(legacy_project) / "convex_hulls"
+    derived.mkdir(exist_ok=True)
+    (derived / "stale").touch()
+
+    project.clear_cache()
+
+    assert sorted((_cache_dir(legacy_project) / "converted").iterdir()) == converted
+    assert not derived.exists()
+    convert_spy.reset_mock()
+    project.load_pose_est(project.video_manager.video_path("a.avi"))
+    convert_spy.assert_not_called()

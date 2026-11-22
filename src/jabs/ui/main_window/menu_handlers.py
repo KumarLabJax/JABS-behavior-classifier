@@ -503,9 +503,11 @@ class MenuHandlers:
         )
         if result:
             self.window._project.clear_cache()
-            # need to reload the current video to force the pose file to reload
-            if self.window._central_widget.loaded_video:
-                self.window._central_widget.load_video(self.window._central_widget.loaded_video)
+            # need to reload the current video to force the pose file to reload; the
+            # video list's selection handler reports a pose file that fails to open
+            loaded_video = self.window._central_widget.loaded_video
+            if loaded_video:
+                self.window._video_list_selection(loaded_video.name)
             self.window.display_status_message("Pose cache cleared", duration=3000)
 
     def clear_feature_cache(self) -> None:

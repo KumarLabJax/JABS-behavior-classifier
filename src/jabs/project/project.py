@@ -2016,9 +2016,17 @@ class Project:
         }, group_mapping
 
     def clear_cache(self):
-        """clear the cache directory for this project"""
+        """Clear the project's derived pose cache.
+
+        The converted copies of legacy pose files (``cache/converted``) are kept: they
+        are not derived pose data, and reconverting them on the next load can take
+        about a minute per hour of video. A converter revision change replaces them
+        on its own.
+        """
         if self._paths.cache_dir is not None:
             for f in self._paths.cache_dir.glob("*"):
+                if f.name == _CONVERTED_DIR:
+                    continue
                 try:
                     if f.is_dir():
                         shutil.rmtree(f)

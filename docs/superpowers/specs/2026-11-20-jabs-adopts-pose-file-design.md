@@ -169,7 +169,8 @@ conversion of projects and the Hub cutover, rebasing #603.
 - **Cache disk use**: a converted copy is 2-4x the legacy file (measured). Prune
   removes a video's converted files, and a successful conversion removes that
   source's copies from older converter revisions; the on-disk migration later
-  removes the duplication.
+  removes the duplication. Clear Pose Cache keeps the converted files: it clears
+  only the derived pose cache, and reconverting on the GUI thread would freeze it.
 - **The per-user conversion cache has no eviction yet** (viewer and CLI use);
   a size cap or a `jabs-cli` cleanup command is follow-up work.
 - **Converter refusals** (duplicate identities, shared tracklets) on files JABS
