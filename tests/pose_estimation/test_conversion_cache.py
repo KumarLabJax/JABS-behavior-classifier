@@ -705,3 +705,38 @@ def test_strict_and_lenient_copies_of_one_revision_coexist(
     assert strict != lenient
     assert strict.exists() and lenient.exists()
     assert strict.name.endswith("-strict.h5")
+
+
+def _no_temporary_directory(*_args: object, **_kwargs: object) -> str:
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+def test_unwritable_user_cache_and_no_temporary_space_is_pose_open_error(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no writable cache and no room for a temporary directory, the open says why."""
+    read_only = tmp_path / "read-only"
+    read_only.mkdir()
+    monkeypatch.setenv("JABS_CACHE_DIR", str(read_only))
+    monkeypatch.setattr(conversion_cache, "_can_write", lambda _directory: False)
+    monkeypatch.setattr(conversion_cache.tempfile, "mkdtemp", _no_temporary_directory)
+
+    with pytest.raises(PoseOpenError, match="temporary"):
+        open_unified(legacy_v4)
+
+
+def test_full_user_cache_and_no_temporary_space_is_pose_open_error(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A full per-user cache whose temporary fallback cannot be made is a PoseOpenError."""
+    root = tmp_path / "user-cache"
+    monkeypatch.setenv("JABS_CACHE_DIR", str(root))
+
+    def full_cache_convert(source: Path, destination: Path, **kwargs: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(conversion_cache, "convert_legacy", full_cache_convert)
+    monkeypatch.setattr(conversion_cache.tempfile, "mkdtemp", _no_temporary_directory)
+
+    with pytest.raises(PoseOpenError, match="temporary"):
+        open_unified(legacy_v4)

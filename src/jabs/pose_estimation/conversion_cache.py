@@ -354,9 +354,22 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
             error.__cause__,
             CACHE_DIR_ENV,
         )
-    return _open_in_temporary_cache(
-        path, source_hash, Path(tempfile.mkdtemp(prefix="jabs-pose-")), strict
-    )
+    return _open_in_temporary_cache(path, source_hash, _temporary_directory(path), strict)
+
+
+def _temporary_directory(source: Path) -> Path:
+    """Create a temporary conversion cache root for ``source``.
+
+    Raises:
+        PoseOpenError: If the temporary directory cannot be created (for example,
+            the temporary volume is full or unwritable).
+    """
+    try:
+        return Path(tempfile.mkdtemp(prefix="jabs-pose-"))
+    except OSError as e:
+        raise PoseOpenError(
+            source, f"cannot convert: no writable cache and no temporary directory: {e}"
+        ) from e
 
 
 def _out_of_space(error: BaseException | None) -> bool:
@@ -426,6 +439,9 @@ def _temporary_cache_if_unwritable(source: Path, source_hash: str, strict: bool)
 
     Returns:
         A new temporary directory the caller owns, or None to use the per-user cache.
+
+    Raises:
+        PoseOpenError: If a temporary directory is needed but cannot be created.
     """
     destination = converted_path(source, source_hash, None, strict=strict)
     if _exists(destination) or _can_write(destination.parent):
@@ -440,7 +456,7 @@ def _temporary_cache_if_unwritable(source: Path, source_hash: str, strict: bool)
             root,
             CACHE_DIR_ENV,
         )
-    return Path(tempfile.mkdtemp(prefix="jabs-pose-"))
+    return _temporary_directory(source)
 
 
 def _open_in_temporary_cache(path: Path, source_hash: str, temporary: Path, strict: bool) -> Pose:
