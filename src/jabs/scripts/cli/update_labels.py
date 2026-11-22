@@ -52,6 +52,7 @@ import click
 from jabs.core.utils import copy_file_atomic
 from jabs.pose_estimation import get_pose_path
 from jabs.project import Project
+from jabs.project.project_paths import ProjectPaths
 from jabs.scripts.initialize_project import DEFAULT_PROCESSES
 
 from .label_remap_matching import MatchSettings
@@ -234,6 +235,7 @@ def _preflight_label_update_inputs(
             source_pose_path,
             "source",
             require_bboxes=True,
+            cache_dir=ProjectPaths(source_project_dir).cache_dir,
         )
 
         target_video_path = target_dir / video
@@ -244,6 +246,7 @@ def _preflight_label_update_inputs(
             target_pose_path,
             "target",
             require_bboxes=True,
+            cache_dir=ProjectPaths(target_dir).cache_dir,
         )
 
         annotation_path = source_annotations_dir / Path(video).with_suffix(".json")

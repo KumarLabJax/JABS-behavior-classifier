@@ -83,6 +83,8 @@ def _write_pose_file_with_metadata(
 def _make_metadata_project(pose_paths: dict[str, Path]) -> SimpleNamespace:
     """Build a minimal project stub for metadata injection tests."""
     return SimpleNamespace(
+        # no project cache: conversions go to the per-user cache, kept in tmp by a fixture
+        project_paths=SimpleNamespace(cache_dir=None),
         video_manager=SimpleNamespace(
             videos=list(pose_paths),
             get_cached_pose_path=lambda video: pose_paths[video],
@@ -1908,3 +1910,68 @@ def test_remap_labels_for_video_does_not_open_the_pose_of_an_unlabeled_video(cap
 
     assert update_pose._remap_labels_for_video("a.avi", source, destination, 0.5) == (0, 0)
     assert "No labels in source for a.avi" in capsys.readouterr().out
+
+
+def test_preflight_converts_into_the_project_cache(tmp_path, monkeypatch):
+    """Pose files are opened with the project's cache, not the per-user one.
+
+    The live poses are usually converted there already, and the per-user cache may be
+    on a small volume (a home directory with a quota).
+    """
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    (project_dir / "jabs" / "annotations" / "video1.json").write_text("{}")
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+    opened: dict[Path, Path | None] = {}
+
+    def fake_open_pose_file(path, cache_dir):
+        opened[path] = cache_dir
+        return nullcontext(
+            SimpleNamespace(
+                source_format="pose_est_v8",
+                has_bounding_boxes=True,
+                num_frames=10,
+                num_identities=2,
+            )
+        )
+
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 10)
+    )
+
+    update_pose._preflight_update_inputs(project_dir, new_pose_dir)
+
+    project_cache = project_dir / "jabs" / "cache"
+    assert opened == {
+        project_dir / "video1_pose_est_v8.h5": project_cache,
+        new_pose_dir / "video1_pose_est_v8.h5": project_cache,
+    }
+
+
+def test_model_metadata_is_read_through_the_project_cache(tmp_path, monkeypatch):
+    """The staged project's pose files are opened with that project's cache."""
+    cache_dir = tmp_path / "stage" / "jabs" / "cache"
+    project = SimpleNamespace(
+        project_paths=SimpleNamespace(cache_dir=cache_dir),
+        video_manager=SimpleNamespace(
+            videos=["video1.avi"],
+            get_cached_pose_path=lambda video: tmp_path / "video1_pose_est_v8.h5",
+        ),
+    )
+    opened: list[Path | None] = []
+
+    def fake_open_pose_file(path, cache_dir_arg):
+        opened.append(cache_dir_arg)
+        return nullcontext(SimpleNamespace(model_metadata=None))
+
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+
+    update_pose._inject_consistent_pose_model_metadata(project)
+
+    assert opened == [cache_dir]

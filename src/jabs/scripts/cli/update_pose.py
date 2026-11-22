@@ -64,6 +64,7 @@ from jabs.core.utils import copy_file_atomic, find_video_files
 from jabs.io.annotations import annotation_filename
 from jabs.pose_estimation import PoseOpenError, get_pose_path, is_pose_file, open_pose_file
 from jabs.project import Project
+from jabs.project.project_paths import ProjectPaths
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
 from jabs.scripts.initialize_project import (
@@ -578,8 +579,18 @@ def _validate_pose_file(
     pose_path: Path,
     role: str,
     require_bboxes: bool,
+    cache_dir: Path | None = None,
 ) -> tuple[str, int]:
     """Validate that a pose file is readable and matches the video frame count.
+
+    Args:
+        video: Video filename, for messages.
+        video_path: The video, for its frame count.
+        pose_path: The pose file to check.
+        role: What the pose file is (``"source"``, ``"replacement"``...), for messages.
+        require_bboxes: Whether the pose must have bounding boxes.
+        cache_dir: Project cache a legacy pose file is converted into; ``None`` for
+            the per-user cache.
 
     Returns:
         Tuple of ``(source_format, num_identities)``; ``source_format`` is
@@ -590,7 +601,7 @@ def _validate_pose_file(
             they are required, or does not match the video's frame count.
     """
     try:
-        with open_pose_file(pose_path, None) as pose:
+        with open_pose_file(pose_path, cache_dir) as pose:
             source_format = pose.source_format
             has_bounding_boxes = pose.has_bounding_boxes
             pose_frames = pose.num_frames
@@ -826,6 +837,9 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
     video_path = project_dir / video
     live_pose_path = get_pose_path(video_path)
     replacement_pose_path = get_pose_path(video_path, new_pose_dir)
+    # the live project's cache: its poses are usually converted there already, and the
+    # replacements' conversions go with the rest of the cache when the update is applied
+    cache_dir = ProjectPaths(project_dir).cache_dir
     live_num_identities = None
     if _annotation_path(project_dir, video).exists():
         _, live_num_identities = _validate_pose_file(
@@ -834,6 +848,7 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
             live_pose_path,
             "source",
             require_bboxes=True,
+            cache_dir=cache_dir,
         )
     replacement_source_format, replacement_num_identities = _validate_pose_file(
         video,
@@ -841,6 +856,7 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
         replacement_pose_path,
         "replacement",
         require_bboxes=True,
+        cache_dir=cache_dir,
     )
     return _VideoPoseCheck(
         video,
@@ -1058,17 +1074,24 @@ def _refresh_project_identity_counts(
     project.settings_manager.save_project_file({"video_files": refreshed})
 
 
-def _load_pose_file_model_metadata(pose_path: Path) -> dict[str, object] | None:
+def _load_pose_file_model_metadata(
+    pose_path: Path, cache_dir: Path | None = None
+) -> dict[str, object] | None:
     """Return a pose file's model metadata, or ``None`` if it has none.
 
     Read through the pose (``model_metadata``), so a unified file and a legacy
     file are read alike; metadata that is not a JSON object counts as none.
 
+    Args:
+        pose_path: The pose file.
+        cache_dir: Project cache a legacy pose file is converted into; ``None`` for
+            the per-user cache.
+
     Raises:
         ValueError: If the pose file cannot be opened.
     """
     try:
-        with open_pose_file(pose_path, None) as pose:
+        with open_pose_file(pose_path, cache_dir) as pose:
             return pose.model_metadata
     except PoseOpenError as exc:
         raise ValueError(f"Could not read pose file metadata from {pose_path}: {exc}") from exc
@@ -1087,7 +1110,7 @@ def _inject_consistent_pose_model_metadata(project: Project) -> dict[str, object
 
     for video in project.video_manager.videos:
         pose_path = project.video_manager.get_cached_pose_path(video)
-        metadata = _load_pose_file_model_metadata(pose_path)
+        metadata = _load_pose_file_model_metadata(pose_path, project.project_paths.cache_dir)
         if metadata is None:
             missing_videos.append(video)
             continue
