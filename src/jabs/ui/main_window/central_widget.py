@@ -435,6 +435,14 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
+        # Unload the previous project's video as a failed load_video does. When none of
+        # the new project's videos is usable, no video is loaded to replace it, and its
+        # pose and enabled select button would let the label keys act on gone labels.
+        self._pose_est = None
+        self._set_identities([])
+        self._player_widget.reset()
+        self._update_select_button_state()
+
         # The reserved "None"-track counts are behavior-independent, so they are
         # cached across behavior changes and only invalidated when the project
         # changes (they belong to the previous project here).

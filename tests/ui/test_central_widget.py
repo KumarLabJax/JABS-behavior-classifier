@@ -897,3 +897,35 @@ def test_stale_classifier_is_reset_and_the_user_told_to_retrain(monkeypatch):
     stub._set_classify_enabled.assert_called_with(False)
     dialog.warning.assert_called_once()
     assert "retrain" in dialog.warning.call_args.args[2]
+
+
+def test_set_project_drops_the_previous_projects_video():
+    """Opening a project unloads the previous project's video, pose and selection state.
+
+    When none of the new project's videos is usable, no video is loaded to replace it,
+    and its leftover pose and enabled select button let the label keys act on labels
+    that are gone.
+    """
+    stub = SimpleNamespace(
+        _project=None,
+        _labels=MagicMock(),
+        _loaded_video=Path("old.avi"),
+        _pose_est=MagicMock(num_identities=2),
+        _controls=MagicMock(select_button_enabled=True),
+        _player_widget=MagicMock(),
+        _jabs_timeline=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+    )
+    stub._set_identities = lambda identities: CentralWidget._set_identities(stub, identities)
+    stub._start_selection = lambda pressed: CentralWidget._start_selection(stub, pressed)
+    stub._update_select_button_state = lambda: CentralWidget._update_select_button_state(stub)
+
+    CentralWidget.set_project(stub, MagicMock())
+
+    assert stub._labels is None
+    assert stub._loaded_video is None
+    assert stub._pose_est is None
+    stub._player_widget.reset.assert_called_once()
+    stub._controls.set_identities.assert_called_with([])
+    assert stub._controls.select_button_enabled is False
