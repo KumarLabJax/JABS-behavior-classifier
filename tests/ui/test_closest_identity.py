@@ -5,6 +5,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from jabs.core.pose_skeleton import KeypointIndex
+from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 
 try:
     from jabs.ui.player_widget.closest_identity import HALF_FOV_DEGREES, closest_identity
@@ -131,7 +132,8 @@ class UnusableSubjectPose(StubPose):
         return super().get_points(frame_index, identity)
 
 
-@pytest.mark.parametrize("half_fov_degrees", [None, HALF_FOV_DEGREES])
+# from the feature, not the UI module, so collection works without Qt
+@pytest.mark.parametrize("half_fov_degrees", [None, ClosestIdentityInfo.HALF_FOV_DEGREE])
 def test_an_unusable_slot_is_no_pose(half_fov_degrees: float | None) -> None:
     """A slot that is not usable on the frame is neither measured from nor against.
 
