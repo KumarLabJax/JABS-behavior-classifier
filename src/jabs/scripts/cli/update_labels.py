@@ -235,7 +235,8 @@ def _preflight_label_update_inputs(
             source_pose_path,
             "source",
             require_bboxes=True,
-            cache_dir=ProjectPaths(source_project_dir).cache_dir,
+            # the source is only read (and may be read-only): the per-user cache, not its own
+            cache_dir=None,
         )
 
         target_video_path = target_dir / video

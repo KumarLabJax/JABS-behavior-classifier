@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,8 +11,20 @@ from click.testing import CliRunner
 
 import jabs.scripts.cli.update_labels as update_labels
 import jabs.scripts.cli.update_pose as update_pose
+from jabs.pose_estimation import conversion_cache
 from jabs.scripts.cli.cli import cli
 from jabs.scripts.cli.label_remap_matching import MatchMetric, MatchSettings
+
+# a 120-frame v8 pose file with bounding boxes
+_V8_POSE = (
+    Path(__file__).parents[2]
+    / "packages"
+    / "jabs-io"
+    / "tests"
+    / "data"
+    / "legacy-pose"
+    / "v8-with-centers.h5"
+)
 
 
 def _make_valid_project_dir(
@@ -779,3 +793,34 @@ def test_update_project_labels_in_place_rejects_identical_dirs(tmp_path):
 
     with pytest.raises(ValueError, match="must be different"):
         update_labels.update_project_labels_in_place(project_dir, project_dir, min_iou=0.5)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions, not root"
+)
+def test_preflight_reads_a_read_only_source_project(tmp_path, monkeypatch):
+    """The source project is only read, so its legacy poses are not converted into it.
+
+    A read-only source (for example a shared project nobody has opened since the
+    upgrade, so it has no converted copies) must not stop the update. The remap runs on
+    a staged copy, which would not reuse conversions in the source's cache anyway.
+    """
+    user_cache = tmp_path / "user-cache"
+    monkeypatch.setattr(conversion_cache, "user_cache_dir", lambda _app: str(user_cache))
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    target_dir = tmp_path / "target"
+    source_dir = tmp_path / "source"
+    _make_valid_project_dir(target_dir, write_annotation=True)
+    _make_valid_project_dir(source_dir, write_annotation=True)
+    for project_dir in (target_dir, source_dir):
+        shutil.copyfile(_V8_POSE, project_dir / "video1_pose_est_v8.h5")
+    (source_dir / "jabs").chmod(0o555)
+    try:
+        videos, _ = update_labels._preflight_label_update_inputs(target_dir, source_dir)
+    finally:
+        (source_dir / "jabs").chmod(0o755)
+
+    assert videos == ["video1.avi"]
+    assert not (source_dir / "jabs" / "cache").exists()
