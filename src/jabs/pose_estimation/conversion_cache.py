@@ -32,7 +32,7 @@ from .pose import Pose
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["cache_root", "converted_path", "ensure_converted", "open_unified"]
+__all__ = ["cache_root", "converted_path", "ensure_converted", "is_converted", "open_unified"]
 
 _APP_NAME = "jabs"
 _CONVERTED_DIR = "converted"
@@ -98,6 +98,34 @@ def converted_path(source: Path, source_hash: str, cache_dir: Path | None) -> Pa
     """
     name = f"{pose_file_stem(source)}.{source_hash}-r{_converter_revision()}.h5"
     return cache_root(cache_dir) / _CONVERTED_DIR / name
+
+
+def _exists(path: Path) -> bool:
+    """Return whether ``path`` exists; False when that cannot be checked.
+
+    Before Python 3.14 ``Path.exists`` raises when a parent directory cannot
+    be searched (such as a shared cache's ``converted/`` another user created
+    0o700). Treated as missing, the conversion that follows fails with an
+    ``OSError`` that is handled.
+    """
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def is_converted(source: Path, source_hash: str, cache_dir: Path | None) -> bool:
+    """Return whether the conversion of a legacy pose file is cached.
+
+    Args:
+        source: The legacy pose file.
+        source_hash: ``jabs.core.utils.hash_file`` of ``source``.
+        cache_dir: The project's cache directory, or None for the per-user cache.
+
+    Returns:
+        Whether :func:`converted_path` exists; False when that cannot be checked.
+    """
+    return _exists(converted_path(source, source_hash, cache_dir))
 
 
 def _is_older_conversion(key: str) -> bool:
@@ -188,7 +216,7 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
             while being converted.
     """
     destination = converted_path(source, source_hash, cache_dir)
-    if destination.exists():
+    if _exists(destination):
         logger.debug("Using cached conversion %s of %s", destination, source)
         return destination
     try:
@@ -199,7 +227,7 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
     except _CONVERT_ERRORS as error:
         raise PoseOpenError(source, _reason(source, error)) from error
     except OSError as error:
-        if not destination.exists():
+        if not _exists(destination):
             raise PoseOpenError(source, f"cannot convert: {error}") from error
         logger.info("Using the conversion of %s another process wrote: %s", source, error)
     _remove_older_versions(destination, source, source_hash)
@@ -295,7 +323,7 @@ def _temporary_cache_if_unwritable(source: Path, source_hash: str) -> Path | Non
         A new temporary directory the caller owns, or None to use the per-user cache.
     """
     destination = converted_path(source, source_hash, None)
-    if destination.exists() or _can_write(destination.parent):
+    if _exists(destination) or _can_write(destination.parent):
         return None
     root = cache_root(None)
     if root not in _reported_unwritable:

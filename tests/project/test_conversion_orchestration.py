@@ -467,3 +467,29 @@ def test_prepare_poses_survives_a_pose_file_gone_since_the_scan(legacy_project: 
 
     assert not project.is_usable("a.avi")
     assert project.is_usable("b.avi")
+
+
+def test_convert_pose_reports_an_unsearchable_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """convert_pose returns a reason, not a raw PermissionError, when the cache cannot be searched."""
+    pose_path = tmp_path / "vid_pose_est_v8.h5"
+    shutil.copyfile(LEGACY_CORPUS / "v8-with-centers.h5", pose_path)
+    cache = tmp_path / "cache"
+    real_exists = Path.exists
+
+    def exists(self: Path, *args: object, **kwargs: object) -> bool:
+        if self.parent == cache / "converted":
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    video, _, _ = convert_pose(
+        {
+            "video": "vid.avi",
+            "pose_path": pose_path,
+            "cache_dir": cache,
+            "known_hash": hash_file(pose_path),
+        }
+    )
+    assert video == "vid.avi"

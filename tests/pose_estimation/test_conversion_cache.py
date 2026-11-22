@@ -507,3 +507,57 @@ def test_newer_revision_copy_is_kept(
     assert newer.exists()
     assert much_newer.exists()
     assert unrecognized.exists()
+
+
+@pytest.fixture
+def unsearchable_converted(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Make ``Path.exists`` raise for anything in a ``converted`` directory listed here.
+
+    Before Python 3.14, ``Path.exists`` re-raises EACCES, as for a shared
+    cache whose ``converted/`` another user created 0o700.
+    """
+    blocked: list[Path] = []
+    real_exists = Path.exists
+
+    def exists(self: Path, *args: object, **kwargs: object) -> bool:
+        if any(self.parent == directory for directory in blocked):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    return blocked
+
+
+def test_unsearchable_project_cache_is_not_a_raw_permission_error(
+    legacy_v4: Path, tmp_path: Path, unsearchable_converted: list[Path]
+) -> None:
+    """A conversion directory that cannot be searched never raises a raw PermissionError."""
+    cache = tmp_path / "cache"
+    unsearchable_converted.append(cache / "converted")
+    try:
+        with open_unified(legacy_v4, cache) as pose:
+            assert pose.num_frames > 0
+    except PoseOpenError:
+        pass
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="POSIX permissions; root ignores them",
+)
+def test_unsearchable_conversion_directory_is_pose_open_error(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real ``converted/`` another user made 0o700: an error for a project, a fallback without."""
+    cache = tmp_path / "cache"
+    converted = cache / "converted"
+    converted.mkdir(parents=True)
+    converted.chmod(0)
+    monkeypatch.setenv("JABS_CACHE_DIR", str(cache))
+    try:
+        with pytest.raises(PoseOpenError):
+            open_unified(legacy_v4, cache)
+        with open_unified(legacy_v4) as pose:
+            assert pose.num_frames > 0
+    finally:
+        converted.chmod(0o700)
