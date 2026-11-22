@@ -1863,3 +1863,48 @@ def test_run_staged_label_remap_is_serial_when_videos_share_an_annotation_file(
 
     assert printed == ["a.avi", "a.mp4"]
     assert "share an annotation file" in capsys.readouterr().err
+
+
+_REFUSED_AT_CONVERSION = _V8_POSE.parent / "v8-duplicate-embed.h5"
+
+
+def test_preflight_skips_the_live_pose_of_an_unlabeled_video(tmp_path, monkeypatch):
+    """An unlabeled video's live pose is not opened, so a bad one does not block the update.
+
+    Replacing an unusable pose file is the documented remedy for it, so its being
+    unusable must not stop the update.
+    """
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video, live in (("a", _REFUSED_AT_CONVERSION), ("b", _V8_POSE)):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(live, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(_V8_POSE, new_pose_dir / f"{video}_pose_est_v8.h5")
+    (annotations_dir / "b.json").write_text("{}")
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+
+    videos, replacement_pose_files, live_annotations, _counts = (
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
+    )
+
+    assert videos == ["a.avi", "b.avi"]
+    assert set(replacement_pose_files) == {"a.avi", "b.avi"}
+    assert live_annotations == {"b.avi"}
+
+
+def test_remap_labels_for_video_does_not_open_the_pose_of_an_unlabeled_video(capsys):
+    """With no labels to remap, neither pose file is opened."""
+    source = MagicMock()
+    source.video_manager.load_annotations.return_value = None
+    source.load_pose_est.side_effect = AssertionError("source pose opened")
+    destination = MagicMock()
+    destination.load_pose_est.side_effect = AssertionError("destination pose opened")
+
+    assert update_pose._remap_labels_for_video("a.avi", source, destination, 0.5) == (0, 0)
+    assert "No labels in source for a.avi" in capsys.readouterr().out

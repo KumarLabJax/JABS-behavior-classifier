@@ -354,6 +354,11 @@ def _remap_labels_for_video(
         Tuple of ``(success_count, skipped_count)``, counting each part of a split
         block separately.
     """
+    # an unlabeled video's pose is not opened: it may be the unusable file being replaced
+    if label_source_project.video_manager.load_annotations(video) is None:
+        print(f"INFO: No labels in source for {video}; skipping.")
+        return 0, 0
+
     source_pose = label_source_project.load_pose_est(
         label_source_project.video_manager.video_path(video)
     )
@@ -788,9 +793,14 @@ class _VideoPoseCheck(NamedTuple):
 
     video: str
     replacement_pose_path: Path
-    live_num_identities: int
+    live_num_identities: int | None
     replacement_source_format: str
     replacement_num_identities: int
+
+
+def _annotation_path(project_dir: Path, video: str) -> Path:
+    """Return the live annotation file of a video."""
+    return project_dir / "jabs" / "annotations" / Path(video).with_suffix(".json")
 
 
 def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
@@ -799,25 +809,32 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
     Args:
         job: ``(video, project_dir, new_pose_dir)``.
 
+    The live pose file is checked only when the video has annotations: it is the
+    source of the label remap. An unlabeled video's live pose is replaced unread, so
+    an unusable one (which replacing is the remedy for) does not block the update.
+
     Returns:
         The replacement pose path, its source format and identity count, and the live pose
-        file's identity count.
+        file's identity count (``None`` when the video has no annotations).
 
     Raises:
-        ValueError: If either pose file is missing, unreadable, lacks bounding boxes, or
-            does not match the video's frame count.
+        ValueError: If the replacement pose file, or the live one of an annotated video,
+            is missing, unreadable, lacks bounding boxes, or does not match the video's
+            frame count.
     """
     video, project_dir, new_pose_dir = job
     video_path = project_dir / video
     live_pose_path = get_pose_path(video_path)
     replacement_pose_path = get_pose_path(video_path, new_pose_dir)
-    _, live_num_identities = _validate_pose_file(
-        video,
-        video_path,
-        live_pose_path,
-        "source",
-        require_bboxes=True,
-    )
+    live_num_identities = None
+    if _annotation_path(project_dir, video).exists():
+        _, live_num_identities = _validate_pose_file(
+            video,
+            video_path,
+            live_pose_path,
+            "source",
+            require_bboxes=True,
+        )
     replacement_source_format, replacement_num_identities = _validate_pose_file(
         video,
         video_path,
@@ -881,7 +898,6 @@ def _preflight_update_inputs(
 
     replacement_pose_files: dict[str, Path] = {}
     live_annotations: set[str] = set()
-    annotations_dir = project_dir / "jabs" / "annotations"
     replacement_source_format: str | None = None
     orphan_issues: list[tuple[str, int, list[int]]] = []
 
@@ -907,8 +923,8 @@ def _preflight_update_inputs(
                     f"replacement pose format {replacement_source_format} used by other videos"
                 )
             replacement_pose_files[video] = replacement_pose_path
-            annotation_path = annotations_dir / Path(video).with_suffix(".json")
-            if annotation_path.exists():
+            annotation_path = _annotation_path(project_dir, video)
+            if live_num_identities is not None and annotation_path.exists():
                 live_annotations.add(video)
                 orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
                 if orphans:
