@@ -795,7 +795,9 @@ classifier. This means the cache never needs to be invalidated when the user cha
 groups are enabled.
 
 Features that were never computed (e.g., social features when the pose file has only one identity) are simply
-absent from both the cache and the nested dict.
+absent from both the cache and the nested dict. At prediction time, a classifier trained with social features
+gets the absent social columns as NaN (cleaned per classifier type, like any other missing value); any other
+missing column is still an error (`BaseClassifier._fill_absent_social_columns`).
 
 **Column ordering**
 

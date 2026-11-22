@@ -7,7 +7,8 @@
 > training data exported with earlier versions must be exported again). The user-visible changes:
 > 1. **No social features for single-identity files:** social features need more than one
 >    identity in the pose file. A file with one identity (every v2 file, and any other file
->    holding one animal) has none.
+>    holding one animal) has none. A classifier trained with social features still classifies
+>    such a file: its social features are treated as missing.
 > 2. **Social features are project-wide:** a project offers social features only if every usable
 >    video's pose file has more than one identity (the intersection of the pose files'
 >    capabilities across the project's videos, as for segmentation and landmarks).
