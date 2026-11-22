@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jabs.core.utils import hash_file
-from jabs.pose_estimation import get_pose_path, open_pose_file
+from jabs.pose_estimation import PoseOpenError, get_pose_path, open_pose_file
 
 if TYPE_CHECKING:
     from .project import Project
@@ -39,6 +39,76 @@ def unique_videos(project1: "Project", project2: "Project") -> tuple[set[str], s
     unique_to_project2 = videos2 - videos1
 
     return unique_to_project1, unique_to_project2
+
+
+def _merge_annotations_with_pose(
+    destination: "Project",
+    source: "Project",
+    video: str,
+    strategy: MergeStrategy,
+    copied: bool,
+) -> None:
+    """Merge one usable video's annotations from ``source`` into ``destination``.
+
+    Args:
+        destination: The project to merge into.
+        source: The project to merge from.
+        video: The video filename.
+        strategy: How conflicting labels are resolved.
+        copied: Whether the video was copied into ``destination`` by this merge.
+
+    Raises:
+        PoseOpenError: If either project's pose file cannot be opened. Nothing has
+            been saved for the video when this is raised.
+    """
+    source_labels = source.video_manager.load_video_labels(video)
+
+    # if there are no labels for this video in the source project, skip it
+    if source_labels is None:
+        return
+
+    source_pose = source.load_pose_est(source.video_manager.video_path(video))
+    if copied:
+        # This video was just copied from source -> destination during this merge run.
+        # Destination's in-memory VideoManager inventory has not been refreshed yet,
+        # so check_video_name-based load paths may fail.
+        try:
+            destination_pose = destination.load_pose_est(
+                destination.video_manager.video_path(video)
+            )
+        except ValueError:
+            destination_video_path = destination.project_paths.video_dir / Path(video).name
+            destination_pose = open_pose_file(
+                get_pose_path(destination_video_path, destination.project_paths.pose_dir),
+                destination.project_paths.cache_dir,
+            )
+        destination_labels = None
+    else:
+        destination_pose = destination.load_pose_est(destination.video_manager.video_path(video))
+        destination_labels = destination.video_manager.load_video_labels(video)
+
+    if source_pose.hash != destination_pose.hash:
+        print(f"WARNING: Pose hash mismatch for video {video}. Skipping annotation merge.")
+        return
+
+    if destination_labels is None:
+        # destination project does not have annotations for this video, so we can just copy the source annotations
+        print(f"Adding annotations for video {video} to destination project...")
+        destination.save_annotations(source_labels, destination_pose)
+    else:
+        # both projects have annotations for this video so need to merge source into destination
+        print(
+            f"Merging annotations for video {video} from source project into destination project..."
+        )
+        try:
+            destination_labels.merge(source_labels, strategy)
+            destination.save_annotations(destination_labels, destination_pose)
+        except ValueError as e:
+            print(f"ERROR: Error merging annotations for video {video}: {e}")
+            return
+        except OSError as e:
+            print(f"ERROR: Error saving annotations for video {video}: {e}")
+            return
 
 
 def _unusable_reason(video: str, *projects: "Project") -> str | None:
@@ -84,7 +154,16 @@ def _merge_annotations_without_pose(
     destination_pose_path = get_pose_path(
         destination.project_paths.video_dir / video, destination.project_paths.pose_dir
     )
-    if hash_file(source_pose_path) != hash_file(destination_pose_path):
+    try:
+        same_pose = hash_file(source_pose_path) == hash_file(destination_pose_path)
+    except OSError as e:
+        logger.warning(
+            "Cannot read the pose file of video %s, so its annotations are not merged: %s",
+            video,
+            e,
+        )
+        return
+    if not same_pose:
         logger.warning("Pose hash mismatch for video %s. Skipping annotation merge.", video)
         return
 
@@ -121,8 +200,9 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
     adds behaviors unique to the source project to the destination project, and merges
     or adds annotations for each video from the source project into the destination project
     according to the given merge strategy. Annotations of a video whose pose
-    file is unusable in either project are merged without opening the pose
-    (see :func:`_merge_annotations_without_pose`).
+    file is unusable in either project, or cannot be opened, are merged without
+    opening the pose (see :func:`_merge_annotations_without_pose`); a video whose
+    pose file cannot be read at all is skipped with a warning.
 
     Args:
         destination (Project): The project to merge into (destination).
@@ -171,53 +251,15 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
             )
             continue
 
-        source_labels = source.video_manager.load_video_labels(video)
-
-        # if there are no labels for this video in the source project, skip it
-        if source_labels is None:
-            continue
-
-        source_pose = source.load_pose_est(source.video_manager.video_path(video))
-        if video in videos_unique_to_source:
-            # This video was just copied from source -> destination during this merge run.
-            # Destination's in-memory VideoManager inventory has not been refreshed yet,
-            # so check_video_name-based load paths may fail.
-            try:
-                destination_pose = destination.load_pose_est(
-                    destination.video_manager.video_path(video)
-                )
-            except ValueError:
-                destination_video_path = destination.project_paths.video_dir / Path(video).name
-                destination_pose = open_pose_file(
-                    get_pose_path(destination_video_path, destination.project_paths.pose_dir),
-                    destination.project_paths.cache_dir,
-                )
-            destination_labels = None
-        else:
-            destination_pose = destination.load_pose_est(
-                destination.video_manager.video_path(video)
+        copied = video in videos_unique_to_source
+        try:
+            _merge_annotations_with_pose(destination, source, video, strategy, copied)
+        except PoseOpenError as e:
+            # the scan accepted the pose, but it cannot be opened (e.g. the converter
+            # refuses it): merge the annotations without it, as for an unusable video
+            logger.warning(
+                "Merging annotations for %s without its pose file, which cannot be opened: %s",
+                video,
+                e,
             )
-            destination_labels = destination.video_manager.load_video_labels(video)
-
-        if source_pose.hash != destination_pose.hash:
-            print(f"WARNING: Pose hash mismatch for video {video}. Skipping annotation merge.")
-            continue
-
-        if destination_labels is None:
-            # destination project does not have annotations for this video, so we can just copy the source annotations
-            print(f"Adding annotations for video {video} to destination project...")
-            destination.save_annotations(source_labels, destination_pose)
-        else:
-            # both projects have annotations for this video so need to merge source into destination
-            print(
-                f"Merging annotations for video {video} from source project into destination project..."
-            )
-            try:
-                destination_labels.merge(source_labels, strategy)
-                destination.save_annotations(destination_labels, destination_pose)
-            except ValueError as e:
-                print(f"ERROR: Error merging annotations for video {video}: {e}")
-                continue
-            except OSError as e:
-                print(f"ERROR: Error saving annotations for video {video}: {e}")
-                continue
+            _merge_annotations_without_pose(destination, source, video, strategy, copied)

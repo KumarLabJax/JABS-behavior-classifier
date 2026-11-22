@@ -1,5 +1,7 @@
 import json
+import os
 import shutil
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -335,3 +337,50 @@ def test_merge_skips_annotations_of_an_unusable_video_whose_pose_differs(
     merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
 
     assert _foo_blocks(_labels_document(dest, "bad.avi")) == [(15, 30, False)]
+
+
+# passes the metadata scan, but the converter refuses it: identity 2 is held twice
+CONVERSION_REFUSED_POSE = LEGACY_CORPUS / "v8-duplicate-embed.h5"
+
+
+def test_merge_falls_back_when_a_pose_is_refused_at_conversion(tmp_path: Path) -> None:
+    """A pose the scan accepts but the converter refuses does not stop the merge.
+
+    Its annotations are merged without the pose, and later videos are still merged.
+    """
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "src", "extra.avi", [(30, 40, True)])
+    src = _real_project(
+        tmp_path / "src", {"bad.avi": CONVERSION_REFUSED_POSE, "extra.avi": USABLE_POSE}
+    )
+    dest = _real_project(tmp_path / "dest", {"ok.avi": USABLE_POSE})
+    assert src.is_usable("bad.avi")  # the scan does not see the problem
+
+    merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    merged = Project(tmp_path / "dest", enable_session_tracker=False)
+    assert _foo_blocks(_labels_document(merged, "bad.avi")) == [(10, 20, True)]
+    assert _foo_blocks(_labels_document(merged, "extra.avi")) == [(30, 40, True)]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions, not root"
+)
+def test_merge_skips_a_video_whose_pose_cannot_be_read(tmp_path: Path) -> None:
+    """An unreadable pose file skips that video's annotations, not the rest of the merge."""
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "src", "extra.avi", [(30, 40, True)])
+    _write_labels(tmp_path / "dest", "bad.avi", [(15, 30, False)])
+    src = _real_project(tmp_path / "src", {"bad.avi": USABLE_POSE, "extra.avi": USABLE_POSE})
+    dest = _real_project(tmp_path / "dest", {"bad.avi": USABLE_POSE})
+    unreadable = dest.video_manager.get_cached_pose_path("bad.avi")
+    unreadable.chmod(0)
+    try:
+        dest = Project(tmp_path / "dest", enable_session_tracker=False)
+        merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+    finally:
+        unreadable.chmod(0o644)
+
+    merged = Project(tmp_path / "dest", enable_session_tracker=False)
+    assert _foo_blocks(_labels_document(merged, "bad.avi")) == [(15, 30, False)]
+    assert _foo_blocks(_labels_document(merged, "extra.avi")) == [(30, 40, True)]
