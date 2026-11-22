@@ -93,6 +93,9 @@ def _scan_unified(path: Path) -> PoseMetadata:
     for spec in manifest["components"]:
         if spec["id"].startswith(STATIC_OBJECT_PREFIX):
             name = spec["id"][len(STATIC_OBJECT_PREFIX) :]
+            if name == _LIXIT and int(spec["shape"][0]) == 0:
+                # an empty lixit is not a static object, as Pose has it
+                continue
             static_objects.append(name)
             if name == _LIXIT:
                 # (O, P, 2): keypoints per lixit is P

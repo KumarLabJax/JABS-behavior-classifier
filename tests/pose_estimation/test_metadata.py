@@ -243,3 +243,19 @@ def test_model_metadata_of_a_missing_file_raises_pose_open_error(tmp_path: Path)
     """An unreadable file is a PoseOpenError, as for scan_pose_metadata."""
     with pytest.raises(PoseOpenError):
         scan_model_metadata(tmp_path / "gone_pose.h5")
+
+
+def test_scan_drops_an_empty_lixit(tmp_path: Path) -> None:
+    """A lixit with no objects is not a static object, as Pose has it."""
+    path = build_pose_file(
+        tmp_path / "vid_pose.h5",
+        static_objects={
+            "corners": np.zeros((4, 1, 2), dtype=np.float32),
+            "lixit": np.zeros((0, 3, 2), dtype=np.float32),
+        },
+    )
+    meta = scan_pose_metadata(path)
+    assert meta.static_objects == ("corners",)
+    assert meta.lixit_keypoints == 0
+    with open_pose_file(path) as pose:
+        assert tuple(sorted(pose.static_objects)) == meta.static_objects

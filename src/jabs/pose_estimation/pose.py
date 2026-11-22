@@ -52,6 +52,7 @@ _EXTERNAL_IDS = "jabs.identity.external_ids"
 STATIC_OBJECT_PREFIX = "jabs.static_objects."
 _DYNAMIC_PREFIX = "jabs.dynamic_objects."
 _DYNAMIC_PARTS = ("frame_index", "points", "counts")
+_LIXIT = "lixit"
 
 _CONTOURS = "jabs.segmentation.contours"
 _CONTOUR_COUNT = "jabs.segmentation.contour_count"
@@ -362,7 +363,7 @@ class Pose:
             self._bboxes = np.ascontiguousarray(boxes.transpose(1, 0, 2, 3))
 
     def _load_objects(self, manifest: dict) -> None:
-        """Read static and dynamic objects."""
+        """Read static and dynamic objects; a lixit with no objects is not one."""
         self._static_objects: dict[str, npt.NDArray[np.float32]] = {}
         self._lixit_keypoints = 0
         dynamic_names: list[str] = []
@@ -370,8 +371,11 @@ class Pose:
             component_id = spec["id"]
             if component_id.startswith(STATIC_OBJECT_PREFIX):
                 name = component_id[len(STATIC_OBJECT_PREFIX) :]
+                if name == _LIXIT and int(spec["shape"][0]) == 0:
+                    # no lixit, as the legacy readers and the converter have it
+                    continue
                 data = self._reader.read(component_id).astype(np.float32)
-                if name == "lixit":
+                if name == _LIXIT:
                     self._lixit_keypoints = int(data.shape[1])
                 self._static_objects[name] = data[:, 0] if data.shape[1] == 1 else data
             elif component_id.startswith(_DYNAMIC_PREFIX):

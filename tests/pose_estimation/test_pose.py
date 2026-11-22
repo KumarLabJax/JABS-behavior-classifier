@@ -533,3 +533,15 @@ def test_close_is_idempotent_and_finalized(pose_file_factory: Factory) -> None:
     del pose
     gc.collect()
     assert not finalizer.alive
+
+
+def test_empty_lixit_is_not_a_static_object(pose_file_factory: Factory) -> None:
+    """A lixit with no objects is dropped, as the legacy readers and the converter drop it.
+
+    Kept, it enabled lixit features that index its first object and crash.
+    """
+    corners = np.zeros((4, 1, 2), dtype=np.float32)
+    lixit = np.zeros((0, 3, 2), dtype=np.float32)
+    with Pose(pose_file_factory(static_objects={"corners": corners, "lixit": lixit})) as pose:
+        assert set(pose.static_objects) == {"corners"}
+        assert pose.num_lixit_keypoints == 0
