@@ -6,6 +6,7 @@ from jabs.core.pose_protocol import PoseLike
 from jabs.core.utils import find_video_files
 from jabs.io.annotations import AnnotationStore
 from jabs.pose_estimation import (
+    PoseOpenError,
     get_pose_path,
     open_pose_file,
 )
@@ -155,7 +156,8 @@ class VideoManager:
 
         Args:
             video_name: filename of the video: string or pathlib.Path
-            pose: optional PoseLike object to use for identity mapping, if None we will open the pose file
+            pose: optional PoseLike object to use for identity mapping, if None we will open the
+                pose file; if it cannot be opened the labels are loaded without it
 
         Returns:
             initialized VideoLabels object if annotations exist, otherwise None
@@ -170,7 +172,17 @@ class VideoManager:
 
         # VideoLabels.load can use pose to convert identity index to the display identity
         if pose is None:
-            pose = open_pose_file(self.get_cached_pose_path(video_filename), self._paths.cache_dir)
+            try:
+                pose = open_pose_file(
+                    self.get_cached_pose_path(video_filename), self._paths.cache_dir
+                )
+            except PoseOpenError as e:
+                # the pose only maps identities to display names; the labels do not need it
+                logger.warning(
+                    "Loading the labels of %s without its pose file, which cannot be opened: %s",
+                    video_filename,
+                    e.reason,
+                )
         return VideoLabels.load(document.content, pose)
 
     def check_video_name(self, video_filename: str):
