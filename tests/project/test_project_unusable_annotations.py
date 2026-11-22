@@ -21,6 +21,17 @@ LEGACY_CORPUS = (
     Path(__file__).parents[2] / "packages" / "jabs-io" / "tests" / "data" / "legacy-pose"
 )
 UNUSABLE_POSE = LEGACY_CORPUS / "v8-unknown-dataset.h5"
+
+
+@pytest.fixture(autouse=True)
+def _strict_pose_conversion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse the unknown-dataset fixture, as only strict conversion does.
+
+    Lenient conversion (the default) opens it, leaving the dataset behind.
+    """
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
+
+
 USABLE_POSE = LEGACY_CORPUS / "v8-with-centers.h5"
 
 

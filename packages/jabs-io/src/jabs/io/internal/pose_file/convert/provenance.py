@@ -220,7 +220,9 @@ def convert_entry(
     ``first_frame`` and ``last_frame``. It also holds ``point_valid``'s
     threshold, ``legacy_attributes``, ``tracklet_id_none`` when the file has
     tracklets, ``tracklet_id_offset`` for a ``pose_est_v3`` file, whose track
-    ids are stored plus it, and ``model_metadata_json`` when the file has one.
+    ids are stored plus it, ``model_metadata_json`` when the file has one,
+    and ``waived`` (columns ``path`` and ``reason``) when a lenient
+    inspection left items behind rather than refuse the file.
 
     Args:
         h5: The open legacy file, for its attributes.
@@ -288,6 +290,12 @@ def convert_entry(
     if layout.placed_by_track:
         # v3 track 0 is a track, so every v3 track id is stored plus this.
         extra["tracklet_id_offset"] = TRACKLET_ID_OFFSET
+    if layout.waived:
+        # Absent otherwise, so a strict conversion's entry is unchanged.
+        extra["waived"] = {
+            "path": [name for name, _ in layout.waived],
+            "reason": [reason for _, reason in layout.waived],
+        }
     if "model_metadata_json" in h5["poseest"].attrs:
         # Recorded whole, as legacy_attributes records it; legacy_attributes
         # above has already refused a value with no JSON form.

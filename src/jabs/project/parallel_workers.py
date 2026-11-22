@@ -18,7 +18,11 @@ from jabs.core.enums import CacheFormat
 from jabs.core.utils import hash_file
 from jabs.io.annotations import read_document
 from jabs.pose_estimation import PoseOpenError, open_pose_file
-from jabs.pose_estimation.conversion_cache import ensure_converted, is_converted
+from jabs.pose_estimation.conversion_cache import (
+    ensure_converted,
+    is_converted,
+    strict_conversion,
+)
 from jabs.pose_estimation.metadata import scan_pose_metadata
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps_and_nframes
@@ -220,14 +224,18 @@ def convert_pose(job: PoseConversionJobSpec) -> PoseConversionOutcome:
     """
     pose_path = job["pose_path"]
     known_hash = job["known_hash"]
-    if known_hash is not None and is_converted(pose_path, known_hash, job["cache_dir"]):
+    # read once: the check and the conversion must agree on the mode's copy
+    strict = strict_conversion()
+    if known_hash is not None and is_converted(
+        pose_path, known_hash, job["cache_dir"], strict=strict
+    ):
         return job["video"], None, known_hash
     try:
         try:
             source_hash = hash_file(pose_path)
         except OSError as error:
             raise PoseOpenError(pose_path, f"cannot read: {error}") from error
-        ensure_converted(pose_path, source_hash, job["cache_dir"])
+        ensure_converted(pose_path, source_hash, job["cache_dir"], strict=strict)
     except PoseOpenError as error:
         return job["video"], error.reason, None
     return job["video"], None, source_hash

@@ -45,7 +45,10 @@ If a pose file cannot be read or converted, for example because it is damaged or
 the converter refuses it (two animals given the same identity in one frame, or one track
 shared by two animals), the project still opens. That video is marked unusable, with the
 reason, and is left out of training and classification. Fix or replace the pose file and
-reopen the project to use the video again.
+reopen the project to use the video again. Items the older readers ignored, such as an
+unrecognized dataset or a malformed dynamic object, do not make a video unusable: they are
+left out of the converted copy with a warning, unless the `JABS_STRICT_POSE_CONVERSION`
+environment variable is set.
 
 #### What a project can use
 

@@ -35,7 +35,7 @@ project 4 has one place to add embedding access.
 **Where a conversion lives.** The converter streams to a destination file and
 deep-checks it; an hour of dense segmentation does not fit comfortably in RAM.
 So "in memory" is implemented as **a converted file in the project's cache
-directory**, `<cache_dir>/converted/<video stem>.<legacy-hash>-r<converter revision>.h5`, reused while the legacy
+directory**, `<cache_dir>/converted/<video stem>.<legacy-hash>-r<converter revision>.h5` (`...-strict.h5` in strict mode, below), reused while the legacy
 file's hash **and the converter revision** are unchanged. The revision is jabs-io's
 `CONVERTER_REVISION`, bumped only when converter output changes (not per release), so a converter fix regenerates old conversions, and prune can find a video's
 copies by stem. Two workers converting the same file at once both succeed (the
@@ -175,3 +175,19 @@ conversion of projects and the Hub cutover, rebasing #603.
 - **Converter refusals** (duplicate identities, shared tracklets) on files JABS
   opens today become errors. The error names the file and the reason; such
   files are counted during the end-to-end run on real projects.
+- **Lenient conversion by default.** The converter also refuses items outside
+  its catalog or malformed: an unknown `poseest` dataset, an unknown root group
+  or static object, an unknown dynamic object member, a malformed dynamic object,
+  and an `external_identity_mapping` whose length is not the identity count.
+  Today's readers ignored these (or, for v7 dynamic objects, skipped just the
+  bad object), so JABS converts with `convert_legacy(..., strict=False)`: the
+  item is left behind, listed in the convert entry's `dropped` and, with its
+  reason, in `extra["waived"]`, and a warning is logged. The project scan
+  inspects in the same mode, so it agrees with the converted file. Setting
+  `JABS_STRICT_POSE_CONVERSION` (`1`, `true`, `yes`) keeps these refusals;
+  strict copies are keyed `-r<revision>-strict.h5`, so a strict open never uses
+  a lenient copy. jabs-io's own default stays strict, for the Hub, which deletes
+  a legacy file once converted. Every other refusal (duplicate identities,
+  shared tracklets, data outside the file, the memory and attribute caps,
+  shapes that disagree) stands in both modes. Accepted files convert to the
+  same bytes in both modes, so `CONVERTER_REVISION` is unchanged.

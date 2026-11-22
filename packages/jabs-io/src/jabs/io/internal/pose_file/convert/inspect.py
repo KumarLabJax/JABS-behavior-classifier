@@ -12,6 +12,14 @@ Before any of that it refuses a file whose data is not all inside it (an
 external or soft link, external or virtual storage), since the Hub converts
 uploads on its own machines.
 
+With ``strict=False`` a few refusals are waived instead, for readers (JABS)
+that should open what the legacy readers opened: a path outside the catalog
+(an unknown root group, ``poseest`` dataset or static object, or an unknown
+dynamic object member), a malformed dynamic object, and an
+``external_identity_mapping`` with other than one name per identity. The item
+is left behind, listed in ``LegacyLayout.dropped`` and, with the reason, in
+``LegacyLayout.waived``. Every other refusal stands in both modes.
+
 Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 ``id_mask``, which it reads in frame blocks when the identity count has to
 come from the largest valid embed id, and a v3 file's ``instance_count``.
@@ -133,8 +141,11 @@ class LegacyLayout:
             ``bboxes_generated`` attribute is true, as the v8 reader requires.
         static_objects: Names under ``static_objects``, an empty lixit excluded.
         dynamic_objects: Names under ``dynamic_objects``.
-        dropped: Present legacy paths the format retires, which the converter
-            leaves behind.
+        dropped: Present legacy paths the converter leaves behind: those the
+            format retires, and those in ``waived``.
+        waived: ``(path, reason)`` for each item a lenient inspection
+            (``strict=False``) left behind rather than refuse the file; empty
+            for a strict one.
     """
 
     path: Path
@@ -155,9 +166,16 @@ class LegacyLayout:
     static_objects: tuple[str, ...]
     dynamic_objects: tuple[str, ...]
     dropped: tuple[str, ...]
+    waived: tuple[tuple[str, str], ...] = ()
+
+    def leaves_behind(self, name: str) -> bool:
+        """Return whether the converter leaves the legacy path ``name`` behind."""
+        return name in self.dropped
 
 
-def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout:
+def inspect_legacy(
+    path: Path, *, max_memory: int | None = None, strict: bool = True
+) -> LegacyLayout:
     """Identify a legacy ``pose_est_v2``..``v8`` file by its contents.
 
     Shapes and attributes are checked before any data is read: first that
@@ -174,6 +192,9 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             ``instance_id_center`` declares, 900-frame blocks) before any data
             is read; ``convert_legacy`` checks the full estimate once the
             identity count is known. None checks no memory bound.
+        strict: Refuse every item outside the catalog or malformed. False
+            waives the refusals the module docstring lists: the item is left
+            behind and recorded in ``waived``, and a WARNING is logged.
 
     Returns:
         Its layout.
@@ -195,7 +216,8 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             its object axis, or sample frames out of order or past the last
             frame), would need more than ``max_memory`` by its declared
             shapes, or has a dataset declaring more than 1 GiB and over
-            2000 times what it stores. The message names the path.
+            2000 times what it stores. The message names the path. With
+            ``strict=False`` the waivable refusals are not raised.
     """
     with h5py.File(path, "r") as h5:
         # First: everything after this reads through h5py, which follows links.
@@ -204,18 +226,20 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             raise LegacyConversionError(
                 f"{path}: refusing a file with data outside it: " + "; ".join(outside)
             )
-        _check_paths(path, h5)
+        waiver = _Waiver(path, strict)
+        _check_paths(path, h5, waiver)
         # Before any attribute is read: version, axis_order and the scale are.
         check_attributes(path, h5)
         pose = h5["poseest"]
+        names = [name for name in pose if not waiver.waived(f"poseest/{name}")]
         instance_axis = not ("points" in pose and pose["points"].ndim == 3)
         placed_by_track = instance_axis and not any(n in pose for n in _IDENTITY_DATASETS)
         if placed_by_track:
-            frames, instances, keypoints = _check_track_layout(path, pose)
+            frames, instances, keypoints = _check_track_layout(path, pose, names)
         elif instance_axis:
             frames, instances, keypoints = _check_instance_layout(path, pose)
         else:
-            frames, keypoints = _check_single_layout(path, pose)
+            frames, keypoints = _check_single_layout(path, pose, names)
             instances = 1
         # Before any data is read: the reads below are sized by the shapes.
         if max_memory is not None:
@@ -230,22 +254,27 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
         seg = pose.get("seg_data")
         bbox = pose.get("bbox")
         bbox_generated = bbox is not None and bool(bbox.attrs.get("bboxes_generated", False))
-        statics = h5.get("static_objects", {})
-        empty_lixit = "lixit" in statics and statics["lixit"].size == 0
-        dynamics = h5.get("dynamic_objects", {})
-        for name in dynamics:
-            _check_dynamic_object(path, dynamics[name], int(frames))
+        statics = _kept(h5, "static_objects", waiver)
+        empty_lixit = "lixit" in statics and h5["static_objects"]["lixit"].size == 0
+        dynamics = _kept(h5, "dynamic_objects", waiver)
+        for name in list(dynamics):
+            try:
+                _check_dynamic_object(path, h5["dynamic_objects"][name], int(frames))
+            except LegacyConversionError as error:
+                waiver.waive(f"dynamic_objects/{name}", _reason(path, error))
+                dynamics.remove(name)
 
         if placed_by_track:
             track_slots, identity = _track_slots(path, pose["instance_count"], instances), 0
         else:
             track_slots, identity = 0, _identity(pose) if instance_axis else 1
-        names = pose.get("external_identity_mapping")
+        external_ids = pose.get("external_identity_mapping")
         # jabs.identity.external_ids is on the identity axis.
-        if names is not None and names.shape[0] != identity:
-            raise LegacyConversionError(
-                f"{path}: poseest/external_identity_mapping has {names.shape[0]} names, but the "
-                f"file has {identity} identities"
+        if external_ids is not None and external_ids.shape[0] != identity:
+            waiver.waive(
+                "poseest/external_identity_mapping",
+                f"poseest/external_identity_mapping has {external_ids.shape[0]} names, but the "
+                f"file has {identity} identities",
             )
 
         dropped = [f"poseest/{name}" for name in _RETIRED if name in pose]
@@ -253,6 +282,7 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             dropped.append("poseest/bbox")
         if empty_lixit:
             dropped.append("static_objects/lixit")
+        dropped += [name for name, _ in waiver.items]
 
         return LegacyLayout(
             path=path,
@@ -275,6 +305,7 @@ def inspect_legacy(path: Path, *, max_memory: int | None = None) -> LegacyLayout
             ),
             dynamic_objects=tuple(sorted(dynamics)),
             dropped=tuple(dropped),
+            waived=tuple(waiver.items),
         )
 
 
@@ -292,16 +323,19 @@ def _check_instance_layout(path: Path, pose: h5py.Group) -> tuple[int, int, int]
     return _check_instance_shapes(path, pose)
 
 
-def _check_track_layout(path: Path, pose: h5py.Group) -> tuple[int, int, int]:
+def _check_track_layout(
+    path: Path, pose: h5py.Group, names: list[str]
+) -> tuple[int, int, int]:
     """Check a ``pose_est_v3`` file's datasets and shapes.
 
     Any dataset a v3 file does not have is refused: a dataset from v4 on would
-    say the file is a damaged later one, and would be silently lost.
+    say the file is a damaged later one, and would be silently lost. ``names``
+    are the ``poseest`` datasets not waived.
 
     Returns:
         Its frames, legacy instances and keypoints.
     """
-    for name in pose:
+    for name in names:
         if name not in _TRACKS:
             _refuse(path, f"poseest/{name}", "is not in a pose_est_v3 file")
     missing = [name for name in _TRACK_REQUIRED if name not in pose]
@@ -332,16 +366,17 @@ def _check_instance_shapes(path: Path, pose: h5py.Group) -> tuple[int, int, int]
     return frames, instances, keypoints
 
 
-def _check_single_layout(path: Path, pose: h5py.Group) -> tuple[int, int]:
+def _check_single_layout(path: Path, pose: h5py.Group, names: list[str]) -> tuple[int, int]:
     """Check a ``pose_est_v2`` file: ``points`` ``(frame, 12, 2)``, ``confidence`` ``(frame, 12)``.
 
     Any other ``poseest`` dataset is refused: a per-instance one would be read
-    along an instance axis the file does not have.
+    along an instance axis the file does not have. ``names`` are the
+    ``poseest`` datasets not waived.
 
     Returns:
         Its frames and keypoints.
     """
-    for name in pose:
+    for name in names:
         if name not in _SINGLE:
             _refuse(
                 path,
@@ -366,29 +401,79 @@ def _check_single_layout(path: Path, pose: h5py.Group) -> tuple[int, int]:
     return frames, keypoints
 
 
-def _check_paths(path: Path, h5: h5py.File) -> None:
-    """Refuse any group or dataset outside the legacy catalog, naming it."""
+def _check_paths(path: Path, h5: h5py.File, waiver: "_Waiver") -> None:
+    """Refuse (or waive) any group or dataset outside the legacy catalog, naming it.
+
+    A ``poseest`` that is missing, or not a group, and a catalog ``poseest``
+    name that is not a dataset are refused in both modes: nothing can be read.
+    """
     if "poseest" not in h5:
         _refuse(path, "poseest", "is missing")
+    if not isinstance(h5["poseest"], h5py.Group):
+        _refuse(path, "poseest", "is not a legacy pose path")
     for name in h5:
         if name not in _ROOTS or not isinstance(h5[name], h5py.Group):
-            _refuse(path, name, "is not a legacy pose path")
+            waiver.refuse(name, "is not a legacy pose path")
     for name in h5["poseest"]:
-        if name not in _POSEEST or not isinstance(h5["poseest"][name], h5py.Dataset):
+        if name not in _POSEEST:
+            waiver.refuse(f"poseest/{name}", "is not a legacy pose dataset")
+        elif not isinstance(h5["poseest"][name], h5py.Dataset):
             _refuse(path, f"poseest/{name}", "is not a legacy pose dataset")
-    for name in h5.get("static_objects", {}):
+    for name in _kept(h5, "static_objects", waiver):
         if name not in _STATIC_OBJECTS or not isinstance(h5["static_objects"][name], h5py.Dataset):
-            _refuse(path, f"static_objects/{name}", "is not a legacy static object")
-    dynamics = h5.get("dynamic_objects", {})
-    for name in dynamics:
-        if not isinstance(dynamics[name], h5py.Group):
-            _refuse(path, f"dynamic_objects/{name}", "is not a dynamic object group")
-        for member in dynamics[name]:
-            obj = dynamics[name][member]
-            if member not in _DYNAMIC_DATASETS or not isinstance(obj, h5py.Dataset):
-                _refuse(
-                    path, f"dynamic_objects/{name}/{member}", "is not a dynamic object dataset"
+            waiver.refuse(f"static_objects/{name}", "is not a legacy static object")
+    for name in _kept(h5, "dynamic_objects", waiver):
+        group = h5["dynamic_objects"][name]
+        if not isinstance(group, h5py.Group):
+            waiver.refuse(f"dynamic_objects/{name}", "is not a dynamic object group")
+            continue
+        for member in group:
+            if member not in _DYNAMIC_DATASETS or not isinstance(group[member], h5py.Dataset):
+                waiver.refuse(
+                    f"dynamic_objects/{name}/{member}", "is not a dynamic object dataset"
                 )
+
+
+def _kept(h5: h5py.File, root: str, waiver: "_Waiver") -> list[str]:
+    """Return the names under the root group ``root`` not waived; none when it is waived."""
+    if root not in h5 or waiver.waived(root):
+        return []
+    return [name for name in h5[root] if not waiver.waived(f"{root}/{name}")]
+
+
+class _Waiver:
+    """Raise a waivable refusal, or, when not strict, record it and carry on.
+
+    Attributes:
+        items: ``(path, reason)`` for each refusal waived, in order.
+    """
+
+    def __init__(self, path: Path, strict: bool) -> None:
+        self._path = path
+        self._strict = strict
+        self.items: list[tuple[str, str]] = []
+
+    def refuse(self, name: str, why: str) -> None:
+        """Refuse ``name``, or, when not strict, leave it behind."""
+        if self._strict:
+            _refuse(self._path, name, why)
+        self.waive(name, f"{name} {why}")
+
+    def waive(self, name: str, reason: str) -> None:
+        """Leave ``name`` behind for ``reason`` when not strict; raise the refusal otherwise."""
+        if self._strict:
+            raise LegacyConversionError(f"{self._path}: {reason}")
+        logger.warning("%s: leaving %s behind: %s", self._path, name, reason)
+        self.items.append((name, reason))
+
+    def waived(self, name: str) -> bool:
+        """Return whether ``name`` has been left behind."""
+        return any(item == name for item, _ in self.items)
+
+
+def _reason(path: Path, error: Exception) -> str:
+    """Return a refusal's message without the ``<path>: `` prefix it starts with."""
+    return str(error).removeprefix(f"{path}: ")
 
 
 def _check_shapes(path: Path, pose: h5py.Group, frames: int, instances: int) -> None:

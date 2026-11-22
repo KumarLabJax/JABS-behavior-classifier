@@ -5,6 +5,14 @@ A legacy ``*_pose_est_v<N>.h5`` file is converted to a unified pose file at
 and reused while the legacy file's bytes and the converter revision
 (``jabs.io.internal.pose_file.convert.CONVERTER_REVISION``, bumped only when the
 converter's output changes) are unchanged.
+Conversions are lenient unless ``$JABS_STRICT_POSE_CONVERSION`` is set to a
+true value (``1``, ``true``, ``yes``): an unknown legacy dataset, root group or
+static object, a malformed dynamic object, or an ``external_identity_mapping``
+with other than one name per identity is left behind and recorded in the
+convert entry (``dropped``, and ``extra["waived"]`` with the reason) rather
+than make the video unusable, as JABS's legacy readers ignored them. Strict
+mode keeps the converter's refusals, and its copies are keyed apart
+(``-r<revision>-strict.h5``), so a strict open never uses a lenient copy.
 The cache root is the project's ``cache_dir``; without one it is
 ``$JABS_CACHE_DIR`` when that is set, else the per-user cache directory. When
 that directory cannot be written, or has no space or quota left, a one-off
@@ -33,16 +41,31 @@ from .pose import Pose
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["cache_root", "converted_path", "ensure_converted", "is_converted", "open_unified"]
+__all__ = [
+    "STRICT_CONVERSION_ENV",
+    "cache_root",
+    "converted_path",
+    "ensure_converted",
+    "is_converted",
+    "open_unified",
+    "strict_conversion",
+]
 
 _APP_NAME = "jabs"
 _CONVERTED_DIR = "converted"
 # overrides the per-user cache directory for opens without a project
 CACHE_DIR_ENV = "JABS_CACHE_DIR"
 
-# the key after ``<stem>.<hash>-`` of a conversion: a converter revision, or
-# the jabs-io version earlier JABS keyed copies by (such as ``0.4.0.dev1``)
-_REVISION_KEY = re.compile(r"r(\d+)")
+# set to a true value, conversions keep the converter's refusals
+STRICT_CONVERSION_ENV = "JABS_STRICT_POSE_CONVERSION"
+_TRUE_VALUES = frozenset({"1", "true", "yes"})
+# the name key suffix of a strict conversion's copy
+_STRICT_SUFFIX = "-strict"
+
+# the key after ``<stem>.<hash>-`` of a conversion: a converter revision (and
+# the strict suffix), or the jabs-io version earlier JABS keyed copies by
+# (such as ``0.4.0.dev1``)
+_REVISION_KEY = re.compile(r"r(\d+)(?:" + _STRICT_SUFFIX + ")?")
 _VERSION_KEY = re.compile(r"\d+(\.\d+)*\S*")
 
 # a full disk, or an exceeded quota (not defined on Windows)
@@ -69,6 +92,24 @@ def _converter_revision() -> int:
     return _convert.CONVERTER_REVISION
 
 
+def strict_conversion() -> bool:
+    """Return whether legacy conversions keep the converter's refusals.
+
+    The one place JABS reads ``$JABS_STRICT_POSE_CONVERSION``; it is read on
+    every call, so worker processes follow the environment they inherit.
+
+    Returns:
+        True when the variable is ``1``, ``true`` or ``yes`` (any case);
+        False (lenient) otherwise.
+    """
+    return os.environ.get(STRICT_CONVERSION_ENV, "").strip().lower() in _TRUE_VALUES
+
+
+def _strict(strict: bool | None) -> bool:
+    """Return ``strict``, or the environment's mode when it is None."""
+    return strict_conversion() if strict is None else strict
+
+
 def _reason(path: Path, error: Exception) -> str:
     """Return an error's message without the ``<path>: `` prefix it may start with."""
     message = str(error)
@@ -93,18 +134,23 @@ def cache_root(cache_dir: Path | None) -> Path:
     return Path(user_cache_dir(_APP_NAME))
 
 
-def converted_path(source: Path, source_hash: str, cache_dir: Path | None) -> Path:
+def converted_path(
+    source: Path, source_hash: str, cache_dir: Path | None, *, strict: bool | None = None
+) -> Path:
     """Return where the conversion of a legacy pose file is cached.
 
     Args:
         source: The legacy pose file.
         source_hash: ``jabs.core.utils.hash_file`` of ``source``.
         cache_dir: The project's cache directory, or None for the per-user cache.
+        strict: The conversion mode; None for :func:`strict_conversion`.
 
     Returns:
-        ``<cache root>/converted/<video stem>.<source_hash>-r<converter revision>.h5``.
+        ``<cache root>/converted/<video stem>.<source_hash>-r<converter revision>.h5``,
+        with ``-strict`` before ``.h5`` for a strict conversion.
     """
-    name = f"{pose_file_stem(source)}.{source_hash}-r{_converter_revision()}.h5"
+    suffix = _STRICT_SUFFIX if _strict(strict) else ""
+    name = f"{pose_file_stem(source)}.{source_hash}-r{_converter_revision()}{suffix}.h5"
     return cache_root(cache_dir) / _CONVERTED_DIR / name
 
 
@@ -122,24 +168,27 @@ def _exists(path: Path) -> bool:
         return False
 
 
-def is_converted(source: Path, source_hash: str, cache_dir: Path | None) -> bool:
+def is_converted(
+    source: Path, source_hash: str, cache_dir: Path | None, *, strict: bool | None = None
+) -> bool:
     """Return whether the conversion of a legacy pose file is cached.
 
     Args:
         source: The legacy pose file.
         source_hash: ``jabs.core.utils.hash_file`` of ``source``.
         cache_dir: The project's cache directory, or None for the per-user cache.
+        strict: The conversion mode; None for :func:`strict_conversion`.
 
     Returns:
         Whether :func:`converted_path` exists; False when that cannot be checked.
     """
-    return _exists(converted_path(source, source_hash, cache_dir))
+    return _exists(converted_path(source, source_hash, cache_dir, strict=strict))
 
 
 def _is_older_conversion(key: str) -> bool:
     """Return whether a conversion's name key (after ``<stem>.<hash>-``) is from an older converter.
 
-    ``r<N>`` is older when ``N`` is below the current revision; a jabs-io
+    ``r<N>`` (of either mode) is older when ``N`` is below the current revision; a jabs-io
     version, as earlier JABS named copies (``0.4.0``), is always older. Anything
     else, a newer revision included, is left alone: another JABS sharing the
     cache may be using it.
@@ -198,7 +247,9 @@ def _check_unchanged(source: Path, source_hash: str, destination: Path) -> None:
         raise PoseOpenError(source, "changed while it was being converted; open it again")
 
 
-def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> Path:
+def ensure_converted(
+    source: Path, source_hash: str, cache_dir: Path | None, *, strict: bool | None = None
+) -> Path:
     """Return the cached conversion of a legacy pose file, converting it if missing.
 
     Two processes converting the same file at once both succeed: the write is
@@ -214,6 +265,8 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
         source: The legacy pose file.
         source_hash: ``jabs.core.utils.hash_file`` of ``source``.
         cache_dir: The project's cache directory, or None for the per-user cache.
+        strict: Keep the converter's refusals (see the module docstring);
+            None for :func:`strict_conversion`.
 
     Returns:
         The converted unified pose file.
@@ -223,14 +276,15 @@ def ensure_converted(source: Path, source_hash: str, cache_dir: Path | None) -> 
             malformed file), it cannot be converted or written, or it changed
             while being converted.
     """
-    destination = converted_path(source, source_hash, cache_dir)
+    strict = _strict(strict)
+    destination = converted_path(source, source_hash, cache_dir, strict=strict)
     if _exists(destination):
         logger.debug("Using cached conversion %s of %s", destination, source)
         return destination
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
         logger.info("Converting %s to %s", source, destination)
-        convert_legacy(source, destination)
+        convert_legacy(source, destination, strict=strict)
         _check_unchanged(source, source_hash, destination)
     except _CONVERT_ERRORS as error:
         raise PoseOpenError(source, _reason(source, error)) from error
@@ -279,13 +333,15 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
         except _OPEN_ERRORS as error:
             raise PoseOpenError(path, _reason(path, error)) from error
 
+    # read once, so every step of this open uses one mode
+    strict = strict_conversion()
     if cache_dir is None:
-        temporary = _temporary_cache_if_unwritable(path, source_hash)
+        temporary = _temporary_cache_if_unwritable(path, source_hash, strict)
         if temporary is not None:
-            return _open_in_temporary_cache(path, source_hash, temporary)
+            return _open_in_temporary_cache(path, source_hash, temporary, strict)
 
     try:
-        return _open_converted(path, source_hash, cache_dir)
+        return _open_converted(path, source_hash, cache_dir, strict)
     except PoseOpenError as error:
         # a project's cache is never bypassed: its conversions are kept
         if cache_dir is not None or not _out_of_space(error.__cause__):
@@ -298,7 +354,9 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
             error.__cause__,
             CACHE_DIR_ENV,
         )
-    return _open_in_temporary_cache(path, source_hash, Path(tempfile.mkdtemp(prefix="jabs-pose-")))
+    return _open_in_temporary_cache(
+        path, source_hash, Path(tempfile.mkdtemp(prefix="jabs-pose-")), strict
+    )
 
 
 def _out_of_space(error: BaseException | None) -> bool:
@@ -315,13 +373,13 @@ def _out_of_space(error: BaseException | None) -> bool:
     return named is not None and int(named.group(1)) in _NO_SPACE_ERRNOS
 
 
-def _open_converted(path: Path, source_hash: str, cache_dir: Path | None) -> Pose:
+def _open_converted(path: Path, source_hash: str, cache_dir: Path | None, strict: bool) -> Pose:
     """Open a legacy file's cached conversion, converting it if missing or damaged.
 
     Raises:
         PoseOpenError: If the file cannot be converted or its conversion opened.
     """
-    pose_path = ensure_converted(path, source_hash, cache_dir)
+    pose_path = ensure_converted(path, source_hash, cache_dir, strict=strict)
     try:
         return Pose(
             pose_path,
@@ -334,7 +392,7 @@ def _open_converted(path: Path, source_hash: str, cache_dir: Path | None) -> Pos
         # a damaged cached copy (truncated, invalid): convert again, once
         logger.warning("Cannot open conversion %s (%s); converting again", pose_path.name, error)
     _discard(pose_path)
-    pose_path = ensure_converted(path, source_hash, cache_dir)
+    pose_path = ensure_converted(path, source_hash, cache_dir, strict=strict)
     try:
         return Pose(
             pose_path,
@@ -359,7 +417,7 @@ def _can_write(directory: Path) -> bool:
     return True
 
 
-def _temporary_cache_if_unwritable(source: Path, source_hash: str) -> Path | None:
+def _temporary_cache_if_unwritable(source: Path, source_hash: str, strict: bool) -> Path | None:
     """Return a new temporary cache root when the per-user cache cannot take a conversion.
 
     An existing conversion in the per-user cache is used even when the cache
@@ -369,7 +427,7 @@ def _temporary_cache_if_unwritable(source: Path, source_hash: str) -> Path | Non
     Returns:
         A new temporary directory the caller owns, or None to use the per-user cache.
     """
-    destination = converted_path(source, source_hash, None)
+    destination = converted_path(source, source_hash, None, strict=strict)
     if _exists(destination) or _can_write(destination.parent):
         return None
     root = cache_root(None)
@@ -385,7 +443,7 @@ def _temporary_cache_if_unwritable(source: Path, source_hash: str) -> Path | Non
     return Path(tempfile.mkdtemp(prefix="jabs-pose-"))
 
 
-def _open_in_temporary_cache(path: Path, source_hash: str, temporary: Path) -> Pose:
+def _open_in_temporary_cache(path: Path, source_hash: str, temporary: Path, strict: bool) -> Pose:
     """Convert a legacy file into ``temporary`` and open it; the Pose removes it on close.
 
     Raises:
@@ -393,7 +451,7 @@ def _open_in_temporary_cache(path: Path, source_hash: str, temporary: Path) -> P
             is removed.
     """
     try:
-        pose_path = ensure_converted(path, source_hash, temporary)
+        pose_path = ensure_converted(path, source_hash, temporary, strict=strict)
         try:
             return Pose(
                 pose_path,

@@ -19,7 +19,10 @@ JABS reads two kinds of pose file, found beside each video by name:
 When a video has both, the unified file is used; among legacy files, the highest version is
 used. A legacy file the converter refuses (for example one that gives two animals the same
 identity in one frame) cannot be used; in a project, its video is marked unusable and left
-out of training and classification.
+out of training and classification. Items the older readers ignored (an unrecognized
+dataset, group or static object, a malformed dynamic object) are left out of the converted
+copy with a warning instead, unless `JABS_STRICT_POSE_CONVERSION` is set (see the CLI tools
+guide).
 
 Feature and prediction files identify the pose they were made from by the hash
 of the file beside the video (the legacy file, for a converted one), so they stay valid

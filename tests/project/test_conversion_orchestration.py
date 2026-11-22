@@ -110,8 +110,11 @@ def test_prepare_poses_is_a_no_op_for_unified_files(
     assert not (_cache_dir(unified_dir) / "converted").exists()
 
 
-def test_prepare_poses_skips_unusable_videos(tmp_path: Path, convert_spy: mock.Mock) -> None:
+def test_prepare_poses_skips_unusable_videos(
+    tmp_path: Path, convert_spy: mock.Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A video the scan already marked unusable is not converted."""
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")  # lenient opens it
     project_dir = tmp_path / "proj"
     _add_video(project_dir, "a.avi", DATA_DIR / "sample_pose_est_v2.h5", "a_pose_est_v2.h5")
     _add_video(
@@ -134,10 +137,10 @@ def test_refusal_during_prepare_poses_marks_the_video_unusable(
     """A conversion refusal marks the video unusable; training then skips it with a WARNING."""
     real_convert = conversion_cache.convert_legacy
 
-    def refuse_b(source: Path, destination: Path) -> None:
+    def refuse_b(source: Path, destination: Path, **kwargs: object) -> None:
         if source.name.startswith("b_"):
             raise LegacyConversionError(f"{source}: shared tracklet")
-        real_convert(source, destination)
+        real_convert(source, destination, **kwargs)
 
     monkeypatch.setattr(conversion_cache, "convert_legacy", refuse_b)
     project = _open(legacy_project)
@@ -219,10 +222,10 @@ def test_prepare_poses_in_a_pool(legacy_project: Path, monkeypatch: pytest.Monke
     """
     real_convert = conversion_cache.convert_legacy
 
-    def refuse_b(source: Path, destination: Path) -> None:
+    def refuse_b(source: Path, destination: Path, **kwargs: object) -> None:
         if source.name.startswith("b_"):
             raise LegacyConversionError(f"{source}: shared tracklet")
-        real_convert(source, destination)
+        real_convert(source, destination, **kwargs)
 
     monkeypatch.setattr(conversion_cache, "convert_legacy", refuse_b)
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -333,10 +336,10 @@ def test_refusal_during_prepare_poses_refreshes_identities_and_capabilities(
     """A video refused after the scan stops counting identities or restricting features."""
     real_convert = conversion_cache.convert_legacy
 
-    def refuse_a(source: Path, destination: Path) -> None:
+    def refuse_a(source: Path, destination: Path, **kwargs: object) -> None:
         if source.name.startswith("a_"):
             raise LegacyConversionError(f"{source}: refused")
-        real_convert(source, destination)
+        real_convert(source, destination, **kwargs)
 
     monkeypatch.setattr(conversion_cache, "convert_legacy", refuse_a)
     project = _open(legacy_project)

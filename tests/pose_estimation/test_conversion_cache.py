@@ -220,8 +220,8 @@ def test_replace_error_uses_existing_destination(
     digest = hash_file(legacy_v4)
     real_convert = conversion_cache.convert_legacy
 
-    def racing_convert(source: Path, destination: Path) -> None:
-        real_convert(source, destination)
+    def racing_convert(source: Path, destination: Path, **kwargs: object) -> None:
+        real_convert(source, destination, **kwargs)
         raise PermissionError("destination is open in another process")
 
     monkeypatch.setattr(conversion_cache, "convert_legacy", racing_convert)
@@ -235,7 +235,7 @@ def test_os_error_without_destination_is_pose_open_error(
 ) -> None:
     """An OSError that leaves no conversion behind is a PoseOpenError."""
 
-    def failing_convert(source: Path, destination: Path) -> None:
+    def failing_convert(source: Path, destination: Path, **kwargs: object) -> None:
         raise OSError("disk full")
 
     monkeypatch.setattr(conversion_cache, "convert_legacy", failing_convert)
@@ -336,7 +336,9 @@ def test_conversion_that_cannot_be_opened_twice_is_pose_open_error(
     legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When the reconversion cannot be opened either, PoseOpenError; no copy is left."""
-    convert = mock.Mock(side_effect=lambda source, destination: destination.write_bytes(b"junk"))
+    convert = mock.Mock(
+        side_effect=lambda source, destination, **kwargs: destination.write_bytes(b"junk")
+    )
     monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
     cache = tmp_path / "cache"
     with pytest.raises(PoseOpenError) as info:
@@ -392,8 +394,8 @@ def test_source_changed_during_conversion_is_discarded(
     """A source rewritten while it converts is refused; nothing is kept under the stale key."""
     real_convert = conversion_cache.convert_legacy
 
-    def convert_then_change_source(source: Path, destination: Path) -> None:
-        real_convert(source, destination)
+    def convert_then_change_source(source: Path, destination: Path, **kwargs: object) -> None:
+        real_convert(source, destination, **kwargs)
         with source.open("ab") as f:
             f.write(b"\0")
 
@@ -624,3 +626,82 @@ def test_full_project_cache_is_pose_open_error(
     monkeypatch.setattr(conversion_cache, "convert_legacy", full_convert)
     with pytest.raises(PoseOpenError, match="No space left"):
         open_unified(legacy_v4, tmp_path / "cache")
+
+
+@pytest.fixture
+def unknown_dataset(tmp_path: Path) -> Path:
+    """A legacy file main opened that the strict converter refuses: an unknown dataset."""
+    path = tmp_path / "videos" / "odd_pose_est_v8.h5"
+    path.parent.mkdir(exist_ok=True)
+    shutil.copyfile(_LEGACY_CORPUS / "v8-unknown-dataset.h5", path)
+    return path
+
+
+@pytest.mark.parametrize("value", ["", "0", "no", "false"])
+def test_lenient_by_default(
+    unknown_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """An unknown dataset is left behind, and recorded, rather than refuse the file."""
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", value)
+    with open_unified(unknown_dataset, tmp_path / "cache") as pose:
+        assert pose.num_frames > 0
+        convert = [e for e in pose._reader.read_provenance().history if e.operation == "convert"][
+            -1
+        ]
+    assert "poseest/mystery" in convert.dropped
+    assert convert.extra["waived"]["path"] == ["poseest/mystery"]
+
+
+@pytest.mark.parametrize("value", ["1", "true", "YES"])
+def test_strict_mode_refuses(
+    unknown_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """JABS_STRICT_POSE_CONVERSION keeps the converter's refusals."""
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", value)
+    with pytest.raises(PoseOpenError, match="poseest/mystery is not a legacy pose dataset"):
+        open_unified(unknown_dataset, tmp_path / "cache")
+
+
+def test_strict_open_never_uses_a_lenient_copy(
+    unknown_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cache keys a copy on the mode: a strict open does not find the lenient copy."""
+    cache = tmp_path / "cache"
+    monkeypatch.delenv("JABS_STRICT_POSE_CONVERSION", raising=False)
+    with open_unified(unknown_dataset, cache):
+        pass
+    digest = hash_file(unknown_dataset)
+    lenient = converted_path(unknown_dataset, digest, cache)
+    assert lenient.exists()
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
+    assert converted_path(unknown_dataset, digest, cache) != lenient
+    with pytest.raises(PoseOpenError):
+        open_unified(unknown_dataset, cache)
+    from jabs.project.parallel_workers import convert_pose
+
+    _, reason, _ = convert_pose(
+        {
+            "video": "odd.avi",
+            "pose_path": unknown_dataset,
+            "cache_dir": cache,
+            "known_hash": digest,
+        }
+    )
+    assert reason is not None and "poseest/mystery" in reason
+    # the lenient copy is still there for lenient opens
+    assert lenient.exists()
+
+
+def test_strict_and_lenient_copies_of_one_revision_coexist(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Converting in one mode keeps the other mode's copy of the same revision."""
+    cache = tmp_path / "cache"
+    digest = hash_file(legacy_v4)
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
+    strict = ensure_converted(legacy_v4, digest, cache)
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "0")
+    lenient = ensure_converted(legacy_v4, digest, cache)
+    assert strict != lenient
+    assert strict.exists() and lenient.exists()
+    assert strict.name.endswith("-strict.h5")

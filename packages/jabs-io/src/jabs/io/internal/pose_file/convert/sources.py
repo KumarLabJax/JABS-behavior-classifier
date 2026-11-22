@@ -144,6 +144,9 @@ def pose_components(
         centers = pose.get("instance_id_center")
         centers = centers[...].astype(np.float32) if centers is not None else None
         names = pose.get("external_identity_mapping")
+        if layout.leaves_behind("poseest/external_identity_mapping"):
+            # a lenient inspection waived it: not one name per identity
+            names = None
         names = _identity_names(path, names) if names is not None else None
 
     if layout.has_embeddings:

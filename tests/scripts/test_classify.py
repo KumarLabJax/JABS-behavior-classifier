@@ -102,6 +102,7 @@ def test_classify_reports_an_unopenable_pose_file_without_a_traceback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A pose file the converter refuses ends the command with its path and the reason."""
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")  # lenient opens it
     unusable = (
         Path(__file__).parents[2]
         / "packages"

@@ -37,8 +37,10 @@ def _cached_videos(project_dir: Path) -> dict:
 
 
 @pytest.fixture
-def project_with_bad_pose(tmp_path: Path) -> Path:
-    """A project with one good v6 video and one whose pose the converter refuses."""
+def project_with_bad_pose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A project with one good v6 video and one whose pose the strict converter refuses."""
+    # lenient conversion (the default) opens it, leaving the unknown dataset behind
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
     project_dir = tmp_path / "proj"
     _add_video(project_dir, "good.avi", DATA_DIR / "sample_pose_est_v6.h5", "good_pose_est_v6.h5")
     _add_video(
@@ -131,3 +133,16 @@ def test_directory_with_only_unified_pose_is_a_project(tmp_path: Path) -> None:
     _add_video(project_dir, "vid.avi", converted, "vid_pose.h5")
     project = _open(project_dir)
     assert project.video_manager.videos == ["vid.avi"]
+
+
+def test_lenient_conversion_keeps_a_video_main_opened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """By default an unknown legacy dataset is left behind; the video stays usable."""
+    monkeypatch.delenv("JABS_STRICT_POSE_CONVERSION", raising=False)
+    project_dir = tmp_path / "proj"
+    _add_video(
+        project_dir, "vid.avi", LEGACY_CORPUS / "v8-unknown-dataset.h5", "vid_pose_est_v8.h5"
+    )
+    project = _open(project_dir)
+    assert project.is_usable("vid.avi")

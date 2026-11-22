@@ -19,7 +19,8 @@ LEGACY_CORPUS = (
 LEGACY_SOURCE = LEGACY_CORPUS / "v8-with-centers.h5"
 FRAMES = 120
 
-# a legacy file the converter refuses (an unknown poseest dataset)
+# a legacy file the strict converter refuses (an unknown poseest dataset); tests
+# using it set JABS_STRICT_POSE_CONVERSION, since lenient conversion opens it
 REFUSED_SOURCE = LEGACY_CORPUS / "v8-unknown-dataset.h5"
 
 POSE_KINDS = ("legacy", "unified")

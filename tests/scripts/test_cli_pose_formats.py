@@ -226,6 +226,7 @@ def test_jabs_init_reports_a_refused_pose_file_and_computes_the_others(
 
     The refused file is named at the end and the exit status is 1.
     """
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")  # lenient opens it
     # threads, not processes: spawning workers would dominate the test's run time
     monkeypatch.setattr(initialize_project, "Pool", ThreadPool)
     project_dir = tmp_path / "project"

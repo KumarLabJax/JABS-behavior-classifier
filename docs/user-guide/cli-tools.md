@@ -76,6 +76,18 @@ runs on the same file skip the conversion. The legacy file is never modified.
   directory that is removed when the run finishes, and a warning is logged once.
   Conversions are then repeated on every run. The same happens, with a warning per file,
   when the cache's disk or quota fills up during a conversion.
+- **Lenient and strict conversion.** By default the conversion is lenient, as the
+  legacy readers were: an item they ignored is left out of the converted copy, with a
+  warning, instead of making the file unusable. That covers an unrecognized dataset under
+  `poseest`, an unrecognized top-level group or static object, a malformed dynamic object
+  (for example one missing its `counts`), and an `external_identity_mapping` whose length
+  differs from the number of identities. What was left out, and why, is recorded in the
+  converted copy's history. Set the `JABS_STRICT_POSE_CONVERSION` environment variable to
+  `1` (or `true`, `yes`) to refuse such files instead, as the converter does on its own;
+  strict copies are cached separately (`...-strict.h5`), so a strict run never uses a
+  lenient copy. Files that cannot be converted in either mode, such as two animals given
+  the same identity in one frame or one track shared by two animals, are always refused.
+  The variable applies to projects too.
 
 A pose file that cannot be opened (for example a legacy file the converter refuses) ends
 `jabs-classify` with an error naming the file and the reason, and a nonzero exit status.

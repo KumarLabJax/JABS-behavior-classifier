@@ -167,8 +167,11 @@ def test_single_identity_is_not_social(tmp_path: Path) -> None:
     assert scan_pose_metadata(path).capabilities == frozenset()
 
 
-def test_unconvertible_legacy_file_raises_pose_open_error(tmp_path: Path) -> None:
-    """A legacy file the converter refuses raises PoseOpenError naming the file."""
+def test_unconvertible_legacy_file_raises_pose_open_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A legacy file the (strict) converter refuses raises PoseOpenError naming the file."""
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
     path = tmp_path / "vid_pose_est_v8.h5"
     shutil.copyfile(_LEGACY_CORPUS / "v8-unknown-dataset.h5", path)
     with pytest.raises(PoseOpenError) as excinfo:
@@ -259,3 +262,19 @@ def test_scan_drops_an_empty_lixit(tmp_path: Path) -> None:
     assert meta.lixit_keypoints == 0
     with open_pose_file(path) as pose:
         assert tuple(sorted(pose.static_objects)) == meta.static_objects
+
+
+def test_scan_follows_the_conversion_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The scan waives what the conversion waives, so the two agree on a file."""
+    path = tmp_path / "vid_pose_est_v5.h5"
+    shutil.copyfile(sample_path(5), path)
+    with h5py.File(path, "r+") as h5:
+        h5.create_dataset("static_objects/water_spout", data=np.zeros((2, 2), dtype=np.uint16))
+    monkeypatch.delenv("JABS_STRICT_POSE_CONVERSION", raising=False)
+    meta = scan_pose_metadata(path)
+    assert "water_spout" not in meta.static_objects
+    with open_pose_file(path, tmp_path / "cache") as pose:
+        assert tuple(sorted(pose.static_objects)) == meta.static_objects
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
+    with pytest.raises(PoseOpenError, match="static_objects/water_spout"):
+        scan_pose_metadata(path)

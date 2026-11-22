@@ -230,12 +230,16 @@ def test_scan_video_metadata_reports_pose_file_contents(
     assert result["error"] is None
 
 
-def test_scan_video_metadata_reports_an_unscannable_pose_file(tmp_path: Path) -> None:
+def test_scan_video_metadata_reports_an_unscannable_pose_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A pose file the scan cannot read gives an ``error`` result instead of raising.
 
     Args:
         tmp_path: Temporary project directory.
+        monkeypatch: Sets strict conversion, which refuses the file.
     """
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")  # lenient opens it
     video_path = tmp_path / "vid.mp4"
     video_path.touch()
     pose_path = tmp_path / "vid_pose_est_v8.h5"

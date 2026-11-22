@@ -21,6 +21,7 @@ from jabs.io.internal.pose_file import ComponentReader, PoseFileError
 from jabs.io.internal.pose_file.convert import LegacyConversionError, inspect_legacy
 from jabs.io.internal.pose_file.convert.provenance import legacy_scale
 
+from .conversion_cache import strict_conversion
 from .discovery import POSE_FILE_GLOBS, is_legacy_pose_file, is_unified_pose_file
 from .errors import PoseOpenError
 from .pose import (
@@ -120,7 +121,8 @@ def _scan_unified(path: Path) -> PoseMetadata:
 
 def _scan_legacy(path: Path) -> PoseMetadata:
     """Scan a legacy pose file from its layout and ``poseest`` attributes."""
-    layout = inspect_legacy(path)
+    # in the mode its conversion uses, so the scan and the converted file agree
+    layout = inspect_legacy(path, strict=strict_conversion())
     if layout.placed_by_track:
         # pose_est_v3: one identity per track slot, as its conversion has
         num_identities = layout.track_slots
@@ -184,7 +186,7 @@ def scan_pose_metadata(path: Path) -> PoseMetadata:
     Raises:
         PoseOpenError: If the name follows neither pattern, or the file cannot
             be read, is not a pose file, is malformed, or would be refused by
-            the converter.
+            the converter (in the mode :func:`strict_conversion` gives).
     """
     try:
         if is_unified_pose_file(path):
