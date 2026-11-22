@@ -38,6 +38,10 @@ class StubPose:
         self._facing = facing
         self.identities = list(centers)
 
+    def identity_mask(self, identity: int) -> np.ndarray:
+        """Present on the one frame when the animal has a center."""
+        return np.array([self._centers[identity] is not None])
+
     def get_identity_convex_hulls(self, identity: int):
         """One hull per frame; a None center means no pose on that frame."""
         center = self._centers[identity]
@@ -107,3 +111,32 @@ def test_a_half_angle_of_180_or_more_ignores_facing() -> None:
     pose = StubPose({0: (0, 0), 1: (-20, 0), 2: (60, 0)})
 
     assert closest_identity(pose, 0, 0, 180) == 1
+
+
+class UnusableSubjectPose(StubPose):
+    """As ``Pose`` has a slot ``slot_usable`` marks unusable: a hull, but no pose."""
+
+    def __init__(self, centers: dict[int, tuple[float, float]], unusable: int):
+        super().__init__(centers)
+        self._unusable = unusable
+
+    def identity_mask(self, identity: int) -> np.ndarray:
+        """Absent where unusable, though its points still make a hull."""
+        return np.array([identity != self._unusable])
+
+    def get_points(self, frame_index: int, identity: int):
+        """``(None, None)`` for the unusable slot, as ``Pose.get_points`` returns."""
+        if identity == self._unusable:
+            return None, None
+        return super().get_points(frame_index, identity)
+
+
+@pytest.mark.parametrize("half_fov_degrees", [None, HALF_FOV_DEGREES])
+def test_an_unusable_slot_is_no_pose(half_fov_degrees: float | None) -> None:
+    """A slot that is not usable on the frame is neither measured from nor against.
+
+    The facing check used to index the ``(None, None)`` ``get_points`` gives it.
+    """
+    pose = UnusableSubjectPose({0: (0, 0), 1: (30, 0), 2: (60, 0)}, unusable=0)
+    assert closest_identity(pose, 0, 0, half_fov_degrees) is None
+    assert closest_identity(pose, 1, 0, half_fov_degrees) == 2

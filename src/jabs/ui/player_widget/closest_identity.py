@@ -39,6 +39,10 @@ def closest_identity(
     """
     idx = KeypointIndex
 
+    # An identity counts only where it is present: a slot that jabs.pose.slot_usable
+    # marks unusable can still have enough valid points for a hull, but has no pose.
+    if not pose.identity_mask(subject)[frame_index]:
+        return None
     ref_shape = pose.get_identity_convex_hulls(subject)[frame_index]
     if ref_shape is None:
         return None
@@ -47,7 +51,7 @@ def closest_identity(
     closest_dist: float | None = None
 
     for curr_id in pose.identities:
-        if curr_id == subject:
+        if curr_id == subject or not pose.identity_mask(curr_id)[frame_index]:
             continue
 
         other_shape = pose.get_identity_convex_hulls(curr_id)[frame_index]
@@ -66,7 +70,7 @@ def closest_identity(
         points, mask = pose.get_points(frame_index, subject)
 
         # The nose and neck are what give the subject a facing direction.
-        if mask[idx.NOSE] != 1 or mask[idx.BASE_NECK] != 1:
+        if mask is None or mask[idx.NOSE] != 1 or mask[idx.BASE_NECK] != 1:
             continue
 
         other_centroid = np.array((other_shape.centroid.x, other_shape.centroid.y))
