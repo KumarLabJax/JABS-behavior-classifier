@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import sys
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -14,8 +13,11 @@ import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.cli.update_pose as update_pose
+from jabs.core.enums import PoseCapability
 from jabs.core.types import SegmentationWindow
+from jabs.core.utils import hash_file
 from jabs.pose_estimation import conversion_cache
+from jabs.pose_estimation.conversion_cache import ensure_converted
 from jabs.project import TimelineAnnotations, VideoLabels
 from jabs.project.timeline_annotations import is_valid_tag
 from jabs.scripts.cli.cli import cli
@@ -80,6 +82,17 @@ def _write_pose_file_with_metadata(
             pose_grp.attrs["model_metadata_json"] = json.dumps(metadata)
 
 
+def _fake_scan(frames: int, identities: int, source_format: str = "pose_est_v8"):
+    """Return a ``scan_pose_metadata`` stand-in describing every pose file alike."""
+    metadata = SimpleNamespace(
+        source_format=source_format,
+        capabilities=frozenset({PoseCapability.BOUNDING_BOXES, PoseCapability.SOCIAL}),
+        frames=frames,
+        num_identities=identities,
+    )
+    return lambda _path: metadata
+
+
 def _make_metadata_project(pose_paths: dict[str, Path]) -> SimpleNamespace:
     """Build a minimal project stub for metadata injection tests."""
     return SimpleNamespace(
@@ -131,17 +144,7 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
     (new_pose_dir / "video1_pose_est_v8.h5").touch()
     (new_pose_dir / "video1_pose_est_v7.h5").touch()
 
-    def fake_open_pose_file(path, _cache_dir):
-        return nullcontext(
-            SimpleNamespace(
-                source_format="pose_est_v8",
-                has_bounding_boxes=True,
-                num_frames=10,
-                num_identities=2,
-            )
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -195,20 +198,10 @@ def test_preflight_rejects_nonwritable_live_annotation_targets(
 
     unwritable_path = project_dir / unwritable
 
-    def fake_open_pose_file(path, _cache_dir):
-        return nullcontext(
-            SimpleNamespace(
-                source_format="pose_est_v8",
-                has_bounding_boxes=True,
-                num_frames=10,
-                num_identities=2,
-            )
-        )
-
     def fake_access(path, mode):
         return not (Path(path) == unwritable_path and mode & os.W_OK)
 
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -248,17 +241,7 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
         """
     )
 
-    def fake_open_pose_file(path, _cache_dir):
-        return nullcontext(
-            SimpleNamespace(
-                source_format="pose_est_v8",
-                has_bounding_boxes=True,
-                num_frames=10,
-                num_identities=2,
-            )
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -1134,17 +1117,7 @@ def test_preflight_update_inputs_raises_on_orphan_source_identities(tmp_path, mo
         )
     )
 
-    def fake_open_pose_file(path, _cache_dir):
-        return nullcontext(
-            SimpleNamespace(
-                source_format="pose_est_v8",
-                has_bounding_boxes=True,
-                num_frames=10,
-                num_identities=2,
-            )
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -1178,17 +1151,7 @@ def test_preflight_update_inputs_tolerates_orphans_and_warns(tmp_path, monkeypat
         )
     )
 
-    def fake_open_pose_file(path, _cache_dir):
-        return nullcontext(
-            SimpleNamespace(
-                source_format="pose_est_v8",
-                has_bounding_boxes=True,
-                num_frames=10,
-                num_identities=2,
-            )
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -1912,11 +1875,11 @@ def test_remap_labels_for_video_does_not_open_the_pose_of_an_unlabeled_video(cap
     assert "No labels in source for a.avi" in capsys.readouterr().out
 
 
-def test_preflight_converts_into_the_project_cache(tmp_path, monkeypatch):
-    """Pose files are opened with the project's cache, not the per-user one.
+def test_preflight_reads_the_pose_files_without_converting(tmp_path, monkeypatch):
+    """Validation reads the facts it checks from a metadata scan, converting nothing.
 
-    The live poses are usually converted there already, and the per-user cache may be
-    on a small volume (a home directory with a quota).
+    A full open converts a legacy file, which the staged project then repeats, so a
+    large legacy project took conversion time just to be validated.
     """
     project_dir = tmp_path / "project"
     new_pose_dir = tmp_path / "new_pose"
@@ -1924,54 +1887,62 @@ def test_preflight_converts_into_the_project_cache(tmp_path, monkeypatch):
     new_pose_dir.mkdir()
     (project_dir / "jabs" / "project.json").write_text("{}")
     (project_dir / "video1.avi").touch()
-    (project_dir / "video1_pose_est_v8.h5").touch()
+    shutil.copyfile(_V8_POSE, project_dir / "video1_pose_est_v8.h5")
+    shutil.copyfile(_V8_POSE, new_pose_dir / "video1_pose_est_v8.h5")
     (project_dir / "jabs" / "annotations" / "video1.json").write_text("{}")
-    (new_pose_dir / "video1_pose_est_v8.h5").touch()
-    opened: dict[Path, Path | None] = {}
-
-    def fake_open_pose_file(path, cache_dir):
-        opened[path] = cache_dir
-        return nullcontext(
-            SimpleNamespace(
-                source_format="pose_est_v8",
-                has_bounding_boxes=True,
-                num_frames=10,
-                num_identities=2,
-            )
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
     monkeypatch.setattr(
-        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 10)
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    convert = MagicMock(side_effect=AssertionError("a pose file was converted"))
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
+
+    preflight = update_pose._preflight_update_inputs(project_dir, new_pose_dir)
+
+    assert preflight.replacement_identity_counts == {"video1.avi": 3}
+    convert.assert_not_called()
+    assert not (project_dir / "jabs" / "cache").exists()
+
+
+def test_model_metadata_is_read_without_converting(tmp_path, monkeypatch):
+    """The replacement poses' model metadata is read from the file, not a conversion."""
+    pose_path = tmp_path / "video1_pose_est_v8.h5"
+    _write_pose_file_with_metadata(pose_path, {"pose_model_name": "m"})
+    convert = MagicMock(side_effect=AssertionError("a pose file was converted"))
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
+
+    project = _make_metadata_project({"video1.avi": pose_path})
+
+    assert update_pose._inject_consistent_pose_model_metadata(project) == {"pose_model_name": "m"}
+    convert.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["legacy", "unified"])
+@pytest.mark.parametrize(
+    ("raw_json", "match"),
+    [("{not json", "not valid JSON"), ("[1, 2]", "must be a JSON object")],
+    ids=["invalid-json", "not-an-object"],
+)
+def test_corrupt_model_metadata_is_refused(tmp_path, kind, raw_json, match):
+    """Model metadata that is not a JSON object is an error, as on main, not "no metadata".
+
+    Counted as none, the other replacement files' metadata could be injected for it.
+    """
+    legacy = tmp_path / "video1_pose_est_v8.h5"
+    _write_pose_file_with_metadata(legacy, raw_json=raw_json)
+    pose_path = legacy
+    if kind == "unified":
+        converted = ensure_converted(legacy, hash_file(legacy), tmp_path / "cache")
+        pose_path = tmp_path / "video1_pose.h5"
+        shutil.copyfile(converted, pose_path)
+    project = _make_metadata_project(
+        {"video1.avi": pose_path, "video2.avi": _metadata_pose(tmp_path / "video2_pose_est_v8.h5")}
     )
 
-    update_pose._preflight_update_inputs(project_dir, new_pose_dir)
-
-    project_cache = project_dir / "jabs" / "cache"
-    assert opened == {
-        project_dir / "video1_pose_est_v8.h5": project_cache,
-        new_pose_dir / "video1_pose_est_v8.h5": project_cache,
-    }
+    with pytest.raises(ValueError, match=match):
+        update_pose._inject_consistent_pose_model_metadata(project)
 
 
-def test_model_metadata_is_read_through_the_project_cache(tmp_path, monkeypatch):
-    """The staged project's pose files are opened with that project's cache."""
-    cache_dir = tmp_path / "stage" / "jabs" / "cache"
-    project = SimpleNamespace(
-        project_paths=SimpleNamespace(cache_dir=cache_dir),
-        video_manager=SimpleNamespace(
-            videos=["video1.avi"],
-            get_cached_pose_path=lambda video: tmp_path / "video1_pose_est_v8.h5",
-        ),
-    )
-    opened: list[Path | None] = []
-
-    def fake_open_pose_file(path, cache_dir_arg):
-        opened.append(cache_dir_arg)
-        return nullcontext(SimpleNamespace(model_metadata=None))
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
-
-    update_pose._inject_consistent_pose_model_metadata(project)
-
-    assert opened == [cache_dir]
+def _metadata_pose(path: Path) -> Path:
+    """Write a pose file with valid model metadata."""
+    _write_pose_file_with_metadata(path, {"pose_model_name": "m"})
+    return path

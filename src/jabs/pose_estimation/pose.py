@@ -235,6 +235,36 @@ def resolve_source_format(path: Path, converted_from: str | None) -> str:
     return source_format_from_path(path) or converted_from or NATIVE_SOURCE_FORMAT
 
 
+def check_manifest(manifest: dict, path: Path) -> tuple[str, ...]:
+    """Refuse a manifest ``Pose`` cannot read; return its points' body parts.
+
+    Args:
+        manifest: A unified file's manifest.
+        path: The file, for messages.
+
+    Returns:
+        The body parts of ``jabs.pose.points``' skeleton.
+
+    Raises:
+        PoseFileError: If a required component is missing, or the points do not
+            use the JABS 12-keypoint mouse skeleton.
+    """
+    component_ids = {spec["id"] for spec in manifest["components"]}
+    missing = [c for c in (_POINTS, _POINT_VALID, _SLOT_OCCUPIED) if c not in component_ids]
+    if missing:
+        raise PoseFileError(f"{path}: missing required components {missing}")
+    spec = next(s for s in manifest["components"] if s["id"] == _POINTS)
+    skeleton = manifest.get("skeletons", {}).get(spec.get("skeleton"), {})
+    body_parts = tuple(skeleton.get("body_parts", ()))
+    expected = tuple(k.name for k in KeypointIndex)
+    if body_parts != expected:
+        raise PoseFileError(
+            f"{path}: {_POINTS} uses body parts {list(body_parts)}; JABS "
+            f"reads only the 12-keypoint mouse skeleton {list(expected)}"
+        )
+    return body_parts
+
+
 # The first legacy version that can hold more than one animal: main gave every
 # pose_est_v3+ file social features, whatever its identity count.
 _FIRST_SOCIAL_LEGACY_VERSION = 3
@@ -348,12 +378,7 @@ class Pose:
         """Read the manifest, provenance and keypoint-scale components."""
         manifest = self._reader.manifest
         self._component_ids = {spec["id"] for spec in manifest["components"]}
-        missing = [
-            c for c in (_POINTS, _POINT_VALID, _SLOT_OCCUPIED) if c not in self._component_ids
-        ]
-        if missing:
-            raise PoseFileError(f"{self._pose_path}: missing required components {missing}")
-        body_parts = self._check_skeleton(manifest)
+        body_parts = check_manifest(manifest, self._pose_path)
 
         convert = _last_convert_entry(self._reader.read_provenance().history)
         extra = (convert.extra or {}) if convert is not None else {}
@@ -392,19 +417,6 @@ class Pose:
 
         self._model_metadata = parse_model_metadata(extra.get("model_metadata_json"))
         self._source_format = resolve_source_format(self._path, converted_from)
-
-    def _check_skeleton(self, manifest: dict) -> tuple[str, ...]:
-        """Return the points' body parts, refusing anything but the JABS mouse skeleton."""
-        spec = next(s for s in manifest["components"] if s["id"] == _POINTS)
-        skeleton = manifest.get("skeletons", {}).get(spec.get("skeleton"), {})
-        body_parts = tuple(skeleton.get("body_parts", ()))
-        expected = tuple(k.name for k in KeypointIndex)
-        if body_parts != expected:
-            raise PoseFileError(
-                f"{self._pose_path}: {_POINTS} uses body parts {list(body_parts)}; JABS "
-                f"reads only the 12-keypoint mouse skeleton {list(expected)}"
-            )
-        return body_parts
 
     def _load_pose(self, num_identities: int, body_parts: tuple[str, ...], extra: dict) -> None:
         """Read points, validity, presence, tracks and boxes for the identity slots.

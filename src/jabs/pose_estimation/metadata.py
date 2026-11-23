@@ -28,6 +28,7 @@ from .pose import (
     BBOX_COMPONENT,
     STATIC_OBJECT_PREFIX,
     _last_convert_entry,
+    check_manifest,
     converted_from_format,
     has_segmentation_components,
     identity_count,
@@ -37,7 +38,12 @@ from .pose import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PoseMetadata", "scan_model_metadata", "scan_pose_metadata"]
+__all__ = [
+    "PoseMetadata",
+    "scan_model_metadata",
+    "scan_pose_metadata",
+    "scan_raw_model_metadata",
+]
 
 _LIXIT = "lixit"
 
@@ -86,6 +92,8 @@ def _scan_unified(path: Path) -> PoseMetadata:
     with ComponentReader(path) as reader:
         manifest = reader.manifest
         history = reader.read_provenance().history
+    # what Pose refuses from the manifest alone, so a file the scan accepts opens
+    check_manifest(manifest, path)
     convert = _last_convert_entry(history)
     converted_from = converted_from_format(convert)
     num_identities = identity_count(manifest, convert)
@@ -156,18 +164,18 @@ def _scan_legacy(path: Path) -> PoseMetadata:
     )
 
 
-def _scan_unified_model_metadata(path: Path) -> dict[str, Any] | None:
-    """Read the model metadata a unified file's last convert entry preserved."""
+def _unified_raw_model_metadata(path: Path) -> Any:
+    """Return the ``model_metadata_json`` a unified file's last convert entry preserved."""
     with ComponentReader(path) as reader:
         convert = _last_convert_entry(reader.read_provenance().history)
     extra = (convert.extra or {}) if convert is not None else {}
-    return parse_model_metadata(extra.get("model_metadata_json"))
+    return extra.get("model_metadata_json")
 
 
-def _scan_legacy_model_metadata(path: Path) -> dict[str, Any] | None:
-    """Read a legacy file's ``poseest`` ``model_metadata_json`` attribute."""
+def _legacy_raw_model_metadata(path: Path) -> Any:
+    """Return a legacy file's ``poseest`` ``model_metadata_json`` attribute."""
     with h5py.File(path, "r") as h5:
-        return parse_model_metadata(h5["poseest"].attrs.get("model_metadata_json"))
+        return h5["poseest"].attrs.get("model_metadata_json")
 
 
 def _reason(path: Path, error: Exception) -> str:
@@ -214,6 +222,34 @@ def scan_pose_metadata(path: Path) -> PoseMetadata:
     )
 
 
+def scan_raw_model_metadata(path: Path) -> Any:
+    """Read a pose file's ``model_metadata_json`` value as stored, without parsing it.
+
+    For a caller that must tell metadata that is absent from metadata that is
+    not valid JSON, which :func:`scan_model_metadata` counts alike.
+
+    Args:
+        path: The pose file the user has.
+
+    Returns:
+        The stored value (normally a JSON string), or None when the file has none.
+
+    Raises:
+        PoseOpenError: If the name follows neither pattern, or the file cannot
+            be read or is malformed.
+    """
+    try:
+        if is_unified_pose_file(path):
+            return _unified_raw_model_metadata(path)
+        if is_legacy_pose_file(path):
+            return _legacy_raw_model_metadata(path)
+    except (PoseFileError, OSError, LookupError, ValueError) as error:
+        raise PoseOpenError(path, _reason(path, error)) from error
+    raise PoseOpenError(
+        path, f"not a pose file name; expected one of {', '.join(POSE_FILE_GLOBS)}"
+    )
+
+
 def scan_model_metadata(path: Path) -> dict[str, Any] | None:
     """Read a pose file's model metadata without reading keypoint data.
 
@@ -231,13 +267,4 @@ def scan_model_metadata(path: Path) -> dict[str, Any] | None:
         PoseOpenError: If the name follows neither pattern, or the file cannot
             be read or is malformed.
     """
-    try:
-        if is_unified_pose_file(path):
-            return _scan_unified_model_metadata(path)
-        if is_legacy_pose_file(path):
-            return _scan_legacy_model_metadata(path)
-    except (PoseFileError, OSError, LookupError, ValueError) as error:
-        raise PoseOpenError(path, _reason(path, error)) from error
-    raise PoseOpenError(
-        path, f"not a pose file name; expected one of {', '.join(POSE_FILE_GLOBS)}"
-    )
+    return parse_model_metadata(scan_raw_model_metadata(path))

@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import sys
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +10,7 @@ from click.testing import CliRunner
 
 import jabs.scripts.cli.update_labels as update_labels
 import jabs.scripts.cli.update_pose as update_pose
+from jabs.core.enums import PoseCapability
 from jabs.pose_estimation import conversion_cache
 from jabs.scripts.cli.cli import cli
 from jabs.scripts.cli.label_remap_matching import MatchMetric, MatchSettings
@@ -53,18 +53,13 @@ def _stub_pose_reader(
     num_identities: int = 2,
 ) -> None:
     """Replace pose-file readers used by the preflight with a permissive stub."""
-    monkeypatch.setattr(
-        update_pose,
-        "open_pose_file",
-        lambda *_args, **_kwargs: nullcontext(
-            SimpleNamespace(
-                source_format=f"pose_est_v{version}",
-                has_bounding_boxes=True,
-                num_frames=num_frames,
-                num_identities=num_identities,
-            )
-        ),
+    metadata = SimpleNamespace(
+        source_format=f"pose_est_v{version}",
+        capabilities=frozenset({PoseCapability.BOUNDING_BOXES, PoseCapability.SOCIAL}),
+        frames=num_frames,
+        num_identities=num_identities,
     )
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", lambda _path: metadata)
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",

@@ -295,3 +295,22 @@ def test_scan_follows_the_conversion_mode(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
     with pytest.raises(PoseOpenError, match="static_objects/water_spout"):
         scan_pose_metadata(path)
+
+
+def test_scan_refuses_a_skeleton_pose_refuses(tmp_path: Path) -> None:
+    """A unified file whose points are not the mouse skeleton fails the scan, as Pose refuses it.
+
+    update-pose validates pose files by scanning them, so the scan must not pass one
+    the remap could not open.
+    """
+    path = build_pose_file(tmp_path / "vid_pose.h5")
+    with h5py.File(path, "r+") as h5:
+        manifest = json.loads(h5["manifest"][()])
+        for skeleton in manifest["skeletons"].values():
+            skeleton["body_parts"] = ["SNOUT", *skeleton["body_parts"][1:]]
+        del h5["manifest"]
+        h5["manifest"] = json.dumps(manifest)
+    with pytest.raises(PoseOpenError, match="12-keypoint mouse skeleton"):
+        open_pose_file(path)
+    with pytest.raises(PoseOpenError, match="12-keypoint mouse skeleton"):
+        scan_pose_metadata(path)
