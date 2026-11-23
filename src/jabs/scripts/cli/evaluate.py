@@ -75,7 +75,7 @@ from jabs.behavior.events import ClassLabels
 from jabs.behavior.postprocessing import PostprocessingPipeline
 from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.core.utils import pose_file_stem
-from jabs.feature_extraction import IdentityFeatures
+from jabs.feature_extraction import IdentityFeatures, require_pose_capabilities
 from jabs.project import Project
 from jabs.project.prediction_manager import PredictionManager
 from jabs.scripts.classify import load_classifier_from_pickle
@@ -452,6 +452,7 @@ def _predict_identity(
         ``predicted_class``.
     """
     settings = classifier.project_settings
+    require_pose_capabilities(settings, pose_est.capabilities, pose_path.name)
     features = IdentityFeatures(
         pose_path,
         identity,

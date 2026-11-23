@@ -5,13 +5,17 @@
 > Feature names do not change, but values can, so every feature cache is recomputed and
 > **classifiers trained with earlier versions must be retrained** (JABS refuses to load them, and
 > training data exported with earlier versions must be exported again). The user-visible changes:
-> 1. **No social features for single-identity files:** social features need more than one
->    identity in the pose file. A file with one identity (every v2 file, and any other file
->    holding one animal) has none. A classifier trained with social features still classifies
->    such a file: its social features are treated as missing.
+> 1. **A social classifier refuses a file without social features:** social features follow the
+>    pose file's format, as before: a file that can hold several animals has them even when it
+>    holds one mouse (its closest distances are `NaN`, contact count 0, group size 1). That is
+>    every legacy v3+ file, and a unified file with more than one slot. A v2 file, or a unified
+>    file with one slot, has none, and a classifier trained with social features now refuses to
+>    classify it with a message naming the file (`jabs-classify` exits, the GUI skips the video
+>    with a warning) instead of failing with a `KeyError`.
 > 2. **Social features are project-wide:** a project offers social features only if every usable
->    video's pose file has more than one identity (the intersection of the pose files'
->    capabilities across the project's videos, as for segmentation and landmarks).
+>    video's pose file has them (the intersection of the pose files' capabilities across the
+>    project's videos, as for segmentation and landmarks), so a project with a v2 video has none,
+>    as before.
 > 3. **v3 bearings:** the bearing of a v3 identity (and features built on it, such as angular
 >    velocity) is `NaN` in frames where its base neck or base tail keypoint is invalid, as for
 >    other versions.
@@ -50,9 +54,9 @@
     * centroid
     * 12 keypoints
 
-## Social features (pose files with more than one identity)
+## Social features (pose files that can hold several animals)
 
-37 features from social context (available when every pose file in the project has more than one identity, such as legacy v3+ files with several animals, with automatic segmentation-contour refinement when the pose files have segmentation, such as legacy v6+ files):
+37 features from social context (available when every pose file in the project can hold more than one animal: legacy v3+ files, and unified files with more than one slot, even when a file holds one mouse; with automatic segmentation-contour refinement when the pose files have segmentation, such as legacy v6+ files):
 
 * **Nearest-neighbor & coat-contact distances (`closest_distances`, 5 values):**
     * `closest social distance`: Euclidean distance between the subject's skeletal body convex hull and the nearest cagemate's skeletal convex hull (scaled by `pixel_scale` to `cm` when `cm_per_pixel` is set, or `px` otherwise).

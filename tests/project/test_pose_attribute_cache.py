@@ -282,9 +282,9 @@ def test_cached_load_matches_fresh_scan(tmp_path):
     assert cached.feature_manager.is_cm_unit == fresh.feature_manager.is_cm_unit
 
 
-def test_schema_version_is_4():
-    """Entries carry capabilities from schema 3 on, and legacy file hashes from 4 on."""
-    assert pose_attribute_cache.SCHEMA_VERSION == 4
+def test_schema_version_is_5():
+    """Capabilities from schema 3 on, legacy hashes from 4, format-based SOCIAL from 5."""
+    assert pose_attribute_cache.SCHEMA_VERSION == 5
 
 
 def test_cache_entry_records_capabilities(tmp_path):
@@ -292,8 +292,8 @@ def test_cache_entry_records_capabilities(tmp_path):
     project_dir = _make_project(tmp_path / "proj", ["v1.avi"])
     _open(project_dir)
     data = json.loads((project_dir / CACHE_RELPATH).read_text())
-    assert data["schema_version"] == 4
-    # the v3 sample has five track slots, so it is social
+    assert data["schema_version"] == 5
+    # the v3 sample is a pose_est_v3 file, so it is social
     assert data["videos"]["v1.avi"]["capabilities"] == ["social"]
 
 
@@ -310,4 +310,4 @@ def test_schema_2_entries_are_rescanned(tmp_path, monkeypatch):
     calls = _spy_scan(monkeypatch)
     _open(project_dir)
     assert calls == ["v1.avi"]
-    assert json.loads(cache_file.read_text())["schema_version"] == 4
+    assert json.loads(cache_file.read_text())["schema_version"] == 5

@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 # 4: entries for legacy pose files may carry ``source_hash``, the file's hash
 #    when it had the entry's token, so opening a project does not re-hash an
 #    unchanged legacy file whose conversion exists.
-SCHEMA_VERSION = 4
+# 5: SOCIAL follows the pose format (a pose_est_v3+ file, or a unified file
+#    with room for more than one animal), not the identity count, so entries
+#    written by version 4 can lack SOCIAL for a one-mouse v3+ file.
+SCHEMA_VERSION = 5
 
 
 def pose_token(pose_path: Path) -> str:

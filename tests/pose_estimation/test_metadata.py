@@ -161,10 +161,27 @@ def test_unified_capabilities_from_the_manifest(tmp_path: Path) -> None:
     )
 
 
-def test_single_identity_is_not_social(tmp_path: Path) -> None:
-    """One identity gives no SOCIAL capability."""
+def test_one_animal_by_format_is_not_social(tmp_path: Path) -> None:
+    """One slot and one identity give no SOCIAL capability."""
     path = build_pose_file(tmp_path / "vid_pose.h5", slots=1, identity=1)
     assert scan_pose_metadata(path).capabilities == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "social"),
+    [
+        ({"slots": 3, "identity": 1}, True),
+        ({"slots": 1, "identity": 1, "convert_extra": {}, "convert_format": "pose_est_v4"}, True),
+        ({"slots": 1, "identity": 1, "convert_extra": {}, "convert_format": "pose_est_v2"}, False),
+    ],
+    ids=["tail-slots", "converted-v4", "converted-v2"],
+)
+def test_scan_and_pose_agree_on_social(tmp_path: Path, kwargs: dict, social: bool) -> None:
+    """The scan applies Pose's SOCIAL rule to a unified file."""
+    path = build_pose_file(tmp_path / "vid_pose.h5", **kwargs)
+    assert (PoseCapability.SOCIAL in scan_pose_metadata(path).capabilities) is social
+    with open_pose_file(path) as pose:
+        assert pose.has_social is social
 
 
 def test_unconvertible_legacy_file_raises_pose_open_error(

@@ -105,8 +105,12 @@ names.
 - **Replaced:** `format_major_version` and every `>= N` check (feature
   manager, read/export training, lixit/corner features, CLI, UI overlays) by
   capability properties: `has_segmentation`,
-  `has_static_object(name)`, `has_bounding_boxes`, `has_social` (more than one
-  identity; tail slots do not count). Features declare required capabilities instead of
+  `has_static_object(name)`, `has_bounding_boxes`, `has_social` (the file's format
+  can hold more than one animal, as main's `>= 3` rule had it: a legacy
+  `pose_est_v3`+ file by its name, else a conversion's recorded
+  `pose_est_v<N>` source format, else more than one slot or identity; a
+  one-mouse v4 file is social, with NaN closest distances, contact count 0
+  and group size 1, a v2 file is not). Features declare required capabilities instead of
   `_min_pose`. The project-level `_min_pose_version` becomes the intersection
   of every file's capabilities; training exports write `pose_capabilities`, and
   reading an old export maps `min_pose_version` (≥3 social, ≥6 segmentation, ≥8

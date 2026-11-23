@@ -6,6 +6,7 @@ The recorded contract goldens are checked on ``Pose`` in
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import h5py
@@ -14,6 +15,8 @@ import pytest
 
 from jabs.core.enums import PoseCapability
 from jabs.core.pose_protocol import source_format_from_path
+from jabs.feature_extraction import IdentityFeatures
+from jabs.feature_extraction.social_features import SocialFeatureGroup
 from jabs.pose_estimation import open_pose_file
 from jabs.pose_estimation.metadata import scan_pose_metadata
 
@@ -233,7 +236,8 @@ def test_masked_v5_with_a_v3_version_has_no_identities(tmp_path: Path) -> None:
     with open_pose_file(source, tmp_path / "cache") as pose:
         assert pose.num_identities == 0
         assert pose.identity_to_track is None
-        assert PoseCapability.SOCIAL not in pose.capabilities
+        # a v5 file is social by its name, as on main, though it has no identity
+        assert PoseCapability.SOCIAL in pose.capabilities
 
 
 def test_v3_without_a_version_keeps_its_track_identities(tmp_path: Path) -> None:
@@ -247,3 +251,33 @@ def test_v3_without_a_version_keeps_its_track_identities(tmp_path: Path) -> None
     with open_pose_file(source, tmp_path / "cache") as pose:
         assert pose.num_identities == expected
         assert pose.identity_to_track is not None
+
+
+# Social per-frame features of identity 0 of _single_mouse_v4, recorded on main
+# (4415b0ec, the v4 reader) with op_settings social=True.
+_SINGLE_MOUSE_SOCIAL_GOLDEN = Path(__file__).parent / "goldens" / "single_mouse_v4_social_main.npz"
+
+
+def test_single_mouse_v4_is_social_as_on_main(
+    tmp_path: Path, single_mouse_v4: Callable[[Path], Path]
+) -> None:
+    """A one-identity v4 file gets social features, with main's values (gbeane, PR #605)."""
+    source = single_mouse_v4(tmp_path / "single_pose_est_v4.h5")
+    assert PoseCapability.SOCIAL in scan_pose_metadata(source).capabilities
+    with open_pose_file(source, tmp_path / "cache") as pose:
+        assert pose.num_identities == 1
+        assert PoseCapability.SOCIAL in pose.capabilities
+        settings = {"social": True, "window_size": 5, "segmentation": False, "cm_units": False}
+        flat = IdentityFeatures(source, 0, None, pose, op_settings=settings).get_per_frame_flat()
+
+    social_modules = set(SocialFeatureGroup.module_names())
+    social = {k: v for k, v in flat.items() if k.split(" ", 1)[0] in social_modules}
+    golden = np.load(_SINGLE_MOUSE_SOCIAL_GOLDEN)
+    assert sorted(social) == sorted(golden.files)
+    for name in golden.files:
+        np.testing.assert_allclose(
+            np.asarray(social[name], dtype=np.float64), golden[name], equal_nan=True, err_msg=name
+        )
+    assert np.isnan(golden["closest_distances closest social distance"]).all()
+    assert (golden["huddle_features social contact count"] == 0).all()
+    assert (golden["huddle_features social connected group size"] == 1).all()

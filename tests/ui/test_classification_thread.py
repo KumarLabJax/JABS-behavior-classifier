@@ -197,3 +197,28 @@ def test_classify_thread_skips_unusable_videos(monkeypatch, caplog) -> None:
     assert progress == [1]
     project.save_predictions.assert_not_called()
     assert any("video.avi" in r.getMessage() for r in caplog.records)
+
+
+def test_classify_thread_skips_a_video_without_the_social_features(monkeypatch, caplog) -> None:
+    """Social settings on a pose that cannot provide them skip the video with a WARNING."""
+    _binary_thread_env(monkeypatch)
+    fake_features_cls = make_fake_identity_features()
+    monkeypatch.setattr("jabs.ui.classification_thread.IdentityFeatures", fake_features_cls)
+    project = FakeClassifyingProject(ClassifierMode.BINARY)
+    project.settings_manager.get_behavior = lambda _behavior: {"window_size": 5, "social": True}
+    thread = ClassifyThread(FakeClassifyingClassifier(multiclass=False), project, "Walk", None)
+    errors: list[Exception] = []
+    progress: list[int] = []
+    thread.error_callback.connect(errors.append)
+    thread.update_progress.connect(progress.append)
+
+    with caplog.at_level("WARNING", logger="jabs.ui.classification_thread"):
+        thread.run()
+
+    assert errors == []
+    assert progress == [1]
+    assert fake_features_cls.op_settings_seen == []
+    project.save_predictions.assert_not_called()
+    assert any(
+        "video.avi" in r.getMessage() and "social" in r.getMessage() for r in caplog.records
+    )

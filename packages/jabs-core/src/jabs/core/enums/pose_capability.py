@@ -9,7 +9,9 @@ class PoseCapability(str, Enum):
     Static objects are not capabilities; they are checked by name.
 
     Attributes:
-        SOCIAL: The pose has more than one identity.
+        SOCIAL: The pose's format can hold more than one animal (a legacy v3+
+            file, or a unified file with more than one slot), whatever its
+            identity count.
         SEGMENTATION: The pose carries instance segmentation contours.
         BOUNDING_BOXES: The pose carries per-identity bounding boxes.
     """

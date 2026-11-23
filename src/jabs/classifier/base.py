@@ -27,7 +27,6 @@ from sklearn.exceptions import InconsistentVersionWarning
 
 from jabs.core.enums import ClassifierType
 from jabs.core.utils import hash_file
-from jabs.feature_extraction.social_features import SocialFeatureGroup
 
 from . import classifier_utils, factories
 
@@ -406,36 +405,7 @@ class BaseClassifier:
             classifier_columns = list(self._classifier.feature_names_)
         else:
             raise RuntimeError("Error obtaining feature names from classifier.")
-        return self._fill_absent_social_columns(features, classifier_columns)[classifier_columns]
-
-    def _fill_absent_social_columns(
-        self, features: pd.DataFrame, classifier_columns: list[str]
-    ) -> pd.DataFrame:
-        """Add the social columns the model expects but a single-identity pose lacks.
-
-        A pose with one identity has no social features, but a classifier trained with
-        social features enabled still expects their columns. They are added as NaN and
-        cleaned like any other missing value. Any other missing column is left missing,
-        so selecting it still raises a KeyError.
-
-        Args:
-            features: Cleaned feature data.
-            classifier_columns: Columns the trained model expects.
-
-        Returns:
-            ``features``, with the absent social columns added when those are the only
-            columns missing.
-        """
-        missing = [c for c in classifier_columns if c not in features.columns]
-        social_modules = set(SocialFeatureGroup.module_names())
-        if not missing or any(c.split(" ", 1)[0] not in social_modules for c in missing):
-            return features
-        logger.warning(
-            "The pose has no social features; classifying with %d social feature columns missing",
-            len(missing),
-        )
-        absent = pd.DataFrame(np.nan, index=features.index, columns=missing)
-        return self._clean_features(pd.concat([features, absent], axis=1))
+        return features[classifier_columns]
 
     @staticmethod
     def combine_data(per_frame: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:

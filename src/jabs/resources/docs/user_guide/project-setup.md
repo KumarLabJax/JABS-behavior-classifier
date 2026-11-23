@@ -54,8 +54,9 @@ environment variable is set.
 
 Which features a project offers depends on what every pose file in it provides:
 
-- **Social features** need more than one identity in a pose file. A project offers them
-  only when every usable video has more than one identity.
+- **Social features** need a pose file that can hold more than one animal: a legacy v3+
+  file, or a unified file with more than one slot, even when it holds one mouse. A project
+  offers them only when every usable video's pose file can (so not with a v2 video).
 - **Segmentation features** need segmentation data in every pose file.
 - **Landmark features** need the landmark (for example arena corners, food hopper or
   lixit) in every pose file.

@@ -31,6 +31,7 @@ from .pose import (
     converted_from_format,
     has_segmentation_components,
     identity_count,
+    is_social,
     resolve_source_format,
 )
 
@@ -67,11 +68,11 @@ class PoseMetadata:
 
 
 def _capabilities(
-    num_identities: int, segmentation: bool, bounding_boxes: bool
+    social: bool, segmentation: bool, bounding_boxes: bool
 ) -> frozenset[PoseCapability]:
-    """Return the capabilities for the given facts."""
+    """Return the capabilities for the given facts; ``social`` is :func:`is_social`'s."""
     capabilities = set()
-    if num_identities > 1:
+    if social:
         capabilities.add(PoseCapability.SOCIAL)
     if segmentation:
         capabilities.add(PoseCapability.SEGMENTATION)
@@ -111,7 +112,7 @@ def _scan_unified(path: Path) -> PoseMetadata:
         lixit_keypoints=lixit_keypoints,
         cm_per_pixel=None if scale is None else float(scale),
         capabilities=_capabilities(
-            num_identities,
+            is_social(path, converted_from, int(manifest["dimensions"]["slot"]), num_identities),
             has_segmentation_components(component_ids),
             BBOX_COMPONENT in component_ids,
         ),
@@ -145,7 +146,12 @@ def _scan_legacy(path: Path) -> PoseMetadata:
         static_objects=tuple(sorted(layout.static_objects)),
         lixit_keypoints=lixit_keypoints,
         cm_per_pixel=cm_per_pixel,
-        capabilities=_capabilities(num_identities, layout.has_segmentation, layout.bbox_generated),
+        capabilities=_capabilities(
+            # a legacy file's name decides; the slot count is not needed
+            is_social(path, None, 0, num_identities),
+            layout.has_segmentation,
+            layout.bbox_generated,
+        ),
         source_format=resolve_source_format(path, None),
     )
 

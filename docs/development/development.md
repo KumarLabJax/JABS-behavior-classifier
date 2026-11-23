@@ -451,7 +451,7 @@ IdentityFeatures (per identity/video)
 
 2. **`FeatureGroup`** subclasses organize related features:
    - `BaseFeatureGroup`: Core features (angles, distances, velocities) - always available
-   - `SocialFeatureGroup`: Multi-animal social features (requires `PoseCapability.SOCIAL`: more than one identity)
+   - `SocialFeatureGroup`: Multi-animal social features (requires `PoseCapability.SOCIAL`: a pose format that can hold more than one animal, see `jabs.pose_estimation.pose.is_social`)
    - `SegmentationFeatureGroup`: Spatial segmentation features (requires `PoseCapability.SEGMENTATION`)
    - `LandmarkFeatureGroup`: Static object/landmark features (extended features)
 
@@ -541,7 +541,7 @@ Key points:
 **Features with Dependencies:**
 
 Features can specify required pose capabilities and static objects via class attributes:
-- `_requires`: Pose capabilities every pose file must provide (`jabs.core.enums.PoseCapability`), e.g. `_requires = frozenset({PoseCapability.SOCIAL})` for features that need more than one identity
+- `_requires`: Pose capabilities every pose file must provide (`jabs.core.enums.PoseCapability`), e.g. `_requires = frozenset({PoseCapability.SOCIAL})` for features that need a pose format that can hold more than one animal
 - `_static_objects`: List of required static objects (e.g., `["water_bottle", "food_hopper"]`)
 
 See `src/jabs/feature_extraction/landmark_features/` for examples.
@@ -794,10 +794,11 @@ operate on the nested feature dict *before* it is converted to a DataFrame and p
 classifier. This means the cache never needs to be invalidated when the user changes which feature
 groups are enabled.
 
-Features that were never computed (e.g., social features when the pose file has only one identity) are simply
-absent from both the cache and the nested dict. At prediction time, a classifier trained with social features
-gets the absent social columns as NaN (cleaned per classifier type, like any other missing value); any other
-missing column is still an error (`BaseClassifier._fill_absent_social_columns`).
+Features that were never computed (e.g., social features for a v2 pose file, whose format holds one animal) are
+simply absent from both the cache and the nested dict. Prediction does not fill them in: before computing features,
+`jabs-classify`, `jabs-cli evaluate` and the GUI's Classify check the classifier's `social` and `segmentation`
+settings against the pose's capabilities (`jabs.feature_extraction.require_pose_capabilities`) and refuse the file
+with `PoseCapabilityError` (the GUI skips the video with a warning).
 
 **Column ordering**
 

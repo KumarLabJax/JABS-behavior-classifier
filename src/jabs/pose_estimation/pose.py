@@ -235,6 +235,44 @@ def resolve_source_format(path: Path, converted_from: str | None) -> str:
     return source_format_from_path(path) or converted_from or NATIVE_SOURCE_FORMAT
 
 
+# The first legacy version that can hold more than one animal: main gave every
+# pose_est_v3+ file social features, whatever its identity count.
+_FIRST_SOCIAL_LEGACY_VERSION = 3
+_LEGACY_FORMAT_RE = re.compile(r"^pose_est_v(\d+)$")
+
+
+def is_social(path: Path, converted_from: str | None, slots: int, identities: int) -> bool:
+    """Return True when a pose file's format can hold more than one animal.
+
+    That decides ``PoseCapability.SOCIAL``, independent of how many identities
+    the file happens to have, as on main, where every ``pose_est_v3`` or later
+    file got social features (closest distances NaN, contact count 0, group
+    size 1 when it holds one mouse):
+
+    - a file named ``*_pose_est_v<N>.h5`` (the legacy file, or ``path`` given
+      as a conversion's source) is social iff ``N >= 3``;
+    - otherwise a conversion's recorded ``pose_est_v<N>`` source format
+      decides the same way;
+    - otherwise (a native file, or one whose source records no version) it is
+      social iff it has more than one slot or identity.
+
+    Args:
+        path: The pose file the user has.
+        converted_from: :func:`converted_from_format` of its last convert
+            entry, or None.
+        slots: ``dimensions.slot`` (for a legacy file, any value: its name decides).
+        identities: Number of identities.
+
+    Returns:
+        Whether the file is social.
+    """
+    for source_format in (source_format_from_path(path), converted_from):
+        match = _LEGACY_FORMAT_RE.match(source_format or "")
+        if match is not None:
+            return int(match.group(1)) >= _FIRST_SOCIAL_LEGACY_VERSION
+    return max(slots, identities) > 1
+
+
 def _release(reader: ComponentReader, cleanup_dir: Path | None) -> None:
     """Close a Pose's reader, then remove the directory it owns, if any.
 
@@ -325,6 +363,9 @@ class Pose:
         self._tracks_are_identities = tracks_are_identities(manifest, convert)
         num_identities = identity_count(manifest, convert)
         self._identities = list(range(num_identities))
+        self._is_social = is_social(
+            self._path, converted_from, int(manifest["dimensions"]["slot"]), num_identities
+        )
 
         video = manifest["video"]
         self._fps: int | float = _DEFAULT_FPS
@@ -564,8 +605,9 @@ class Pose:
     def capabilities(self) -> frozenset[PoseCapability]:
         """Optional data the file provides.
 
-        ``SOCIAL`` iff more than one identity, ``SEGMENTATION`` iff it has
-        segmentation contours, ``BOUNDING_BOXES`` iff it has bounding boxes.
+        ``SOCIAL`` iff its format can hold more than one animal (see
+        :func:`is_social`), ``SEGMENTATION`` iff it has segmentation contours,
+        ``BOUNDING_BOXES`` iff it has bounding boxes.
         """
         capabilities = set()
         if self.has_social:
@@ -578,8 +620,8 @@ class Pose:
 
     @property
     def has_social(self) -> bool:
-        """True when the file has more than one identity; tail slots do not count."""
-        return self.num_identities > 1
+        """True when the file's format can hold more than one animal (see :func:`is_social`)."""
+        return self._is_social
 
     @property
     def has_segmentation(self) -> bool:

@@ -111,8 +111,9 @@ class PoseLike(Protocol):
         dynamic_objects: Dynamic object name to its data.
         num_lixit_keypoints: Keypoints per lixit, 0 without a lixit.
         external_identities: External identity names indexed by identity, or None.
-        capabilities: Optional data the source provides: ``SOCIAL`` iff more than
-            one identity, ``SEGMENTATION`` iff it has segmentation contours,
+        capabilities: Optional data the source provides: ``SOCIAL`` iff its format
+            can hold more than one animal (a legacy v3+ file, or a unified file with
+            more than one slot), ``SEGMENTATION`` iff it has segmentation contours,
             ``BOUNDING_BOXES`` iff it has bounding boxes.
         has_social: ``PoseCapability.SOCIAL in capabilities``.
         has_segmentation: ``PoseCapability.SEGMENTATION in capabilities``.
@@ -195,7 +196,7 @@ class PoseLike(Protocol):
 
     @property
     def has_social(self) -> bool:
-        """True when the source has more than one identity."""
+        """True when the source's format can hold more than one animal."""
         ...
 
     @property

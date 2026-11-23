@@ -270,7 +270,7 @@ jabs-cli compute-features --pose-file <POSE_FILE> --feature-dir <FEATURE_DIR> [-
                           [--cache-format {hdf5,parquet}] [--force]
 ```
 
-- `--pose-file <POSE_FILE>`: Pose file to compute features for, a unified `*_pose.h5` or a legacy `*_pose_est_v<N>.h5` file. The features computed follow what the file contains (more than one identity for social features, segmentation for segmentation features, static objects for landmark features).
+- `--pose-file <POSE_FILE>`: Pose file to compute features for, a unified `*_pose.h5` or a legacy `*_pose_est_v<N>.h5` file. The features computed follow what the file contains (a format that can hold more than one animal, legacy v3+ or a unified file with more than one slot, for social features, segmentation for segmentation features, static objects for landmark features).
 - `--feature-dir <FEATURE_DIR>`: Directory to write output features.
 - `--use-pixel-distances`: Force pixel distance units. By default, cm units are used when the pose file provides a pixel-to-cm scale, and pixel units otherwise.
 - `-w`, `--window-size <N>`: Window size for window features. Repeat to compute multiple window sizes (e.g. `-w 5 -w 10`). Omit to compute per-frame features only.

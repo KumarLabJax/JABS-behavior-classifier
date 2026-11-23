@@ -23,7 +23,11 @@ from jabs.classifier.base import unpickle_classifier
 from jabs.core.constants import APP_NAME, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierType
 from jabs.core.utils import pose_file_stem
-from jabs.feature_extraction import IdentityFeatures
+from jabs.feature_extraction import (
+    IdentityFeatures,
+    PoseCapabilityError,
+    require_pose_capabilities,
+)
 from jabs.pose_estimation import PoseOpenError, open_pose_file
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 
@@ -208,6 +212,8 @@ def classify_pose(
 
     Raises:
         ValueError: If a binary classifier is given but ``behavior`` is None.
+        PoseCapabilityError: If the classifier was trained with social or
+            segmentation features the pose file cannot provide.
     """
     _require_pose_file_name(input_pose_file)
 
@@ -223,6 +229,9 @@ def classify_pose(
         behavior_key = behavior
 
     with open_pose_file(input_pose_file) as pose_est:
+        require_pose_capabilities(
+            classifier.project_settings, pose_est.capabilities, input_pose_file.name
+        )
         pose_stem = pose_file_stem(input_pose_file)
 
         n_identities = pose_est.num_identities
@@ -448,6 +457,8 @@ def classify_main() -> None:
         # an expected per-file failure (a file the converter refuses, or one
         # that cannot be read): report it without a traceback
         sys.exit(f"Unable to open pose file {error.path}: {error.reason}")
+    except PoseCapabilityError as error:
+        sys.exit(f"Unable to classify: {error}")
 
 
 def _classify_with(args: argparse.Namespace, in_pose_path: Path, out_dir: Path) -> None:

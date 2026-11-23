@@ -274,14 +274,54 @@ def test_three_point_lixit_is_unchanged(pose_file_factory: Factory) -> None:
         assert pose.static_objects == {}
 
 
-def test_capabilities_social_needs_two_identities(pose_file_factory: Factory) -> None:
-    """One identity plus tail slots is not social."""
-    with Pose(pose_file_factory(slots=3, identity=1)) as pose:
+def test_one_animal_by_format_is_not_social(pose_file_factory: Factory) -> None:
+    """A file with room for one animal (one slot, one identity) has no capabilities."""
+    with Pose(pose_file_factory(slots=1, identity=1)) as pose:
         assert pose.capabilities == frozenset()
         assert not pose.has_social
         assert not pose.has_segmentation
         assert not pose.has_bounding_boxes
         assert pose.get_bounding_boxes(0) is None
+
+
+def test_one_identity_with_tail_slots_is_social(pose_file_factory: Factory) -> None:
+    """A file that can hold several animals is social even with one identity, as on main."""
+    with Pose(pose_file_factory(slots=3, identity=1)) as pose:
+        assert pose.num_identities == 1
+        assert pose.capabilities == frozenset({PoseCapability.SOCIAL})
+        assert pose.has_social
+
+
+@pytest.mark.parametrize(
+    ("source_name", "social"),
+    [
+        ("vid_pose_est_v2.h5", False),
+        ("vid_pose_est_v3.h5", True),
+        ("vid_pose_est_v4.h5", True),
+        ("vid_pose_est_v8.h5", True),
+    ],
+)
+def test_legacy_source_is_social_from_v3(
+    pose_file_factory: Factory, source_name: str, social: bool
+) -> None:
+    """A conversion is social as its legacy file was on main: by the name's version, 3 on."""
+    path = pose_file_factory(slots=1, identity=1)
+    with Pose(path, source_path=path.parent / source_name, source_hash="h") as pose:
+        assert pose.has_social is social
+        assert (PoseCapability.SOCIAL in pose.capabilities) is social
+
+
+@pytest.mark.parametrize(
+    ("convert_format", "social"),
+    [("pose_est_v2", False), ("pose_est_v4", True), ("pose_est", False)],
+)
+def test_renamed_conversion_is_social_by_its_source_format(
+    pose_file_factory: Factory, convert_format: str, social: bool
+) -> None:
+    """A conversion under a unified name follows its recorded source format, when it has one."""
+    path = pose_file_factory(slots=1, identity=1, convert_extra={}, convert_format=convert_format)
+    with Pose(path) as pose:
+        assert pose.has_social is social
 
 
 def test_capabilities_of_a_full_file(pose_file_factory: Factory) -> None:

@@ -8,7 +8,12 @@ from PySide6.QtWidgets import QWidget
 from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.classifier.inference import predict_identity
 from jabs.core.enums import ClassifierMode
-from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
+from jabs.feature_extraction import (
+    DEFAULT_WINDOW_SIZE,
+    IdentityFeatures,
+    PoseCapabilityError,
+    require_pose_capabilities,
+)
 from jabs.pose_estimation import PoseOpenError
 from jabs.project import Project
 
@@ -146,6 +151,14 @@ class ClassifyThread(QThread):
                         video,
                         self._project.unusable_videos[video],
                     )
+                if pose_est is not None:
+                    try:
+                        require_pose_capabilities(
+                            project_settings, pose_est.capabilities, pose_est.pose_file.name
+                        )
+                    except PoseCapabilityError as error:
+                        logger.warning("Skipping %s: %s", video, error)
+                        pose_est = None
                 if pose_est is None:
                     self._tasks_complete += 1
                     self.update_progress.emit(self._tasks_complete)

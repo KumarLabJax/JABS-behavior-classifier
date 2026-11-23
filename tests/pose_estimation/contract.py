@@ -314,7 +314,6 @@ def check_pose_contract(pose: PoseLike, expected: dict[str, npt.NDArray[Any]]) -
     assert isinstance(capabilities, frozenset)
     assert sorted(c.value for c in capabilities) == meta["capabilities"]
     assert pose.has_social == (PoseCapability.SOCIAL in capabilities)
-    assert pose.has_social == (pose.num_identities > 1)
     assert pose.has_segmentation == (PoseCapability.SEGMENTATION in capabilities)
     assert pose.has_bounding_boxes == (PoseCapability.BOUNDING_BOXES in capabilities)
 

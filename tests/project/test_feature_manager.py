@@ -70,7 +70,7 @@ def test_no_usable_videos_has_no_capabilities(tmp_path: Path) -> None:
 
 
 def test_single_identity_project_has_no_social_features(tmp_path: Path) -> None:
-    """SOCIAL means more than one identity; without it social features are off."""
+    """Without SOCIAL in every video, social features are off."""
     manager = _manager(tmp_path, [_scan("a.avi", ["segmentation"])])
     assert not manager.can_use_social_features
     assert manager.can_use_segmentation_features
