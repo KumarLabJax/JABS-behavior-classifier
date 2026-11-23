@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 import sys
@@ -384,3 +385,24 @@ def test_merge_skips_a_video_whose_pose_cannot_be_read(tmp_path: Path) -> None:
     merged = Project(tmp_path / "dest", enable_session_tracker=False)
     assert _foo_blocks(_labels_document(merged, "bad.avi")) == [(15, 30, False)]
     assert _foo_blocks(_labels_document(merged, "extra.avi")) == [(30, 40, True)]
+
+
+def test_merge_skips_a_video_whose_destination_pose_is_gone(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A destination with no pose file for the video skips its annotations, with a warning."""
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "src", "extra.avi", [(30, 40, True)])
+    _write_labels(tmp_path / "dest", "bad.avi", [(15, 30, False)])
+    src = _real_project(tmp_path / "src", {"bad.avi": UNUSABLE_POSE, "extra.avi": USABLE_POSE})
+    dest = _real_project(tmp_path / "dest", {"bad.avi": USABLE_POSE})
+    # removed after the destination was opened
+    dest.video_manager.get_cached_pose_path("bad.avi").unlink()
+
+    with caplog.at_level(logging.WARNING, logger="jabs.project.project_merge"):
+        merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    assert any("bad.avi" in r.getMessage() for r in caplog.records)
+    annotations = tmp_path / "dest" / "jabs" / "annotations"
+    assert _foo_blocks(json.loads((annotations / "bad.json").read_text())) == [(15, 30, False)]
+    assert _foo_blocks(json.loads((annotations / "extra.json").read_text())) == [(30, 40, True)]

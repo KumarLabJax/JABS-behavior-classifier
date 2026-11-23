@@ -151,12 +151,14 @@ def _merge_annotations_without_pose(
         return
 
     source_pose_path = source.video_manager.get_cached_pose_path(video)
-    destination_pose_path = get_pose_path(
-        destination.project_paths.video_dir / video, destination.project_paths.pose_dir
-    )
     try:
+        destination_pose_path = get_pose_path(
+            destination.project_paths.video_dir / video, destination.project_paths.pose_dir
+        )
         same_pose = hash_file(source_pose_path) == hash_file(destination_pose_path)
-    except OSError as e:
+    except (OSError, ValueError) as e:
+        # OSError: a pose file that cannot be read; ValueError: the destination
+        # has no pose file for the video
         logger.warning(
             "Cannot read the pose file of video %s, so its annotations are not merged: %s",
             video,
