@@ -63,6 +63,8 @@ import numpy as np
 from jabs.core.enums import PoseCapability
 from jabs.core.utils import copy_file_atomic, find_video_files
 from jabs.io.annotations import annotation_filename
+from jabs.io.internal.pose_file import PoseFileError
+from jabs.io.internal.pose_file import convert as pose_convert
 from jabs.pose_estimation import (
     PoseOpenError,
     get_pose_path,
@@ -72,6 +74,8 @@ from jabs.pose_estimation import (
     scan_pose_metadata,
     scan_raw_model_metadata,
 )
+from jabs.pose_estimation.conversion_cache import converted_path
+from jabs.pose_estimation.pose import Pose
 from jabs.project import Project
 from jabs.project.parallel_workers import PoseConversionJobSpec, convert_pose
 from jabs.project.timeline_annotations import TimelineAnnotations
@@ -997,15 +1001,32 @@ def _require_staged_poses_open(
             unified.append((video, pose_path))
 
     refused: dict[str, str] = {}
+    converted: list[tuple[str, Path, str]] = []
     with contextlib.ExitStack() as stack:
         if processes > 1 and len(jobs) > 1:
             pool = stack.enter_context(Pool(min(processes, len(jobs))))
             outcomes = pool.imap(convert_pose, jobs)
         else:
             outcomes = map(convert_pose, jobs)
-        for video, reason, _source_hash in outcomes:
+        for job, (video, reason, source_hash) in zip(jobs, outcomes, strict=True):
             if reason is not None:
                 refused[video] = reason
+            else:
+                converted.append((video, job["pose_path"], source_hash))
+    cache_dir = project.project_paths.cache_dir
+    for video, pose_path, source_hash in converted:
+        # open the conversion as the remap will (with the hash convert_pose read, so
+        # the file is not hashed again), so a Pose refusal also stops the update
+        try:
+            Pose(
+                converted_path(pose_path, source_hash, cache_dir),
+                source_path=pose_path,
+                source_hash=source_hash,
+                cache_dir=cache_dir,
+                converter_revision=pose_convert.CONVERTER_REVISION,
+            ).close()
+        except (PoseFileError, NotImplementedError, OSError, LookupError, ValueError) as exc:
+            refused[video] = str(exc)
     for video, pose_path in unified:
         try:
             with open_pose_file(pose_path, project.project_paths.cache_dir):

@@ -16,6 +16,7 @@ import jabs.scripts.cli.update_pose as update_pose
 from jabs.core.enums import PoseCapability
 from jabs.core.types import SegmentationWindow
 from jabs.core.utils import hash_file
+from jabs.io.internal.pose_file import PoseFileError
 from jabs.pose_estimation import conversion_cache
 from jabs.pose_estimation.conversion_cache import ensure_converted
 from jabs.project import TimelineAnnotations, VideoLabels
@@ -2014,3 +2015,35 @@ def test_an_update_converts_each_replacement_once(tmp_path, monkeypatch):
 
     converted = sorted(call.args[0].name for call in convert.call_args_list)
     assert converted == ["a_pose_est_v8.h5", "b_pose_est_v8.h5"]
+
+
+def test_a_conversion_pose_refuses_is_not_installed(tmp_path, monkeypatch):
+    """A replacement that converts but that Pose refuses also stops the update before applying."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video in ("a", "b"):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(_V8_POSE, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(_V8_POSE, new_pose_dir / f"{video}_pose_est_v8.h5")
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    real_pose = update_pose.Pose
+
+    def refusing_pose(pose_path, **kwargs):
+        if kwargs.get("source_path", pose_path).name.startswith("a_"):
+            raise PoseFileError(f"{pose_path}: refused by Pose")
+        return real_pose(pose_path, **kwargs)
+
+    monkeypatch.setattr(update_pose, "Pose", refusing_pose)
+    live_pose = (project_dir / "a_pose_est_v8.h5").read_bytes()
+
+    with pytest.raises(ValueError, match=r"a\.avi.*refused by Pose"):
+        update_pose.update_project_pose_in_place(
+            project_dir, new_pose_dir, min_iou=0.5, skip_feature_gen=True
+        )
+
+    assert (project_dir / "a_pose_est_v8.h5").read_bytes() == live_pose
