@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from jabs.core.utils import hash_file
+from jabs.io.internal.pose_file import PoseFileError
 from jabs.pose_estimation import PoseOpenError, conversion_cache
 from jabs.pose_estimation.conversion_cache import (
     cache_root,
@@ -346,6 +347,50 @@ def test_conversion_that_cannot_be_opened_twice_is_pose_open_error(
     assert info.value.path == legacy_v4
     assert convert.call_count == 2
     assert not converted_path(legacy_v4, hash_file(legacy_v4), cache).exists()
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        PoseFileError("uses body parts ['a']; JABS reads only the 12-keypoint mouse skeleton"),
+        ValueError("inconsistent manifest"),
+        KeyError("dimensions"),
+        NotImplementedError("unknown encoding"),
+    ],
+    ids=["pose-file-error", "value-error", "lookup-error", "not-implemented"],
+)
+def test_a_refused_conversion_is_not_converted_again(
+    legacy_v4: Path,
+    tmp_path: Path,
+    convert_spy: mock.Mock,
+    monkeypatch: pytest.MonkeyPatch,
+    refusal: Exception,
+) -> None:
+    """Pose refusing an intact conversion is final: one conversion, kept, no retry on reopen."""
+    monkeypatch.setattr(conversion_cache, "Pose", mock.Mock(side_effect=refusal))
+    cache = tmp_path / "cache"
+
+    for _ in range(2):
+        with pytest.raises(PoseOpenError) as info:
+            open_unified(legacy_v4, cache)
+        assert info.value.path == legacy_v4
+        assert info.value.__cause__ is refusal
+
+    assert convert_spy.call_count == 1
+    assert converted_path(legacy_v4, hash_file(legacy_v4), cache).exists()
+
+
+def test_a_read_error_inside_a_refusal_is_damage(
+    legacy_v4: Path, tmp_path: Path, convert_spy: mock.Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An HDF5 read error wrapped by the reader still counts as a damaged copy."""
+    wrapped = PoseFileError("/manifest is missing or unreadable")
+    wrapped.__cause__ = OSError("Can't synchronously read data")
+    pose = mock.Mock(side_effect=[wrapped, mock.sentinel.pose])
+    monkeypatch.setattr(conversion_cache, "Pose", pose)
+
+    assert open_unified(legacy_v4, tmp_path / "cache") is mock.sentinel.pose
+    assert convert_spy.call_count == 2
 
 
 def test_broken_unified_file_is_never_deleted(tmp_path: Path) -> None:

@@ -300,8 +300,10 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
     """Open a pose file as ``Pose``, converting a legacy file through the cache.
 
     The user's file is hashed once; the hash keys the conversion and is the
-    returned ``Pose.hash``. A cached conversion that cannot be opened (a
-    truncated or invalid file) is deleted and converted again, once. A unified
+    returned ``Pose.hash``. A cached conversion that cannot be read (a
+    truncated or corrupt file: an HDF5 ``OSError``) is deleted and converted
+    again, once; one ``Pose`` refuses for what it holds is kept, and the
+    refusal raised at once, since converting again would repeat it. A unified
     file is never deleted. Without ``cache_dir``, a per-user cache that cannot
     be written, or runs out of space or quota while converting, is bypassed:
     the file is converted into a temporary directory the ``Pose`` removes.
@@ -386,6 +388,25 @@ def _out_of_space(error: BaseException | None) -> bool:
     return named is not None and int(named.group(1)) in _NO_SPACE_ERRNOS
 
 
+def _is_damage(error: BaseException) -> bool:
+    """Return whether an open error means the file's bytes are damaged.
+
+    h5py reports a truncated or corrupt file, and a failed read, as an
+    ``OSError``; the reader may wrap one (a ``PoseFileError`` whose cause is
+    the ``OSError``). Any other error (a ``PoseFileError``, ``ValueError``,
+    ``LookupError`` or ``NotImplementedError`` of its own) is a refusal of
+    what the file holds, which a new conversion would repeat.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        if isinstance(current, OSError):
+            return True
+        seen.add(id(current))
+        current = current.__cause__
+    return False
+
+
 def _open_converted(path: Path, source_hash: str, cache_dir: Path | None, strict: bool) -> Pose:
     """Open a legacy file's cached conversion, converting it if missing or damaged.
 
@@ -402,7 +423,11 @@ def _open_converted(path: Path, source_hash: str, cache_dir: Path | None, strict
             converter_revision=_converter_revision(),
         )
     except _OPEN_ERRORS as error:
-        # a damaged cached copy (truncated, invalid): convert again, once
+        if not _is_damage(error):
+            # an intact conversion Pose refuses: converting again would give the
+            # same file and the same refusal, so keep it and report the refusal
+            raise PoseOpenError(path, _reason(pose_path, error)) from error
+        # a damaged cached copy (truncated, unreadable): convert again, once
         logger.warning("Cannot open conversion %s (%s); converting again", pose_path.name, error)
     _discard(pose_path)
     pose_path = ensure_converted(path, source_hash, cache_dir, strict=strict)
