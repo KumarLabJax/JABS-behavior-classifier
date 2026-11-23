@@ -54,7 +54,7 @@ STORAGE_RATIO = 2000
 MAX_ATTRIBUTE_BYTES = 16 * 2**20
 
 # The poseest datasets read in frame blocks, by pass 1, pass 2 or inspection.
-_FRAME_DATASETS = (
+FRAME_DATASETS = (
     "points",
     "confidence",
     "id_mask",
@@ -73,6 +73,61 @@ _DEEP_CHECK_COPIES = 4
 
 # The poseest datasets read whole.
 _WHOLE_DATASETS = ("instance_id_center", "external_identity_mapping")
+
+
+# The most bytes of a legacy dataset's chunk cache. A block shorter than a
+# legacy dataset's chunks would decompress each chunk once per block that
+# touches it, so the dataset is opened with a cache holding one chunk row
+# (every chunk over the chunks' frames) when that row is at most this. A larger
+# row keeps HDF5's default 1 MiB cache: slower, never unbounded.
+LEGACY_CACHE_MAX_BYTES = 2 * 2**30
+
+
+def legacy_cache_bytes(dataset: h5py.Dataset, block_frames: int) -> int:
+    """Return the chunk cache a legacy frame dataset is read with, in blocks; 0 for the default.
+
+    Args:
+        dataset: A legacy dataset read along its first axis.
+        block_frames: The frames read at a time.
+
+    Returns:
+        One chunk row's decompressed bytes when blocks split its chunks and
+        the row is at most ``LEGACY_CACHE_MAX_BYTES``; otherwise 0.
+    """
+    chunks = dataset.chunks
+    if chunks is None or dataset.shape is None or block_frames % chunks[0] == 0:
+        return 0
+    across = math.prod(-(-n // c) for n, c in zip(dataset.shape[1:], chunks[1:], strict=True))
+    row = across * math.prod(chunks) * dataset.dtype.itemsize
+    return row if row <= LEGACY_CACHE_MAX_BYTES else 0
+
+
+def open_cached(group: h5py.Group, name: str, block_frames: int) -> h5py.Dataset:
+    """Open a legacy frame dataset with the chunk cache ``legacy_cache_bytes`` gives it.
+
+    HDF5 shares one open dataset, and its cache, among every handle to it, so
+    a caller holds the returned handle while it reads the dataset in blocks;
+    other handles opened meanwhile, like ``group[name]``, use the same cache.
+
+    Args:
+        group: The group holding the dataset.
+        name: Its name in the group.
+        block_frames: The frames read at a time.
+
+    Returns:
+        The dataset.
+    """
+    dataset = group[name]
+    nbytes = legacy_cache_bytes(dataset, block_frames)
+    if not nbytes:
+        return dataset
+    chunks = nbytes // (math.prod(dataset.chunks) * dataset.dtype.itemsize)
+    access = h5py.h5p.create(h5py.h5p.DATASET_ACCESS)
+    # One slot a chunk at least: a chunk row is a run of consecutive chunk
+    # indices, so a table at least that long has no collisions within it.
+    access.set_chunk_cache(2 * chunks + 1, nbytes, 0.75)
+    del dataset
+    return h5py.Dataset(h5py.h5d.open(group.id, name.encode(), dapl=access))
 
 
 # The converted dense contours' axes, which decide their chunk shape.
@@ -152,6 +207,9 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     the dataset's chunk cache (h5py's default, 1 MiB) is not kept after its
     read, so two large chunks are never decompressed at once.
 
+    And it adds every frame dataset's chunk cache (``legacy_cache_bytes``):
+    one chunk row where blocks are shorter than the dataset's chunks.
+
     Args:
         h5: The open legacy file; only shapes and dtypes are read.
         identity: The identity count, or a lower bound for it.
@@ -181,7 +239,7 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     per_frame = max(planning, checking)
 
     block = 0
-    for name in _FRAME_DATASETS:
+    for name in FRAME_DATASETS:
         dataset = pose.get(name)
         if not isinstance(dataset, h5py.Dataset) or dataset.ndim < 2:
             continue
@@ -203,15 +261,22 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
         checking_block = _DEEP_CHECK_COPIES * min(block, dense)
 
     whole = sum(_whole_bytes(pose.get(name)) for name in _WHOLE_DATASETS)
-    read = [pose.get(name) for name in (*_FRAME_DATASETS, *_WHOLE_DATASETS)]
+    read = [pose.get(name) for name in (*FRAME_DATASETS, *_WHOLE_DATASETS)]
     for root in ("static_objects", "dynamic_objects"):
         group = h5.get(root)
         if isinstance(group, h5py.Group):
             whole += _group_bytes(group)
             read.extend(_group_datasets(group))
     chunk = max((_chunk_bytes(dataset) for dataset in read), default=0)
+    # The chunk caches of the frame datasets read in blocks, all of which may
+    # be open at once while the plan reads them.
+    cache = sum(
+        legacy_cache_bytes(dataset, block_frames)
+        for dataset in read[: len(FRAME_DATASETS)]
+        if isinstance(dataset, h5py.Dataset)
+    )
 
-    return frames * per_frame + max(writing, checking_block) + whole + chunk
+    return frames * per_frame + max(writing, checking_block) + whole + chunk + cache
 
 
 def require_memory(path: Path, estimate: int, max_memory: int) -> None:

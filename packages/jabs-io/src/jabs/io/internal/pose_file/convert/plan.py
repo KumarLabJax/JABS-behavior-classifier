@@ -19,6 +19,7 @@ import numpy.typing as npt
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout
+from jabs.io.internal.pose_file.convert.memory import open_cached
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,8 @@ def plan_placement(
     contours = layout.contour_axis
     _check_extents(layout)
 
-    seg = pose["seg_data"] if layout.has_segmentation else None
+    # Held for the whole pass, so its chunk cache outlives each block's read.
+    seg = open_cached(pose, "seg_data", block_frames) if layout.has_segmentation else None
     track = pose["instance_track_id"] if layout.has_tracklets else None
     longterm = pose.get("longterm_seg_id")
 

@@ -21,6 +21,8 @@ from jabs.io.internal.pose_file.convert.memory import (
     STORAGE_RATIO_FLOOR,
     contour_chunk_frames,
     estimate_memory,
+    legacy_cache_bytes,
+    open_cached,
 )
 
 from .conftest import generator, legacy
@@ -356,7 +358,9 @@ def test_the_estimate_counts_the_largest_chunk(tmp_path: Path) -> None:
     _declare(small, frames=900)
     _declare(big, frames=900, edits=_one_big_chunk)
 
-    assert _estimate(big) - _estimate(small) == _BIG_CHUNK - _POINTS_CHUNK
+    # Read in 900-frame blocks, the big chunk is also held in the points'
+    # chunk cache (one chunk row), so it counts twice.
+    assert _estimate(big) - _estimate(small) == 2 * _BIG_CHUNK - _POINTS_CHUNK
 
 
 def test_the_estimate_counts_an_object_dataset_chunk(tmp_path: Path) -> None:
@@ -392,3 +396,76 @@ def test_one_huge_compressible_chunk_is_refused(tmp_path: Path) -> None:
     assert "estimated" in message
     assert f"({cap} bytes)" in message
     assert peak < _SMALL_PEAK
+
+
+def _wide_legacy(path: Path, chunk_frames: int = 113) -> None:
+    """Declare legacy contours with a real wide file's shape and chunks, unwritten."""
+
+    def wide(pose: h5py.Group) -> None:
+        pose.create_dataset(
+            "seg_data",
+            shape=(1800, 5, 79, 5923, 2),
+            dtype=np.int16,
+            chunks=(chunk_frames, 1, 5, 371, 1),
+            compression="gzip",
+        )
+
+    _declare(path, frames=1800, instances=5, edits=wide)
+
+
+# One legacy chunk row of _wide_legacy's seg_data: every chunk over 113 frames.
+_WIDE_CHUNK_ROW = (5 * 16 * 16 * 2) * (113 * 5 * 371) * 2
+
+
+def test_a_block_shorter_than_the_legacy_chunks_caches_one_chunk_row(tmp_path: Path) -> None:
+    """Read in blocks shorter than its chunks, a legacy chunk row is cached, not re-read per block.
+
+    Without it each 11-frame block decompressed every 113-frame chunk it
+    touched again: 3.4 times the reading of a real wide file.
+    """
+    src = tmp_path / "wide.h5"
+    _wide_legacy(src)
+    with h5py.File(src, "r") as h5:
+        pose = h5["poseest"]
+        assert legacy_cache_bytes(pose["seg_data"], 11) == _WIDE_CHUNK_ROW
+        # Whole chunk rows per block re-read nothing, and contiguous data has no chunks.
+        assert legacy_cache_bytes(pose["seg_data"], 226) == 0
+        seg = open_cached(pose, "seg_data", 11)
+        nslots, nbytes, _ = seg.id.get_access_plist().get_chunk_cache()
+        assert nbytes == _WIDE_CHUNK_ROW
+        assert nslots >= 5 * 16 * 16 * 2
+
+
+def test_a_legacy_chunk_row_too_large_to_cache_is_not_cached(tmp_path: Path) -> None:
+    """A chunk row above the cap is read with HDF5's default cache: slower, never unbounded."""
+
+    def huge(pose: h5py.Group) -> None:
+        pose.create_dataset(
+            "seg_data",
+            shape=(900, 4, 100, 1_000_000, 2),
+            dtype=np.int32,
+            chunks=(900, 1, 1, 1000, 2),
+            compression="gzip",
+        )
+
+    src = tmp_path / "huge.h5"
+    _declare(src, frames=900, edits=huge)
+    with h5py.File(src, "r") as h5:
+        assert legacy_cache_bytes(h5["poseest/seg_data"], 1) == 0
+
+
+def test_the_estimate_counts_the_legacy_chunk_cache(tmp_path: Path) -> None:
+    """The cache is native memory tracemalloc cannot see, so the estimate adds it.
+
+    Legacy chunks of 11 frames are whole per 11-frame block and need no
+    cache; of 113 frames they need one chunk row. Nothing else differs: the
+    largest chunk read is the points' either way.
+    """
+    aligned, split = tmp_path / "aligned.h5", tmp_path / "split.h5"
+    _wide_legacy(aligned, chunk_frames=11)
+    _wide_legacy(split)
+    estimates = {}
+    for path in (aligned, split):
+        with h5py.File(path, "r") as h5:
+            estimates[path] = estimate_memory(h5, identity=5, block_frames=11)
+    assert estimates[split] - estimates[aligned] == _WIDE_CHUNK_ROW

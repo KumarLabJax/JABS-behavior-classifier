@@ -27,6 +27,7 @@ import numpy.typing as npt
 from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
+from jabs.io.internal.pose_file.convert.memory import FRAME_DATASETS, open_cached
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12
 from jabs.io.internal.pose_file.types import Component
@@ -234,6 +235,13 @@ def _placed_source(
         """Yield the slot-major blocks, opening the legacy file for their duration."""
         with h5py.File(path, "r") as h5:
             pose = h5["poseest"]
+            # Held while the blocks are read, so each dataset's chunk cache
+            # outlives the reads of one block; ``read`` opens them by name.
+            held = [  # noqa: F841
+                open_cached(pose, name, block_frames)
+                for name in FRAME_DATASETS
+                if isinstance(pose.get(name), h5py.Dataset)
+            ]
             for start in range(0, shape[0], block_frames):
                 stop = min(start + block_frames, shape[0])
                 slot_of = plan.slot_of[start:stop]
