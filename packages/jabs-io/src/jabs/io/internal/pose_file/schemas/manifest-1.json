@@ -88,6 +88,7 @@
     },
     "dtype": {
       "enum": [
+        "float16",
         "float32",
         "float64",
         "int8",
@@ -465,6 +466,7 @@
             "properties": {
               "dtype": {
                 "enum": [
+                  "float16",
                   "float32",
                   "float64"
                 ]
@@ -542,6 +544,30 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "pattern": "^jabs\\.embedding\\."
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "embedding"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "embedding"
+              ]
+            }
+          }
         }
       ],
       "properties": {
@@ -611,8 +637,129 @@
             "$ref": "#/$defs/alternate"
           }
         },
+        "embedding": {
+          "$ref": "#/$defs/embedding"
+        },
         "extra": {
           "type": "object"
+        }
+      }
+    },
+    "embedding": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "dim",
+        "model",
+        "tap",
+        "pooling",
+        "window",
+        "normalization",
+        "projection",
+        "fingerprint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$"
+        },
+        "kind": {
+          "enum": [
+            "instance",
+            "frame"
+          ]
+        },
+        "dim": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "model": {
+          "type": "object",
+          "required": [
+            "name",
+            "weights"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "weights": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "tap": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pooling": {
+          "type": "string",
+          "minLength": 1
+        },
+        "window": {
+          "type": "object",
+          "required": [
+            "before",
+            "after"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "before": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "after": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "normalization": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projection": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "input_dim",
+                "basis"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "input_dim": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       }
     },
@@ -675,6 +822,7 @@
             "properties": {
               "dtype": {
                 "enum": [
+                  "float16",
                   "float32",
                   "float64"
                 ]

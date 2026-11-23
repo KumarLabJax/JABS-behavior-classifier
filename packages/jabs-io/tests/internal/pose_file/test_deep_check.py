@@ -11,6 +11,7 @@ the same fixture one instance at a time, exactly as the ADR spells it out, so
 the two are independent implementations checking each other.
 """
 
+import dataclasses
 import importlib
 import json
 import shutil
@@ -22,7 +23,15 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from jabs.io.internal.pose_file import Finding, validate
+from jabs.io.internal.pose_file import (
+    Finding,
+    PoseFile,
+    VideoInfo,
+    validate,
+    write_pose_file,
+)
+
+from .conftest import build_embedding_component, build_pose_file_with_embeddings
 
 # The package re-exports the function under the module's name, so reach the
 # module itself to patch it.
@@ -567,3 +576,217 @@ def test_a_non_canonical_path_is_an_error(
     _rewrite_manifest(path, mutate)
     errors = _checks(validate(path), "error")
     assert "path_canonical" in {f.check for f in errors}
+
+
+# --- Embedding rows: each row is a whole vector or all-NaN ------------------
+
+EMBEDDING_INSTANCE = "jabs.embedding.trunk.instance"
+
+
+def _row_errors(path: Path, check: str) -> list[Finding]:
+    """The deep check's errors of one embedding row rule."""
+    return [f for f in validate(path, deep=True) if f.severity == "error" and f.check == check]
+
+
+def test_deep_check_reads_float16_in_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rows are read a block at a time, and a bad row in the last, partial block is named.
+
+    With ten frames and three per block, frame 9 is alone in the fourth block,
+    so a message naming frame 0 would mean the block offset was dropped, and a
+    check that stopped at the last whole block would miss it.
+    """
+    # One frame of the D=8 float16 frame embedding costs 8 * (2 + 1) = 24 bytes
+    # (payload plus NaN mask), so a 72-byte budget reads three frames at a time.
+    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 72)
+    component = build_embedding_component("trunk", "frame", frames=10)
+    rows = np.array(component.data, copy=True)
+    assert rows.dtype == np.float16
+    rows[9, 2] = np.nan
+    pose_file = PoseFile(
+        dimensions={"frame": 10, "slot": 1, "identity": 1},
+        video=VideoInfo(frame_count=10),
+        components=(dataclasses.replace(component, data=rows),),
+    )
+    path = tmp_path / "blocks.h5"
+    write_pose_file(pose_file, path)
+    assert _checks(validate(path), "error") == []
+
+    payload_path = component.path
+    reads: list[object] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(self: h5py.Dataset, key: object) -> object:
+        if self.name == payload_path:
+            reads.append(key)
+        return original_getitem(self, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    errors = _row_errors(path, "embedding_rows_whole")
+
+    assert len(errors) == 1
+    assert "jabs.embedding.trunk.frame" in errors[0].message
+    assert "frame 9" in errors[0].message
+    # Only the row check reads the payload, and only in bounded frame slices.
+    assert all(isinstance(key, tuple) and isinstance(key[0], slice) for key in reads), reads
+    spans = [range(10)[key[0]] for key in reads]
+    assert all(len(span) <= 3 for span in spans), reads
+    assert sorted(frame for span in spans for frame in span) == list(range(10))
+
+
+def test_deep_check_slices_the_feature_axis_when_one_frame_exceeds_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A declared shape wider than the budget is read a feature slice at a time, not whole.
+
+    One frame of the D=8 float16 frame embedding costs 24 bytes with its mask;
+    a 9-byte budget fits three features, so each read covers one frame and at
+    most three features, and a NaN in the last feature is still counted.
+    """
+    monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 9)
+    component = build_embedding_component("trunk", "frame", frames=4)
+    rows = np.array(component.data, copy=True)
+    rows[2, 7] = np.nan
+    pose_file = PoseFile(
+        dimensions={"frame": 4, "slot": 1, "identity": 1},
+        video=VideoInfo(frame_count=4),
+        components=(dataclasses.replace(component, data=rows),),
+    )
+    path = tmp_path / "wide.h5"
+    write_pose_file(pose_file, path)
+
+    payload_path = component.path
+    reads: list[tuple] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(self: h5py.Dataset, key: object) -> object:
+        if self.name == payload_path:
+            reads.append(key)
+        return original_getitem(self, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    errors = _row_errors(path, "embedding_rows_whole")
+
+    assert len(errors) == 1
+    assert "frame 2" in errors[0].message
+    assert "1 of 8" in errors[0].message
+    assert reads, "the payload was never read"
+    for key in reads:
+        frames, features = range(4)[key[0]], range(8)[key[-1]]
+        assert len(frames) == 1 and len(features) <= 3, key
+
+
+def test_deep_check_reports_an_unreadable_embedding_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row block that cannot be read is an error finding, not an exception."""
+    pose_file = build_pose_file_with_embeddings()
+    path = tmp_path / "unreadable.h5"
+    write_pose_file(pose_file, path)
+    assert _checks(validate(path, deep=True), "error") == []
+
+    payload_path = pose_file.component(EMBEDDING_INSTANCE).path
+    original_getitem = h5py.Dataset.__getitem__
+
+    def failing_getitem(self: h5py.Dataset, key: object) -> object:
+        if self.name == payload_path:
+            raise OSError("Can't synchronously read data (corrupt chunk)")
+        return original_getitem(self, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", failing_getitem)
+    errors = _checks(validate(path, deep=True), "error")
+
+    assert [f.check for f in errors] == ["file_readable"]
+    assert EMBEDDING_INSTANCE in errors[0].message
+    assert "corrupt chunk" in errors[0].message
+
+
+def _with_instance_rows(
+    pose_file: PoseFile, edit: Callable[[npt.NDArray[np.float16]], None]
+) -> PoseFile:
+    """The pose file with its trunk.instance rows edited in place on a copy."""
+    rows = np.array(pose_file.component(EMBEDDING_INSTANCE).data, copy=True)
+    edit(rows)
+    return dataclasses.replace(
+        pose_file,
+        components=tuple(
+            dataclasses.replace(c, data=rows) if c.id == EMBEDDING_INSTANCE else c
+            for c in pose_file.components
+        ),
+    )
+
+
+def _fill_empty_slot(rows: npt.NDArray[np.float16]) -> None:
+    """Store a vector at slot (0, 1), which the builder leaves unoccupied."""
+    rows[0, 1] = 1.0
+
+
+def test_instance_embedding_without_slot_occupied_is_not_checked(tmp_path: Path) -> None:
+    """Without jabs.pose.slot_occupied, nothing says which slots are empty.
+
+    So no row is held to the unoccupied-slot rule.
+    """
+    with_vector = _with_instance_rows(build_pose_file_with_embeddings(), _fill_empty_slot)
+    without_occupancy = dataclasses.replace(
+        with_vector,
+        components=tuple(c for c in with_vector.components if c.id != "jabs.pose.slot_occupied"),
+    )
+    path = tmp_path / "no-occupancy.h5"
+    write_pose_file(without_occupancy, path)
+
+    assert _checks(validate(path, deep=True), "error") == []
+
+
+def test_a_vector_in_an_unoccupied_slot_is_an_error(tmp_path: Path) -> None:
+    """The same rows, with slot_occupied present, break the unoccupied-slot rule."""
+    pose_file = _with_instance_rows(build_pose_file_with_embeddings(), _fill_empty_slot)
+    path = tmp_path / "occupancy.h5"
+    write_pose_file(pose_file, path)
+
+    assert _checks(validate(path), "error") == []
+    errors = _row_errors(path, "embedding_unoccupied_nan")
+    assert len(errors) == 1
+    assert EMBEDDING_INSTANCE in errors[0].message
+    assert "frame 0, slot 1" in errors[0].message
+
+
+def test_many_bad_rows_give_one_finding_naming_the_first(tmp_path: Path) -> None:
+    """One finding per component and rule, naming the first offending row."""
+
+    def damage(rows: npt.NDArray[np.float16]) -> None:
+        rows[2, 1, 0] = np.nan
+        rows[3, 0, 5] = np.nan
+
+    pose_file = _with_instance_rows(build_pose_file_with_embeddings(), damage)
+    path = tmp_path / "many.h5"
+    write_pose_file(pose_file, path)
+
+    errors = _row_errors(path, "embedding_rows_whole")
+    assert len(errors) == 1
+    assert "frame 2, slot 1" in errors[0].message
+
+
+def test_embedding_rows_are_checked_only_when_asked(tmp_path: Path) -> None:
+    """Reading every vector costs as much as the payload, so it waits for deep=True."""
+    path = _copy(tmp_path, DATA / "invalid-embedding-partial-nan.h5")
+    assert not any(f.check == "embedding_rows_whole" for f in validate(path))
+    assert _row_errors(path, "embedding_rows_whole")
+
+
+def test_an_unusable_slot_occupied_skips_the_occupancy_rule(tmp_path: Path) -> None:
+    """A slot_occupied of the wrong shape is a structural error, not a crash here."""
+    path = _copy(tmp_path, DATA / "invalid-embedding-unoccupied.h5")
+    _replace(path, "/jabs/pose/slot_occupied", np.ones((2, 2), dtype=bool))
+    findings = validate(path, deep=True)
+    assert _checks(findings, "error")
+    assert not any(f.check == "embedding_unoccupied_nan" for f in findings)
+
+
+def test_an_embedding_of_the_wrong_rank_is_not_read(tmp_path: Path) -> None:
+    """The structural pass reports the shape; the row check skips what it cannot index."""
+    path = _copy(tmp_path, DATA / "invalid-embedding-partial-nan.h5")
+    _replace(path, "/jabs/embedding/trunk/instance", np.full((8,), np.nan, dtype=np.float16))
+    findings = validate(path, deep=True)
+    assert _checks(findings, "error")
+    assert not any(f.check == "embedding_rows_whole" for f in findings)

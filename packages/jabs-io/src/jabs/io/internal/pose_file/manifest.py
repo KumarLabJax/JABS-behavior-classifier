@@ -138,6 +138,8 @@ def _component_entry(component: Component, layouts: dict[str, dict]) -> dict:
         entry["extra"] = dict(component.extra)
     if component.sparse_index is not None:
         entry["sparse"] = {"index": component.sparse_index}
+    if component.embedding is not None:
+        entry["embedding"] = component.embedding.to_json()
     layout = layouts.get(component.id)
     resolved_layout = layout if layout is not None else component.layout
     if resolved_layout is not None:

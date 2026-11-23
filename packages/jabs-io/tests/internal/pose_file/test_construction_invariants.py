@@ -4,6 +4,7 @@ The typed objects refuse what the validator would reject, so the writer cannot e
 it; the validator applies the same rules to files another producer wrote.
 """
 
+import dataclasses
 import json
 
 import h5py
@@ -17,6 +18,9 @@ from jabs.io.internal.pose_file import (
     validate,
     write_pose_file,
 )
+from jabs.io.internal.pose_file.blocks import BlockSource
+
+from .conftest import build_embedding_component
 
 
 def _rewrite_manifest(path, mutate):
@@ -301,3 +305,68 @@ def test_a_valid_length_reference_is_accepted():
         components=(payload, counts),
     )
     assert pose_file.component("org.example.lab.values").missing["policy"] == "length"
+
+
+def _fields_with(component: Component, **changes: object) -> dict:
+    """Return a component's constructor arguments with some replaced."""
+    fields = {f.name: getattr(component, f.name) for f in dataclasses.fields(component)}
+    fields.update(changes)
+    return fields
+
+
+_EMBEDDING = build_embedding_component()
+
+
+@pytest.mark.parametrize(
+    ("changes", "match"),
+    [
+        pytest.param(
+            {"id": "jabs.embedding.trunk.extra"},
+            "invalid embedding component id",
+            id="malformed-id",
+        ),
+        pytest.param({"embedding": None}, "must carry its descriptor", id="no-descriptor"),
+        pytest.param(
+            {"id": "org.example.lab.x"}, "only jabs.embedding", id="descriptor-outside-namespace"
+        ),
+        pytest.param(
+            {"embedding": dataclasses.replace(_EMBEDDING.embedding, name="blk31")},
+            "the id says",
+            id="name-mismatch",
+        ),
+        pytest.param(
+            {"embedding": dataclasses.replace(_EMBEDDING.embedding, kind="frame")},
+            "the id says",
+            id="kind-mismatch",
+        ),
+        pytest.param({"axes": ("frame", "slot", "embedding")}, "has axes", id="axes"),
+        pytest.param(
+            {"data": np.zeros((4, 2, 7), dtype=np.float16)}, "descriptor's dim", id="dim-mismatch"
+        ),
+        pytest.param(
+            {"data": np.zeros((4, 2, 8), dtype=np.float64)},
+            "embedding must be one of",
+            id="float64",
+        ),
+        pytest.param({"missing": {"policy": "none"}}, "missing policy", id="missing-none"),
+    ],
+)
+def test_embedding_component_rules(changes, match):
+    """An embedding component must agree with its id and descriptor, and nothing else has one."""
+    with pytest.raises(ValueError, match=match):
+        Component(**_fields_with(_EMBEDDING, **changes))
+
+
+def test_an_embedding_component_constructs():
+    """The unmodified builder output is valid, so each rule case isolates one fault."""
+    assert Component(**_fields_with(_EMBEDDING)).embedding == _EMBEDDING.embedding
+
+
+def test_embedding_rules_read_a_block_source_shape():
+    """The dim check reads a block source's declared shape, not its blocks."""
+
+    def never() -> object:
+        raise AssertionError("blocks must not be read at construction")
+
+    with pytest.raises(ValueError, match="descriptor's dim"):
+        Component(**_fields_with(_EMBEDDING, data=BlockSource((4, 2, 7), "float16", never)))

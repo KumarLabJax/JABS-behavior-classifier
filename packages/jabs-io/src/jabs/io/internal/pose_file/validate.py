@@ -26,6 +26,14 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
+from jabs.io.internal.pose_file.embeddings import (
+    EMBEDDING_AXES,
+    EMBEDDING_DTYPES,
+    compute_fingerprint,
+    is_embedding_id,
+    paired_field_differences,
+    parse_embedding_id,
+)
 from jabs.io.internal.pose_file.hdf5_safety import check_self_contained
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
@@ -53,6 +61,8 @@ VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
 # full-size baseline (tens of gigabytes for the worst legacy segmentation) never
 # sits in memory at once. A block is at least one frame.
 DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
+
+_SLOT_OCCUPIED = "jabs.pose.slot_occupied"
 
 # The alternates this revision defines, by name and component, with the level
 # each must declare. The deep check can decode exactly these.
@@ -628,6 +638,143 @@ def _check_ragged_pairing(manifest: dict, findings: list[Finding]) -> None:
                     "ragged_group_pairing",
                     f"{label}: a group-level ragged payload must name the same two offset "
                     "datasets as a leaf-level one in this file",
+                )
+            )
+
+
+def _descriptor_non_integers(descriptor: dict) -> list[str]:
+    """The descriptor's integer fields that hold a float or a bool.
+
+    JSON Schema counts ``9.0`` as an integer, but it serializes, and so
+    hashes, differently from ``9``. The schema already rejects a bool; it is
+    listed here too so the rule does not depend on that.
+
+    Args:
+        descriptor: A schema-validated embedding descriptor.
+
+    Returns:
+        The offending fields' dotted names, in a fixed order.
+    """
+    window = descriptor["window"]
+    integers = {
+        "dim": descriptor["dim"],
+        "window.before": window["before"],
+        "window.after": window["after"],
+    }
+    projection = descriptor["projection"]
+    if projection is not None:
+        integers["projection.input_dim"] = projection["input_dim"]
+    return [label for label, value in integers.items() if isinstance(value, bool | float)]
+
+
+def _check_embeddings(manifest: dict, findings: list[Finding]) -> None:
+    """Validate every component in the ``jabs.embedding.`` namespace.
+
+    The schema guarantees each such component carries a descriptor; these
+    rules check that the descriptor's integers are real integers, that it
+    agrees with the id, the payload and its own fingerprint, and that an
+    embedding's ``.instance`` and ``.frame``
+    components describe the same vectors. A component whose id does not
+    parse reports only that: its name and kind are unknown, so nothing else
+    about it can be checked against them.
+
+    Args:
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_name: dict[str, dict[str, dict]] = {}
+    for spec in manifest["components"]:
+        component_id = spec["id"]
+        if not is_embedding_id(component_id):
+            continue
+        parsed = parse_embedding_id(component_id)
+        if parsed is None:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_id_shape",
+                    f"{component_id}: an embedding id must be "
+                    "jabs.embedding.<name>.instance or jabs.embedding.<name>.frame",
+                )
+            )
+            continue
+        name, kind = parsed
+        descriptor = spec["embedding"]
+
+        expected_axes = list(EMBEDDING_AXES[kind])
+        if list(spec["axes"]) != expected_axes:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_axes",
+                    f"{component_id}: a {kind} embedding has axes {expected_axes}, "
+                    f"not {spec['axes']}",
+                )
+            )
+
+        feature_length = spec["shape"][-1] if spec["shape"] else None
+        names_differ = (descriptor["name"], descriptor["kind"]) != (name, kind)
+        if names_differ or descriptor["dim"] != feature_length:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_descriptor_matches",
+                    f"{component_id}: descriptor says {descriptor['name']}.{descriptor['kind']} "
+                    f"with dim {descriptor['dim']}, but the id is {name}.{kind} and the feature "
+                    f"axis is {feature_length}",
+                )
+            )
+
+        if spec["dtype"] not in EMBEDDING_DTYPES or spec["missing"] != {"policy": "nan"}:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_storage",
+                    f"{component_id}: an embedding is stored as one of "
+                    f"{sorted(EMBEDDING_DTYPES)} with missing policy nan, not {spec['dtype']} "
+                    f"with {spec['missing']}",
+                )
+            )
+
+        mistyped = _descriptor_non_integers(descriptor)
+        if mistyped:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_descriptor_types",
+                    f"{component_id}: {mistyped} must be integers, written without a decimal "
+                    "point, so the descriptor has one canonical form",
+                )
+            )
+        else:
+            # A mistyped descriptor has no canonical form, so its fingerprint
+            # is not checked: the type finding already says what to fix.
+            computed = compute_fingerprint(descriptor)
+            if computed != descriptor["fingerprint"]:
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "embedding_fingerprint",
+                        f"{component_id}: fingerprint is {descriptor['fingerprint']}, but the "
+                        f"descriptor hashes to {computed}",
+                    )
+                )
+
+        # A duplicate id overwrites the earlier entry here; component_id_unique
+        # already reports the duplicate.
+        by_name.setdefault(name, {})[kind] = descriptor
+
+    for name, kinds in sorted(by_name.items()):
+        if len(kinds) < 2:
+            continue
+        differing = paired_field_differences(kinds["instance"], kinds["frame"])
+        if differing:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "embedding_pair_consistent",
+                    f"jabs.embedding.{name}: the instance and frame descriptors differ in "
+                    f"{differing}, so they do not describe the same vectors",
                 )
             )
 
@@ -1730,6 +1877,180 @@ def _compare_segmentation_alternate(
             return
 
 
+def _embedding_rows_node(h5: h5py.File, spec: dict, kind: str) -> h5py.Dataset | None:
+    """An embedding's payload, or None when the row check cannot index it.
+
+    The structural pass reports a missing payload, a wrong rank or a dtype
+    other than float; the deep check skips such a component rather than raise.
+    """
+    node = h5.get(spec["path"])
+    if not isinstance(node, h5py.Dataset):
+        return None
+    if node.ndim != len(EMBEDDING_AXES[kind]) or node.dtype.kind != "f":
+        return None
+    return node
+
+
+def _slot_occupied_node(
+    h5: h5py.File, by_id: dict[str, dict], frame_slot_shape: tuple[int, ...]
+) -> h5py.Dataset | None:
+    """``jabs.pose.slot_occupied`` when present and usable against an instance embedding."""
+    spec = by_id.get(_SLOT_OCCUPIED)
+    if spec is None:
+        return None
+    node = h5.get(spec["path"])
+    if not isinstance(node, h5py.Dataset):
+        return None
+    if node.shape != frame_slot_shape or node.dtype != np.bool_:
+        return None
+    return node
+
+
+def _row_position(index: tuple[int, ...], first: int) -> str:
+    """Name a row by its absolute frame, and its slot for a per-instance row."""
+    frame = first + int(index[0])
+    if len(index) == 1:
+        return f"frame {frame}"
+    return f"frame {frame}, slot {int(index[1])}"
+
+
+def _embedding_read_plan(shape: tuple[int, ...], itemsize: int) -> tuple[int, int]:
+    """How many frames, and how many features at a time, one deep-check read covers.
+
+    Each element costs its own bytes plus one byte of NaN mask. Whole frames
+    are read while they fit ``DEEP_CHECK_BLOCK_BYTES``; when a single frame
+    does not, one frame is read a slice of the feature axis at a time.
+
+    Args:
+        shape: The embedding payload's shape; ``frame`` first, ``feature`` last.
+        itemsize: Bytes per payload element.
+
+    Returns:
+        ``(frames_per_block, features_per_slice)``, each at least 1.
+    """
+    rows_per_frame = max(1, int(np.prod(shape[1:-1], dtype=np.int64)))
+    dim = max(1, int(shape[-1]))
+    element_bytes = itemsize + 1
+    frame_bytes = rows_per_frame * dim * element_bytes
+    if frame_bytes <= DEEP_CHECK_BLOCK_BYTES:
+        return max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes), dim
+    return 1, max(1, DEEP_CHECK_BLOCK_BYTES // (rows_per_frame * element_bytes))
+
+
+def _nan_counts(node: h5py.Dataset, first: int, last: int, step: int) -> np.ndarray:
+    """Count NaN features per row for frames ``[first, last)``, reading ``step`` features at a time.
+
+    Args:
+        node: The embedding payload.
+        first: First frame.
+        last: One past the last frame.
+        step: Features per read.
+
+    Returns:
+        Counts with the payload's shape minus the feature axis.
+    """
+    dim = node.shape[-1]
+    counts = np.zeros((last - first, *node.shape[1:-1]), dtype=np.int64)
+    for start in range(0, dim, step):
+        piece = np.asarray(node[first:last, ..., start : min(dim, start + step)])
+        counts += np.isnan(piece).sum(axis=-1)
+    return counts
+
+
+def _check_embedding_rows(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
+    """The opt-in deep check on embedding rows.
+
+    A row (the last axis is the feature axis) is either a whole vector or
+    all-NaN, which is how a producer records a vector it did not compute. For
+    a ``.instance`` embedding, a slot that ``jabs.pose.slot_occupied`` marks
+    empty has no vector, so its row must be all-NaN. Without
+    ``slot_occupied`` nothing says which slots are empty, and that rule is
+    skipped.
+
+    Each embedding is read in pieces of at most ``DEEP_CHECK_BLOCK_BYTES``
+    (payload plus its NaN mask): whole frames when they fit, and a frame's
+    feature axis in slices when one frame alone exceeds the budget, so the
+    declared shape of an untrusted file cannot force a large allocation. Only
+    components whose id parses are read, and only payloads the structural
+    pass could index; each rule reports at most one finding per component,
+    naming the first offending row. A block that cannot be read (a corrupt
+    chunk) is reported as ``file_readable`` and ends that component's check.
+
+    Args:
+        h5: The open file.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    by_id = {c["id"]: c for c in manifest["components"]}
+    for spec in manifest["components"]:
+        component_id = spec["id"]
+        if not is_embedding_id(component_id):
+            continue
+        parsed = parse_embedding_id(component_id)
+        if parsed is None:
+            continue
+        kind = parsed[1]
+        node = _embedding_rows_node(h5, spec, kind)
+        if node is None:
+            continue
+        occupied_node = (
+            _slot_occupied_node(h5, by_id, node.shape[:2]) if kind == "instance" else None
+        )
+
+        block, step = _embedding_read_plan(node.shape, node.dtype.itemsize)
+        dim = node.shape[-1]
+        rows_whole, unoccupied_nan = True, occupied_node is not None
+        for first in range(0, node.shape[0], block):
+            last = min(node.shape[0], first + block)
+            try:
+                nan_count = _nan_counts(node, first, last, step)
+                empty = (
+                    ~np.asarray(occupied_node[first:last])
+                    if unoccupied_nan and occupied_node is not None
+                    else None
+                )
+            except OSError as error:
+                # A corrupt chunk is a malformed file, which validate() reports
+                # rather than raises on. Later blocks may be readable, but one
+                # finding per component says enough.
+                findings.append(
+                    Finding(
+                        ERROR,
+                        "file_readable",
+                        f"{component_id}: frames {first} to {last - 1} cannot be read: {error}",
+                    )
+                )
+                break
+            if rows_whole:
+                partial = np.argwhere((nan_count != 0) & (nan_count != dim))
+                if partial.size:
+                    index = tuple(partial[0])
+                    findings.append(
+                        Finding(
+                            ERROR,
+                            "embedding_rows_whole",
+                            f"{component_id}: the row at {_row_position(index, first)} has "
+                            f"{int(nan_count[index])} of {dim} features NaN; a row is a whole "
+                            "vector or all-NaN",
+                        )
+                    )
+                    rows_whole = False
+            if empty is not None:
+                stored = np.argwhere(empty & (nan_count != dim))
+                if stored.size:
+                    findings.append(
+                        Finding(
+                            ERROR,
+                            "embedding_unoccupied_nan",
+                            f"{component_id}: {_row_position(tuple(stored[0]), first)} is "
+                            "unoccupied in jabs.pose.slot_occupied but its row is not all-NaN",
+                        )
+                    )
+                    unoccupied_nan = False
+            if not (rows_whole or unoccupied_nan):
+                break
+
+
 def validate(
     path: str | Path, *, deep: bool = False, require_decoded: bool = False
 ) -> list[Finding]:
@@ -1740,9 +2061,12 @@ def validate(
     Args:
         path: The file to validate.
         deep: Also run ADR 0002's opt-in deep check: decode every alternate
-            and compare it with its baseline, per ``(frame, slot)``. It reads
-            the baseline in full, so it costs as much as reading the payload.
-            A tool that writes or ingests alternates runs it; a reader need not.
+            and compare it with its baseline, per ``(frame, slot)``, and read
+            every embedding row to check that each is a whole vector or
+            all-NaN, and all-NaN wherever ``jabs.pose.slot_occupied`` marks
+            the slot empty. It reads the baseline and the embeddings in full,
+            so it costs as much as reading the payload. A tool that writes or
+            ingests alternates or embeddings runs it; a reader need not.
         require_decoded: With ``deep``, report an alternate the deep check
             cannot decode -- an encoding this revision does not define, or a
             file whose errors stop decoding -- as an error rather than a
@@ -1779,11 +2103,15 @@ def validate(
         _check_ragged_pairing(manifest, findings)
         _check_ragged_offsets_pairing(manifest, findings)
         _check_paths_canonical(manifest, findings)
+        _check_embeddings(manifest, findings)
         for spec in manifest["components"]:
             _check_component(h5, spec, manifest, provenance_records, findings)
             _check_alternates(h5, spec, manifest, findings)
         _check_contour_count(h5, manifest, findings)
         if deep:
+            # After the alternates: their decode stops on any earlier error,
+            # and a bad embedding row says nothing about an alternate.
             _check_alternates_decode(h5, manifest, findings, require_decoded=require_decoded)
+            _check_embedding_rows(h5, manifest, findings)
 
     return sorted(findings, key=lambda f: (f.severity != ERROR, f.check))
