@@ -26,6 +26,7 @@ from jabs.io.internal.pose_file.convert.memory import contour_chunk_frames
 from jabs.io.internal.pose_file.convert.provenance import legacy_hash
 from jabs.io.internal.pose_file.reader import read_pose_file
 from jabs.io.internal.pose_file.validate import validate
+from jabs.io.internal.pose_file.writer import COMPRESSION_LEVEL
 
 from ..conftest import OUTSIDE_KINDS, add_outside_reference
 from .conftest import SAMPLES, generator, legacy, requires_samples
@@ -756,3 +757,20 @@ def test_an_embed_id_past_the_slot_index_is_refused_for_what_it_is(tmp_path: Pat
 
     with pytest.raises(LegacyConversionError, match="exceed the slots a plan can index"):
         convert_legacy(src, tmp_path / "out.h5")
+
+
+def test_a_converted_file_has_item_run_chunks_shuffled(tmp_path: Path) -> None:
+    """convert_legacy writes the dense contours in chunk rows of one contour's x or y."""
+    src = legacy("v8-edge-cases.h5")
+    layout = inspect_legacy(src)
+    out = tmp_path / "out.h5"
+    convert_legacy(src, out)
+    with h5py.File(out, "r") as h5:
+        dense = h5["jabs/segmentation/contours"]
+        assert dense.chunks == (contour_chunk_frames(layout), 1, 1, layout.point_axis, 1)
+        assert dense.compression == "gzip"
+        assert dense.compression_opts == COMPRESSION_LEVEL
+        assert dense.shuffle
+        ragged = h5["jabs/segmentation/ragged/contours"]
+        assert ragged.compression_opts == 1
+        assert ragged.shuffle
