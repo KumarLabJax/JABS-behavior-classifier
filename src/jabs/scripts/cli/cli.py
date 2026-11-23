@@ -586,6 +586,16 @@ def cross_validation(
         "v6+. Files without it convert the same either way."
     ),
 )
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Directory to keep conversions of legacy *_pose_est_v<N>.h5 pose files in, so "
+        "later runs reuse them. By default a legacy file is converted into a temporary "
+        "directory removed when the command finishes."
+    ),
+)
 @click.pass_context
 def convert_to_nwb(
     ctx: click.Context,
@@ -596,6 +606,7 @@ def convert_to_nwb(
     subjects_path: Path | None,
     session_metadata_path: Path | None,
     segmentation: bool,
+    cache_dir: Path | None,
 ) -> None:
     """Convert a JABS pose estimation file to NWB format.
 
@@ -676,6 +687,7 @@ def convert_to_nwb(
                 subjects=subjects,
                 session_metadata=session_metadata,
                 segmentation=segmentation,
+                cache_dir=cache_dir,
             )
         except MissingOptionalDependencyError as e:
             raise missing_extra_error(e) from e

@@ -65,6 +65,16 @@ from jabs.pose_estimation import get_pose_path, open_pose_file
     is_flag=True,
     help="Overwrite the output file if it already exists.",
 )
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Directory to keep conversions of legacy *_pose_est_v<N>.h5 pose files in, so "
+        "later runs reuse them. By default a legacy file is converted into a temporary "
+        "directory removed when the command finishes."
+    ),
+)
 def export_video_command(
     video_path: Path,
     output_path: Path | None,
@@ -73,6 +83,7 @@ def export_video_command(
     draw_landmarks: bool,
     codec: str | None,
     force: bool,
+    cache_dir: Path | None,
 ) -> None:
     """Render the pose overlay onto every frame of a video and write it out."""
     # Imported here, not at module scope: click imports every command module to build
@@ -105,7 +116,7 @@ def export_video_command(
 
     console = Console()
     try:
-        pose_est = open_pose_file(pose_path)
+        pose_est = open_pose_file(pose_path, cache_dir, temporary_conversion=cache_dir is None)
     except Exception as e:
         # Pose loading surfaces OSError, KeyError and h5py errors depending on how
         # the file is malformed; none of them are useful as a raw traceback.

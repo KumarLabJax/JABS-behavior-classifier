@@ -193,6 +193,31 @@ def test_cli_multisubject_flag_forwarded(
     assert run_mock.call_args.kwargs["multisubject"] is expected
 
 
+@pytest.mark.parametrize("cache_dir", [False, True], ids=["default", "cache-dir"])
+def test_legacy_conversion_is_temporary_unless_cache_dir(monkeypatch, tmp_path, cache_dir):
+    """convert-to-nwb converts into a temporary directory unless --cache-dir keeps it."""
+    from jabs.scripts.cli.cli import cli
+
+    _patch_conversion_internals(monkeypatch)
+    opener = mock.MagicMock()
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", opener)
+    input_path = tmp_path / "session_pose_est_v6.h5"
+    input_path.write_bytes(b"")
+    args = ["convert-to-nwb", str(input_path), str(tmp_path / "session.nwb")]
+    if cache_dir:
+        args += ["--cache-dir", str(tmp_path / "conversions")]
+
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 0, result.output
+    if cache_dir:
+        opener.assert_called_once_with(
+            input_path, tmp_path / "conversions", temporary_conversion=False
+        )
+    else:
+        opener.assert_called_once_with(input_path, None, temporary_conversion=True)
+
+
 def test_cli_per_identity_flag_removed(tmp_path):
     """The old --per-identity flag no longer exists."""
     from jabs.scripts.cli.cli import cli

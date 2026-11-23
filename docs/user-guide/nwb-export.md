@@ -38,6 +38,7 @@ jabs-cli convert-to-nwb INPUT_PATH OUTPUT [OPTIONS]
 | `--subjects PATH`            | **Required.** Path to a JSON file with per-animal biological metadata. The conversion fails without the fields DANDI requires - see [Subjects JSON format](#subjects-json-format). |
 | `--session-metadata PATH`    | Path to a JSON file with NWB session-level metadata (start time, experimenter, etc.).                                        |
 | `--segmentation` / `--no-segmentation` | Whether to include instance segmentation contours when the pose file has them. Defaults to `--segmentation`. Pose files before v6, and v6+ files generated without segmentation, carry none either way. |
+| `--cache-dir PATH`           | Directory to keep the conversion of a legacy `*_pose_est_v<N>.h5` file in, so later runs reuse it. By default it is converted into a temporary directory removed when the command finishes. |
 
 ### Examples
 

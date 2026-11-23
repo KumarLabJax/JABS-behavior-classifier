@@ -26,7 +26,7 @@ project 4 has one place to add embedding access.
 
 ### 1. Opening a pose file
 
-`open_pose_file(path, cache_dir=None) -> Pose` (`src/jabs/pose_estimation/__init__.py`):
+`open_pose_file(path, cache_dir=None, *, temporary_conversion=False) -> Pose` (`src/jabs/pose_estimation/__init__.py`):
 
 - `*_pose.h5` (a `jabs.pose-file`): read directly.
 - `*_pose_est_v{2..8}.h5`: converted by `convert_legacy`, then read.
@@ -40,9 +40,13 @@ file's hash **and the converter revision** are unchanged. The revision is jabs-i
 `CONVERTER_REVISION`, bumped only when converter output changes (not per release), so a converter fix regenerates old conversions, and prune can find a video's
 copies by stem. Two workers converting the same file at once both succeed (the
 write is atomic); the second write is wasted work, which is acceptable. The video directory is never written. Without a
-`cache_dir` (viewer, one-off CLI use) conversions go to a per-user cache,
+`cache_dir` (the viewer) conversions go to a per-user cache,
 `platformdirs.user_cache_dir("jabs")/converted/`, keyed the same way, so a file
-is converted once per machine rather than on every open.
+is converted once per machine rather than on every open. The batch CLIs
+(`jabs-classify`, `compute-features`, `export-video`, `convert-to-nwb`) pass
+`temporary_conversion=True` instead: the conversion goes into a temporary
+directory the `Pose` removes on close, so a run over thousands of files does not
+fill a home-directory quota; their opt-in `--cache-dir` keeps conversions.
 
 **When conversion runs.** The project scan stays metadata-only (manifest for
 unified files, `inspect_legacy` for legacy ones) and keeps its stat-token

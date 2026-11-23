@@ -336,6 +336,8 @@ def pose_to_pose_data(
         segmentation: Whether to include instance segmentation contours when the
             pose file has them.  A pose file without segmentation carries none
             either way.
+        cache_dir: Directory to keep a legacy pose file's conversion in; None
+            converts it into a temporary directory removed when done.
 
     Returns:
         A PoseData instance ready for NWB export.
@@ -460,6 +462,7 @@ def run_conversion(
     subjects: dict[str, dict] | None = None,
     session_metadata: dict | None = None,
     segmentation: bool = True,
+    cache_dir: Path | None = None,
 ) -> None:
     """Convert a JABS pose HDF5 file to NWB and write to disk.
 
@@ -494,6 +497,8 @@ def run_conversion(
         segmentation: Whether to include instance segmentation contours when the
             pose file has them.  A pose file without segmentation carries none
             either way.
+        cache_dir: Directory to keep a legacy pose file's conversion in; None
+            converts it into a temporary directory removed when done.
 
     Raises:
         ValueError: If the input file is not a recognized JABS pose file, if
@@ -504,7 +509,7 @@ def run_conversion(
         FileNotFoundError: If the input file does not exist.
     """
     logger.info("Loading %s", input_path)
-    with open_pose_file(input_path) as pose:
+    with open_pose_file(input_path, cache_dir, temporary_conversion=cache_dir is None) as pose:
         identity_word = "identity" if pose.num_identities == 1 else "identities"
         logger.info(
             "%d %s, %d frames, %d fps",

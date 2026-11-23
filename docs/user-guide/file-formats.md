@@ -13,8 +13,10 @@ JABS reads two kinds of pose file, found beside each video by name:
 - **Legacy pose files**, `<video name>_pose_est_v<N>.h5` with N from 2 to 8. JABS converts
   a legacy file to the unified format when it opens it, and reads the converted copy. The
   legacy file is never modified. In a project, converted copies are kept in
-  `jabs/cache/converted/`; outside a project (the viewer, `jabs-classify`,
-  `jabs-cli compute-features`) they are kept in a per-user cache directory.
+  `jabs/cache/converted/`; the viewer keeps them in a per-user cache directory; the batch
+  commands (`jabs-classify`, `jabs-cli compute-features`, `export-video`,
+  `convert-to-nwb`) convert into a temporary directory removed when they finish, unless
+  given `--cache-dir`.
 
 When a video has both, the unified file is used; among legacy files, the highest version is
 used. A legacy file the converter refuses (for example one that gives two animals the same

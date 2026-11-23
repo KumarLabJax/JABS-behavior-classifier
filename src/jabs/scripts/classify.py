@@ -146,6 +146,7 @@ def train_and_classify(
     cache_window: bool = False,
     use_pose_hash: bool = False,
     classifier_type: ClassifierType | None = None,
+    cache_dir: Path | None = None,
 ) -> None:
     """Train a classifier using the provided training file and classify behaviors in a pose file.
 
@@ -161,6 +162,8 @@ def train_and_classify(
         use_pose_hash: Include pose file hash as a subdirectory in the cache path.
         classifier_type: Override the classifier algorithm stored in the training file.
             If ``None``, the type recorded in the file is used.
+        cache_dir: Directory to keep a legacy pose file's conversion in; None
+            converts it into a temporary directory removed when done.
     """
     if not training_file_path.exists():
         sys.exit("Unable to open training data\n")
@@ -179,6 +182,7 @@ def train_and_classify(
         feature_dir,
         cache_window,
         use_pose_hash=use_pose_hash,
+        cache_dir=cache_dir,
     )
 
 
@@ -190,6 +194,7 @@ def classify_pose(
     feature_dir: str | None = None,
     cache_window: bool = False,
     use_pose_hash: bool = False,
+    cache_dir: Path | None = None,
 ) -> None:
     """Classify behaviors in a pose file using a trained classifier.
 
@@ -209,6 +214,9 @@ def classify_pose(
         feature_dir: Directory for feature cache. If provided, features are cached here.
         cache_window: Whether to cache window features.
         use_pose_hash: Include pose file hash as a subdirectory in the cache path.
+        cache_dir: Directory to keep a legacy pose file's conversion in, for later
+            runs. None (the default) converts it into a temporary directory removed
+            when done, so a batch run does not fill the per-user cache.
 
     Raises:
         ValueError: If a binary classifier is given but ``behavior`` is None.
@@ -228,7 +236,9 @@ def classify_pose(
         class_names = None
         behavior_key = behavior
 
-    with open_pose_file(input_pose_file) as pose_est:
+    with open_pose_file(
+        input_pose_file, cache_dir, temporary_conversion=cache_dir is None
+    ) as pose_est:
         require_pose_capabilities(
             classifier.project_settings, pose_est.capabilities, input_pose_file.name
         )
@@ -444,6 +454,18 @@ def classify_main() -> None:
         action="store_true",
     )
 
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory to keep conversions of legacy *_pose_est_v<N>.h5 pose files in, so "
+            "later runs reuse them. By default a legacy file is converted into a temporary "
+            "directory removed when the command finishes, so a batch run does not fill the "
+            "per-user cache."
+        ),
+    )
+
     args = parser.parse_args(classify_args)
     if args.fps is not None:
         logger.warning("--fps is deprecated and ignored; the pose file's frame rate is used")
@@ -476,6 +498,7 @@ def _classify_with(args: argparse.Namespace, in_pose_path: Path, out_dir: Path) 
             cache_window=not args.skip_window_cache,
             use_pose_hash=args.use_pose_hash,
             classifier_type=args.classifier_type,
+            cache_dir=args.cache_dir,
         )
     elif args.classifier is not None:
         try:
@@ -511,6 +534,7 @@ def _classify_with(args: argparse.Namespace, in_pose_path: Path, out_dir: Path) 
             feature_dir=args.feature_dir,
             cache_window=not args.skip_window_cache,
             use_pose_hash=args.use_pose_hash,
+            cache_dir=args.cache_dir,
         )
 
 

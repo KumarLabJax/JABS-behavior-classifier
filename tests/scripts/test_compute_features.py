@@ -329,3 +329,25 @@ def test_fps_is_deprecated_and_ignored(tmp_path: Path, caplog: pytest.LogCapture
     assert result.exit_code == 0, result.output
     assert "fps" not in mock_features_cls.call_args.kwargs
     assert any("--fps is deprecated" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("cache_dir", [False, True], ids=["default", "cache-dir"])
+def test_legacy_conversion_is_temporary_unless_cache_dir(tmp_path: Path, cache_dir: bool) -> None:
+    """compute-features converts into a temporary directory unless --cache-dir keeps it."""
+    pose_file = _make_pose_file(tmp_path)
+    args = ["compute-features", "--pose-file", str(pose_file), "--feature-dir", str(tmp_path)]
+    if cache_dir:
+        args += ["--cache-dir", str(tmp_path / "conversions")]
+    with (
+        patch(f"{MODULE}.open_pose_file", return_value=_fake_pose()) as opener,
+        patch(f"{MODULE}.IdentityFeatures"),
+    ):
+        result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 0, result.output
+    if cache_dir:
+        opener.assert_called_once_with(
+            pose_file, tmp_path / "conversions", temporary_conversion=False
+        )
+    else:
+        opener.assert_called_once_with(pose_file, None, temporary_conversion=True)

@@ -17,7 +17,9 @@ from .metadata import (
 from .pose import Pose
 
 
-def open_pose_file(path: Path, cache_dir: Path | None = None) -> Pose:
+def open_pose_file(
+    path: Path, cache_dir: Path | None = None, *, temporary_conversion: bool = False
+) -> Pose:
     """Open a pose file as :class:`Pose`.
 
     A unified ``*_pose.h5`` file opens directly. A legacy ``*_pose_est_v<N>.h5``
@@ -29,6 +31,9 @@ def open_pose_file(path: Path, cache_dir: Path | None = None) -> Pose:
         path: path of pose file
         cache_dir: optional project cache directory; conversions and convex
             hulls are cached here, or in the per-user cache when None
+        temporary_conversion: without ``cache_dir``, convert a legacy file into
+            a temporary directory removed when the pose is closed, not into the
+            per-user cache (for batch commands)
 
     Returns:
         The opened pose; the caller closes it.
@@ -37,7 +42,7 @@ def open_pose_file(path: Path, cache_dir: Path | None = None) -> Pose:
         PoseOpenError: if the name is not a pose file name, or the file cannot
             be read, converted or opened
     """
-    return open_unified(path, cache_dir)
+    return open_unified(path, cache_dir, temporary_conversion=temporary_conversion)
 
 
 def get_pose_path(video_path: Path, pose_dir: Path | None = None) -> Path:

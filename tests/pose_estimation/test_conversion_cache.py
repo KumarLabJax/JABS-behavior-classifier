@@ -393,6 +393,31 @@ def test_a_read_error_inside_a_refusal_is_damage(
     assert convert_spy.call_count == 2
 
 
+def test_temporary_conversion_leaves_nothing_in_the_user_cache(
+    legacy_v4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch open converts into a temporary directory, removed when the pose closes."""
+    user_cache = tmp_path / "user-cache"
+    monkeypatch.setattr(conversion_cache, "user_cache_dir", lambda _app: str(user_cache))
+
+    with open_unified(legacy_v4, temporary_conversion=True) as pose:
+        assert pose.num_frames > 0
+        temporary = pose._pose_path.parent.parent
+        assert temporary.exists()
+        assert user_cache not in pose._pose_path.parents
+
+    assert not temporary.exists()
+    assert not list(user_cache.rglob("*.h5"))
+
+
+def test_temporary_conversion_is_ignored_with_a_cache_dir(legacy_v4: Path, tmp_path: Path) -> None:
+    """With a cache directory the conversion is kept there."""
+    cache = tmp_path / "cache"
+    with open_unified(legacy_v4, cache, temporary_conversion=True):
+        pass
+    assert converted_path(legacy_v4, hash_file(legacy_v4), cache).exists()
+
+
 def test_broken_unified_file_is_never_deleted(tmp_path: Path) -> None:
     """A unified file the user has that cannot be opened is reported, not deleted."""
     path = tmp_path / "vid_pose.h5"

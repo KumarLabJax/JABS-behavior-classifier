@@ -74,6 +74,16 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Recompute features and overwrite the cache even when a valid cache exists.",
 )
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Directory to keep conversions of legacy *_pose_est_v<N>.h5 pose files in, so "
+        "later runs reuse them. By default a legacy file is converted into a temporary "
+        "directory removed when the command finishes."
+    ),
+)
 def compute_features_command(
     pose_file: Path,
     feature_dir: Path,
@@ -83,6 +93,7 @@ def compute_features_command(
     use_pose_hash: bool,
     cache_format: str,
     force: bool,
+    cache_dir: Path | None,
 ) -> None:
     """Compute and cache JABS features for a pose file.
 
@@ -104,7 +115,7 @@ def compute_features_command(
     console = Console()
     with console.status(f"Opening pose file {pose_file.name}...", spinner="dots"):
         try:
-            pose_est = open_pose_file(pose_file)
+            pose_est = open_pose_file(pose_file, cache_dir, temporary_conversion=cache_dir is None)
         except PoseOpenError as e:
             raise click.ClickException(str(e)) from e
 

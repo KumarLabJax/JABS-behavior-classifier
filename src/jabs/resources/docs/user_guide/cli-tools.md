@@ -21,7 +21,7 @@ usage: jabs-classify classify [-h] [--random-forest | --xgboost]
                             (--training TRAINING | --classifier CLASSIFIER) --input-pose
                             INPUT_POSE --out-dir OUT_DIR [--fps FPS]
                             [--feature-dir FEATURE_DIR] [--skip-window-cache]
-                            [--use-pose-hash]
+                            [--use-pose-hash] [--cache-dir CACHE_DIR]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -35,6 +35,11 @@ optional arguments:
                         path (e.g. <feature-dir>/<video>/<pose-hash>/<identity>). Prevents
                         collisions when multiple pipelines share a feature cache directory and
                         different pose files happen to share the same video name.
+  --cache-dir CACHE_DIR
+                        Directory to keep conversions of legacy *_pose_est_v<N>.h5 pose files
+                        in, so later runs reuse them. By default a legacy file is converted into
+                        a temporary directory removed when the command finishes, so a batch run
+                        does not fill the per-user cache.
 
 required arguments:
   --input-pose INPUT_POSE
@@ -57,12 +62,19 @@ When `--feature-dir` is provided, `jabs-classify` automatically detects the exis
 
 ### Legacy pose files and the conversion cache
 
-`jabs-classify` (like `jabs-cli compute-features` and the other tools that open a single
-pose file outside a project) converts a legacy `*_pose_est_v<N>.h5` file to the unified
-pose format the first time it opens it, and keeps the converted copy in a cache so later
-runs on the same file skip the conversion. The legacy file is never modified.
+JABS reads every pose file in the unified pose format, so a legacy `*_pose_est_v<N>.h5`
+file is converted when it is opened. The legacy file is never modified.
 
-- **Location.** The cache is the directory named by the `JABS_CACHE_DIR` environment
+- **Batch commands.** `jabs-classify`, `jabs-cli compute-features`, `jabs-cli export-video`
+  and `jabs-cli convert-to-nwb` convert a legacy file into a temporary directory that is
+  removed when the command finishes, so a batch run over many files does not fill a cache
+  with copies it will not reuse; each run converts again. The temporary directory is under
+  the system temporary directory (`TMPDIR`); on a cluster with a small `/tmp`, point
+  `TMPDIR` at scratch space. Pass `--cache-dir <DIR>` to keep the converted copies in
+  `<DIR>/converted/` instead, so later runs on the same files skip the conversion.
+- **Other tools** that open a pose file outside a project (such as the pose viewer) keep
+  the converted copy in the per-user cache, so the next open skips the conversion.
+- **Location.** The per-user cache is the directory named by the `JABS_CACHE_DIR` environment
   variable when it is set, otherwise the per-user cache directory for `jabs`
   (`~/.cache/jabs` on Linux, `~/Library/Caches/jabs` on macOS,
   `%LOCALAPPDATA%\jabs\jabs\Cache` on Windows). Converted copies are under its
@@ -204,6 +216,7 @@ jabs-cli export-video [OPTIONS] <video_path>
 - `--landmarks` / `--no-landmarks`: Whether to include the arena landmarks (corners, lixit and food hopper) that pose v5+ files can record. Defaults to `--no-landmarks`. Ignored when the pose file records none.
 - `--codec`: FourCC codec for the output. By default the export uses `avc1` (H.264), which produces much smaller files, and falls back to `mp4v` when this OpenCV build lacks H.264. Naming a codec uses only that codec, and the export fails if the writer cannot be opened with it.
 - `--force`, `-f`: Overwrite the output file if it already exists.
+- `--cache-dir <DIR>`: Keep the conversion of a legacy pose file in `<DIR>` for later runs. By default it is converted into a temporary directory removed when the command finishes (see [Legacy pose files and the conversion cache](#legacy-pose-files-and-the-conversion-cache)).
 
 **Examples:**
 
@@ -267,7 +280,7 @@ The `jabs-cli compute-features` command computes and caches JABS features for a 
 ```bash
 jabs-cli compute-features --pose-file <POSE_FILE> --feature-dir <FEATURE_DIR> [--use-pixel-distances]
                           [-w WINDOW_SIZE] [--use-pose-hash]
-                          [--cache-format {hdf5,parquet}] [--force]
+                          [--cache-format {hdf5,parquet}] [--force] [--cache-dir <DIR>]
 ```
 
 - `--pose-file <POSE_FILE>`: Pose file to compute features for, a unified `*_pose.h5` or a legacy `*_pose_est_v<N>.h5` file. The features computed follow what the file contains (a format that can hold more than one animal, legacy v3+ or a unified file with more than one slot, for social features, segmentation for segmentation features, static objects for landmark features).
@@ -278,6 +291,7 @@ jabs-cli compute-features --pose-file <POSE_FILE> --feature-dir <FEATURE_DIR> [-
 - `--use-pose-hash`: Include the pose file hash as a subdirectory level in the feature cache path (e.g. `<feature-dir>/<video>/<pose-hash>/<identity>`). Use this when building a shared feature cache for multiple pipelines where video filenames may collide.
 - `--cache-format {hdf5,parquet}`: Storage format for the feature cache. Default: `parquet`.
 - `--force`: Recompute features and overwrite the cache even when a valid cache exists.
+- `--cache-dir <DIR>`: Keep the conversion of a legacy pose file in `<DIR>` for later runs. By default it is converted into a temporary directory removed when the command finishes (see [Legacy pose files and the conversion cache](#legacy-pose-files-and-the-conversion-cache)).
 
 **Examples:**
 

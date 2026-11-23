@@ -16,8 +16,10 @@ mode keeps the converter's refusals, and its copies are keyed apart
 The cache root is the project's ``cache_dir``; without one it is
 ``$JABS_CACHE_DIR`` when that is set, else the per-user cache directory. When
 that directory cannot be written, or has no space or quota left, a one-off
-open converts into a temporary directory removed when the ``Pose`` is closed. The video directory is never
-written.
+open converts into a temporary directory removed when the ``Pose`` is closed.
+A batch command asks for that temporary directory outright
+(``temporary_conversion``), so its runs leave nothing in the cache. The video
+directory is never written.
 """
 
 import errno
@@ -296,7 +298,9 @@ def ensure_converted(
     return destination
 
 
-def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
+def open_unified(
+    path: Path, cache_dir: Path | None = None, *, temporary_conversion: bool = False
+) -> Pose:
     """Open a pose file as ``Pose``, converting a legacy file through the cache.
 
     The user's file is hashed once; the hash keys the conversion and is the
@@ -312,6 +316,11 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
         path: A unified ``*_pose.h5`` or legacy ``*_pose_est_v<N>.h5`` file.
         cache_dir: The project's cache directory, or None for the per-user cache.
             Convex hulls are cached here too when it is given.
+        temporary_conversion: Without ``cache_dir``, convert a legacy file into a
+            temporary directory the ``Pose`` removes when closed, instead of the
+            per-user cache: for a batch command, so a run over many files does
+            not fill the cache with conversions it will not reuse. Ignored with
+            ``cache_dir``.
 
     Returns:
         The opened ``Pose``; the caller closes it.
@@ -337,6 +346,8 @@ def open_unified(path: Path, cache_dir: Path | None = None) -> Pose:
 
     # read once, so every step of this open uses one mode
     strict = strict_conversion()
+    if cache_dir is None and temporary_conversion:
+        return _open_in_temporary_cache(path, source_hash, _temporary_directory(path), strict)
     if cache_dir is None:
         temporary = _temporary_cache_if_unwritable(path, source_hash, strict)
         if temporary is not None:
