@@ -119,6 +119,7 @@ citizen with declared axes, not an escape hatch.
 
 1. **Scope is the per-video pose file.** Inference output only, read-only once written. Labels,
    features, predictions and classifiers stay where they are.
+   Extended by ADR 0003 (embedding components).
 2. **One HDF5 file**, readable with `h5py` and nothing else.
 3. **Identified by root attributes, never by filename.** `<video>_pose.h5` is a recommended
    convention that carries no meaning.
@@ -720,6 +721,8 @@ and payload out so they occupy one contiguous byte range, with the payload chunk
 That is a property a writer guarantees and tests, not a validation rule.
 
 ### Component catalog
+
+Extended by ADR 0003 (embedding components).
 
 Shapes use `F` = frames, `S` = slots, `I` = identities, `K` = keypoints, `E` = embedding
 dimension. Every component below is optional.

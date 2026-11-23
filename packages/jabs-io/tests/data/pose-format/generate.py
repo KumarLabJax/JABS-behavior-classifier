@@ -15,6 +15,7 @@ because that is the only way to build a file the writer would refuse to
 produce.
 """
 
+import dataclasses
 import json
 import shutil
 from collections.abc import Callable
@@ -25,6 +26,13 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
+from jabs.io.internal.pose_file.embeddings import (
+    EMBEDDING_AXES,
+    EmbeddingDescriptor,
+    EmbeddingModel,
+    TemporalWindow,
+    compute_fingerprint,
+)
 from jabs.io.internal.pose_file.skeletons import jabs_mouse12
 from jabs.io.internal.pose_file.types import (
     Component,
@@ -247,6 +255,110 @@ def valid_sparse() -> PoseFile:
             ),
         ),
         provenance=Provenance(records={"jabs.pose": INFER}, history=HISTORY),
+    )
+
+
+# --- embeddings: two vector sets from one model, one of them paired ---------
+
+EMBEDDING_WEIGHTS = "sha256:" + "0123456789abcdef" * 4
+EMBED = ProvenanceRecord(
+    producer="jabs-io conformance fixtures",
+    version="1",
+    created="2026-09-03T00:00:00Z",
+    model={"name": "fixture-vit", "weights": EMBEDDING_WEIGHTS},
+)
+
+# The slot forced empty, and an occupied slot whose embedding was not computed.
+EMPTY_SLOT = (2, 1)
+UNEMBEDDED_SLOT = (5, 0)
+
+
+def _embedding(
+    name: str,
+    kind: str,
+    dim: int,
+    dtype: str,
+    tap: str,
+    pooling: str,
+    slot_occupied: npt.NDArray[np.bool_],
+    seed: int,
+) -> Component:
+    """One embedding component with NaN rows wherever no vector exists.
+
+    Per-instance rows are all-NaN wherever the slot is unoccupied, and also at
+    one occupied slot, which is how a producer records a vector it could not
+    compute. Per-frame rows are all present.
+    """
+    rng = np.random.default_rng(seed)
+    shape = (FRAMES, SLOTS, dim) if kind == "instance" else (FRAMES, dim)
+    data = rng.standard_normal(shape).astype(dtype)
+    if kind == "instance":
+        data[~slot_occupied] = np.nan
+        data[UNEMBEDDED_SLOT] = np.nan
+    return Component(
+        id=f"jabs.embedding.{name}.{kind}",
+        axes=EMBEDDING_AXES[kind],
+        data=data,
+        missing={"policy": "nan"},
+        provenance=f"jabs.embedding.{name}",
+        embedding=EmbeddingDescriptor(
+            name=name,
+            kind=kind,
+            dim=dim,
+            model=EmbeddingModel("fixture-vit", EMBEDDING_WEIGHTS),
+            tap=tap,
+            pooling=pooling,
+            window=TemporalWindow(4, 4),
+        ),
+    )
+
+
+def valid_embedding() -> PoseFile:
+    """Pose plus three embeddings: a paired ``trunk`` and an unpaired ``blk31``.
+
+    ``trunk.instance`` and ``trunk.frame`` agree on everything a pair must
+    agree on and differ in pooling, which a pair may. One slot is emptied so
+    the rule that unoccupied slots have all-NaN rows is exercised, not vacuous.
+    """
+    points, _, _, slot_occupied = _pose_arrays()
+    points[EMPTY_SLOT] = np.nan
+    slot_occupied[EMPTY_SLOT] = False
+    assert slot_occupied[UNEMBEDDED_SLOT]
+    minimal = valid_minimal()
+    pose = tuple(
+        dataclasses.replace(c, data=points) if c.id == "jabs.pose.points" else c
+        for c in minimal.components
+    )
+    if not any(c.id == "jabs.pose.slot_occupied" for c in pose):
+        pose += (
+            Component(
+                id="jabs.pose.slot_occupied",
+                axes=("frame", "slot"),
+                data=slot_occupied,
+                missing={"policy": "none"},
+                provenance="jabs.pose",
+            ),
+        )
+    embeddings = (
+        _embedding(
+            "trunk", "instance", 8, "float16", "trunk.final", "mask_mean", slot_occupied, 21
+        ),
+        _embedding("trunk", "frame", 8, "float16", "trunk.final", "grid_mean", slot_occupied, 22),
+        _embedding(
+            "blk31", "instance", 4, "float32", "trunk.block31", "mask_mean", slot_occupied, 23
+        ),
+    )
+    return dataclasses.replace(
+        minimal,
+        components=pose + embeddings,
+        provenance=Provenance(
+            records={
+                "jabs.pose": INFER,
+                "jabs.embedding.trunk": EMBED,
+                "jabs.embedding.blk31": EMBED,
+            },
+            history=HISTORY,
+        ),
     )
 
 
@@ -651,7 +763,39 @@ def _first_alternate(manifest: dict, component_id: str) -> dict:
     return _entry(manifest, component_id)["alternates"][0]
 
 
+def _descriptor(component_id: str, **fields: object) -> Mutation:
+    """Edit an embedding's descriptor and re-fingerprint it, so only the edit is wrong."""
+
+    def edit(manifest: dict) -> None:
+        descriptor = _entry(manifest, component_id)["embedding"]
+        descriptor.update(fields)
+        descriptor["fingerprint"] = compute_fingerprint(descriptor)
+
+    return _manifest(edit)
+
+
+def _embedding_float64(component_id: str) -> Mutation:
+    """Store an embedding as float64, declared as such, which no embedding may be.
+
+    The float64 dataset keeps the original's chunking, so its declared layout
+    still matches and the dtype is the fixture's only defect.
+    """
+
+    def mutate(path: Path) -> None:
+        with h5py.File(path, "r+") as h5:
+            dataset = _entry(json.loads(h5["manifest"][()]), component_id)["path"]
+            chunks = h5[dataset].chunks
+            data = h5[dataset][()].astype(np.float64)
+            del h5[dataset]
+            h5.create_dataset(dataset, data=data, chunks=chunks)
+        _rewrite_manifest(path, lambda m: _declare(m, component_id, data))
+
+    return mutate
+
+
 SEG = "jabs.segmentation"
+TRUNK = "jabs.embedding.trunk"
+BLK31 = "jabs.embedding.blk31"
 RAGGED = "/jabs/segmentation"
 RAGGED_ALT = "/jabs/segmentation/ragged"
 NOTES = np.frombuffer(b"an opaque payload", dtype=np.uint8)
@@ -664,6 +808,7 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
     ragged = HERE / "valid-ragged.h5"
     alternate = HERE / "valid-ragged-alternate.h5"
     rle = HERE / "valid-rle.h5"
+    embedding = HERE / "valid-embedding.h5"
     index = "jabs.dynamic_objects.fecal_boli.frame_index"
     counts = "jabs.dynamic_objects.fecal_boli.counts"
     return [
@@ -1037,6 +1182,50 @@ def _invalid_corpus(full: Path) -> list[tuple[str, Path | None, Mutation]]:
                 ),
             ),
         ),
+        # Embeddings.
+        (
+            "invalid-embedding-id.h5",
+            embedding,
+            _manifest(lambda m: _entry(m, f"{TRUNK}.frame").update(id=f"{TRUNK}.misc")),
+        ),
+        (
+            "invalid-embedding-axes.h5",
+            embedding,
+            _manifest(lambda m: _entry(m, f"{TRUNK}.frame").update(axes=["frame", "embedding"])),
+        ),
+        ("invalid-embedding-dim.h5", embedding, _descriptor(f"{BLK31}.instance", dim=5)),
+        ("invalid-embedding-dtype.h5", embedding, _embedding_float64(f"{BLK31}.instance")),
+        (
+            "invalid-embedding-fingerprint.h5",
+            embedding,
+            _manifest(
+                lambda m: _entry(m, f"{TRUNK}.instance")["embedding"].update(
+                    fingerprint="sha256:" + "f" * 64
+                )
+            ),
+        ),
+        ("invalid-embedding-pair.h5", embedding, _descriptor(f"{TRUNK}.frame", tap="trunk.other")),
+        # 9.0 passes the schema's integer type but hashes differently from 9;
+        # the fingerprint is recomputed over the float form so only the type rule fires.
+        (
+            "invalid-embedding-descriptor-float.h5",
+            embedding,
+            _descriptor(f"{BLK31}.instance", window={"before": 9.0, "after": 4}),
+        ),
+        (
+            "invalid-embedding-descriptor-missing.h5",
+            embedding,
+            _manifest(lambda m: _entry(m, f"{TRUNK}.instance").pop("embedding")),
+        ),
+        (
+            "invalid-embedding-descriptor-elsewhere.h5",
+            embedding,
+            _manifest(
+                lambda m: _entry(m, "jabs.pose.points").update(
+                    embedding=dict(_entry(m, f"{TRUNK}.instance")["embedding"])
+                )
+            ),
+        ),
         # Attachments.
         (
             "invalid-attachment-missing.h5",
@@ -1116,6 +1305,7 @@ def main() -> None:
     _write_ragged_baseline(HERE / "valid-ragged.h5")
     _write_ragged_alternate(HERE / "valid-ragged-alternate.h5")
     _write_rle(HERE / "valid-rle.h5")
+    write_pose_file(valid_embedding(), HERE / "valid-embedding.h5", created=CREATED)
 
     # Per-contour flags declared at the leaf level: their payload is one value
     # per contour, so the shared group_offsets cannot also end at its length.
@@ -1132,6 +1322,16 @@ def main() -> None:
     shutil.copy(HERE / "valid-ragged-alternate.h5", HERE / "invalid-alternate-disagrees.h5")
     with h5py.File(HERE / "invalid-alternate-disagrees.h5", "r+") as h5:
         h5["/jabs/segmentation/ragged/contours"][0, 0] += 1
+
+    # Embedding rows that pass every structural check and break a row rule only
+    # the opt-in deep check reads: a vector with one element missing, and a
+    # vector stored for a slot that holds no animal.
+    shutil.copy(HERE / "valid-embedding.h5", HERE / "invalid-embedding-partial-nan.h5")
+    with h5py.File(HERE / "invalid-embedding-partial-nan.h5", "r+") as h5:
+        h5["/jabs/embedding/trunk/instance"][0, 0, 3] = np.nan
+    shutil.copy(HERE / "valid-embedding.h5", HERE / "invalid-embedding-unoccupied.h5")
+    with h5py.File(HERE / "invalid-embedding-unoccupied.h5", "r+") as h5:
+        h5["/jabs/embedding/blk31/instance"][EMPTY_SLOT] = 0
 
     # The invalid fixtures are copies of a clean base, taken BEFORE the
     # undeclared attachment goes in: injecting it first gave every invalid

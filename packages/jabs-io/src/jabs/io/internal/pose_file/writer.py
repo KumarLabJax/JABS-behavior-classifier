@@ -8,6 +8,7 @@ full disk — would otherwise cost the caller the file they already had.
 """
 
 import json
+import math
 import os
 import tempfile
 from collections.abc import Sequence
@@ -18,6 +19,7 @@ import numpy as np
 
 from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex
 from jabs.io.internal.pose_file.blocks import BlockSource, ComponentData
+from jabs.io.internal.pose_file.embeddings import is_embedding_id
 from jabs.io.internal.pose_file.manifest import build_manifest, build_provenance
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
@@ -73,6 +75,15 @@ _RAGGED_COMPRESSION_LEVEL = 1
 # the coordinates' high bytes, which compress far better than the interleaved
 # values.
 _RAGGED_SHUFFLE = True
+
+# Target chunk size for an embedding, in bytes. Embeddings are read whole rows
+# at a time and their float payloads compress poorly, so they are stored
+# uncompressed, chunked along frame with every other axis whole, at about one
+# MiB a chunk: few enough chunks for a long recording, small enough that a
+# window read does not pull in much more than it asked for.
+_EMBEDDING_CHUNK_BYTES = 1_048_576
+
+_CONTIGUOUS = {"storage": "contiguous", "compression": "none"}
 
 
 def _is_keypoint_scale(component_id: str) -> bool:
@@ -162,8 +173,58 @@ def chunk_shape(axes: Sequence[str], shape: Sequence[int], itemsize: int) -> tup
     return tuple(chunks)
 
 
+def _embedding_chunks(component: Component) -> tuple[int, ...]:
+    """A frame-major chunk shape of about ``_EMBEDDING_CHUNK_BYTES``.
+
+    Args:
+        component: A non-empty embedding component.
+
+    Returns:
+        The chunk shape: at least one frame, every other axis whole.
+    """
+    shape = component.data.shape
+    bytes_per_frame = math.prod(shape[1:]) * component.data.dtype.itemsize
+    frames = max(1, min(shape[0], _EMBEDDING_CHUNK_BYTES // bytes_per_frame))
+    return (frames, *shape[1:])
+
+
+def _honored_request(component: Component) -> dict:
+    """The layout a component requested, with chunk extents clamped to its shape.
+
+    ``Component`` has already validated the request, so only the clamp is left.
+
+    Args:
+        component: A non-empty component carrying a ``requested_layout``.
+
+    Returns:
+        The layout to apply and record; ``compression_opts`` appears only for
+        gzip.
+    """
+    request = component.requested_layout
+    compression = request.get("compression", "none")
+    if request["storage"] == "contiguous":
+        return dict(_CONTIGUOUS)
+    layout = {
+        "storage": "chunked",
+        "chunks": [
+            min(extent, max(1, length))
+            for extent, length in zip(request["chunks"], component.data.shape, strict=True)
+        ],
+        "compression": compression,
+    }
+    if compression == "gzip":
+        layout["compression_opts"] = request["compression_opts"]
+    return layout
+
+
 def _layout_for(component: Component) -> dict:
     """The storage layout this writer will apply to a component.
+
+    The single source of truth: ``_create_dataset`` creates exactly what this
+    returns, and the manifest records it. In order: an empty payload cannot be
+    chunked; a request is honored; an embedding gets its uncompressed default;
+    keypoint-scale components are contiguous; everything else is chunked by
+    :func:`chunk_shape`, gzip ``COMPRESSION_LEVEL``.
 
     Args:
         component: The component about to be written.
@@ -171,11 +232,19 @@ def _layout_for(component: Component) -> dict:
     Returns:
         The layout to record in the manifest.
     """
-    if _is_keypoint_scale(component.id):
-        return {"storage": "contiguous", "compression": "none"}
     shape = component.data.shape
-    if not shape or 0 in shape:
-        return {"storage": "contiguous", "compression": "none"}
+    if not shape or any(dimension == 0 for dimension in shape):
+        return dict(_CONTIGUOUS)
+    if component.requested_layout is not None:
+        return _honored_request(component)
+    if is_embedding_id(component.id):
+        return {
+            "storage": "chunked",
+            "chunks": list(_embedding_chunks(component)),
+            "compression": "none",
+        }
+    if _is_keypoint_scale(component.id):
+        return dict(_CONTIGUOUS)
     chunks = chunk_shape(component.axes, shape, component.data.dtype.itemsize)
     return {
         "storage": "chunked",
@@ -224,7 +293,7 @@ def _create_options(layout: dict, *, shuffle: bool = False) -> dict:
     options: dict = {"chunks": tuple(layout["chunks"])}
     if layout["compression"] != "none":
         options.update(
-            compression=layout["compression"], compression_opts=layout["compression_opts"]
+            compression=layout["compression"], compression_opts=layout.get("compression_opts")
         )
         if shuffle:
             options["shuffle"] = True

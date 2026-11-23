@@ -14,6 +14,7 @@ at open time.
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -21,6 +22,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from jabs.io.internal.pose_file.blocks import _STRING_KINDS, ComponentData
+from jabs.io.internal.pose_file.embeddings import (
+    EMBEDDING_AXES,
+    EMBEDDING_DTYPES,
+    EmbeddingDescriptor,
+    is_embedding_id,
+    paired_field_differences,
+    parse_embedding_id,
+)
 
 if TYPE_CHECKING:
     # Annotation only: alternates imports this module for its dtype rules.
@@ -37,6 +46,7 @@ COMPONENT_ID_RE = re.compile(
 # is declared as "string", which is the name the schema uses.
 DTYPE_NAMES = frozenset(
     {
+        "float16",
         "float32",
         "float64",
         "int8",
@@ -53,6 +63,67 @@ DTYPE_NAMES = frozenset(
 )
 
 RESERVED_NAMESPACE = "jabs"
+
+_LAYOUT_KEYS = frozenset({"storage", "chunks", "compression", "compression_opts"})
+_LAYOUT_COMPRESSIONS = ("none", "gzip", "lzf")
+_GZIP_LEVELS = range(10)
+
+
+def accepts_requested_layout(component_id: str) -> bool:
+    """Return whether a producer may choose a component's storage layout.
+
+    The writer owns the layout of every ``jabs`` component except embeddings,
+    whose size makes the trade-off the producer's to make.
+
+    Args:
+        component_id: Any component id.
+
+    Returns:
+        True for an embedding id or an id outside the ``jabs`` namespace.
+    """
+    return is_embedding_id(component_id) or component_id.split(".")[0] != RESERVED_NAMESPACE
+
+
+def requested_layout_problems(layout: Mapping, ndim: int) -> list[str]:
+    """List why the writer could not honor a requested storage layout.
+
+    The single statement of the rules: ``Component`` raises on any problem,
+    and the reader treats a manifest layout with problems as no request.
+
+    Args:
+        layout: The requested layout.
+        ndim: The rank of the payload it would apply to.
+
+    Returns:
+        One message per problem; empty when the writer can honor the request.
+    """
+    if not isinstance(layout, Mapping):
+        return [f"must be a mapping, not {type(layout).__name__}"]
+    problems = [f"unknown key {key!r}" for key in sorted(set(layout) - _LAYOUT_KEYS)]
+    storage = layout.get("storage")
+    compression = layout.get("compression", "none")
+    opts = layout.get("compression_opts")
+    chunks = layout.get("chunks")
+    if storage not in ("contiguous", "chunked"):
+        problems.append(f"storage must be 'contiguous' or 'chunked', not {storage!r}")
+    if compression not in _LAYOUT_COMPRESSIONS:
+        problems.append(f"compression must be one of {_LAYOUT_COMPRESSIONS}, not {compression!r}")
+    if compression == "gzip":
+        if isinstance(opts, bool) or not isinstance(opts, int) or opts not in _GZIP_LEVELS:
+            problems.append(f"gzip needs an integer compression_opts 0-9, not {opts!r}")
+    elif opts is not None:
+        problems.append(f"{compression!r} compression takes no compression_opts, got {opts!r}")
+    if storage == "contiguous":
+        if compression != "none":
+            problems.append(f"contiguous storage cannot be compressed with {compression!r}")
+        if chunks is not None:
+            problems.append("contiguous storage takes no chunks")
+    elif storage == "chunked":
+        if not isinstance(chunks, list | tuple) or len(chunks) != ndim:
+            problems.append(f"chunked storage needs {ndim} chunk extents, not {chunks!r}")
+        elif any(isinstance(c, bool) or not isinstance(c, int) or c < 1 for c in chunks):
+            problems.append(f"chunk extents must be integers of at least 1, not {list(chunks)}")
+    return problems
 
 
 def dtype_name(data: ComponentData) -> str:
@@ -238,6 +309,16 @@ class Component:
             ``dataclasses.replace(c, data=..., alternates=())``. Nothing here
             compares them with the data, and the default ``deep=False`` write
             does not catch a stale one.
+        embedding: The descriptor of an embedding component. Required for an
+            id under ``jabs.embedding.``, which must be exactly
+            ``jabs.embedding.<name>.(instance|frame)`` with axes, feature
+            width, dtype and missing policy matching the descriptor, and
+            forbidden on every other id.
+        requested_layout: The HDF5 storage the producer asks the writer to
+            use, in the manifest's layout form. Honored only for embedding ids
+            and ids outside ``jabs``; chunk extents are clamped to the axis
+            lengths. None leaves the writer's policy in charge. ``layout``, by
+            contrast, records what a file declared and is never applied.
     """
 
     id: str
@@ -255,9 +336,11 @@ class Component:
     extra: dict | None = None
     stored_path: str | None = None
     alternates: "tuple[Alternate, ...]" = ()
+    embedding: EmbeddingDescriptor | None = None
+    requested_layout: dict | None = None
 
     def __post_init__(self) -> None:
-        """Validate the id, the axis declarations, the payload dtype and alternates."""
+        """Validate the id, axes, payload dtype, alternates, embedding and requested layout."""
         if not COMPONENT_ID_RE.fullmatch(self.id):
             raise ValueError(
                 f"invalid component id {self.id!r}: expected lowercase, dot-separated, "
@@ -289,7 +372,11 @@ class Component:
                 )
         if "keypoint" in self.axes and self.skeleton is None:
             raise ValueError(f"{self.id}: a component with a keypoint axis must name its skeleton")
-        if self.missing.get("policy") == "nan" and self.dtype not in ("float32", "float64"):
+        if self.missing.get("policy") == "nan" and self.dtype not in (
+            "float16",
+            "float32",
+            "float64",
+        ):
             raise ValueError(
                 f"{self.id}: a nan missing-policy needs a float payload, not {self.dtype!r} -- "
                 "NaN is reserved for floats and no other dtype can represent it"
@@ -322,12 +409,86 @@ class Component:
                 f"{self.id}: alternates {repeated} are declared more than once; a name "
                 "identifies one encoding"
             )
+        self._check_embedding()
+        self._check_requested_layout()
         # Frozen only freezes the attribute bindings. Without this a caller
         # keeps a live reference to the dicts that were validated, and can
         # mutate them past every check above.
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(self, "missing", MappingProxyType(dict(self.missing)))
         object.__setattr__(self, "encoding", MappingProxyType(dict(self.encoding)))
+        if self.requested_layout is not None:
+            frozen = dict(self.requested_layout)
+            if "chunks" in frozen:
+                frozen["chunks"] = tuple(frozen["chunks"])
+            object.__setattr__(self, "requested_layout", MappingProxyType(frozen))
+
+    def _check_requested_layout(self) -> None:
+        """Validate a requested layout against the id and the payload's rank.
+
+        Raises:
+            ValueError: If the id does not admit a request, or the writer could
+                not honor it.
+        """
+        if self.requested_layout is None:
+            return
+        if not accepts_requested_layout(self.id):
+            raise ValueError(
+                f"{self.id}: requested_layout is honored only for jabs.embedding.* and "
+                "non-jabs components; the writer owns every other jabs layout"
+            )
+        problems = requested_layout_problems(self.requested_layout, self.data.ndim)
+        if problems:
+            raise ValueError(f"{self.id}: invalid requested_layout -- " + "; ".join(problems))
+
+    def _check_embedding(self) -> None:
+        """Validate the embedding descriptor against the id and payload.
+
+        Raises:
+            ValueError: If an embedding id is malformed, lacks a descriptor or
+                disagrees with it, or a non-embedding id carries one.
+        """
+        if not is_embedding_id(self.id):
+            if self.embedding is not None:
+                raise ValueError(
+                    f"{self.id}: only jabs.embedding.<name>.<kind> components carry an "
+                    "embedding descriptor"
+                )
+            return
+        parsed = parse_embedding_id(self.id)
+        if parsed is None:
+            raise ValueError(
+                f"invalid embedding component id {self.id!r}: expected "
+                "jabs.embedding.<name>.instance or jabs.embedding.<name>.frame"
+            )
+        descriptor = self.embedding
+        if descriptor is None:
+            raise ValueError(f"{self.id}: an embedding component must carry its descriptor")
+        name, kind = parsed
+        if (descriptor.name, descriptor.kind) != (name, kind):
+            raise ValueError(
+                f"{self.id}: descriptor names {descriptor.name!r} of kind {descriptor.kind!r}, "
+                f"but the id says {name!r} of kind {kind!r}"
+            )
+        if self.axes != EMBEDDING_AXES[kind]:
+            raise ValueError(
+                f"{self.id}: a {kind} embedding has axes {EMBEDDING_AXES[kind]}, not {self.axes}"
+            )
+        if self.data.shape[-1] != descriptor.dim:
+            raise ValueError(
+                f"{self.id}: feature axis is {self.data.shape[-1]} wide but the descriptor's "
+                f"dim is {descriptor.dim}"
+            )
+        if self.dtype not in EMBEDDING_DTYPES:
+            raise ValueError(
+                f"{self.id}: an embedding must be one of {sorted(EMBEDDING_DTYPES)}, "
+                f"not {self.dtype!r}"
+            )
+        if dict(self.missing) != {"policy": "nan"}:
+            raise ValueError(
+                f"{self.id}: an embedding's missing policy must be {{'policy': 'nan'}}, "
+                f"not {dict(self.missing)}"
+            )
 
     @property
     def path(self) -> str:
@@ -491,6 +652,7 @@ class PoseFile:
             self._check_sparse_reference(component, by_id)
             self._check_missing_reference(component, by_id)
         self._check_alternates()
+        self._check_embedding_pairs()
 
         self._freeze()
 
@@ -624,6 +786,34 @@ class PoseFile:
                 raise ValueError(
                     f"{label}: length reference {other.id!r} has values outside "
                     f"[0, {bound}], the axis it bounds"
+                )
+
+    def _check_embedding_pairs(self) -> None:
+        """Require an embedding's ``.instance`` and ``.frame`` to describe the same vectors.
+
+        Checked at construction so the writer cannot emit a file that the
+        validator's ``embedding_pair_consistent`` rule would then reject.
+
+        Raises:
+            ValueError: If the two descriptors of one embedding differ in any
+                paired field.
+        """
+        by_name: dict[str, dict[str, EmbeddingDescriptor]] = {}
+        for component in self.components:
+            parsed = parse_embedding_id(component.id)
+            if parsed is not None and component.embedding is not None:
+                name, kind = parsed
+                by_name.setdefault(name, {})[kind] = component.embedding
+        for name, kinds in sorted(by_name.items()):
+            if len(kinds) < 2:
+                continue
+            differing = paired_field_differences(
+                kinds["instance"].to_json(), kinds["frame"].to_json()
+            )
+            if differing:
+                raise ValueError(
+                    f"jabs.embedding.{name}: the instance and frame descriptors differ in "
+                    f"{differing}, so they do not describe the same vectors"
                 )
 
     def _check_alternates(self) -> None:

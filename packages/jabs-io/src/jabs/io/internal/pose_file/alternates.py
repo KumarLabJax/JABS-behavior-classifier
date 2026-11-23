@@ -165,7 +165,11 @@ class Alternate:
             )
         if self.dtype not in DTYPE_NAMES:
             raise ValueError(f"{label}: unsupported dtype {self.dtype!r}")
-        if self.missing.get("policy") == "nan" and self.dtype not in ("float32", "float64"):
+        if self.missing.get("policy") == "nan" and self.dtype not in (
+            "float16",
+            "float32",
+            "float64",
+        ):
             raise ValueError(
                 f"{label}: a nan missing-policy needs a float payload, not {self.dtype!r}"
             )

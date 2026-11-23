@@ -9,13 +9,20 @@ from jabs.io.internal.pose import hdf5 as pose_hdf5
 from jabs.io.internal.pose_file import (
     BlockSource,
     Component,
+    EmbeddingDescriptor,
+    EmbeddingInfo,
+    EmbeddingModel,
     Finding,
     NotAPoseFileError,
     PoseFile,
+    Projection,
     Provenance,
     ProvenanceRecord,
     Skeleton,
+    TemporalWindow,
     VideoInfo,
+    compute_fingerprint,
+    list_embeddings,
     read_component,
     read_manifest,
     read_pose_file,
@@ -46,6 +53,8 @@ def test_public_names_are_importable():
         read_component,
         read_manifest,
         validate,
+        list_embeddings,
+        compute_fingerprint,
     ):
         assert callable(callable_name)
     for type_name in (
@@ -58,6 +67,11 @@ def test_public_names_are_importable():
         ProvenanceRecord,
         Finding,
         NotAPoseFileError,
+        EmbeddingDescriptor,
+        EmbeddingModel,
+        TemporalWindow,
+        Projection,
+        EmbeddingInfo,
     ):
         assert type_name is not None
 
