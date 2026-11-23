@@ -66,11 +66,14 @@ from jabs.io.annotations import annotation_filename
 from jabs.pose_estimation import (
     PoseOpenError,
     get_pose_path,
+    is_legacy_pose_file,
     is_pose_file,
+    open_pose_file,
     scan_pose_metadata,
     scan_raw_model_metadata,
 )
 from jabs.project import Project
+from jabs.project.parallel_workers import PoseConversionJobSpec, convert_pose
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
 from jabs.scripts.initialize_project import (
@@ -956,6 +959,65 @@ def _preflight_update_inputs(
     )
 
 
+def _require_staged_poses_open(
+    project: Project, videos: list[str], role: str, processes: int = 1
+) -> None:
+    """Convert and open a staged project's pose files, refusing any that cannot be.
+
+    Preflight validates pose files by a metadata scan, which does not catch what
+    only the converter or ``Pose`` refuses (two animals given one identity in a
+    frame, one track shared by two animals, an unreadable component). Converting
+    here, into the staged project's own cache, catches them before anything is
+    applied, and the label remap then reuses the conversions, so each legacy file
+    is converted once.
+
+    Args:
+        project: A staged project.
+        videos: The videos whose pose files must open.
+        role: What the pose files are (``"replacement"``, ``"current"``), for messages.
+        processes: Number of worker processes converting legacy files.
+
+    Raises:
+        ValueError: If any of the pose files cannot be converted or opened.
+    """
+    jobs: list[PoseConversionJobSpec] = []
+    unified: list[tuple[str, Path]] = []
+    for video in videos:
+        pose_path = project.video_manager.get_cached_pose_path(video)
+        if is_legacy_pose_file(pose_path):
+            jobs.append(
+                PoseConversionJobSpec(
+                    video=video,
+                    pose_path=pose_path,
+                    cache_dir=project.project_paths.cache_dir,
+                    known_hash=None,
+                )
+            )
+        else:
+            unified.append((video, pose_path))
+
+    refused: dict[str, str] = {}
+    with contextlib.ExitStack() as stack:
+        if processes > 1 and len(jobs) > 1:
+            pool = stack.enter_context(Pool(min(processes, len(jobs))))
+            outcomes = pool.imap(convert_pose, jobs)
+        else:
+            outcomes = map(convert_pose, jobs)
+        for video, reason, _source_hash in outcomes:
+            if reason is not None:
+                refused[video] = reason
+    for video, pose_path in unified:
+        try:
+            with open_pose_file(pose_path, project.project_paths.cache_dir):
+                pass
+        except PoseOpenError as exc:
+            refused[video] = exc.reason
+
+    if refused:
+        details = "; ".join(f"{video}: {refused[video]}" for video in sorted(refused))
+        raise ValueError(f"{role.capitalize()} pose files cannot be opened: {details}")
+
+
 def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
     """Load explicit window sizes from the existing project file.
 
@@ -1557,6 +1619,11 @@ def update_project_pose_in_place(
             video_dir=project_dir,
             pose_dir=new_pose_dir,
             validate_project_dir=False,
+        )
+        # what the metadata-only preflight cannot see: converter and Pose refusals
+        _require_staged_poses_open(label_dest_project, videos, "replacement", processes)
+        _require_staged_poses_open(
+            label_source_project, sorted(live_annotation_videos), "current", processes
         )
         _inject_consistent_pose_model_metadata(label_dest_project)
 

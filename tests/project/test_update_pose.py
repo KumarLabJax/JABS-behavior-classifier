@@ -580,6 +580,11 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
     )
     monkeypatch.setattr(
         update_pose,
+        "_require_staged_poses_open",
+        lambda *_args, **_kwargs: sequence.append("open-staged"),
+    )
+    monkeypatch.setattr(
+        update_pose,
         "_run_staged_label_remap",
         lambda *_args, **_kwargs: (sequence.append("remap") or (3, 1)),
     )
@@ -637,6 +642,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
     assert sequence.index("preflight") < sequence.index("backup")
     assert sequence.index("backup") < sequence.index("apply")
     assert sequence.index("seed") < sequence.index("remap")
+    assert sequence.index("open-staged") < sequence.index("remap")
     assert sequence.index("remap") < sequence.index("apply")
     assert sequence.index("apply") < sequence.index("regen")
 
@@ -1946,3 +1952,65 @@ def _metadata_pose(path: Path) -> Path:
     """Write a pose file with valid model metadata."""
     _write_pose_file_with_metadata(path, {"pose_model_name": "m"})
     return path
+
+
+@pytest.mark.parametrize(
+    "skip_feature_gen", [False, True], ids=["feature-gen", "skip-feature-gen"]
+)
+def test_a_replacement_the_converter_refuses_is_not_installed(
+    tmp_path, monkeypatch, skip_feature_gen
+):
+    """A replacement the scan accepts but the converter refuses stops the update.
+
+    Validation reads metadata only, so the refusal must be caught where the staged
+    project converts the replacements, before anything is applied, even for an
+    unlabeled video whose pose the remap never opens.
+    """
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video, replacement in (("a", _REFUSED_AT_CONVERSION), ("b", _V8_POSE)):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(_V8_POSE, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(replacement, new_pose_dir / f"{video}_pose_est_v8.h5")
+        # the same model metadata (none) on both, so only the refusal can stop the update
+        with h5py.File(new_pose_dir / f"{video}_pose_est_v8.h5", "a") as h5:
+            h5["poseest"].attrs.pop("model_metadata_json", None)
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    live_pose = (project_dir / "a_pose_est_v8.h5").read_bytes()
+
+    with pytest.raises(ValueError, match=r"a\.avi.*(identity|embed)"):
+        update_pose.update_project_pose_in_place(
+            project_dir, new_pose_dir, min_iou=0.5, skip_feature_gen=skip_feature_gen
+        )
+
+    assert (project_dir / "a_pose_est_v8.h5").read_bytes() == live_pose
+
+
+def test_an_update_converts_each_replacement_once(tmp_path, monkeypatch):
+    """Preflight converts nothing; the staged project converts each replacement once."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video in ("a", "b"):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(_V8_POSE, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(_V8_POSE, new_pose_dir / f"{video}_pose_est_v8.h5")
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    convert = MagicMock(wraps=conversion_cache.convert_legacy)
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
+
+    update_pose.update_project_pose_in_place(
+        project_dir, new_pose_dir, min_iou=0.5, skip_feature_gen=True
+    )
+
+    converted = sorted(call.args[0].name for call in convert.call_args_list)
+    assert converted == ["a_pose_est_v8.h5", "b_pose_est_v8.h5"]
