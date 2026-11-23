@@ -194,9 +194,13 @@ frames before (after) *t* the vector for *t* can depend on through the model's c
 nominal bound, not a per-frame value, so two producers with the same model and clip schedule
 record the same number.
 
-For SPAL, which runs 12-frame clips at stride 8 and emits interior frames 2-9 of each clip, the
-vector for an emitted frame can see up to 9 frames before it (frame 9 of its clip) and up to 9
-after (frame 2 of its clip). Its window is `{"before": 9, "after": 9}`.
+For SPAL, which runs 12-frame clips at stride 8, the vector for an interior frame (frames 2-9 of
+its clip) can see up to 9 frames before it and up to 9 after. The ends of a video set the
+maximum, though: the first clip also emits its frames 0-1, so frame 0 can see 11 frames after it,
+and the final, right-aligned clip lets the last frame see up to 11 before it. SPAL's window is
+therefore `{"before": 11, "after": 11}`. A producer computes it from its clip schedule rather than
+from the interior frames alone. (The examples in this ADR use `{9, 9}`; they are the test vector's
+values, not a statement about SPAL.)
 
 **Carry and recurrent models.** For ViT-Carry-SPAL, frame *t*'s vector can also depend, weakly, on
 earlier clips through the carried prior. `window` records the nominal clip receptive field only;

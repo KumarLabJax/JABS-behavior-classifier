@@ -174,7 +174,7 @@ A new optional component property, **required** (schema conditional + validator)
 | `model.weights` | string | content identifier of the exact weights, `sha256:<hex>` of the checkpoint file |
 | `tap` | string | producer-defined name of where in the model the vector comes from |
 | `pooling` | string | how spatial positions were reduced; registered values `mask_mean`, `bbox_mean`, `grid_mean`, `token`; others allowed |
-| `window` | `{before, after}` ints ≥ 0 | nominal temporal receptive field: the **maximum over all frames** of how many frames before (and, separately, after) *t* the vector for *t* can depend on through the model's clip. For SPAL (12-frame windows, stride 8, interior frames 2-9 emitted) this is `{9, 9}`; the example above uses that value |
+| `window` | `{before, after}` ints ≥ 0 | nominal temporal receptive field: the **maximum over all frames** of how many frames before (and, separately, after) *t* the vector for *t* can depend on through the model's clip. For SPAL (12-frame windows, stride 8) this is `{11, 11}`: interior frames see 9 each way, but the first and last clips emit end frames that see up to 11 (corrected 2026-11-23; ADR 0003 has the derivation). The example above uses `{9, 9}` |
 | `normalization` | string | `none`, `l2`, or producer-defined |
 | `projection` | null or object `{kind, input_dim, basis}` | applied post-tap reduction (e.g. `{"kind":"pca","input_dim":1664,"basis":"sha256:<hex>"}`); `dim` is then the output dim |
 | `fingerprint` | string | `sha256:` + lowercase hex SHA-256 of the canonical JSON of the descriptor **excluding** `name`, `kind` and `fingerprint` (normative; see below) |
