@@ -1,11 +1,11 @@
 """Refuse a legacy file whose declared shapes would exhaust memory, before allocating.
 
 The plan holds arrays sized frames x slots x contours, and pass 2 reads blocks
-of at least 900 frames whatever ``block_bytes`` asks, all from the shapes the
-file declares. A file of a few kilobytes can declare billions of frames, or a
-contour axis no real file has, in chunked storage it never wrote. So the
-converter estimates its peak memory from the shapes alone and refuses a file
-above the caller's cap, naming both.
+of at least one chunk row of the dense contours whatever ``block_bytes`` asks,
+all from the shapes the file declares. A file of a few kilobytes can declare
+billions of frames, or a contour axis no real file has, in chunked storage it
+never wrote. So the converter estimates its peak memory from the shapes alone
+and refuses a file above the caller's cap, naming both.
 
 The estimate is a bound for the shapes real files have, not a measurement: it
 uses the slot count's upper bound (every identity plus every legacy instance),
@@ -25,11 +25,16 @@ its metadata, before inspection or the scale reads any attribute's value.
 import logging
 import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import h5py
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.validate import DEEP_CHECK_BLOCK_BYTES
+from jabs.io.internal.pose_file.writer import chunk_shape
+
+if TYPE_CHECKING:
+    from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +73,37 @@ _DEEP_CHECK_COPIES = 4
 
 # The poseest datasets read whole.
 _WHOLE_DATASETS = ("instance_id_center", "external_identity_mapping")
+
+
+# The converted dense contours' axes, which decide their chunk shape.
+_CONTOUR_AXES = ("frame", "slot", "contour", "point", "coord")
+
+
+def contour_rows(frames: int, contour_axis: int, point_axis: int) -> int:
+    """Return the frames in one chunk of the converted dense contours; 1 without contours.
+
+    The writer chunks contours along frames and the point axis only
+    (``writer.chunk_shape``), so this depends on the point axis and not on
+    the slot count, which is unknown until the plan is made.
+
+    Args:
+        frames: The frame count.
+        contour_axis: The padded contour extent; 0 without segmentation.
+        point_axis: The padded point extent; 0 without segmentation.
+
+    Returns:
+        The chunk's frame extent: the smallest block the converter reads.
+    """
+    if min(frames, contour_axis, point_axis) <= 0:
+        return 1
+    return chunk_shape(_CONTOUR_AXES, (frames, 1, contour_axis, point_axis, 2), 4)[0]
+
+
+def contour_chunk_frames(layout: "LegacyLayout") -> int:
+    """Return :func:`contour_rows` for an inspected legacy file."""
+    if not layout.has_segmentation:
+        return 1
+    return contour_rows(layout.frames, layout.contour_axis, layout.point_axis)
 
 
 def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:

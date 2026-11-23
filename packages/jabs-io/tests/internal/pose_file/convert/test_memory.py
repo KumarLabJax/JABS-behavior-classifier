@@ -1,5 +1,6 @@
 """The converter refuses a file whose declared shapes would exhaust memory, before allocating."""
 
+import dataclasses
 import shutil
 import tracemalloc
 from collections.abc import Callable
@@ -18,6 +19,7 @@ from jabs.io.internal.pose_file.convert.convert import DEFAULT_MAX_MEMORY, block
 from jabs.io.internal.pose_file.convert.memory import (
     STORAGE_RATIO,
     STORAGE_RATIO_FLOOR,
+    contour_chunk_frames,
     estimate_memory,
 )
 
@@ -92,7 +94,7 @@ def test_huge_frames_are_refused_before_allocating(
 
 
 def test_a_huge_contour_axis_is_refused_by_its_block(tmp_path: Path) -> None:
-    """A few frames whose one 900-frame block would be enormous are refused."""
+    """A few frames whose smallest block would be enormous are refused."""
 
     def contours(pose: h5py.Group) -> None:
         frames, instances = pose["points"].shape[:2]
@@ -276,6 +278,48 @@ def test_a_four_day_v6_recording_fits_the_default_cap(tmp_path: Path) -> None:
         estimate = estimate_memory(h5, identity=4, block_frames=900)
 
     assert estimate < DEFAULT_MAX_MEMORY
+
+
+def test_a_real_wide_segmentation_fits_the_default_cap(tmp_path: Path) -> None:
+    """The widest real file seen, 79 contours of 5,923 points, estimates under 16 GiB.
+
+    Its shapes and legacy chunks are a real 1800-frame v8 file's, the largest
+    of 7,729. With 900-frame blocks the estimate was 98 GiB at inspection and
+    133 GiB in full, and the file was refused.
+    """
+    frames, instances, identities = 1800, 5, 5
+
+    def wide(pose: h5py.Group) -> None:
+        pose.create_dataset(
+            "seg_data",
+            shape=(frames, instances, 79, 5923, 2),
+            dtype=np.int16,
+            chunks=(113, 1, 5, 371, 1),
+            compression="gzip",
+        )
+        pose.create_dataset(
+            "seg_external_flag", shape=(frames, instances, 79), dtype=np.bool_, chunks=True
+        )
+        pose.create_dataset("instance_id_center", data=np.zeros((identities, 16)))
+
+    src = tmp_path / "wide.h5"
+    _declare(src, frames=frames, instances=instances, edits=wide)
+    seen = inspect_legacy(legacy("v8-edge-cases.h5"))
+    layout = dataclasses.replace(
+        seen,
+        frames=frames,
+        instances=instances,
+        identity=identities,
+        contour_axis=79,
+        point_axis=5923,
+    )
+    with h5py.File(src, "r") as h5:
+        floor = estimate_memory(h5, identity=identities, block_frames=contour_chunk_frames(layout))
+        full = estimate_memory(
+            h5, identity=identities, block_frames=block_frames_for(layout, 64 * 2**20)
+        )
+
+    assert floor == full < DEFAULT_MAX_MEMORY
 
 
 # _declare's largest chunk: 900 frames of 4 instances' float32 points.

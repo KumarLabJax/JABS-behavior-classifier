@@ -8,14 +8,16 @@ import numpy.typing as npt
 import pytest
 
 from jabs.io.internal.pose_file.convert import inspect_legacy, plan_placement
+from jabs.io.internal.pose_file.convert.convert import block_frames_for
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES
+from jabs.io.internal.pose_file.convert.memory import contour_chunk_frames
 from jabs.io.internal.pose_file.convert.segmentation import segmentation_components
 from jabs.io.internal.pose_file.convert.sources import pose_components
 from jabs.io.internal.pose_file.reader import read_pose_file
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12, jabs_mouse12
 from jabs.io.internal.pose_file.types import PoseFile, VideoInfo
 from jabs.io.internal.pose_file.validate import validate
-from jabs.io.internal.pose_file.writer import write_pose_file
+from jabs.io.internal.pose_file.writer import COMPRESSION_LEVEL, write_pose_file
 
 from .conftest import SAMPLES, generator, legacy, requires_samples
 
@@ -27,9 +29,11 @@ def _convert(path: Path, out: Path) -> None:
     layout = inspect_legacy(path)
     with h5py.File(path, "r") as h5:
         plan = plan_placement(h5, layout)
+    # The smallest blocks the converter takes: one chunk row of the contours.
+    block_frames = block_frames_for(layout, 1)
     components = (
-        *pose_components(path, layout, plan, block_frames=BLOCK_FRAMES),
-        *segmentation_components(path, layout, plan, block_frames=BLOCK_FRAMES),
+        *pose_components(path, layout, plan, block_frames=block_frames),
+        *segmentation_components(path, layout, plan, block_frames=block_frames),
     )
     pose_file = PoseFile(
         dimensions={"frame": layout.frames, "slot": plan.slots, "identity": layout.identity},
@@ -53,10 +57,14 @@ def _assert_deep_clean(out: Path) -> None:
 
 
 def _long_seg_file(tmp_path: Path) -> Path:
-    """Write a segmented legacy file longer than one 900-frame block."""
+    """Write a segmented legacy file several chunk rows, so several blocks, long."""
     gen = generator()
     path = tmp_path / "long-seg.h5"
-    gen.write_legacy(path, frames=2000, instances=3, identities=3, version=gen.V8, seg=True)
+    with pytest.MonkeyPatch.context() as patch:
+        # Wide enough that a chunk row is a few hundred frames.
+        patch.setattr(gen, "CONTOUR_POINTS", 400)
+        gen.write_legacy(path, frames=2000, instances=3, identities=3, version=gen.V8, seg=True)
+    assert contour_chunk_frames(inspect_legacy(path)) < 1000
     return path
 
 
@@ -88,14 +96,58 @@ def test_without_segmentation_returns_nothing() -> None:
     assert segmentation_components(path, layout, plan, block_frames=BLOCK_FRAMES) == []
 
 
-def test_refuses_block_frames_off_the_900_grid() -> None:
-    """A block size that is not a multiple of 900 is refused."""
-    path = legacy("v8-edge-cases.h5")
+def test_refuses_blocks_off_the_chunk_row_grid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A block that would split the dense contours' chunks is refused, short of the whole file."""
+    path = _wide_seg_file(tmp_path, monkeypatch)
     layout = inspect_legacy(path)
     with h5py.File(path, "r") as h5:
         plan = plan_placement(h5, layout)
-    with pytest.raises(ValueError, match="900"):
-        segmentation_components(path, layout, plan, block_frames=450)
+    rows = contour_chunk_frames(layout)
+    assert 1 < rows < layout.frames
+    with pytest.raises(ValueError, match="block_frames"):
+        segmentation_components(path, layout, plan, block_frames=rows + 1)
+    assert segmentation_components(path, layout, plan, block_frames=2 * rows)
+    assert segmentation_components(path, layout, plan, block_frames=layout.frames + 1)
+
+
+def _wide_seg_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Write a segmented legacy file whose contours are wide: a few frames a chunk."""
+    gen = generator()
+    monkeypatch.setattr(gen, "CONTOUR_POINTS", 20_000)
+    path = tmp_path / "wide-seg.h5"
+    gen.write_legacy(path, frames=30, instances=3, identities=3, version=gen.V8, seg=True)
+    return path
+
+
+def test_wide_contours_stream_in_blocks_under_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every dense block is whole chunk rows and within the budget, or one chunk row."""
+    path = _wide_seg_file(tmp_path, monkeypatch)
+    layout = inspect_legacy(path)
+    budget = 16 * 2**20
+    block_frames = block_frames_for(layout, budget)
+    rows = contour_chunk_frames(layout)
+    with h5py.File(path, "r") as h5:
+        plan = plan_placement(h5, layout, block_frames=block_frames)
+    contours = segmentation_components(path, layout, plan, block_frames=block_frames)[0]
+    blocks = [block for _, block in contours.data.blocks()]
+    assert sum(block.shape[0] for block in blocks) == layout.frames
+    assert len(blocks) > 1
+    for block in blocks[:-1]:
+        assert block.shape[0] % rows == 0
+        assert block.nbytes <= max(budget, rows * block.nbytes // block.shape[0])
+
+    out = tmp_path / "out.h5"
+    _convert(path, out)
+    with h5py.File(out, "r") as h5:
+        dense = h5[f"{_SEG}/contours"]
+        assert dense.chunks == (rows, 1, 1, layout.point_axis, 1)
+        assert dense.compression == "gzip"
+        assert dense.compression_opts == COMPRESSION_LEVEL
+        assert dense.shuffle
 
 
 def test_round_trip_passes_the_deep_check(tmp_path: Path) -> None:
@@ -165,7 +217,7 @@ def _decode_ragged(
 def test_ragged_payload_matches_dense(tmp_path: Path, source: str) -> None:
     """Decoding the ragged alternate instance by instance gives the dense valid points.
 
-    The long file spans several 900-frame blocks, so block start rows past 0
+    The long file spans several blocks, so block start rows past 0
     are covered.
     """
     path = legacy("v8-edge-cases.h5") if source == "edge" else _long_seg_file(tmp_path)

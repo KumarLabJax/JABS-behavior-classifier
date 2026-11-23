@@ -26,7 +26,7 @@ import numpy.typing as npt
 
 from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
-from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout
+from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan
 from jabs.io.internal.pose_file.skeletons import JABS_MOUSE12
 from jabs.io.internal.pose_file.types import Component
@@ -61,13 +61,13 @@ def pose_components(
         path: The legacy file. Each block source opens it when read.
         layout: What ``inspect_legacy`` found in it.
         plan: Where ``plan_placement`` put each legacy instance.
-        block_frames: Frames per block; a multiple of 900.
+        block_frames: Frames per block; positive.
 
     Returns:
         The components.
 
     Raises:
-        ValueError: If ``block_frames`` is not a positive multiple of 900.
+        ValueError: If ``block_frames`` is not positive.
         LegacyConversionError: If an ``external_identity_mapping`` name is
             bytes that are not UTF-8.
     """
@@ -176,18 +176,24 @@ def pose_components(
     return components
 
 
-def check_block_frames(block_frames: int) -> None:
-    """Refuse a block size off the 900-frame grid.
+def check_block_frames(block_frames: int, rows: int = 1, frames: int = 0) -> None:
+    """Refuse a block size of no frames, or one that would split chunks.
 
     Args:
         block_frames: Frames per block.
+        rows: The chunk rows a block must be a multiple of, so no chunk is
+            written by two blocks and compressed twice.
+        frames: The frame count; a block covering every frame splits nothing.
 
     Raises:
-        ValueError: If ``block_frames`` is not a positive multiple of 900.
+        ValueError: If ``block_frames`` is not positive, or is not a multiple
+            of ``rows`` and shorter than ``frames``.
     """
-    if block_frames <= 0 or block_frames % BLOCK_FRAMES:
+    if block_frames <= 0:
+        raise ValueError(f"block_frames must be positive, got {block_frames}")
+    if block_frames % rows and block_frames < frames:
         raise ValueError(
-            f"block_frames must be a positive multiple of {BLOCK_FRAMES}, got {block_frames}"
+            f"block_frames must be a multiple of the {rows}-frame chunk rows, got {block_frames}"
         )
 
 
