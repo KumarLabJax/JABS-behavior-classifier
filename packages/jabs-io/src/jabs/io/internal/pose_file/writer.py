@@ -10,6 +10,7 @@ full disk — would otherwise cost the caller the file they already had.
 import json
 import os
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import h5py
@@ -40,20 +41,33 @@ _SUPPORTED_ENCODINGS = frozenset({"dense"})
 _CONTIGUOUS_ID_PREFIXES = ("jabs.pose.", "jabs.identity.", "jabs.time.")
 
 _COMPRESSION = "gzip"
-# Level 1 rather than 6: measured on segmentation-shaped data, level 6 costs
-# several times the write CPU for a few percent less disk.
-_COMPRESSION_OPTS = 1
+# Level 4. Segmentation-scale arrays are mostly padding, and deflate at level 1
+# reaches only about 200:1 on long runs of one value where level 4 approaches
+# deflate's ~1032:1 ceiling, so on padding-heavy files level 4 stores several
+# times less for about twice the compression CPU. Level 6 adds a few percent.
+COMPRESSION_LEVEL = 4
 
-# Target chunk size for compressed components, in frames. Chunks are shaped
-# along the frame axis and span every other axis whole, so a frame window maps
-# onto whole chunks. Left to h5py, `chunks=True` picks a shape that splits the
-# trailing axes and multiplies the reads a one-frame lookup costs.
-_FRAME_CHUNK = 300
+# The target size of one chunk of a chunked component, uncompressed. Chunks
+# are cut along every axis but the first and one item axis (see
+# `chunk_shape`), so this bounds what a read decompresses per chunk and keeps
+# every chunk far below HDF5 1.x's 4 GiB chunk limit, whatever the padded
+# extents of the other axes.
+CHUNK_BYTES = 256 * 2**10
+
+# Whether a compressed component is byte-shuffled first. Shuffling groups the
+# values' high bytes, which compress far better than interleaved values. HDF5
+# applies the filter on read, so a reader needs nothing new; the layout schema
+# has no field for it, so it is not recorded.
+_COMPONENT_SHUFFLE = True
 
 # A leaf-level ragged payload is chunked along its single item axis at this many
 # rows (spec 0029-A §2.6): large enough that a whole recording's points are a
 # few hundred chunks, small enough that one frame's points cost one chunk read.
 _RAGGED_CHUNK = 65536
+
+# A ragged payload holds no padding, so the level that suits padding buys it
+# little; it keeps level 1, which spec 0029-A's browser reads were measured on.
+_RAGGED_COMPRESSION_LEVEL = 1
 
 # Whether a compressed ragged payload is byte-shuffled first. Shuffling groups
 # the coordinates' high bytes, which compress far better than the interleaved
@@ -73,10 +87,10 @@ def _is_keypoint_scale(component_id: str) -> bool:
     return component_id.startswith(_CONTIGUOUS_ID_PREFIXES)
 
 
-def _chunked_layout(shape: tuple[int, ...], leading_rows: int) -> dict:
-    """A chunked, compressed layout along the first axis, or contiguous when empty.
+def _ragged_layout(shape: tuple[int, ...]) -> dict:
+    """A ragged payload's chunked, compressed layout along its item axis, or contiguous when empty.
 
-    Chunks span every trailing axis whole and at most ``leading_rows`` rows
+    Chunks span every trailing axis whole and at most ``_RAGGED_CHUNK`` rows
     of the first, so a window along that axis maps onto whole chunks. A 0-d
     payload or one with a zero-length axis cannot be chunked -- every chunk
     dimension must be positive -- and holds nothing to compress, so it is
@@ -84,7 +98,6 @@ def _chunked_layout(shape: tuple[int, ...], leading_rows: int) -> dict:
 
     Args:
         shape: The payload's shape.
-        leading_rows: The most rows of the first axis one chunk holds.
 
     Returns:
         The layout to record in the manifest.
@@ -93,10 +106,60 @@ def _chunked_layout(shape: tuple[int, ...], leading_rows: int) -> dict:
         return {"storage": "contiguous", "compression": "none"}
     return {
         "storage": "chunked",
-        "chunks": [min(leading_rows, shape[0]), *shape[1:]],
+        "chunks": [min(_RAGGED_CHUNK, shape[0]), *shape[1:]],
         "compression": _COMPRESSION,
-        "compression_opts": _COMPRESSION_OPTS,
+        "compression_opts": _RAGGED_COMPRESSION_LEVEL,
     }
+
+
+def _item_axis(axes: Sequence[str]) -> int:
+    """The axis a chunk keeps whole: the innermost after the first not named ``coord``.
+
+    For dense contours that is ``point``, so a chunk is one contour's x or y
+    values over consecutive frames. When every trailing axis is ``coord`` the
+    last one is kept.
+
+    Args:
+        axes: The component's axis names.
+
+    Returns:
+        The axis index; 0 for a one-dimensional component.
+    """
+    for axis in range(len(axes) - 1, 0, -1):
+        if axes[axis] != "coord":
+            return axis
+    return len(axes) - 1
+
+
+def chunk_shape(axes: Sequence[str], shape: Sequence[int], itemsize: int) -> tuple[int, ...]:
+    """The chunk shape this writer gives a chunked component.
+
+    A chunk is 1 along every axis but the first and the item axis
+    (:func:`_item_axis`), holds the item axis whole, and as many rows of the
+    first as fit in ``CHUNK_BYTES``. So a chunk holds one run of related
+    values -- one contour's x or y coordinates -- over consecutive frames:
+    values that change little from frame to frame and compress far better
+    than whole padded frames do. An item axis longer than the budget is cut
+    to it. The first axis's extent depends only on the item axis, not on the
+    slot or contour count, so a caller can size frame blocks to it before it
+    knows those.
+
+    Args:
+        axes: The component's axis names.
+        shape: Its shape; every extent positive.
+        itemsize: Bytes per value.
+
+    Returns:
+        The chunk shape.
+    """
+    chunks = [1] * len(shape)
+    budget = max(1, CHUNK_BYTES // itemsize)
+    item = _item_axis(axes)
+    if item > 0:
+        chunks[item] = min(shape[item], budget)
+        budget = max(1, budget // chunks[item])
+    chunks[0] = min(shape[0], budget)
+    return tuple(chunks)
 
 
 def _layout_for(component: Component) -> dict:
@@ -110,7 +173,16 @@ def _layout_for(component: Component) -> dict:
     """
     if _is_keypoint_scale(component.id):
         return {"storage": "contiguous", "compression": "none"}
-    return _chunked_layout(component.data.shape, _FRAME_CHUNK)
+    shape = component.data.shape
+    if not shape or 0 in shape:
+        return {"storage": "contiguous", "compression": "none"}
+    chunks = chunk_shape(component.axes, shape, component.data.dtype.itemsize)
+    return {
+        "storage": "chunked",
+        "chunks": list(chunks),
+        "compression": _COMPRESSION,
+        "compression_opts": COMPRESSION_LEVEL,
+    }
 
 
 def _alternate_layout(alternate: Alternate) -> dict:
@@ -128,7 +200,7 @@ def _alternate_layout(alternate: Alternate) -> dict:
     """
     if alternate.level != "leaf":
         return {"storage": "contiguous", "compression": "none"}
-    return _chunked_layout(alternate.data.shape, _RAGGED_CHUNK)
+    return _ragged_layout(alternate.data.shape)
 
 
 def _create_options(layout: dict, *, shuffle: bool = False) -> dict:
@@ -136,9 +208,9 @@ def _create_options(layout: dict, *, shuffle: bool = False) -> dict:
 
     Derived from the layout the manifest records, so the storage, chunk shape
     and compression it records are the ones the dataset gets. The layout does
-    not record shuffle: that is a filter the writer adds to compressed ragged
-    payloads, and the layout schema has no field for it, so options rebuilt
-    from a manifest alone produce unshuffled chunks.
+    not record shuffle: that is a filter the writer adds to every compressed
+    payload, and the layout schema has no field for it, so options rebuilt
+    from a manifest alone produce unshuffled chunks -- valid, only larger.
 
     Args:
         layout: The layout from :func:`_layout_for` or :func:`_alternate_layout`.
@@ -326,7 +398,7 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
         component: The component to write.
     """
     data = component.data
-    options = _create_options(_layout_for(component))
+    options = _create_options(_layout_for(component), shuffle=_COMPONENT_SHUFFLE)
     if component.dtype == "string":
         # Variable-length UTF-8, so a reader on any HDF5 implementation gets
         # text rather than this machine's fixed-width padding. Converted
