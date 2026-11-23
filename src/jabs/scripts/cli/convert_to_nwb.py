@@ -336,8 +336,6 @@ def pose_to_pose_data(
         segmentation: Whether to include instance segmentation contours when the
             pose file has them.  A pose file without segmentation carries none
             either way.
-        cache_dir: Directory to keep a legacy pose file's conversion in; None
-            converts it into a temporary directory removed when done.
 
     Returns:
         A PoseData instance ready for NWB export.
