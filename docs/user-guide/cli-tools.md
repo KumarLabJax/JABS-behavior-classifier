@@ -72,6 +72,8 @@ file is converted when it is opened. The legacy file is never modified.
   the system temporary directory (`TMPDIR`); on a cluster with a small `/tmp`, point
   `TMPDIR` at scratch space. Pass `--cache-dir <DIR>` to keep the converted copies in
   `<DIR>/converted/` instead, so later runs on the same files skip the conversion.
+  `<DIR>` then also holds cached convex hulls, and, like a project's cache, it is used
+  as given: there is no temporary-directory fallback when it is read-only or full.
 - **Other tools** that open a pose file outside a project (such as the pose viewer) keep
   the converted copy in the per-user cache, so the next open skips the conversion.
 - **Location.** The per-user cache is the directory named by the `JABS_CACHE_DIR` environment
