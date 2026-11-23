@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 import h5py
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
-from jabs.io.internal.pose_file.validate import DEEP_CHECK_BLOCK_BYTES
+from jabs.io.internal.pose_file.validate import deep_check_block_frames
 from jabs.io.internal.pose_file.writer import chunk_shape
 
 if TYPE_CHECKING:
@@ -137,9 +137,10 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     one copy in its own dtype, a 4-byte cast, the scatter's gather and masks;
     then the 4-byte output block and the ragged alternate's mask and rows),
     times ``min(block_frames, F)``. Checking: four of the deep check's blocks
-    of dense contours, each ``DEEP_CHECK_BLOCK_BYTES`` or the whole baseline
-    if smaller. And it adds, at their item size plus a 4-byte cast, the
-    datasets read whole: the static and dynamic objects,
+    of dense contours (``validate.deep_check_block_frames``: 64 MiB, widened
+    to whole chunk rows of the contours as the writer chunks them), or the
+    whole baseline if smaller. And it adds, at their item size plus a 4-byte
+    cast, the datasets read whole: the static and dynamic objects,
     ``instance_id_center`` and ``external_identity_mapping``.
 
     Last, it adds the largest single chunk, ``prod(chunks) * itemsize``,
@@ -190,10 +191,16 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     writing = min(block_frames, frames) * block
 
     checking_block = 0
-    if seg is not None and seg.ndim == 5:
-        # The output contours, int32, for every frame.
-        dense = frames * slots * math.prod(seg.shape[2:]) * 4
-        checking_block = _DEEP_CHECK_COPIES * min(DEEP_CHECK_BLOCK_BYTES, dense)
+    if seg is not None and seg.ndim == 5 and frames > 0:
+        # The output contours, int32, for every frame, read in the deep
+        # check's blocks of the chunks the writer gives them.
+        shape = (frames, slots, *seg.shape[2:])
+        dense = math.prod(shape) * 4
+        rows = contour_rows(frames, int(seg.shape[2]), int(seg.shape[3]))
+        chunks = (rows, 1, 1, int(seg.shape[3]), 1)
+        frame_bytes = math.prod(shape[1:]) * 4
+        block = deep_check_block_frames(shape, 4, chunks) * frame_bytes
+        checking_block = _DEEP_CHECK_COPIES * min(block, dense)
 
     whole = sum(_whole_bytes(pose.get(name)) for name in _WHOLE_DATASETS)
     read = [pose.get(name) for name in (*_FRAME_DATASETS, *_WHOLE_DATASETS)]

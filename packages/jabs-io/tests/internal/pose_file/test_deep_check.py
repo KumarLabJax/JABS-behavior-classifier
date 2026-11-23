@@ -153,15 +153,47 @@ def test_a_disagreement_in_a_later_frame_block_is_found(
 ) -> None:
     """The decode reads frame blocks so a full-size baseline never sits in memory at once.
 
-    One frame per block makes every boundary a block boundary.
+    One frame per block makes every boundary a block boundary; with no room
+    for a chunk row, blocks are not widened to one.
     """
     monkeypatch.setattr(validate_module, "DEEP_CHECK_BLOCK_BYTES", 1)
+    monkeypatch.setattr(validate_module, "DEEP_CHECK_MAX_BLOCK_BYTES", 0)
     assert _checks(validate(ALTERNATE, deep=True), "error") == []
     path = _copy(tmp_path)
     with h5py.File(path, "r") as h5:
         last = h5[POINTS].shape[0] - 1
     _flip(path, POINTS, (last, 0))
     assert _deep_errors(path)
+
+
+_WIDE = (1800, 5, 79, 5923, 2)
+_WIDE_FRAME_BYTES = 5 * 79 * 5923 * 2 * 4
+
+
+def test_deep_check_blocks_are_whole_chunk_rows() -> None:
+    """A block is whole chunk rows, so no chunk is decompressed once per block that touches it.
+
+    Read three frames at a time, a chunk row of eleven frames was decompressed
+    about four times over.
+    """
+    budget_rows = validate_module.DEEP_CHECK_BLOCK_BYTES // _WIDE_FRAME_BYTES
+    chunks = (11, 1, 1, 5923, 1)
+    assert budget_rows % 11
+    rows = validate_module.deep_check_block_frames(_WIDE, 4, chunks)
+    assert rows % 11 == 0
+    assert rows == max(11, budget_rows // 11 * 11)
+
+    narrow = (7, 1, 1, 5923, 1)
+    assert validate_module.deep_check_block_frames((1800, 1, 2, 5923, 2), 4, narrow) % 7 == 0
+
+
+def test_deep_check_blocks_fall_back_to_the_budget() -> None:
+    """Contiguous data, or a chunk row too large to hold, is read by the byte budget alone."""
+    budget_rows = max(1, validate_module.DEEP_CHECK_BLOCK_BYTES // _WIDE_FRAME_BYTES)
+    assert validate_module.deep_check_block_frames(_WIDE, 4, None) == budget_rows
+    # Whole frames, 300 a chunk: about 5 GiB a chunk row.
+    whole = (300, 5, 79, 5923, 2)
+    assert validate_module.deep_check_block_frames(_WIDE, 4, whole) == budget_rows
 
 
 def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path: Path) -> None:
