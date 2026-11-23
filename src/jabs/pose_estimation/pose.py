@@ -35,7 +35,7 @@ from jabs.core.pose_skeleton import (
     KeypointIndex,
 )
 from jabs.core.types import DynamicObjectData, SegmentationWindow
-from jabs.core.utils import hash_file
+from jabs.core.utils import hash_file, pose_file_stem
 from jabs.io.internal.pose_file import ComponentReader, HistoryEntry, PoseFileError
 
 logger = logging.getLogger(__name__)
@@ -91,8 +91,6 @@ _MISSING_FROM_NVSN = (
 # from the legacy version attribute (the public v5 sample records 3.0).
 _TRACKLET_ID_OFFSET = "tracklet_id_offset"
 
-_POSE_NAME_SUFFIX_RE = re.compile(r"(_pose_est_v\d+|_pose)$")
-
 # One segmentation window across every slot: contours (n, S, C, P, 2),
 # contour_count (n, S), contour_length (n, S, C), external_flag (n, S, C) or None.
 _SegmentationBlock = tuple[
@@ -101,15 +99,6 @@ _SegmentationBlock = tuple[
     npt.NDArray[np.uint32],
     npt.NDArray[np.bool_] | None,
 ]
-
-
-def _video_base(path: Path) -> str:
-    """Return the video stem a pose file name was derived from.
-
-    ``vid_pose_est_v6.h5`` and ``vid_pose.h5`` both give ``vid``; any other
-    name gives its stem.
-    """
-    return _POSE_NAME_SUFFIX_RE.sub("", path.with_suffix("").name)
 
 
 def _last_convert_entry(history: tuple[HistoryEntry, ...]) -> HistoryEntry | None:
@@ -811,7 +800,8 @@ class Pose:
         return (
             self._cache_dir
             / "convex_hulls"
-            / _video_base(self._path)
+            # the pose file's name less its pose suffix, as for the feature cache
+            / pose_file_stem(self._path)
             / key
             / f"convex_hulls_{identity}.pickle"
         )

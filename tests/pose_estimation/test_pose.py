@@ -608,3 +608,24 @@ def test_empty_lixit_is_not_a_static_object(pose_file_factory: Factory) -> None:
     with Pose(pose_file_factory(static_objects={"corners": corners, "lixit": lixit})) as pose:
         assert set(pose.static_objects) == {"corners"}
         assert pose.num_lixit_keypoints == 0
+
+
+@pytest.mark.parametrize(
+    ("source_name", "base"),
+    [
+        ("vid_pose.h5", "vid"),
+        ("vid_pose_est_v6.h5", "vid"),
+        ("a_pose_b_pose.h5", "a_pose_b"),
+        ("vid.0123abcd-r1.h5", "vid.0123abcd-r1"),
+    ],
+    ids=["unified", "legacy", "pose-in-stem", "cache-copy"],
+)
+def test_hull_cache_directory_is_the_pose_file_stem(
+    pose_file_factory: Factory, tmp_path: Path, source_name: str, base: str
+) -> None:
+    """Hulls are cached under the pose file's name less one pose suffix (pose_file_stem)."""
+    path = pose_file_factory()
+    cache = tmp_path / "cache"
+    with Pose(path, source_path=tmp_path / source_name, source_hash="h", cache_dir=cache) as p:
+        p.get_identity_convex_hulls(0)
+    assert (cache / "convex_hulls" / base / "h" / "convex_hulls_0.pickle").exists()
