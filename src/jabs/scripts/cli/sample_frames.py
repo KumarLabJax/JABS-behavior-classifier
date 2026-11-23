@@ -149,11 +149,17 @@ def write_frames(
     sampled: list[tuple[str, int]],
     out_dir: Path,
     console: Console | None = None,
-) -> None:
+) -> int:
     """Write sampled frames as PNG files to *out_dir*.
 
     Output filenames follow the JABS GUI "Export Frame" convention:
     ``{video_stem}_frame{frame_number:06d}.png``
+
+    Not every sampled frame necessarily reaches disk.  A video that
+    ``VideoReader`` rejects, and a frame that cannot be seeked to or decoded,
+    are logged and skipped rather than treated as fatal, so the caller cannot
+    assume one PNG per entry in *sampled*: the returned count is the only
+    accurate record of how many were produced.
 
     Args:
         project_dir: Root directory of the JABS project.
@@ -161,6 +167,9 @@ def write_frames(
         out_dir: Directory to write PNG files.  Must already exist.
         console: Rich Console to use for the progress bar.  A new one is created
             if not provided.
+
+    Returns:
+        Number of PNG files written, which is at most ``len(sampled)``.
 
     Raises:
         OSError: If a video file cannot be opened.
@@ -179,6 +188,7 @@ def write_frames(
         console=console,
     )
     task = progress.add_task("Writing frames", total=len(sampled))
+    written = 0
 
     with progress:
         for video_name, frame_indices in by_video.items():
@@ -212,7 +222,10 @@ def write_frames(
                     if not success:
                         raise RuntimeError(f"Failed to write PNG: {out_path}")
                     logger.info("Wrote %s", out_path.name)
+                    written += 1
                     progress.advance(task)
+
+    return written
 
 
 @click.command(name="sample-frames")
@@ -354,6 +367,11 @@ def sample_frames_command(
     # Create output directory if needed.
     resolved_out_dir.mkdir(parents=True, exist_ok=True)
 
-    write_frames(project_dir, sampled, resolved_out_dir, console=console)
+    written = write_frames(project_dir, sampled, resolved_out_dir, console=console)
 
-    console.print(f"Done. {len(sampled)} frame(s) written to {resolved_out_dir}")
+    console.print(f"Done. {written} frame(s) written to {resolved_out_dir}")
+    if written < len(sampled):
+        console.print(
+            f"[yellow]{len(sampled) - written} of the {len(sampled)} sampled frame(s) could "
+            "not be read and were skipped; see the warnings above.[/yellow]"
+        )
