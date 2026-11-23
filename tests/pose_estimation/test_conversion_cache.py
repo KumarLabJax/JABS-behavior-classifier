@@ -418,6 +418,33 @@ def test_temporary_conversion_is_ignored_with_a_cache_dir(legacy_v4: Path, tmp_p
     assert converted_path(legacy_v4, hash_file(legacy_v4), cache).exists()
 
 
+@pytest.mark.parametrize(
+    ("key", "replacement"),
+    [(b'"dimensions"', b"\"dimensions'"), (b'"operation"', b'"\xffperation"')],
+    ids=["manifest-json", "provenance-utf8"],
+)
+def test_corrupt_stored_json_is_damage(
+    legacy_v4: Path,
+    tmp_path: Path,
+    convert_spy: mock.Mock,
+    key: bytes,
+    replacement: bytes,
+) -> None:
+    """A conversion whose stored JSON bytes are corrupt is converted again, not kept as a refusal."""
+    cache = tmp_path / "cache"
+    with open_unified(legacy_v4, cache) as pose:
+        expected_frames = pose.num_frames
+    cached = converted_path(legacy_v4, hash_file(legacy_v4), cache)
+    data = cached.read_bytes()
+    assert data.count(key) == 1
+    cached.write_bytes(data.replace(key, replacement))
+
+    with open_unified(legacy_v4, cache) as pose:
+        assert pose.num_frames == expected_frames
+    assert convert_spy.call_count == 2
+    assert key in cached.read_bytes()
+
+
 def test_broken_unified_file_is_never_deleted(tmp_path: Path) -> None:
     """A unified file the user has that cannot be opened is reported, not deleted."""
     path = tmp_path / "vid_pose.h5"

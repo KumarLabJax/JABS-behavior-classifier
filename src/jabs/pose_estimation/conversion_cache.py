@@ -23,6 +23,7 @@ directory is never written.
 """
 
 import errno
+import json
 import logging
 import os
 import re
@@ -305,7 +306,8 @@ def open_unified(
 
     The user's file is hashed once; the hash keys the conversion and is the
     returned ``Pose.hash``. A cached conversion that cannot be read (a
-    truncated or corrupt file: an HDF5 ``OSError``) is deleted and converted
+    truncated or corrupt file: an HDF5 ``OSError``, or stored JSON that does not
+    decode) is deleted and converted
     again, once; one ``Pose`` refuses for what it holds is kept, and the
     refusal raised at once, since converting again would repeat it. A unified
     file is never deleted. Without ``cache_dir``, a per-user cache that cannot
@@ -403,15 +405,19 @@ def _is_damage(error: BaseException) -> bool:
     """Return whether an open error means the file's bytes are damaged.
 
     h5py reports a truncated or corrupt file, and a failed read, as an
-    ``OSError``; the reader may wrap one (a ``PoseFileError`` whose cause is
-    the ``OSError``). Any other error (a ``PoseFileError``, ``ValueError``,
-    ``LookupError`` or ``NotImplementedError`` of its own) is a refusal of
-    what the file holds, which a new conversion would repeat.
+    ``OSError``; corrupt bytes in the stored manifest or provenance JSON give
+    a ``JSONDecodeError`` or ``UnicodeDecodeError``. The reader wraps the
+    latter, and may wrap an ``OSError``, in a ``PoseFileError``, so the cause
+    chain is checked. The converter always writes valid UTF-8 JSON, so a
+    conversion that cannot be decoded is damaged, not refused. Any other
+    error (a ``PoseFileError``, ``ValueError``, ``LookupError`` or
+    ``NotImplementedError`` of its own) is a refusal of what the file holds,
+    which a new conversion would repeat.
     """
     seen: set[int] = set()
     current: BaseException | None = error
     while current is not None and id(current) not in seen:
-        if isinstance(current, OSError):
+        if isinstance(current, OSError | json.JSONDecodeError | UnicodeDecodeError):
             return True
         seen.add(id(current))
         current = current.__cause__
@@ -438,7 +444,7 @@ def _open_converted(path: Path, source_hash: str, cache_dir: Path | None, strict
             # an intact conversion Pose refuses: converting again would give the
             # same file and the same refusal, so keep it and report the refusal
             raise PoseOpenError(path, _reason(pose_path, error)) from error
-        # a damaged cached copy (truncated, unreadable): convert again, once
+        # a damaged cached copy (truncated, unreadable, corrupt JSON): convert again, once
         logger.warning("Cannot open conversion %s (%s); converting again", pose_path.name, error)
     _discard(pose_path)
     pose_path = ensure_converted(path, source_hash, cache_dir, strict=strict)
