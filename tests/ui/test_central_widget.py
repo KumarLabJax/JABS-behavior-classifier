@@ -929,3 +929,79 @@ def test_set_project_drops_the_previous_projects_video():
     stub._player_widget.reset.assert_called_once()
     stub._controls.set_identities.assert_called_with([])
     assert stub._controls.select_button_enabled is False
+
+
+def _load_video_stub(previous_pose: MagicMock, events: list[str]) -> MagicMock:
+    """A CentralWidget stand-in for load_video, recording player loads and pose closes."""
+    stub = MagicMock()
+    stub._pose_est = previous_pose
+    stub._labels = None
+    stub._loaded_video = Path("old.avi")
+    stub._frame_count_mismatch_message = lambda *_args: None
+    stub._player_widget.load_video.side_effect = lambda _path, pose, _labels: events.append(
+        f"player:{pose.name}"
+    )
+    previous_pose.close.side_effect = lambda: events.append("close:old")
+    return stub
+
+
+def test_load_video_closes_the_previous_pose_after_the_new_one_is_shown(monkeypatch):
+    """The replaced pose is closed (its file released) once the player holds the new one."""
+    events: list[str] = []
+    old_pose, new_pose = MagicMock(), MagicMock()
+    old_pose.name, new_pose.name = "old", "new"
+    stub = _load_video_stub(old_pose, events)
+    stub._project.load_pose_est.return_value = new_pose
+    monkeypatch.setattr(
+        central_widget_module.central_widget_mode,
+        "load_video_predictions",
+        lambda *_args: ({}, {}, {}, None),
+    )
+
+    CentralWidget.load_video(stub, Path("new.avi"))
+
+    assert stub._pose_est is new_pose
+    assert events == ["player:new", "close:old"]
+    new_pose.close.assert_not_called()
+
+
+def test_load_video_closes_the_previous_pose_when_the_new_one_fails():
+    """A failed load drops the previous pose from the player and closes it."""
+    events: list[str] = []
+    old_pose = MagicMock()
+    stub = _load_video_stub(old_pose, events)
+    stub._project.load_pose_est.side_effect = central_widget_module.PoseOpenError(
+        Path("new_pose_est_v6.h5"), "cannot read"
+    )
+
+    with pytest.raises(central_widget_module.PoseOpenError):
+        CentralWidget.load_video(stub, Path("new.avi"))
+
+    assert stub._pose_est is None
+    stub._player_widget.reset.assert_called_once()
+    old_pose.close.assert_called_once()
+
+
+def test_set_project_closes_the_previous_projects_pose():
+    """The pose set_project drops is closed after the player lets go of it."""
+    pose = MagicMock()
+    player = MagicMock()
+    player.reset.side_effect = lambda: pose.close.assert_not_called()
+    stub = SimpleNamespace(
+        _project=None,
+        _labels=None,
+        _loaded_video=None,
+        _pose_est=pose,
+        _controls=MagicMock(select_button_enabled=False),
+        _player_widget=player,
+        _jabs_timeline=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+    )
+    stub._set_identities = lambda identities: CentralWidget._set_identities(stub, identities)
+    stub._start_selection = lambda pressed: CentralWidget._start_selection(stub, pressed)
+    stub._update_select_button_state = lambda: CentralWidget._update_select_button_state(stub)
+
+    CentralWidget.set_project(stub, MagicMock())
+
+    pose.close.assert_called_once()

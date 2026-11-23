@@ -132,6 +132,12 @@ class ExportLabelMarkers:
         )
 
 
+def _close_pose(pose: PoseLike | None) -> None:
+    """Close a pose the widget has stopped using; None is ignored."""
+    if pose is not None:
+        pose.close()
+
+
 class CentralWidget(QtWidgets.QWidget):
     """QT Widget implementing our main window contents"""
 
@@ -438,10 +444,13 @@ class CentralWidget(QtWidgets.QWidget):
         # Unload the previous project's video as a failed load_video does. When none of
         # the new project's videos is usable, no video is loaded to replace it, and its
         # pose and enabled select button would let the label keys act on gone labels.
+        previous_pose = self._pose_est
         self._pose_est = None
         self._set_identities([])
         self._player_widget.reset()
         self._update_select_button_state()
+        # the player no longer draws it: release its file (and any temporary conversion)
+        _close_pose(previous_pose)
 
         # The reserved "None"-track counts are behavior-independent, so they are
         # cached across behavior changes and only invalidated when the project
@@ -491,6 +500,7 @@ class CentralWidget(QtWidgets.QWidget):
             None
         """
         previous_video = self._loaded_video
+        previous_pose = self._pose_est
 
         self._suppress_label_track_update = True
         self._search_bar_widget.video_frame_position_changed(path.name, 0)
@@ -570,12 +580,23 @@ class CentralWidget(QtWidgets.QWidget):
 
         except (OSError, PoseOpenError) as e:
             # error loading
+            failed_pose = self._pose_est
             self._labels = None
             self._loaded_video = None
             self._pose_est = None
             self._set_identities([])
             self._player_widget.reset()
+            # the player has let go of both: the previous pose, and the new one if it opened
+            _close_pose(previous_pose)
+            if failed_pose is not previous_pose:
+                _close_pose(failed_pose)
             raise e
+
+        # The player and timeline now hold the new pose, so the previous one is
+        # referenced nowhere: close it now rather than when it is collected, so its
+        # converted file is released at once (Windows cannot delete an open file).
+        if previous_pose is not self._pose_est:
+            _close_pose(previous_pose)
 
     def keyPressEvent(self, event) -> None:
         """handle key press events"""
