@@ -8,7 +8,6 @@ Todo:
 
 import argparse
 import logging
-import re
 import sys
 from pathlib import Path
 
@@ -28,27 +27,25 @@ from jabs.feature_extraction import (
     PoseCapabilityError,
     require_pose_capabilities,
 )
-from jabs.pose_estimation import PoseOpenError, open_pose_file
+from jabs.pose_estimation import PoseOpenError, is_pose_file, open_pose_file
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 
 logger = logging.getLogger(__name__)
-
-# a unified "*_pose.h5" or a legacy "*_pose_est_v<N>.h5" pose file; a hidden file
-# (such as a macOS "._*" AppleDouble sidecar) is not one, as in is_pose_file
-_POSE_FILE_NAME_RE = re.compile(r"^(?!\.).+_pose(_est_v[0-9]+)?\.h5$")
 
 # find out which classifiers are supported in this environment
 __CLASSIFIER_CHOICES = Classifier().classifier_choices()
 
 
 def _require_pose_file_name(pose_path: Path) -> None:
-    """Validate that the filename is a unified ``*_pose.h5`` or legacy ``*_pose_est_vN.h5`` name.
+    """Validate that the filename is a pose file name JABS opens (``is_pose_file``).
+
+    That is a unified ``*_pose.h5`` or a legacy ``*_pose_est_v<N>.h5`` name with
+    ``N`` in 2..8, and not a hidden file.
 
     Raises:
-        ValueError: If the filename does not match the canonical pose-file
-            pattern.
+        ValueError: If the filename is not a pose file name.
     """
-    if not _POSE_FILE_NAME_RE.match(pose_path.name):
+    if not is_pose_file(pose_path):
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 

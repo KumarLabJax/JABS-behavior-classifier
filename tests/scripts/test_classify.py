@@ -17,7 +17,6 @@ from jabs.scripts.classify import _require_pose_file_name
     [
         "sample_pose_est_v2.h5",
         "sample_pose_est_v6.h5",
-        "sample_pose_est_v12.h5",
         "nested_name_pose_est_v8.h5",
         "sample_pose.h5",
         "nested_pose_name_pose.h5",
@@ -38,16 +37,18 @@ def test_require_pose_file_name_accepts_canonical(name: str) -> None:
         "sample_pose_est_v6.hdf5",
         "predictions_pose_est_v6.h5.bak",
         "sample_pose.hdf5",
-        "_pose.h5",
         "._sample_pose.h5",
         "._sample_pose_est_v6.h5",
         ".hidden_pose.h5",
+        "sample_pose_est_v9.h5",
+        "sample_pose_est_v12.h5",
     ],
 )
 def test_require_pose_file_name_rejects_invalid(name: str) -> None:
-    """Names that match neither pose file pattern, and hidden files, are rejected.
+    """Names ``is_pose_file`` rejects are rejected: one rule for every pose file name.
 
-    A macOS AppleDouble ``._*`` sidecar is not a pose file, as in ``is_pose_file``.
+    A macOS AppleDouble ``._*`` sidecar is not a pose file, nor is a legacy version
+    JABS cannot open (which ``open_pose_file`` would refuse anyway).
     """
     with pytest.raises(ValueError, match="not a valid pose file path"):
         _require_pose_file_name(Path(name))
