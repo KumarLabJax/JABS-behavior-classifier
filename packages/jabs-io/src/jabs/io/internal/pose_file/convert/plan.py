@@ -533,9 +533,13 @@ def _masked_duplicates(
         track: ``(b, N)`` tracklet ids, 0 where none or unplaced.
         valid: ``(b, N)`` true where ``id_mask`` is not set.
     """
-    same = track[:, :, None] == track[:, None, :]
-    held_by_valid = (same & valid[:, None, :]).any(axis=-1)
-    return held_by_valid & ~valid & (track > 0)
+    # One key per (frame, tracklet), so the match is linear in N: a pairwise
+    # comparison would be N*N per frame, which the memory cap does not bound.
+    frame = np.arange(track.shape[0], dtype=np.int64)[:, None]
+    keys = (frame << 32) | track.astype(np.int64)
+    tracked = track > 0
+    held_by_valid = np.isin(keys, keys[valid & tracked])
+    return held_by_valid & ~valid & tracked
 
 
 def _refuse_shared_tracklets(
