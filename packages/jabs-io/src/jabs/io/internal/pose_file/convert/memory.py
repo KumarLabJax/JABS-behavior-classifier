@@ -92,10 +92,16 @@ def legacy_cache_bytes(dataset: h5py.Dataset, block_frames: int) -> int:
 
     Returns:
         One chunk row's decompressed bytes when blocks split its chunks and
-        the row is at most ``LEGACY_CACHE_MAX_BYTES``; otherwise 0.
+        the row is at most ``LEGACY_CACHE_MAX_BYTES``; otherwise 0, as when
+        one block holds every frame and nothing is read twice.
     """
     chunks = dataset.chunks
-    if chunks is None or dataset.shape is None or block_frames % chunks[0] == 0:
+    if (
+        chunks is None
+        or dataset.shape is None
+        or block_frames % chunks[0] == 0
+        or block_frames >= dataset.shape[0]
+    ):
         return 0
     across = math.prod(-(-n // c) for n, c in zip(dataset.shape[1:], chunks[1:], strict=True))
     row = across * math.prod(chunks) * dataset.dtype.itemsize
@@ -155,7 +161,15 @@ def contour_rows(frames: int, contour_axis: int, point_axis: int) -> int:
 
 
 def contour_chunk_frames(layout: "LegacyLayout") -> int:
-    """Return :func:`contour_rows` for an inspected legacy file."""
+    """Return :func:`contour_rows` for an inspected legacy file.
+
+    Args:
+        layout: What ``inspect_legacy`` found in the file.
+
+    Returns:
+        The frames in one chunk of its converted dense contours; 1 without
+        segmentation.
+    """
     if not layout.has_segmentation:
         return 1
     return contour_rows(layout.frames, layout.contour_axis, layout.point_axis)
@@ -276,8 +290,8 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
             whole += _group_bytes(group)
             read.extend(_group_datasets(group))
     chunk = max((_chunk_bytes(dataset) for dataset in read), default=0)
-    # The chunk caches of the frame datasets read in blocks, all of which may
-    # be open at once while the plan reads them.
+    # The chunk caches of the frame datasets read in blocks: the plan and
+    # pass 2 each hold every one they read for the whole pass.
     cache = sum(
         legacy_cache_bytes(dataset, block_frames)
         for dataset in read[: len(FRAME_DATASETS)]

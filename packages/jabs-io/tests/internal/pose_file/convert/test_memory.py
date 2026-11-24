@@ -358,9 +358,9 @@ def test_the_estimate_counts_the_largest_chunk(tmp_path: Path) -> None:
     _declare(small, frames=900)
     _declare(big, frames=900, edits=_one_big_chunk)
 
-    # Read in 900-frame blocks, the big chunk is also held in the points'
-    # chunk cache (one chunk row), so it counts twice.
-    assert _estimate(big) - _estimate(small) == 2 * _BIG_CHUNK - _POINTS_CHUNK
+    # One block holds all 900 frames, so nothing is read twice and the
+    # points get no chunk cache: the big chunk counts once.
+    assert _estimate(big) - _estimate(small) == _BIG_CHUNK - _POINTS_CHUNK
 
 
 def test_the_estimate_counts_an_object_dataset_chunk(tmp_path: Path) -> None:
@@ -430,6 +430,9 @@ def test_a_block_shorter_than_the_legacy_chunks_caches_one_chunk_row(tmp_path: P
         assert legacy_cache_bytes(pose["seg_data"], 11) == _WIDE_CHUNK_ROW
         # Whole chunk rows per block re-read nothing, and contiguous data has no chunks.
         assert legacy_cache_bytes(pose["seg_data"], 226) == 0
+        # One block of every frame reads each chunk once.
+        assert legacy_cache_bytes(pose["seg_data"], 1800) == 0
+        assert legacy_cache_bytes(pose["seg_data"], 2000) == 0
         seg = open_cached(pose, "seg_data", 11)
         nslots, nbytes, _ = seg.id.get_access_plist().get_chunk_cache()
         assert nbytes == _WIDE_CHUNK_ROW

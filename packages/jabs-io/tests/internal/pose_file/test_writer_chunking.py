@@ -31,7 +31,9 @@ _CONTOUR_AXES = ("frame", "slot", "contour", "point", "coord")
         (("frame", "coord"), (1800, 2), 4, 1),
     ],
 )
-def test_a_chunk_is_frames_of_one_item_run(axes, shape, itemsize, kept) -> None:
+def test_a_chunk_is_frames_of_one_item_run(
+    axes: tuple[str, ...], shape: tuple[int, ...], itemsize: int, kept: int
+) -> None:
     """Every trailing axis but the item axis is 1, and frames fill the chunk's budget."""
     chunks = chunk_shape(axes, shape, itemsize)
     for axis in range(1, len(shape)):
