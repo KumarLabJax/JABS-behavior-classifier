@@ -168,7 +168,9 @@ def plan_placement(
     to place, a valid one with an embed id out of that range or a masked one
     with a confidence above 0 or a contour, goes to a tail slot, in legacy
     index order. Contours follow the instance, never ``longterm_seg_id``, which
-    is only checked against the embed id.
+    is only checked against the embed id. Segmentation rows past the last
+    instance are not read: ``inspect_legacy`` has checked they hold nothing,
+    or left them behind.
 
     A file with no instance axis (``pose_est_v2``) is one animal: its one
     instance goes to slot 0 in every frame, and nothing is read.
@@ -228,7 +230,9 @@ def plan_placement(
         anything = occupied.copy()
         if seg is not None:
             anything |= _pack_contours(
-                seg[start:stop, :, :, :, 0], legacy_length[start:stop], legacy_source[start:stop]
+                seg[start:stop, :instances, :, :, 0],
+                legacy_length[start:stop],
+                legacy_source[start:stop],
             )
 
         in_range = valid & (embed >= 1) & (embed <= identity)
@@ -245,7 +249,7 @@ def plan_placement(
         f, i = np.nonzero(tail)
         tails.append((start + f, slots[f, i], i, ~valid[f, i]))
         if longterm is not None:
-            seg_id = longterm[start:stop].astype(np.int64)
+            seg_id = longterm[start:stop, :instances].astype(np.int64)
             f, i = np.nonzero(valid & (seg_id != embed))
             mismatches.append((start + f, i, embed[f, i], seg_id[f, i]))
         if track is not None and legacy_track is not None:

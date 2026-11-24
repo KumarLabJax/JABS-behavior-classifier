@@ -1326,6 +1326,11 @@ plausible converter goes wrong:
 - **Contours follow the instance.** A slot's contours come from `seg_data` at the same legacy
   instance index as the pose instance placed there. `longterm_seg_id` is not used to find them; it
   is ambiguous when ids repeat, and is only checked against `instance_embed_id`.
+- **The segmentation axis can be wider.** `seg_data`, `seg_external_flag`, `instance_seg_id` and
+  `longterm_seg_id` share their own instance axis, which real v6 files make one row wider than
+  `points`'. Rows past the last pose instance are not converted. They must hold no contour: one that
+  does has no instance to follow, and is refused, or left behind and recorded by a lenient
+  conversion. An axis narrower than `points`' is refused.
 - **`slot_occupied`** is true where any of the slot's confidences is above 0 — stated directly,
   never read from `instance_count`. A valid instance with every confidence 0 keeps its contours, with
   `slot_occupied` false.

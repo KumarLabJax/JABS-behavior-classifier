@@ -10,7 +10,7 @@ import pytest
 
 from jabs.io.internal.pose_file.convert import LegacyConversionError, inspect_legacy
 
-from .conftest import SAMPLES, generator, legacy, requires_samples
+from .conftest import SAMPLES, generator, legacy, requires_samples, widen_segmentation
 
 RETIRED = (
     "poseest/instance_seg_id",
@@ -481,3 +481,61 @@ def test_lenient_inspection_still_refuses_what_cannot_be_read(
 def test_strict_inspection_waives_nothing() -> None:
     """A strict inspection, the default, records nothing waived."""
     assert inspect_legacy(legacy("v8-with-centers.h5")).waived == ()
+
+
+def test_wider_segmentation_with_empty_spare_rows_is_accepted(tmp_path: Path) -> None:
+    """Real v6 files have one more segmentation row than pose rows, and it holds no contour."""
+    path = _write(tmp_path / "wide.h5", widen_segmentation(1), seg=True)
+    for strict in (True, False):
+        layout = inspect_legacy(path, strict=strict)
+        assert layout.instances == generator().SMALL["instances"]
+        assert layout.has_segmentation
+        assert layout.waived == ()
+
+
+def test_spare_segmentation_row_with_a_contour_is_refused_when_strict(tmp_path: Path) -> None:
+    """A contour on a row past the pose's has no instance to follow."""
+    path = _write(tmp_path / "wide.h5", widen_segmentation(1, contour_frame=2), seg=True)
+    with pytest.raises(LegacyConversionError, match=r"poseest/seg_data.*frame 2"):
+        inspect_legacy(path)
+
+
+def test_spare_segmentation_row_with_a_contour_is_waived_when_lenient(tmp_path: Path) -> None:
+    """Lenient inspection leaves the spare rows behind and says so."""
+    instances = generator().SMALL["instances"]
+    path = _write(tmp_path / "wide.h5", widen_segmentation(1, contour_frame=2), seg=True)
+    layout = inspect_legacy(path, strict=False)
+    name = f"poseest/seg_data[:, {instances}:]"
+    assert [item for item, _ in layout.waived] == [name]
+    assert name in layout.dropped
+    assert layout.has_segmentation
+
+
+@pytest.mark.parametrize(
+    "name", ["seg_data", "seg_external_flag", "longterm_seg_id", "instance_seg_id"]
+)
+def test_segmentation_narrower_than_points_is_refused(tmp_path: Path, name: str) -> None:
+    """Pose instances past the segmentation axis would have no rows, so that is still refused."""
+
+    def narrow(h5: h5py.File) -> None:
+        """Drop the last instance row of one segmentation dataset."""
+        data = h5[f"poseest/{name}"][:, :-1]
+        del h5[f"poseest/{name}"]
+        h5["poseest"].create_dataset(name, data=data)
+
+    with pytest.raises(LegacyConversionError, match=f"poseest/{name}"):
+        inspect_legacy(_write(tmp_path / "narrow.h5", narrow, seg=True), strict=False)
+
+
+def test_segmentation_datasets_must_agree_on_their_width(tmp_path: Path) -> None:
+    """The four segmentation datasets share one instance axis, even when it is wider."""
+
+    def mismatched(h5: h5py.File) -> None:
+        """Widen the segmentation, then narrow longterm_seg_id back."""
+        widen_segmentation(2)(h5)
+        data = h5["poseest/longterm_seg_id"][:, :-1]
+        del h5["poseest/longterm_seg_id"]
+        h5["poseest"].create_dataset("longterm_seg_id", data=data)
+
+    with pytest.raises(LegacyConversionError, match="poseest/longterm_seg_id"):
+        inspect_legacy(_write(tmp_path / "mismatched.h5", mismatched, seg=True), strict=False)

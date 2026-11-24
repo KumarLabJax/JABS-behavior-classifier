@@ -16,13 +16,21 @@ With ``strict=False`` a few refusals are waived instead, for readers (JABS)
 that should open what the legacy readers opened: a path outside the catalog
 (an unknown root group, ``poseest`` dataset or static object, or an unknown
 dynamic object member), a malformed dynamic object, and an
-``external_identity_mapping`` with other than one name per identity. The item
-is left behind, listed in ``LegacyLayout.dropped`` and, with the reason, in
+``external_identity_mapping`` with other than one name per identity, and
+contours on segmentation rows past the pose's instances. The item is left
+behind, listed in ``LegacyLayout.dropped`` and, with the reason, in
 ``LegacyLayout.waived``. Every other refusal stands in both modes.
+
+The segmentation datasets (``seg_data``, ``seg_external_flag``,
+``instance_seg_id``, ``longterm_seg_id``) share their own instance axis, which
+real v6 files make one row wider than ``points``'. Row ``i`` is pose instance
+``i``'s; a spare row past the last pose instance is accepted when it holds no
+contour, and is never converted.
 
 Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 ``id_mask``, which it reads in frame blocks when the identity count has to
-come from the largest valid embed id, and a v3 file's ``instance_count``.
+come from the largest valid embed id, a v3 file's ``instance_count``, and the
+first point of each spare segmentation row's contours.
 """
 
 import logging
@@ -252,6 +260,8 @@ def inspect_legacy(
         version = _version(pose)
 
         seg = pose.get("seg_data")
+        if seg is not None and seg.shape[1] > instances:
+            _check_spare_rows(path, seg, int(frames), int(instances), waiver)
         bbox = pose.get("bbox")
         bbox_generated = bbox is not None and bool(bbox.attrs.get("bboxes_generated", False))
         statics = _kept(h5, "static_objects", waiver)
@@ -486,15 +496,11 @@ def _check_shapes(path: Path, pose: h5py.Group, frames: int, instances: int) -> 
         "id_mask": (frames, instances),
         "instance_embed_id": (frames, instances),
         "instance_track_id": (frames, instances),
-        "longterm_seg_id": (frames, instances),
-        "instance_seg_id": (frames, instances),
         "instance_count": (frames,),
         # The old per-keypoint association embedding; dropped, but a misshapen
         # one says the file is not what it claims.
         "instance_embedding": (frames, instances, None),
         "identity_embeds": (frames, instances, None),
-        "seg_data": (frames, instances, None, None, 2),
-        "seg_external_flag": (frames, instances, None),
         "bbox": (frames, instances, 2, 2),
         "instance_id_center": (None, None),
         "external_identity_mapping": (None,),
@@ -502,15 +508,66 @@ def _check_shapes(path: Path, pose: h5py.Group, frames: int, instances: int) -> 
     for name, axes in expected.items():
         if name in pose and not _matches(pose[name].shape, axes):
             _refuse_shapes(path, name, pose[name].shape, "poseest/points", pose["points"].shape)
-    if "seg_data" in pose and "seg_external_flag" in pose:
-        flag, seg = pose["seg_external_flag"].shape, pose["seg_data"].shape
-        if flag != seg[:3]:
-            _refuse_shapes(path, "seg_external_flag", flag, "poseest/seg_data", seg)
+    _check_segmentation_shapes(path, pose, frames, instances)
     if "identity_embeds" in pose and "instance_id_center" in pose:
         embeds, centers = pose["identity_embeds"].shape, pose["instance_id_center"].shape
         # Both hold vectors in one embedding space, so their widths agree.
         if embeds[2] != centers[1]:
             _refuse_shapes(path, "identity_embeds", embeds, "poseest/instance_id_center", centers)
+
+
+def _check_segmentation_shapes(path: Path, pose: h5py.Group, frames: int, instances: int) -> None:
+    """Refuse segmentation datasets whose shapes disagree with ``points`` or each other.
+
+    They share their own instance axis, which may be wider than ``points``'
+    but not narrower: a pose instance past it would have no segmentation row.
+    """
+    expected: dict[str, tuple[int | None, ...]] = {
+        "seg_data": (frames, None, None, None, 2),
+        "seg_external_flag": (frames, None, None),
+        "longterm_seg_id": (frames, None),
+        "instance_seg_id": (frames, None),
+    }
+    present = [name for name in expected if name in pose]
+    for name in present:
+        shape = pose[name].shape
+        if not _matches(shape, expected[name]) or shape[1] < instances:
+            _refuse_shapes(path, name, shape, "poseest/points", pose["points"].shape)
+    if not present:
+        return
+    reference = present[0]
+    width = pose[reference].shape[1]
+    for name in present[1:]:
+        if pose[name].shape[1] != width:
+            _refuse_shapes(
+                path, name, pose[name].shape, f"poseest/{reference}", pose[reference].shape
+            )
+    if "seg_data" in pose and "seg_external_flag" in pose:
+        flag, seg = pose["seg_external_flag"].shape, pose["seg_data"].shape
+        if flag != seg[:3]:
+            _refuse_shapes(path, "seg_external_flag", flag, "poseest/seg_data", seg)
+
+
+def _check_spare_rows(
+    path: Path, seg: h5py.Dataset, frames: int, instances: int, waiver: "_Waiver"
+) -> None:
+    """Refuse, or when lenient leave behind, contours on ``seg_data`` rows past the pose's.
+
+    Such a contour has no pose instance to follow. A contour exists where its
+    first point's x is not -1, as the planner reads it. Only that point is
+    read, a frame block at a time.
+    """
+    for start in range(0, frames, BLOCK_FRAMES):
+        stop = min(start + BLOCK_FRAMES, frames)
+        frame, row = np.nonzero((seg[start:stop, instances:, :, 0, 0] != -1).any(axis=-1))
+        if frame.size:
+            waiver.waive(
+                f"poseest/seg_data[:, {instances}:]",
+                f"poseest/seg_data holds a contour in frame {start + int(frame[0])} on row "
+                f"{instances + int(row[0])}, past the {instances} instances of poseest/points, "
+                "so no pose instance can carry it",
+            )
+            return
 
 
 def _matches(shape: tuple[int, ...], axes: tuple[int | None, ...]) -> bool:

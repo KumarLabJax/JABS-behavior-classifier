@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from jabs.io.internal.pose_file.convert import inspect_legacy, plan_placement
+from jabs.io.internal.pose_file.convert import convert_legacy, inspect_legacy, plan_placement
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES
 from jabs.io.internal.pose_file.convert.segmentation import segmentation_components
 from jabs.io.internal.pose_file.convert.sources import pose_components
@@ -17,7 +17,7 @@ from jabs.io.internal.pose_file.types import PoseFile, VideoInfo
 from jabs.io.internal.pose_file.validate import validate
 from jabs.io.internal.pose_file.writer import write_pose_file
 
-from .conftest import SAMPLES, generator, legacy, requires_samples
+from .conftest import SAMPLES, generator, legacy, requires_samples, widen_segmentation
 
 _SEG = "/jabs/segmentation"
 
@@ -262,3 +262,34 @@ def test_contours_follow_their_instance(tmp_path: Path) -> None:
     # -1 padding is already where the converter writes it.
     np.testing.assert_array_equal(dense[frame, slot], seg[frame, instance].astype(np.int32))
     np.testing.assert_array_equal(dense_flags[frame, slot], flag[frame, instance])
+
+
+@pytest.mark.parametrize("contour_frame", [None, 2], ids=["empty-spare-row", "waived-spare-row"])
+def test_wider_segmentation_keeps_each_contour_with_its_instance(
+    tmp_path: Path, contour_frame: int | None
+) -> None:
+    """Spare segmentation rows are ignored; every pose instance keeps its own contours."""
+    gen = generator()
+    path = tmp_path / "wide.h5"
+    gen.write_legacy(
+        path,
+        **{**gen.SMALL, "version": gen.V8, "seg": True},
+        edits=widen_segmentation(1, contour_frame=contour_frame),
+    )
+    out = tmp_path / "out.h5"
+    convert_legacy(path, out, strict=False)
+    _assert_deep_clean(out)
+    layout = inspect_legacy(path, strict=False)
+    with h5py.File(path, "r") as h5:
+        plan = plan_placement(h5, layout)
+        seg = h5["poseest/seg_data"][...]
+        flag = h5["poseest/seg_external_flag"][...]
+    with h5py.File(out, "r") as h5:
+        dense = h5[f"{_SEG}/contours"][...]
+        dense_flags = h5[f"{_SEG}/external_flag"][...]
+    frame, instance = np.nonzero(plan.slot_of >= 0)
+    slot = plan.slot_of[frame, instance]
+    np.testing.assert_array_equal(dense[frame, slot], seg[frame, instance].astype(np.int32))
+    np.testing.assert_array_equal(dense_flags[frame, slot], flag[frame, instance])
+    # The spare row's contour went nowhere: every contour written is an instance's.
+    assert (dense >= 0).sum() == (seg[:, : layout.instances] >= 0).sum()

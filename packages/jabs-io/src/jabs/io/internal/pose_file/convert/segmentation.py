@@ -208,7 +208,8 @@ def _read_contours(
     its first -1 x whatever follows.
     """
     source, length = _legacy_packing(plan, start, stop)
-    seg = pose["seg_data"][start:stop]
+    # Rows past the legacy instances are spare (see ``inspect_legacy``).
+    seg = pose["seg_data"][start:stop, : source.shape[1]]
     packed = np.take_along_axis(seg, np.maximum(source, 0)[..., None, None], axis=2)
     keep = np.arange(seg.shape[3]) < length[..., None]
     return np.where(keep[..., None], packed, -1).astype(np.int32)
@@ -219,7 +220,7 @@ def _read_flags(
 ) -> npt.NDArray[np.bool_]:
     """Read each legacy instance's external flags, packed like its contours, false where unused."""
     source, _ = _legacy_packing(plan, start, stop)
-    flags = pose["seg_external_flag"][start:stop].astype(np.bool_)
+    flags = pose["seg_external_flag"][start:stop, : source.shape[1]].astype(np.bool_)
     return np.take_along_axis(flags, np.maximum(source, 0), axis=2) & (source >= 0)
 
 
