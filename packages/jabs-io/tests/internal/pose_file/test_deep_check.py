@@ -205,6 +205,25 @@ def test_deep_check_blocks_fall_back_to_the_budget() -> None:
     assert validate_module.deep_check_block_frames(_WIDE, 4, whole) == budget_rows
 
 
+def test_deep_check_blocks_are_capped_at_four_budgets() -> None:
+    """A file's own chunks cannot widen a block past four budgets: the check holds about four.
+
+    The widest real recording, 5 slots of 79 contours of 5,923 points, has a
+    196 MiB chunk row and is widened; at 10 slots its 393 MiB row is not.
+    """
+    cap = validate_module.DEEP_CHECK_MAX_BLOCK_BYTES
+    assert cap == 4 * validate_module.DEEP_CHECK_BLOCK_BYTES
+    chunks = (11, 1, 1, 5923, 1)
+    assert cap >= 11 * _WIDE_FRAME_BYTES
+    assert validate_module.deep_check_block_frames(_WIDE, 4, chunks) % 11 == 0
+
+    doubled = (1800, 10, 79, 5923, 2)
+    frame_bytes = 10 * 79 * 5923 * 2 * 4
+    assert 11 * frame_bytes > cap
+    budget_rows = max(1, validate_module.DEEP_CHECK_BLOCK_BYTES // frame_bytes)
+    assert validate_module.deep_check_block_frames(doubled, 4, chunks) == budget_rows
+
+
 def test_an_alternate_this_build_cannot_decode_is_a_warning(tmp_path: Path) -> None:
     """Only the ragged segmentation alternate is defined; anything else is reported, not passed."""
     path = _copy(tmp_path)

@@ -68,8 +68,11 @@ DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
 # block that touches it. HDF5 decompresses a whole chunk to read any part of
 # it, and a chunk row wider than the chunk cache is not kept between reads.
 # A larger chunk row -- whole-frame chunks of a wide baseline -- is read by the
-# byte budget alone, so memory stays bounded whatever a file's chunks are.
-DEEP_CHECK_MAX_BLOCK_BYTES = 2**30
+# byte budget alone, so memory stays bounded whatever a file's chunks are. The
+# check holds a few copies of a block, so a file that sets its own chunks can
+# make it hold about four of these: 1 GiB at most. The widest chunk row the
+# writer gave any of 7,729 real recordings is 196 MiB.
+DEEP_CHECK_MAX_BLOCK_BYTES = 4 * DEEP_CHECK_BLOCK_BYTES
 
 _SLOT_OCCUPIED = "jabs.pose.slot_occupied"
 
