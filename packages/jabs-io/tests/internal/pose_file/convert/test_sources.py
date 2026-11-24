@@ -341,28 +341,31 @@ def test_without_centers_omits_identity_and_tracklets() -> None:
     }
 
 
-def test_blocks_are_multiples_of_900(tmp_path: Path) -> None:
-    """Every frame-axis block but the last holds a multiple of 900 frames."""
+def test_blocks_hold_block_frames(tmp_path: Path) -> None:
+    """Every frame-axis block but the last holds exactly ``block_frames`` frames.
+
+    Pose components are contiguous, so any positive block size is aligned.
+    """
     gen = generator()
     path = tmp_path / "long.h5"
     gen.write_legacy(path, frames=2000, instances=3, identities=3, version=gen.V8, seg=False)
-    components = _components(path)
-    for cid, component in components.items():
+    layout, plan = _setup(path)
+    for component in pose_components(path, layout, plan, block_frames=7):
         if component.axes[0] != "frame":
             continue
-        assert isinstance(component.data, BlockSource), cid
+        assert isinstance(component.data, BlockSource), component.id
         rows = [block.shape[0] for _, block in component.data.blocks()]
-        assert sum(rows) == 2000, cid
-        assert len(rows) > 1, cid
-        assert all(n % 900 == 0 for n in rows[:-1]), (cid, rows)
+        assert sum(rows) == 2000, component.id
+        assert all(n == 7 for n in rows[:-1]), (component.id, rows)
 
 
-def test_refuses_block_frames_off_the_900_grid() -> None:
-    """A block size that is not a multiple of 900 is refused."""
+@pytest.mark.parametrize("block_frames", [0, -900])
+def test_refuses_a_block_without_frames(block_frames: int) -> None:
+    """A block size below one frame is refused."""
     path = legacy("v8-with-centers.h5")
     layout, plan = _setup(path)
-    with pytest.raises(ValueError, match="900"):
-        pose_components(path, layout, plan, block_frames=450)
+    with pytest.raises(ValueError, match="block_frames"):
+        pose_components(path, layout, plan, block_frames=block_frames)
 
 
 @pytest.mark.parametrize(

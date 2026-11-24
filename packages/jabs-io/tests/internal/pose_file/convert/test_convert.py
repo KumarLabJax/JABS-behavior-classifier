@@ -1,5 +1,6 @@
 """``convert_legacy`` writes a valid pose file and records where it came from."""
 
+import dataclasses
 import hashlib
 import importlib
 import json
@@ -21,10 +22,11 @@ from jabs.io.internal.pose_file.convert import (
     plan_placement,
 )
 from jabs.io.internal.pose_file.convert.convert import block_frames_for
-from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES
+from jabs.io.internal.pose_file.convert.memory import contour_chunk_frames
 from jabs.io.internal.pose_file.convert.provenance import legacy_hash
 from jabs.io.internal.pose_file.reader import read_pose_file
 from jabs.io.internal.pose_file.validate import validate
+from jabs.io.internal.pose_file.writer import COMPRESSION_LEVEL
 
 from ..conftest import OUTSIDE_KINDS, add_outside_reference
 from .conftest import SAMPLES, generator, legacy, requires_samples
@@ -657,22 +659,39 @@ def test_conversion_is_logged(tmp_path: Path, caplog: pytest.LogCaptureFixture) 
 
 
 def test_block_frames_for() -> None:
-    """Blocks are the largest multiple of 900 frames that fit the budget, never fewer than 900."""
+    """Blocks are whole chunk rows of the dense contours that fit the budget, at least one."""
     seg = inspect_legacy(legacy("v8-edge-cases.h5"))
-    assert block_frames_for(seg, 1) == BLOCK_FRAMES
+    rows = contour_chunk_frames(seg)
+    assert block_frames_for(seg, 1) == rows
 
     # The slot count is bounded by identities plus legacy instances.
     slots = seg.identity + seg.instances
     frame_bytes = slots * seg.contour_axis * seg.point_axis * 2 * 4
     budget = 64 * 2**20
     frames = block_frames_for(seg, budget)
-    assert frames % BLOCK_FRAMES == 0
-    assert frames * frame_bytes <= budget < (frames + BLOCK_FRAMES) * frame_bytes
+    assert frames % rows == 0
+    assert frames * frame_bytes <= max(budget, rows * frame_bytes)
 
     points = inspect_legacy(legacy("v8-with-centers.h5"))
+    assert contour_chunk_frames(points) == 1
     frame_bytes = (points.identity + points.instances) * points.keypoints * 2 * 4
     frames = block_frames_for(points, budget)
-    assert frames * frame_bytes <= budget < (frames + BLOCK_FRAMES) * frame_bytes
+    assert frames * frame_bytes <= budget < (frames + 1) * frame_bytes
+
+
+def test_wide_contours_are_not_read_in_900_frame_blocks() -> None:
+    """At the widths of a real 79-contour, 5,923-point file a block is one chunk row.
+
+    The old floor of 900 frames made one block of it about 31 GiB.
+    """
+    seg = inspect_legacy(legacy("v8-edge-cases.h5"))
+    wide = dataclasses.replace(
+        seg, frames=1800, identity=5, instances=5, contour_axis=79, point_axis=5923
+    )
+    rows = contour_chunk_frames(wide)
+    frame_bytes = 10 * 79 * 5923 * 2 * 4
+    assert block_frames_for(wide, 64 * 2**20) == rows
+    assert rows * frame_bytes < 2**30
 
 
 def test_memory_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -703,16 +722,17 @@ def test_memory_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     per_frame_allowance = sum(a.nbytes for a in kept if a is not None) / layout.frames
     del plan
 
-    # A budget that gives both conversions 900-frame blocks.
-    assert block_frames_for(layout, 1) == BLOCK_FRAMES
+    # A budget that gives both conversions one-chunk-row blocks.
+    rows = contour_chunk_frames(layout)
+    assert block_frames_for(layout, 1) == rows < 1800
     # The deep check reads in its own blocks, capped at the constant
     # DEEP_CHECK_BLOCK_BYTES (64 MiB). That cap is a fixed ceiling, so total
     # memory stays bounded, but below it the deep check holds the whole of a
-    # small file's contours. Shrunk to about 900 frames' worth, it is bounded
-    # the same way as the converter, and the comparison measures the converter.
+    # small file's contours. Shrunk to one chunk row, it is bounded the same
+    # way as the converter, and the comparison measures the converter.
     deep_check = importlib.import_module("jabs.io.internal.pose_file.validate")
     frame_bytes = layout.instances * layout.contour_axis * layout.point_axis * 2 * 4
-    monkeypatch.setattr(deep_check, "DEEP_CHECK_BLOCK_BYTES", BLOCK_FRAMES * frame_bytes)
+    monkeypatch.setattr(deep_check, "DEEP_CHECK_BLOCK_BYTES", rows * frame_bytes)
     peaks = {}
     for frames, src in sources.items():
         tracemalloc.start()
@@ -737,6 +757,23 @@ def test_an_embed_id_past_the_slot_index_is_refused_for_what_it_is(tmp_path: Pat
 
     with pytest.raises(LegacyConversionError, match="exceed the slots a plan can index"):
         convert_legacy(src, tmp_path / "out.h5")
+
+
+def test_a_converted_file_has_item_run_chunks_shuffled(tmp_path: Path) -> None:
+    """convert_legacy writes the dense contours in chunk rows of one contour's x or y."""
+    src = legacy("v8-edge-cases.h5")
+    layout = inspect_legacy(src)
+    out = tmp_path / "out.h5"
+    convert_legacy(src, out)
+    with h5py.File(out, "r") as h5:
+        dense = h5["jabs/segmentation/contours"]
+        assert dense.chunks == (contour_chunk_frames(layout), 1, 1, layout.point_axis, 1)
+        assert dense.compression == "gzip"
+        assert dense.compression_opts == COMPRESSION_LEVEL
+        assert dense.shuffle
+        ragged = h5["jabs/segmentation/ragged/contours"]
+        assert ragged.compression_opts == 1
+        assert ragged.shuffle
 
 
 @pytest.mark.parametrize(

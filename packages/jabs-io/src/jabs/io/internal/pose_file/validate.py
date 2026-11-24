@@ -19,6 +19,7 @@ specific rule rather than on message text.
 """
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,6 +62,17 @@ VALUE_CHECK_BLOCK_BYTES = 64 * 2**20
 # full-size baseline (tens of gigabytes for the worst legacy segmentation) never
 # sits in memory at once. A block is at least one frame.
 DEEP_CHECK_BLOCK_BYTES = 64 * 2**20
+
+# A block is widened to whole chunk rows of the baseline when one chunk row is
+# at most this many bytes, so a chunk is decompressed once and not once per
+# block that touches it. HDF5 decompresses a whole chunk to read any part of
+# it, and a chunk row wider than the chunk cache is not kept between reads.
+# A larger chunk row -- whole-frame chunks of a wide baseline -- is read by the
+# byte budget alone, so memory stays bounded whatever a file's chunks are. The
+# check holds a few copies of a block, so a file that sets its own chunks can
+# make it hold about four of these: 1 GiB at most. The widest chunk row the
+# writer gave any of 7,729 real recordings is 196 MiB.
+DEEP_CHECK_MAX_BLOCK_BYTES = 4 * DEEP_CHECK_BLOCK_BYTES
 
 _SLOT_OCCUPIED = "jabs.pose.slot_occupied"
 
@@ -1747,6 +1759,31 @@ def _rows_differ(
     return differ.any(axis=tuple(range(1, differ.ndim))) if differ.ndim > 1 else differ
 
 
+def deep_check_block_frames(
+    shape: tuple[int, ...], itemsize: int, chunks: tuple[int, ...] | None
+) -> int:
+    """Return the frames the deep check reads at a time from a dense baseline.
+
+    ``DEEP_CHECK_BLOCK_BYTES`` worth of frames, at least one; for a chunked
+    baseline whose chunk row is at most ``DEEP_CHECK_MAX_BLOCK_BYTES``,
+    rounded down to whole chunk rows, and at least one.
+
+    Args:
+        shape: The baseline's shape, frames first.
+        itemsize: Bytes per value.
+        chunks: Its chunk shape, or None when contiguous.
+
+    Returns:
+        The frames per block.
+    """
+    frame_bytes = max(1, math.prod(shape[1:]) * itemsize)
+    block = max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes)
+    if chunks is not None and chunks[0] * frame_bytes <= DEEP_CHECK_MAX_BLOCK_BYTES:
+        rows = chunks[0]
+        block = max(rows, block // rows * rows)
+    return block
+
+
 def _compare_segmentation_alternate(
     h5: h5py.File,
     manifest: dict,
@@ -1786,8 +1823,7 @@ def _compare_segmentation_alternate(
 
     points_label = alternate_key(_CONTOURS, contours["name"])
     flags_label = alternate_key(_EXTERNAL_FLAG, flags["name"]) if flags is not None else ""
-    frame_bytes = max(1, int(np.prod(dense.shape[1:])) * dense.dtype.itemsize)
-    block = max(1, DEEP_CHECK_BLOCK_BYTES // frame_bytes)
+    block = deep_check_block_frames(dense.shape, dense.dtype.itemsize, dense.chunks)
 
     def instance_of(group: int) -> str:
         position = int(np.searchsorted(instance_offsets, group, side="right")) - 1

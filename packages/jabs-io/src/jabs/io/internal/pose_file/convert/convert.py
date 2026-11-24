@@ -23,8 +23,12 @@ from pathlib import Path
 import h5py
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
-from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout, inspect_legacy
-from jabs.io.internal.pose_file.convert.memory import estimate_memory, require_memory
+from jabs.io.internal.pose_file.convert.inspect import LegacyLayout, inspect_legacy
+from jabs.io.internal.pose_file.convert.memory import (
+    contour_chunk_frames,
+    estimate_memory,
+    require_memory,
+)
 from jabs.io.internal.pose_file.convert.objects import object_components
 from jabs.io.internal.pose_file.convert.plan import _check_extents, plan_placement
 from jabs.io.internal.pose_file.convert.provenance import (
@@ -100,22 +104,31 @@ def block_frames_for(layout: LegacyLayout, block_bytes: int) -> int:
 
     The widest per-frame component is the dense contours when the file has
     segmentation (``S x C x P x 2`` int32 values a frame) and they are wider
-    than the points (``S x K x 2`` float32), otherwise the points. The slot count ``S`` is not known until
-    the plan is made, and the plan is itself read in these blocks, so this
-    uses its bound: every identity plus every legacy instance in a tail slot.
+    than the points (``S x K x 2`` float32), otherwise the points. The slot
+    count ``S`` is not known until the plan is made, and the plan is itself
+    read in these blocks, so this uses its bound: every identity plus every
+    legacy instance in a tail slot.
+
+    With segmentation a block is a whole number of the dense contours' chunk
+    rows (:func:`~jabs.io.internal.pose_file.convert.memory.contour_chunk_frames`),
+    so no chunk is split across blocks and compressed twice, and is at least
+    one: a chunk row of the widest real files is a few hundred MB, where 900
+    frames of them were tens of GB.
 
     Args:
         layout: What ``inspect_legacy`` found.
         block_bytes: The budget for one block of the widest component.
 
     Returns:
-        The largest multiple of 900 frames that fits, and never less than 900.
+        The largest multiple of the chunk rows that fits, and never less than
+        one chunk row (one frame without segmentation).
     """
     slots = layout.identity + layout.instances
     # Without segmentation contour_axis and point_axis are 0, leaving the points.
     frame_values = slots * 2 * max(layout.contour_axis * layout.point_axis, layout.keypoints)
     frame_bytes = max(1, frame_values * _VALUE_BYTES)
-    return max(1, block_bytes // (frame_bytes * BLOCK_FRAMES)) * BLOCK_FRAMES
+    rows = contour_chunk_frames(layout)
+    return max(rows, block_bytes // frame_bytes // rows * rows)
 
 
 def convert_legacy(
@@ -135,7 +148,8 @@ def convert_legacy(
     failure leaves an existing destination as it was.
 
     Memory grows with the recording: the plan keeps a few hundred bytes a
-    frame, and pass 2 holds a block of at least 900 frames. Before the plan
+    frame, and pass 2 holds a block of ``block_bytes``, or of one chunk row
+    of the dense contours if that is larger. Before the plan
     allocates anything, the peak is estimated from the declared shapes
     (``memory.estimate_memory``) and a file above ``max_memory`` is refused,
     so a small upload declaring enormous shapes cannot exhaust the machine.
