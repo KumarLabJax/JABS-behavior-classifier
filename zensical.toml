@@ -24,6 +24,7 @@ site_url = "https://kumarlabjax.github.io/JABS-behavior-classifier/"
             { "Project Setup" = "user-guide/project-setup.md" },
             { "The GUI" = "user-guide/gui.md" },
             { "Labeling" = "user-guide/labeling.md" },
+            { "BALE (Bout & Label Explorer)" = "user-guide/bale.md" },
             { "Classifiers" = "user-guide/classifier-types.md" },
             { "Optional Extras" = "user-guide/optional-extras.md" },
             { "Features" = "user-guide/features.md" },

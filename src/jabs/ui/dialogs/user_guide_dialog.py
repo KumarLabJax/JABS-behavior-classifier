@@ -195,6 +195,17 @@ class UserGuideDialog(QDialog):
                 "Keyboard Shortcuts": "labeling.md#keyboard-shortcuts",
             },
             "Search": "behavior-search.md",
+            "BALE (Bout & Label Explorer)": {
+                "_file": "bale.md",
+                "Overview & Quick Start": "bale.md#quick-start",
+                "Mode 1: Audit Labels": "bale.md#mode-1-audit-labels",
+                "Mode 2: Review Predictions": "bale.md#mode-2-review-predictions",
+                "Mode 3: Sub-Types": "bale.md#mode-3-sub-types",
+                "Mode 4: Videos": "bale.md#mode-4-videos",
+                "Right-Hand Single-Bout Inspector": "bale.md#right-hand-single-bout-inspector",
+                "Exporting Results": "bale.md#exporting-results",
+                "Keyboard Shortcuts": "bale.md#keyboard-shortcuts",
+            },
             "JABS Viewer": {
                 "_file": "viewer.md",
                 "Opening a Pose File": "viewer.md#opening-a-pose-file-without-video",

@@ -63,6 +63,19 @@ class TimelineAnnotationSearchQuery(BehaviorSearchQuery):
 
 
 @dataclass(frozen=True)
+class CustomBoutListSearchQuery(BehaviorSearchQuery):
+    """Query backed by an explicit, pre-ranked list of ``SearchHit`` records.
+
+    Used by BALE (Bout & Label Explorer) to push a prioritized triage queue
+    directly into JABS's ``SearchBarWidget`` without losing rank ordering.
+    """
+
+    hits: tuple["SearchHit", ...] = ()
+    description: str = "BALE Review Queue"
+    preserve_rank_order: bool = True
+
+
+@dataclass(frozen=True)
 class SearchHit:
     """One matching frame range found by :func:`search_behaviors`.
 
@@ -101,6 +114,8 @@ def search_behaviors(
         Matching hits ordered by ``(file, start_frame, identity, behavior)``; see
         :func:`_sorted_search_results` for why the frame comes before the identity.
     """
+    if isinstance(search_query, CustomBoutListSearchQuery) and search_query.preserve_rank_order:
+        return list(search_query.hits)
     return _sorted_search_results(list(_search_behaviors_gen(project, search_query)))
 
 
@@ -256,6 +271,9 @@ def _search_behaviors_gen(
                             start_frame=start,
                             end_frame=end,
                         )
+
+        case CustomBoutListSearchQuery() as custom_query:
+            yield from custom_query.hits
 
         case _:
             raise ValueError("Unknown query type or unsupported search.")

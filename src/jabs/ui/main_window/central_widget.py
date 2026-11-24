@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 from shapely.geometry import Point
 
 import jabs.feature_extraction
-from jabs.behavior_search import SearchHit
+from jabs.behavior_search import CustomBoutListSearchQuery, SearchHit
 from jabs.classifier import (
     Classifier,
     ClassifierFeatureVersionError,
@@ -157,6 +157,9 @@ class CentralWidget(QtWidgets.QWidget):
     # Emitted when a run may have written to the feature cache, so the project's
     # cache status can be rebuilt off the main thread.
     feature_cache_changed = QtCore.Signal()
+
+    # Emitted whenever manual labels are saved via the main labeling controls.
+    labels_modified = QtCore.Signal()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -1003,6 +1006,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
         self.set_train_button_enabled_state()
         self._set_label_track()
+        labels_modified = getattr(self, "labels_modified", None)
+        if labels_modified is not None:
+            labels_modified.emit()
 
     def _set_identities(self, identities: list[str]) -> None:
         """populate the identity_selection combobox"""
@@ -2714,3 +2720,218 @@ class CentralWidget(QtWidgets.QWidget):
         """Persist annotation changes and update UI widgets."""
         self._project.save_annotations(self._labels, self._pose_est)
         self._player_widget.update()
+
+    # ========== BALE (Bout & Label Explorer) Navigation & Sync Helpers ==========
+
+    def seek_to_bout(
+        self,
+        video_name: str,
+        identity: int,
+        start_frame: int,
+        end_frame: int | None = None,
+        behavior: str | None = None,
+        *,
+        select_span: bool = True,
+    ) -> None:
+        """Load ``video_name``, activate ``identity``, seek to ``start_frame``, and highlight the bout.
+
+        Args:
+            video_name: Project video filename (basename) to display.
+            identity: Zero-based animal identity index.
+            start_frame: Inclusive first frame of the bout.
+            end_frame: Optional inclusive last frame of the bout for timeline selection.
+            behavior: Optional behavior name to activate in the controls.
+            select_span: When True and ``end_frame`` is provided, highlight ``[start_frame, end_frame]``
+                on the timeline so the user can edit or relabel immediately.
+        """
+        if self._project is None:
+            return
+
+        if (
+            self._player_widget._playing
+            or self._player_widget._play_range_timer.isActive()
+            or self._player_widget._playback_range is not None
+        ):
+            self._player_widget.stop()
+
+        video_basename = Path(video_name).name
+        video_to_load = self._project.video_manager.video_path(video_basename)
+        if video_to_load != self._loaded_video:
+            self.load_video(video_to_load)
+
+        if (
+            behavior is not None
+            and behavior != MULTICLASS_NONE_BEHAVIOR
+            and behavior in self.behaviors
+            and behavior != self.behavior
+        ):
+            self._controls.set_behavior(behavior)
+
+        if self._pose_est is not None:
+            ident_idx = int(identity)
+            if 0 <= ident_idx < self._pose_est.num_identities:
+                self._controls.set_identity_index(ident_idx)
+                self._player_widget.set_active_identity(ident_idx)
+
+        num_frames = self._player_widget.num_frames
+        clamped_start = (
+            max(0, min(int(start_frame), num_frames - 1))
+            if num_frames > 0
+            else max(0, int(start_frame))
+        )
+        self._player_widget.seek_to_frame(clamped_start)
+
+        if select_span and end_frame is not None and self._controls.select_button_enabled:
+            clamped_end = (
+                max(clamped_start, min(int(end_frame), num_frames - 1))
+                if num_frames > 0
+                else max(clamped_start, int(end_frame))
+            )
+            if not self._controls.select_button_is_checked:
+                self._controls.toggle_select_button()
+            self._controls.enable_label_buttons()
+            self._selection_start = clamped_start
+            self._selection_end = clamped_end
+            self._jabs_timeline.start_selection(clamped_start, clamped_end)
+
+        hit_end = int(end_frame) if end_frame is not None else clamped_start
+        self.search_hit_loaded.emit(
+            SearchHit(
+                file=video_basename,
+                identity=str(int(identity)),
+                behavior=behavior if behavior != MULTICLASS_NONE_BEHAVIOR else self.behavior,
+                start_frame=clamped_start,
+                end_frame=max(clamped_start, hit_end),
+            )
+        )
+
+    def play_bout_clip(
+        self,
+        video_name: str,
+        identity: int,
+        start_frame: int,
+        end_frame: int,
+        behavior: str | None = None,
+        context_frames: int = 10,
+    ) -> None:
+        """Toggle bounded clip playback around ``[start_frame, end_frame]`` in the main player.
+
+        If playback is currently active (or queued), stops it; otherwise seeks to the
+        bout and plays ``[start_frame - context_frames, end_frame + context_frames]``.
+
+        Args:
+            video_name: Project video filename to play.
+            identity: Zero-based animal identity index.
+            start_frame: Inclusive first frame of the bout.
+            end_frame: Inclusive last frame of the bout.
+            behavior: Optional behavior name to activate.
+            context_frames: Number of context frames to include before and after the bout.
+        """
+        if self._project is None:
+            return
+
+        if (
+            self._player_widget._playing
+            or self._player_widget._play_range_timer.isActive()
+            or self._player_widget._playback_range is not None
+        ):
+            self._player_widget.stop()
+            return
+
+        self.seek_to_bout(
+            video_name,
+            identity,
+            start_frame,
+            end_frame,
+            behavior=behavior,
+            select_span=True,
+        )
+        num_frames = self._player_widget.num_frames
+        if num_frames <= 1:
+            return
+        play_start = max(0, int(start_frame) - max(0, int(context_frames)))
+        play_end = min(num_frames - 1, int(end_frame) + max(0, int(context_frames)))
+        if play_end > play_start:
+            self._player_widget.play_range(play_start, play_end)
+
+    def seek_to_frame_only(self, frame_idx: int) -> None:
+        """Seek the main video player to ``frame_idx`` without changing timeline selection.
+
+        Args:
+            frame_idx: Zero-based frame index to display.
+        """
+        if self._player_widget._video_stream is None:
+            return
+        if (
+            self._player_widget._playing
+            or self._player_widget._play_range_timer.isActive()
+            or self._player_widget._playback_range is not None
+        ):
+            self._player_widget.stop()
+        num_frames = self._player_widget.num_frames
+        if num_frames <= 0:
+            return
+        clamped = max(0, min(int(frame_idx), num_frames - 1))
+        self._player_widget.seek_to_frame(clamped)
+
+    def sync_external_video_labels(
+        self, video_name: str, updated_labels: VideoLabels | None = None
+    ) -> None:
+        """Refresh timeline, cached counts, and Train-button state after an external label edit.
+
+        Called by BALE after writing an annotation JSON update to disk so the main JABS
+        window reflects the change immediately without reloading the video stream.
+
+        Args:
+            video_name: Project video filename whose annotations changed on disk.
+            updated_labels: Optional preloaded :class:`VideoLabels` instance for ``video_name``.
+        """
+        if self._project is None:
+            return
+        target_name = Path(video_name).name
+        multiclass = self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+
+        if self._loaded_video is not None and self._loaded_video.name == target_name:
+            if updated_labels is not None:
+                self._labels = updated_labels
+            elif self._pose_est is not None:
+                reloaded = self._project.video_manager.load_video_labels(
+                    self._loaded_video, self._pose_est
+                )
+                self._labels = (
+                    reloaded
+                    if reloaded is not None
+                    else VideoLabels(self._loaded_video.name, self._pose_est.num_frames)
+                )
+            self._start_selection(False)
+            self._controls.select_button_set_checked(False)
+            self._update_label_counts()
+            self._set_label_track()
+            self._player_widget.update()
+        else:
+            if self._counts is not None:
+                self._counts[target_name] = self._project.load_counts(target_name, self.behavior)
+            if multiclass and self._none_counts is not None:
+                self._none_counts[target_name] = self._project.load_counts(
+                    target_name, MULTICLASS_NONE_BEHAVIOR
+                )
+            if self._loaded_video is not None:
+                self._update_label_counts()
+
+        self.set_train_button_enabled_state()
+
+    def load_custom_search_queue(
+        self, hits: list[SearchHit], description: str = "BALE Review Queue"
+    ) -> None:
+        """Load a pre-ranked list of ``SearchHit`` records into the behavior search bar.
+
+        Args:
+            hits: Ordered bout hits to step through with Previous / Next.
+            description: Label shown in the search bar header.
+        """
+        query = CustomBoutListSearchQuery(
+            hits=tuple(hits),
+            description=description,
+            preserve_rank_order=True,
+        )
+        self._search_bar_widget.update_search(query)

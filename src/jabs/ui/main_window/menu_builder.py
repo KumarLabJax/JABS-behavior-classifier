@@ -47,6 +47,7 @@ class MenuReferences:
 
     # Tool menu actions
     behavior_search: QtGui.QAction
+    bale: QtGui.QAction
     postprocessing_settings: QtGui.QAction
 
     # View menu actions
@@ -317,6 +318,17 @@ class MenuBuilder:
         behavior_search.triggered.connect(self.handlers.show_behavior_search_dialog)
         menu.addAction(behavior_search)
 
+        # BALE (Bout & Label Explorer) action
+        bale = QtGui.QAction("&BALE (Bout && Label Explorer)\u2026", self.main_window)
+        bale.setShortcut(QtGui.QKeySequence("Ctrl+Shift+B"))
+        bale.setStatusTip(
+            "Open BALE (Bout & Label Explorer) to audit labels, inspect predictions, "
+            "cluster bout sub-types, and screen whole videos"
+        )
+        bale.setEnabled(False)
+        bale.triggered.connect(self.handlers.open_bale_dialog)
+        menu.addAction(bale)
+
         # Postprocessing Dialog action
         postprocessing_action = QtGui.QAction("Prediction Postprocessing", self.main_window)
         postprocessing_action.setStatusTip("Open Postprocessing Settings Dialog")
@@ -326,6 +338,7 @@ class MenuBuilder:
 
         return {
             "behavior_search": behavior_search,
+            "bale": bale,
             "postprocessing_settings": postprocessing_action,
         }
 

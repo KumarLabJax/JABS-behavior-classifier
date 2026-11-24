@@ -82,6 +82,10 @@ class PlayerWidget(QtWidgets.QWidget):
         self._seek_timer.setSingleShot(True)
         self._seek_timer.setInterval(0)
         self._seek_timer.timeout.connect(self._run_pending_seek)
+        self._play_range_timer = QtCore.QTimer(self)
+        self._play_range_timer.setSingleShot(True)
+        self._play_range_timer.setInterval(250)
+        self._play_range_timer.timeout.connect(self._start_player_thread)
         self._video_stream = None
         self._video_path: Path | None = None
         self._pose_est = None
@@ -366,6 +370,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # _playing is set to False, so _video_stream is safe to read from the main
         # thread as soon as playing_changed(False) is received.
         was_playing = self._playing
+        self._play_range_timer.stop()
 
         # if we have an active player thread, terminate
         if self._player_thread:
@@ -409,7 +414,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # start playback, pause for 250 ms first to let things settle after moving
         # the position to the start of the range.
-        QtCore.QTimer.singleShot(250, self._start_player_thread)
+        self._play_range_timer.start()
 
     @property
     def current_frame(self) -> int:
@@ -817,6 +822,8 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _start_player_thread(self) -> None:
         """start video playback in player thread"""
+        if self._player_thread is None or self._video_stream is None:
+            return
         self._player_thread.start()
         self._playing = True
         self.playing_changed.emit(True)

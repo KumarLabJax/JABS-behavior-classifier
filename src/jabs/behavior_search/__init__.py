@@ -2,6 +2,7 @@
 
 from .behavior_search_util import (
     BehaviorSearchQuery,
+    CustomBoutListSearchQuery,
     LabelBehaviorSearchQuery,
     PredictionBehaviorSearchQuery,
     PredictionSearchKind,
