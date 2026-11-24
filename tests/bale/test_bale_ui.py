@@ -10,15 +10,27 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import Qt
+import pytest
 
 from jabs.bale import run_bale
 from jabs.core.enums import ClassifierMode
-from jabs.ui.dialogs.bale_dialog import BaleDialog, _short_video_name
 
-sys.path.insert(0, str(Path(__file__).parent))
-from test_bale import _build_synthetic_explorer_project
+try:
+    from PySide6 import QtCore, QtGui, QtWidgets
+    from PySide6.QtCore import Qt
+
+    from jabs.ui.dialogs.bale_dialog import BaleDialog, _short_video_name
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_bale import _build_synthetic_explorer_project
+
+    SKIP_UI_TESTS = False
+    SKIP_REASON = ""
+except ImportError as e:
+    SKIP_UI_TESTS = True
+    SKIP_REASON = f"Qt/UI dependencies not available: {e}"
+
+pytestmark = pytest.mark.skipif(SKIP_UI_TESTS, reason=SKIP_REASON)
 
 
 def _ensure_qapp() -> QtWidgets.QApplication:

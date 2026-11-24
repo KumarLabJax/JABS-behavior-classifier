@@ -32,9 +32,6 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from PySide6 import QtCore, QtWidgets
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
 
 from jabs.bale import (
     clear_bout_extractor_cache,
@@ -49,10 +46,24 @@ from jabs.core.constants import FINAL_TRAIN_SEED, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierMode, ClassifierType
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project, VideoLabels
-from jabs.ui.classify_strategy import BinaryClassifyStrategy, MultiClassClassifyStrategy
-from jabs.ui.dialogs.message_dialog import MessageDialog
-from jabs.ui.main_window.main_window import MainWindow
-from jabs.ui.training_strategy import BinaryTrainingStrategy, MultiClassTrainingStrategy
+
+try:
+    from PySide6 import QtCore, QtWidgets
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from jabs.ui.classify_strategy import BinaryClassifyStrategy, MultiClassClassifyStrategy
+    from jabs.ui.dialogs.message_dialog import MessageDialog
+    from jabs.ui.main_window.main_window import MainWindow
+    from jabs.ui.training_strategy import BinaryTrainingStrategy, MultiClassTrainingStrategy
+
+    SKIP_UI_TESTS = False
+    SKIP_REASON = ""
+except ImportError as e:
+    SKIP_UI_TESTS = True
+    SKIP_REASON = f"Qt/UI dependencies not available: {e}"
+
+pytestmark = pytest.mark.skipif(SKIP_UI_TESTS, reason=SKIP_REASON)
 
 VIDEOS_MULTICLASS = [
     "study_275.cage_2155.2024-11-12.21.04.top.mp4",
