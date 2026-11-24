@@ -9,6 +9,7 @@ It includes:
 This package serves as the foundation for higher-level behavioral analysis and downstream processing of pose data.
 """
 
+from .capability_check import PoseCapabilityError, require_pose_capabilities
 from .features import FEATURE_VERSION, IdentityFeatures
 
 DEFAULT_WINDOW_SIZE = 5
@@ -17,4 +18,6 @@ __all__ = [
     "DEFAULT_WINDOW_SIZE",
     "FEATURE_VERSION",
     "IdentityFeatures",
+    "PoseCapabilityError",
+    "require_pose_capabilities",
 ]

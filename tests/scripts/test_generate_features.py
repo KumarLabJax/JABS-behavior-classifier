@@ -21,7 +21,7 @@ def _legacy_args(**overrides) -> argparse.Namespace:
         "feature_dir": Path("features"),
         "cm_units": False,
         "window_size": None,
-        "fps": 30,
+        "fps": None,
         "use_pose_hash": False,
     }
     defaults.update(overrides)
@@ -37,8 +37,6 @@ def test_translation_defaults_to_pixel_distances() -> None:
         "session_pose_est_v6.h5",
         "--feature-dir",
         "features",
-        "--fps",
-        "30",
         "--use-pixel-distances",
     ]
 
@@ -50,14 +48,14 @@ def test_translation_cm_distances_omits_pixel_flag() -> None:
     assert "--use-pixel-distances" not in result
 
 
-def test_translation_forwards_window_size_fps_and_pose_hash() -> None:
-    """Legacy window size, fps, and pose hash options map onto the new command."""
+def test_translation_forwards_window_size_and_pose_hash_but_not_fps() -> None:
+    """Legacy window size and pose hash map onto the new command; fps is dropped."""
     result = generate_features._build_compute_features_args(
         _legacy_args(window_size=5, fps=60, use_pose_hash=True)
     )
 
     assert result[result.index("-w") + 1] == "5"
-    assert result[result.index("--fps") + 1] == "60"
+    assert "--fps" not in result
     assert "--use-pose-hash" in result
 
 
@@ -102,12 +100,36 @@ def test_main_prints_deprecation_and_runs_command(
         str(pose_file),
         "--feature-dir",
         str(feature_dir),
-        "--fps",
-        "30",
         "--use-pixel-distances",
         "-w",
         "5",
     ]
+
+
+def test_main_warns_that_fps_is_ignored(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """Passing --fps logs a deprecation warning and is not forwarded."""
+    pose_file = tmp_path / "session_pose_est_v6.h5"
+    pose_file.touch()
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "jabs-features",
+            "--pose-file",
+            str(pose_file),
+            "--feature-dir",
+            str(tmp_path / "features"),
+            "--fps",
+            "60",
+        ],
+    )
+    with mock.patch(f"{MODULE}.compute_features_command") as mock_command:
+        generate_features.main()
+
+    assert any("--fps is deprecated" in r.getMessage() for r in caplog.records)
+    assert "--fps" not in mock_command.main.call_args.args[0]
 
 
 def test_main_warns_that_pose_version_is_ignored(

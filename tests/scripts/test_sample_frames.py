@@ -7,7 +7,7 @@ from unittest.mock import DEFAULT, MagicMock, patch
 
 import numpy as np
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
@@ -302,7 +302,7 @@ def test_cli_out_dir_created(tmp_path: Path) -> None:
         MockProject.return_value = mock_project
         mock_collect.return_value = [("vid.mp4", 0, 99)]
         mock_sample.return_value = [("vid.mp4", 42)]
-        mock_write.return_value = None
+        mock_write.return_value = 1
 
         result = runner.invoke(
             cli,
@@ -360,6 +360,7 @@ def test_cli_mode_option_calls_correct_sampler(
         mock_collect.return_value = [("v.mp4", 0, 9)]
         mocks["sample_num_frames_total"].return_value = [("v.mp4", 5)]
         mocks["sample_frames_per_bout"].return_value = [("v.mp4", 3)]
+        mocks["write_frames"].return_value = 1
 
         result = runner.invoke(
             cli,
@@ -587,6 +588,51 @@ def test_write_frames_skips_frame_it_cannot_seek_to(tmp_path: Path) -> None:
     mock_cv2.imwrite.assert_not_called()
 
 
+def test_write_frames_returns_number_written(tmp_path: Path) -> None:
+    """The return value counts the PNGs produced, not the frames requested."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", _make_cv2_mock()),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", _make_reader_mock()),
+    ):
+        written = write_frames(tmp_path, [("v.mp4", 1), ("v.mp4", 2)], out_dir)
+
+    assert written == 2
+
+
+def test_write_frames_does_not_count_skipped_video(tmp_path: Path) -> None:
+    """Frames belonging to a video VideoReader rejects are not counted as written."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    mock_reader_cls = _make_reader_mock()
+    good_reader = mock_reader_cls.return_value
+    mock_reader_cls.side_effect = [ValueError("invalid frame rate"), good_reader]
+
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", _make_cv2_mock()),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", mock_reader_cls),
+    ):
+        written = write_frames(tmp_path, [("bad.mp4", 1), ("good.mp4", 2)], out_dir)
+
+    assert written == 1
+
+
+def test_write_frames_does_not_count_unreadable_frame(tmp_path: Path) -> None:
+    """A frame that cannot be read is not counted as written."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    with (
+        patch("jabs.scripts.cli.sample_frames.cv2", _make_cv2_mock()),
+        patch("jabs.scripts.cli.sample_frames.VideoReader", _make_reader_mock(grabbed=False)),
+    ):
+        written = write_frames(tmp_path, [("v.mp4", 5)], out_dir)
+
+    assert written == 0
+
+
 def test_write_frames_imwrite_failure_raises(tmp_path: Path) -> None:
     """A failed cv2.imwrite raises RuntimeError."""
     out_dir = tmp_path / "out"
@@ -654,6 +700,7 @@ def test_cli_default_out_dir_is_cwd(tmp_path: Path) -> None:
 
     def _capture_write_frames(project_dir, sampled, out_dir, **kwargs):
         captured_out_dir.append(out_dir)
+        return len(sampled)
 
     with (
         patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
@@ -677,6 +724,81 @@ def test_cli_default_out_dir_is_cwd(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert len(captured_out_dir) == 1
     assert captured_out_dir[0] == Path.cwd()
+
+
+def _invoke_cli_with_written_count(
+    tmp_path: Path, sampled: list[tuple[str, int]], written: int
+) -> Result:
+    """Run ``sample-frames`` with ``write_frames`` reporting *written* PNGs.
+
+    Args:
+        tmp_path: Pytest temporary directory used as the project directory.
+        sampled: Frames the sampler is made to return.
+        written: Count ``write_frames`` is made to return.
+
+    Returns:
+        The Click result.
+    """
+    with (
+        patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
+        patch("jabs.scripts.cli.sample_frames.collect_behavior_bouts") as mock_collect,
+        patch("jabs.scripts.cli.sample_frames.sample_num_frames_total") as mock_sample,
+        patch("jabs.scripts.cli.sample_frames.write_frames") as mock_write,
+    ):
+        MockProject.is_valid_project_directory.return_value = True
+        mock_project = MagicMock()
+        mock_project.settings = {"behavior": {"walking": {}}}
+        mock_project.video_manager.videos = []
+        MockProject.return_value = mock_project
+        mock_collect.return_value = [("v.mp4", 0, 99)]
+        mock_sample.return_value = sampled
+        mock_write.return_value = written
+
+        return CliRunner().invoke(
+            cli,
+            [
+                "sample-frames",
+                "--behavior",
+                "walking",
+                "--num-frames",
+                str(len(sampled)),
+                "--out-dir",
+                str(tmp_path / "out"),
+                str(tmp_path),
+            ],
+        )
+
+
+def test_cli_reports_frames_actually_written(tmp_path: Path) -> None:
+    """The summary counts the PNGs written, not the frames that were sampled."""
+    sampled = [("v.mp4", i) for i in range(5)]
+
+    result = _invoke_cli_with_written_count(tmp_path, sampled, written=3)
+
+    assert result.exit_code == 0, result.output
+    assert "Done. 3 frame(s) written" in result.output
+    assert "Done. 5 frame(s) written" not in result.output
+
+
+def test_cli_warns_about_skipped_frames(tmp_path: Path) -> None:
+    """Sampled frames that could not be read are reported as skipped."""
+    sampled = [("v.mp4", i) for i in range(5)]
+
+    result = _invoke_cli_with_written_count(tmp_path, sampled, written=3)
+
+    assert result.exit_code == 0, result.output
+    assert "2 of the 5 sampled frame(s) could not be read" in result.output
+
+
+def test_cli_no_skip_warning_when_all_frames_written(tmp_path: Path) -> None:
+    """No skip warning is printed when every sampled frame reached disk."""
+    sampled = [("v.mp4", i) for i in range(5)]
+
+    result = _invoke_cli_with_written_count(tmp_path, sampled, written=5)
+
+    assert result.exit_code == 0, result.output
+    assert "Done. 5 frame(s) written" in result.output
+    assert "could not be read" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -731,12 +853,13 @@ def _invoke_cli_with_project(
         patch("jabs.scripts.cli.sample_frames.Project") as MockProject,
         patch("jabs.scripts.cli.sample_frames.collect_behavior_bouts") as mock_collect,
         patch("jabs.scripts.cli.sample_frames.sample_num_frames_total") as mock_sample,
-        patch("jabs.scripts.cli.sample_frames.write_frames"),
+        patch("jabs.scripts.cli.sample_frames.write_frames") as mock_write,
     ):
         MockProject.is_valid_project_directory.return_value = True
         MockProject.return_value = project
         mock_collect.return_value = [("v.mp4", 0, 9)]
         mock_sample.return_value = [("v.mp4", 5)]
+        mock_write.return_value = 1
 
         result = CliRunner().invoke(
             cli,
@@ -775,3 +898,30 @@ def test_cli_multiclass_unknown_behavior_lists_none_class(tmp_path: Path) -> Non
     assert result.exit_code != 0
     assert f"{MULTICLASS_NONE_BEHAVIOR}, rearing" in result.output
     mock_collect.assert_not_called()
+
+
+def test_collect_bouts_with_a_pose_refused_at_conversion(tmp_path: Path) -> None:
+    """A labeled video whose pose cannot be opened still contributes its bouts."""
+    import json
+    import shutil
+
+    from jabs.project import Project, VideoLabels
+
+    corpus = Path(__file__).parents[2] / "packages" / "jabs-io" / "tests" / "data" / "legacy-pose"
+    annotations = tmp_path / "jabs" / "annotations"
+    annotations.mkdir(parents=True)
+    for video, pose, start in (
+        ("a", "v8-duplicate-embed.h5", 5),
+        ("b", "v8-with-centers.h5", 50),
+    ):
+        (tmp_path / f"{video}.avi").touch()
+        shutil.copyfile(corpus / pose, tmp_path / f"{video}_pose_est_v8.h5")
+        labels = VideoLabels(f"{video}.avi", 120)
+        labels.get_track_labels("0", "Walk").label_behavior(start, start + 4)
+        (annotations / f"{video}.json").write_text(json.dumps(labels.as_dict(None)))
+    project = Project(tmp_path, enable_session_tracker=False)
+
+    assert sorted(collect_behavior_bouts(project, "Walk")) == [
+        ("a.avi", 5, 9),
+        ("b.avi", 50, 54),
+    ]

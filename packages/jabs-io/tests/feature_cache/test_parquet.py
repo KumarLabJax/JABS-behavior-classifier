@@ -438,3 +438,34 @@ def test_parquet_reads_dictionary_encoded_cache(
         )
     for key in window_data:
         np.testing.assert_array_equal(window[key], window_data[key], err_msg=key)
+
+
+@pytest.mark.parametrize(
+    ("written", "expected", "valid"),
+    [(None, None, True), (1, 1, True), (1, 2, False), (None, 1, False), (1, None, False)],
+    ids=["unified", "same-revision", "other-revision", "unconverted-cache", "converted-cache"],
+)
+def test_parquet_converter_revision_must_match(
+    tmp_path,
+    writer: ParquetFeatureCacheWriter,
+    written: int | None,
+    expected: int | None,
+    valid: bool,
+) -> None:
+    """Features computed from a conversion by another converter revision are stale."""
+    identity_dir = tmp_path / "identity_0"
+    metadata = FeatureCacheMetadata(
+        feature_version=_FEATURE_VERSION,
+        identity=0,
+        num_frames=_N_FRAMES,
+        pose_hash=_POSE_HASH,
+        converter_revision=written,
+    )
+    writer.write_per_frame(identity_dir, metadata, _per_frame_data(np.random.default_rng(9)))
+
+    reader = ParquetFeatureCacheReader(_FEATURE_VERSION, _POSE_HASH, _DISTANCE_SCALE, expected)
+    if valid:
+        assert reader.read_metadata(identity_dir).converter_revision == written
+    else:
+        with pytest.raises(PoseHashException):
+            reader.read_per_frame(identity_dir)

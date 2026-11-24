@@ -1,7 +1,7 @@
 from typing import ClassVar
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
-from jabs.pose_estimation import PoseEstimation
 
 from ..feature_base_class import Feature
 from .corner import BearingToCorner, CornerDistanceInfo, DistanceToCorner
@@ -19,7 +19,7 @@ class LandmarkFeatureGroup(FeatureGroup):
     to retrieve feature modules, shared info objects, and to query supported features and objects.
 
     Args:
-        poses (PoseEstimation): Pose estimation handler for the current session.
+        poses (PoseLike): Pose estimation handler for the current session.
         pixel_scale (float): Scale factor to convert pixel coordinates to real-world units.
 
     Class Attributes:
@@ -58,7 +58,7 @@ class LandmarkFeatureGroup(FeatureGroup):
         "food_hopper": [FoodHopper.name()],
     }
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
         # only enable the features supported by this particular pose file
@@ -67,7 +67,7 @@ class LandmarkFeatureGroup(FeatureGroup):
             for feature in self.static_object_features(o):
                 # make sure the feature is supported before adding it to the enabled features
                 if self._features[feature].is_supported(
-                    poses.format_major_version,
+                    poses.capabilities,
                     set(poses.static_objects.keys()),
                     lixit_keypoints=poses.num_lixit_keypoints,
                 ):

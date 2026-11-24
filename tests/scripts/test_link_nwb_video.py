@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner, Result
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types import PoseData
 from jabs.io.internal.pose import NWBVideoLinkInfo, PoseNWBAdapter, read_video_link_info
 from jabs.scripts.cli import link_nwb_video
@@ -285,7 +285,7 @@ def real_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pa
     pytest.importorskip("ndx_jabs")
     pytest.importorskip("ndx_multisubjects")
 
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     data = PoseData(
         points=np.zeros((1, NUM_FRAMES, len(body_parts), 2)),
         point_mask=np.ones((1, NUM_FRAMES, len(body_parts)), dtype=bool),

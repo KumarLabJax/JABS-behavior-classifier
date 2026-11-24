@@ -465,6 +465,17 @@ def _invoke(tmp_path: Path, *extra: str):
     )
 
 
+def test_fps_is_deprecated_and_ignored(
+    wired, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """--fps logs a deprecation warning and is not passed to the evaluation."""
+    spy, _ = wired
+    result = _invoke(tmp_path, "--fps", "60")
+    assert result.exit_code == 0, result.output
+    assert any("--fps is deprecated" in r.getMessage() for r in caplog.records)
+    assert "fps_override" not in spy.call_args.kwargs
+
+
 def test_command_runs_and_prints_tables(wired, tmp_path: Path) -> None:
     """Command runs and prints tables."""
     result = _invoke(tmp_path)
@@ -631,7 +642,7 @@ def _fake_project(
 
     def load_pose_est(video_path):
         spec = videos[Path(video_path).name]
-        pose = mock.Mock()
+        pose = mock.MagicMock()
         pose.identities = list(spec["truth"])
         pose.num_identities = len(spec["truth"])
         pose.num_frames = len(next(iter(spec["predicted"].values())))
@@ -655,7 +666,6 @@ def _fake_project(
 
     monkeypatch.setattr(evaluate_module, "Project", mock.Mock(return_value=project))
     monkeypatch.setattr(evaluate_module, "_predict_identity", predict)
-    monkeypatch.setattr(evaluate_module, "get_fps_and_nframes", lambda _p: (30, 100))
     return project
 
 
@@ -674,7 +684,6 @@ def _run(**kwargs):
         "criteria": CRITERIA,
         "plan": None,
         "feature_dir": None,
-        "fps_override": 30,
         "collect_bout_records": False,
     }
     return evaluate_module.run_evaluation(**{**defaults, **kwargs})
@@ -700,6 +709,25 @@ def test_run_evaluation_compares_every_identity(monkeypatch: pytest.MonkeyPatch)
     metrics = aggregate_bout_metrics(result.for_stage(RAW_STAGE), OVERLAP.label)
     assert metrics.truth_bouts == 3
     assert metrics.detected_truth_bouts == 2
+
+
+def test_run_evaluation_skips_unusable_videos(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A video whose pose file is unusable is skipped with its reason, never opened."""
+    project = _fake_project(
+        monkeypatch,
+        {
+            "a.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [1, 1, 0, 0]}},
+            "b.mp4": {"truth": {0: [1, 1, 0, 0]}, "predicted": {0: [0, 0, 0, 0]}},
+        },
+    )
+    project.unusable_videos = {"b.mp4": "converter refused it"}
+    project.is_usable.side_effect = lambda video: video not in project.unusable_videos
+    result = _run()
+
+    assert result.videos == ["a.mp4"]
+    assert result.skipped_videos == [("b.mp4", "pose file is unusable: converter refused it")]
+    opened = [Path(c.args[0]).name for c in project.load_pose_est.call_args_list]
+    assert opened == ["a.mp4"]
 
 
 def test_run_evaluation_records_the_classifier_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -874,9 +902,11 @@ def test_save_predictions_writes_one_file_per_video(
 
     result = _run(save_predictions_dir=tmp_path)
 
+    # the fake pose files are unified ``<video>_pose.h5`` names, whose stem is
+    # the video's
     assert sorted(p.name for p in result.prediction_files) == [
-        "a.mp4_pose_behavior.h5",
-        "b.mp4_pose_behavior.h5",
+        "a.mp4_behavior.h5",
+        "b.mp4_behavior.h5",
     ]
     assert all(beh == "Grooming" for beh, _ in written.values())
 

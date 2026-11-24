@@ -6,9 +6,21 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from jabs.core.enums import ClassifierType, ProjectDistanceUnit
+from jabs.core.enums import ClassifierType, PoseCapability, ProjectDistanceUnit
 
-from .export_training import JSON_ENCODED_SETTING_ATTR, NO_IDENTITY_SENTINEL
+from .export_training import (
+    JSON_ENCODED_SETTING_ATTR,
+    NO_IDENTITY_SENTINEL,
+    POSE_CAPABILITIES_ATTR,
+)
+
+# minimum legacy pose version that implied each capability, for exports written
+# before training files recorded pose capabilities
+_LEGACY_POSE_VERSION_CAPABILITIES: tuple[tuple[int, PoseCapability], ...] = (
+    (3, PoseCapability.SOCIAL),
+    (6, PoseCapability.SEGMENTATION),
+    (8, PoseCapability.BOUNDING_BOXES),
+)
 
 
 def _decode_h5_string(value: Any) -> str:
@@ -25,6 +37,58 @@ def _decode_h5_string(value: Any) -> str:
         The value as a ``str``.
     """
     return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def _capabilities_for_legacy_pose_version(pose_version: int) -> frozenset[PoseCapability]:
+    """Map the minimum pose version an older export recorded to pose capabilities.
+
+    Args:
+        pose_version: The ``min_pose_version`` attribute of an older export.
+
+    Returns:
+        ``SOCIAL`` from version 3, ``SEGMENTATION`` from 6 and ``BOUNDING_BOXES``
+        from 8.
+    """
+    return frozenset(
+        capability
+        for min_version, capability in _LEGACY_POSE_VERSION_CAPABILITIES
+        if pose_version >= min_version
+    )
+
+
+def _read_pose_capabilities(in_h5: h5py.File) -> frozenset[PoseCapability]:
+    """Read the pose capabilities a training file's features were computed with.
+
+    Exports record them as the ``pose_capabilities`` attribute. Exports written
+    before that record a ``min_pose_version`` instead, which is mapped with
+    :func:`_capabilities_for_legacy_pose_version`.
+
+    Args:
+        in_h5: Open training HDF5 file.
+
+    Returns:
+        The pose capabilities.
+    """
+    if POSE_CAPABILITIES_ATTR in in_h5.attrs:
+        return frozenset(
+            PoseCapability(_decode_h5_string(value))
+            for value in in_h5.attrs[POSE_CAPABILITIES_ATTR]
+        )
+    return _capabilities_for_legacy_pose_version(int(in_h5.attrs["min_pose_version"]))
+
+
+def _read_file_version(in_h5: h5py.File) -> int | None:
+    """Read the feature version a training file was exported with.
+
+    Args:
+        in_h5: Open training HDF5 file.
+
+    Returns:
+        The file's ``file_version`` (the exporting release's ``FEATURE_VERSION``),
+        or None when the file does not record one.
+    """
+    version = in_h5.attrs.get("file_version")
+    return None if version is None else int(version)
 
 
 def _read_group_mapping(in_h5: h5py.File) -> dict[int, dict[str, Any]]:
@@ -169,7 +233,10 @@ def load_training_data(training_file: Path) -> tuple[dict[str, Any], dict[int, d
               exported ``cm_units`` setting (see :func:`_read_distance_unit`)
             - ``training_seed``: int
             - ``settings``: dict of project settings
-            - ``min_pose_version``: int
+            - ``pose_capabilities``: frozenset of PoseCapability the features were
+              computed with (mapped from ``min_pose_version`` for older exports)
+            - ``file_version``: int feature version the file was exported with, or
+              None when the file does not record one
             - ``extended_features``: feature group name to its list of feature
               names, read from the file's ``extended_features`` group. ``None``
               when the file has no such group, which is the case for every file
@@ -187,7 +254,8 @@ def load_training_data(training_file: Path) -> tuple[dict[str, Any], dict[int, d
     features: dict[str, Any] = {"per_frame": {}, "window": {}}
 
     with h5py.File(training_file, "r") as in_h5:
-        features["min_pose_version"] = in_h5.attrs["min_pose_version"]
+        features["pose_capabilities"] = _read_pose_capabilities(in_h5)
+        features["file_version"] = _read_file_version(in_h5)
         features["behavior"] = in_h5.attrs["behavior"]
         features["settings"] = read_project_settings(in_h5["settings"])
         features["training_seed"] = in_h5.attrs["training_seed"]
@@ -255,7 +323,10 @@ def load_multiclass_training_data(
             - ``classifier_type``: ClassifierType enum
             - ``training_seed``: int
             - ``settings``: dict of project settings
-            - ``min_pose_version``: int
+            - ``pose_capabilities``: frozenset of PoseCapability the features were
+              computed with (mapped from ``min_pose_version`` for older exports)
+            - ``file_version``: int feature version the file was exported with, or
+              None when the file does not record one
 
         ``group_mapping`` maps group ID → ``{"identity": int | None, "video": str}``.
 
@@ -272,7 +343,8 @@ def load_multiclass_training_data(
                 f"(classifier_mode={classifier_mode!r})."
             )
 
-        features["min_pose_version"] = in_h5.attrs["min_pose_version"]
+        features["pose_capabilities"] = _read_pose_capabilities(in_h5)
+        features["file_version"] = _read_file_version(in_h5)
         features["training_seed"] = in_h5.attrs["training_seed"]
         features["classifier_type"] = ClassifierType(in_h5.attrs["classifier_type"])
         features["settings"] = read_project_settings(in_h5["settings"])

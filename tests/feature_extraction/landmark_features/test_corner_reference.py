@@ -9,12 +9,13 @@ import pytest
 from shapely.geometry import Point
 
 import jabs.feature_extraction.landmark_features.corner as corner_module
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
-from jabs.pose_estimation import PoseEstimation
 
 
 def _reference_features(
-    poses: PoseEstimation, identity: int, pixel_scale: float
+    poses: PoseLike, identity: int, pixel_scale: float
 ) -> dict[str, npt.NDArray[np.floating]]:
     """Original per-frame loop from CornerDistanceInfo.cache_features, kept as a reference."""
     n = poses.num_frames
@@ -28,7 +29,7 @@ def _reference_features(
         "closest corner": np.full(n, -1, dtype=np.int8),
     }
     hulls = poses.get_identity_convex_hulls(identity)
-    idx = PoseEstimation.KeypointIndex
+    idx = KeypointIndex
     corners = corner_module.CornerDistanceInfo.sort_points_clockwise(
         poses.static_objects["corners"]
     )
@@ -71,7 +72,7 @@ def _reference_features(
 
 @pytest.mark.parametrize("pixel_scale", [1.0, 0.07])
 def test_matches_reference_implementation(
-    pose_est_v5_with_static_objects: PoseEstimation, pixel_scale: float
+    pose_est_v5_with_static_objects: PoseLike, pixel_scale: float
 ) -> None:
     """Every output equals the original per-frame implementation, for every identity."""
     poses = pose_est_v5_with_static_objects
@@ -93,7 +94,7 @@ def test_matches_reference_implementation(
 
 
 def test_present_frames_without_hull_are_nan(
-    pose_est_v5_with_static_objects: PoseEstimation, monkeypatch: pytest.MonkeyPatch
+    pose_est_v5_with_static_objects: PoseLike, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A present identity without a convex hull gets NaN instead of raising."""
     poses = pose_est_v5_with_static_objects
@@ -112,7 +113,7 @@ def test_present_frames_without_hull_are_nan(
 
 
 def test_identity_never_present(
-    pose_est_v5_with_static_objects: PoseEstimation, monkeypatch: pytest.MonkeyPatch
+    pose_est_v5_with_static_objects: PoseLike, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An identity with no present frames produces all-NaN features."""
     poses = pose_est_v5_with_static_objects

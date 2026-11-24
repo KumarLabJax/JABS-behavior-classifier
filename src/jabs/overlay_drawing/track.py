@@ -15,7 +15,8 @@ from collections.abc import Callable
 import numpy as np
 from PySide6 import QtCore, QtGui
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 
 from .mapping import visible_runs
 
@@ -37,7 +38,7 @@ TRACK_LINE_WIDTH = 1
 
 def draw_identity_track(
     painter: QtGui.QPainter,
-    pose: PoseEstimation,
+    pose: PoseLike,
     frame_index: int,
     identity: int,
     *,
@@ -46,7 +47,7 @@ def draw_identity_track(
     line_width: int,
     future_frames: int = DEFAULT_FUTURE_FRAMES,
     past_frames: int = DEFAULT_PAST_FRAMES,
-    point_index: int = PoseEstimation.KeypointIndex.NOSE,
+    point_index: int = KeypointIndex.NOSE,
 ) -> None:
     """Draw one identity's past and future track with ``painter``.
 

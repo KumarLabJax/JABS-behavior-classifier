@@ -1,8 +1,10 @@
 """Tests for convert_to_nwb helper functions."""
 
+import dataclasses
 import datetime
 import json
 import logging
+import shutil
 from pathlib import Path
 from unittest import mock
 
@@ -11,10 +13,11 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from jabs.core.abstract.pose_est import PoseEstimation
-from jabs.core.types.pose import PoseData
+from jabs.core.pose_skeleton import KeypointIndex
+from jabs.core.types.pose import PoseData, SegmentationWindow
+from jabs.core.utils import hash_file
 from jabs.io.internal.pose import resolve_identity_subjects
-from jabs.pose_estimation import open_pose_file
+from jabs.pose_estimation import conversion_cache, open_pose_file
 from jabs.scripts.cli.convert_to_nwb import (
     _collect_hdf5_attributes,
     _h5_attr_to_jsonable,
@@ -80,7 +83,7 @@ def _valid_pose_data(num_identities=2, num_frames=10):
     run_conversion validates subject metadata before writing, so the write-mode
     wiring tests need real data rather than a sentinel.
     """
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     num_keypoints = len(body_parts)
     subjects = {
         f"subject_{i + 1}": {
@@ -104,7 +107,7 @@ def _valid_pose_data(num_identities=2, num_frames=10):
 
 def _patch_conversion_internals(monkeypatch, pose_data=None):
     """Patch the pose-loading and save boundaries of run_conversion; return the save mock."""
-    pose = mock.Mock(num_identities=2, num_frames=10, fps=30)
+    pose = mock.MagicMock(num_identities=2, num_frames=10, fps=30)
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", lambda *a, **k: pose)
     monkeypatch.setattr(
         "jabs.scripts.cli.convert_to_nwb.pose_to_pose_data",
@@ -188,6 +191,31 @@ def test_cli_multisubject_flag_forwarded(
 
     assert result.exit_code == 0, result.output
     assert run_mock.call_args.kwargs["multisubject"] is expected
+
+
+@pytest.mark.parametrize("cache_dir", [False, True], ids=["default", "cache-dir"])
+def test_legacy_conversion_is_temporary_unless_cache_dir(monkeypatch, tmp_path, cache_dir):
+    """convert-to-nwb converts into a temporary directory unless --cache-dir keeps it."""
+    from jabs.scripts.cli.cli import cli
+
+    _patch_conversion_internals(monkeypatch)
+    opener = mock.MagicMock()
+    monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", opener)
+    input_path = tmp_path / "session_pose_est_v6.h5"
+    input_path.write_bytes(b"")
+    args = ["convert-to-nwb", str(input_path), str(tmp_path / "session.nwb")]
+    if cache_dir:
+        args += ["--cache-dir", str(tmp_path / "conversions")]
+
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 0, result.output
+    if cache_dir:
+        opener.assert_called_once_with(
+            input_path, tmp_path / "conversions", temporary_conversion=False
+        )
+    else:
+        opener.assert_called_once_with(input_path, None, temporary_conversion=True)
 
 
 def test_cli_per_identity_flag_removed(tmp_path):
@@ -315,39 +343,43 @@ def test_collect_hdf5_attributes_is_json_serializable(tmp_path):
 SAMPLE_POSE_V6 = Path(__file__).parent.parent / "data" / "sample_pose_est_v6.h5"
 
 
-def test_pose_to_pose_data_builds_segmentation():
-    """A v6 pose file's contours reach PoseData, identity-ordered and unflipped.
+@pytest.fixture(scope="module")
+def unified_v6(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The v6 sample converted to a unified ``*_pose.h5`` file."""
+    work = tmp_path_factory.mktemp("unified-v6")
+    legacy = work / "sample_pose_est_v6.h5"
+    shutil.copyfile(SAMPLE_POSE_V6, legacy)
+    converted = conversion_cache.ensure_converted(legacy, hash_file(legacy), work)
+    unified = work / "sample_pose.h5"
+    shutil.copyfile(converted, unified)
+    return unified
 
-    seg_data is stored (x, y) in the pose file, unlike poseest/points which is (y, x),
-    so the contours must come through with no axis flip.
+
+def test_unified_file_exports_its_segmentation_windows(unified_v6: Path):
+    """A unified file's contours are exported slot by slot from its segmentation windows.
+
+    The expected arrays are built one frame and contour at a time from the whole-file
+    window; everything past a contour's length, and every unused slot, is -1.
     """
-    pose = open_pose_file(SAMPLE_POSE_V6)
-    data = pose_to_pose_data(pose)
+    with open_pose_file(unified_v6) as pose:
+        seg = pose_to_pose_data(pose).segmentation_data
+        windows = [pose.segmentation_window(i, 0, pose.num_frames) for i in pose.identities]
 
-    seg = data.segmentation_data
-    assert seg is not None
-    num_identities = len(list(pose.identities))
-    assert seg.contours.shape[0] == num_identities
-    assert seg.contours.shape[1] == pose.num_frames
+    expected = np.full_like(seg.contours, -1)
+    counts = np.zeros_like(seg.vertex_counts)
+    external = np.zeros_like(seg.is_external)
+    for i, window in enumerate(windows):
+        for frame in range(len(window.contour_count)):
+            for slot in range(int(window.contour_count[frame])):
+                length = int(window.contour_length[frame, slot])
+                expected[i, frame, slot, :length] = window.contours[frame, slot, :length]
+                counts[i, frame, slot] = length
+                external[i, frame, slot] = window.external_flag[frame, slot]
 
-    for i in pose.identities:
-        np.testing.assert_array_equal(seg.contours[i], pose.get_segmentation_data(i))
-        np.testing.assert_array_equal(seg.is_external[i], pose.get_segmentation_flags(i) > 0)
-
-
-def test_pose_to_pose_data_keeps_pose_file_contour_width():
-    """Contours keep seg_data's own integer width instead of being widened.
-
-    The contour array is the largest thing JABS holds for a video - int16 over a
-    full-length recording is already gigabytes - so widening it would double both the
-    peak during the stack and what the writer holds for the length of the export.
-    """
-    pose = open_pose_file(SAMPLE_POSE_V6)
-    seg = pose_to_pose_data(pose).segmentation_data
-
-    source_dtype = pose.get_segmentation_data(0).dtype
-    assert source_dtype == np.int16, "fixture must be narrower than int32 to test anything"
-    assert seg.contours.dtype == source_dtype
+    assert counts.any()
+    np.testing.assert_array_equal(seg.contours, expected)
+    np.testing.assert_array_equal(seg.vertex_counts, counts)
+    np.testing.assert_array_equal(seg.is_external, external)
 
 
 def test_pose_to_pose_data_vertex_counts_match_padding():
@@ -360,6 +392,37 @@ def test_pose_to_pose_data_vertex_counts_match_padding():
     # the fixture must actually exercise padding, or this asserts nothing
     assert seg.vertex_counts.min() == 0
     assert 0 < seg.vertex_counts.max() <= seg.contours.shape[3]
+
+
+def test_window_padding_is_not_exported(monkeypatch):
+    """Points and slots past a window's counts are written as -1 whatever they hold.
+
+    A segmentation window's padding values are unspecified, so the export must not
+    copy them through.
+    """
+    pose = open_pose_file(SAMPLE_POSE_V6)
+    expected = pose_to_pose_data(pose).segmentation_data
+    real_window = pose.segmentation_window
+
+    def garbage_padding(identity: int, start: int, stop: int) -> SegmentationWindow:
+        window = real_window(identity, start, stop)
+        slots = np.arange(window.contours.shape[1])
+        points = np.arange(window.contours.shape[2])
+        used = slots[None, :] < window.contour_count[:, None]
+        real = used[..., None] & (points[None, None, :] < window.contour_length[..., None])
+        contours = np.where(real[..., None], window.contours, 7)
+        lengths = np.where(used, window.contour_length, 99)
+        flags = None if window.external_flag is None else window.external_flag | ~used
+        return dataclasses.replace(
+            window, contours=contours, contour_length=lengths, external_flag=flags
+        )
+
+    monkeypatch.setattr(pose, "segmentation_window", garbage_padding)
+    seg = pose_to_pose_data(pose).segmentation_data
+
+    np.testing.assert_array_equal(seg.contours, expected.contours)
+    np.testing.assert_array_equal(seg.vertex_counts, expected.vertex_counts)
+    np.testing.assert_array_equal(seg.is_external, expected.is_external)
 
 
 def test_pose_to_pose_data_segmentation_disabled():
@@ -377,7 +440,7 @@ def test_pose_to_pose_data_no_segmentation_in_older_pose():
 
 def test_run_conversion_forwards_segmentation(monkeypatch, tmp_path):
     """run_conversion passes its segmentation flag down to pose_to_pose_data."""
-    pose = mock.Mock(num_identities=2, num_frames=10, fps=30)
+    pose = mock.MagicMock(num_identities=2, num_frames=10, fps=30)
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.open_pose_file", lambda *a, **k: pose)
     monkeypatch.setattr("jabs.scripts.cli.convert_to_nwb.save", mock.Mock())
     # run_conversion validates subject metadata before writing, so this needs real
@@ -411,67 +474,26 @@ def test_cli_segmentation_flag_forwarded(monkeypatch, tmp_path, flag, expected):
     assert run_mock.call_args.kwargs["segmentation"] is expected
 
 
-def test_unused_contour_slots_are_not_marked_external():
-    """The -1 that identity-sorting leaves in unused flag slots must not read as True.
-
-    PoseEstimationV6._segmentation_sort fills its output with -1 before scattering the
-    per-identity flags into it, so an identity's unused contour slots come back as -1
-    rather than False. A plain bool cast would turn those into True and claim an unused
-    slot is an external boundary.
-    """
-    pose = open_pose_file(SAMPLE_POSE_V6)
-    seg = pose_to_pose_data(pose).segmentation_data
-
-    raw_flags = np.stack([pose.get_segmentation_flags(i) for i in pose.identities], axis=0)
-    assert (raw_flags == -1).any(), "fixture no longer exercises the -1 sentinel"
-    assert not seg.is_external[raw_flags == -1].any()
-
-
-def test_contours_are_a_view_of_the_pose_file_array():
-    """The exported contours share memory with the pose file's array instead of copying it.
-
-    seg_data can be gigabytes for a long video and the pose object already holds it, so
-    stacking per-identity slices would double the peak memory of every export.
-    """
-    pose = open_pose_file(SAMPLE_POSE_V6)
-    seg = pose_to_pose_data(pose).segmentation_data
-
-    for i in pose.identities:
-        assert np.shares_memory(seg.contours[i], pose.get_segmentation_data(i))
-
-
-def test_contours_fall_back_to_stacking_without_the_bulk_accessor():
-    """A pose object lacking get_segmentation_data_by_identity still exports, by stacking."""
-    pose = open_pose_file(SAMPLE_POSE_V6)
-    expected = pose_to_pose_data(pose).segmentation_data
-
-    class _WithoutBulkAccessor:
-        def __getattr__(self, name):
-            if name == "get_segmentation_data_by_identity":
-                raise AttributeError(name)
-            return getattr(pose, name)
-
-    seg = pose_to_pose_data(_WithoutBulkAccessor()).segmentation_data
-
-    np.testing.assert_array_equal(seg.contours, expected.contours)
-    np.testing.assert_array_equal(seg.vertex_counts, expected.vertex_counts)
-    assert not np.shares_memory(seg.contours[0], pose.get_segmentation_data(0))
-
-
-def test_segmentation_is_skipped_without_external_flags(monkeypatch, caplog):
-    """Contours without seg_external_flag are not exported, rather than guessing hole vs outer.
+@pytest.mark.parametrize("kind", ["legacy", "unified"])
+def test_segmentation_is_skipped_without_external_flags(monkeypatch, caplog, unified_v6, kind):
+    """Contours without external flags are not exported, rather than guessing hole vs outer.
 
     ContourSeries requires is_external and cannot say "unknown", so filling it in would
     write a boundary type the pose file never asserted.
     """
-    pose = open_pose_file(SAMPLE_POSE_V6)
-    monkeypatch.setattr(pose, "get_segmentation_flags", lambda identity: None)
+    pose = open_pose_file(SAMPLE_POSE_V6 if kind == "legacy" else unified_v6)
+    real_window = pose.segmentation_window
+    monkeypatch.setattr(
+        pose,
+        "segmentation_window",
+        lambda *args: dataclasses.replace(real_window(*args), external_flag=None),
+    )
 
     with caplog.at_level(logging.WARNING):
         data = pose_to_pose_data(pose)
 
     assert data.segmentation_data is None
-    assert "no seg_external_flag" in caplog.text
+    assert "no external flags" in caplog.text
     # the rest of the pose still converts
     assert data.points.shape[0] == len(list(pose.identities))
 

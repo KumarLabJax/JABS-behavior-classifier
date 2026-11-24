@@ -15,6 +15,10 @@ import pytest
 from shapely.geometry import Polygon
 
 import jabs.pose_estimation as pose_est
+from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
+from jabs.core.types import SegmentationWindow
 from jabs.feature_extraction import FEATURE_VERSION
 from jabs.feature_extraction.social_features import (
     ClosestDistances,
@@ -25,7 +29,6 @@ from jabs.feature_extraction.social_features import (
     social_distance,
 )
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation
 
 
 def _square_hull(cx: float, cy: float, size: float = 10.0) -> Polygon:
@@ -51,16 +54,19 @@ class _MultiFrameStubPose:
         hull_size: float = 10.0,
         nose_valid: bool = True,
         fps: int = 30,
-        format_major_version: int = 5,
         seg_contours_by_id: dict[int, npt.NDArray[np.int16]] | None = None,
     ) -> None:
         self._centers_by_id = centers_by_id
         self._hull_size = hull_size
         self._nose_valid = nose_valid
         self.fps = fps
-        self.format_major_version = format_major_version
         self._seg_contours_by_id = seg_contours_by_id
         self.has_segmentation = seg_contours_by_id is not None
+        self.capabilities = frozenset(
+            {PoseCapability.SOCIAL, PoseCapability.SEGMENTATION}
+            if self.has_segmentation
+            else {PoseCapability.SOCIAL}
+        )
         self.identities = list(centers_by_id.keys())
         self.num_frames = len(next(iter(centers_by_id.values())))
 
@@ -85,24 +91,24 @@ class _MultiFrameStubPose:
             return None, None
 
         factor = 1.0 if scale is None else scale
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         points = np.zeros((n_kp, 2), dtype=np.float32)
         mask = np.ones(n_kp, dtype=np.uint8)
 
         cx, cy = center
         points[:, 0] = cx * factor
         points[:, 1] = cy * factor
-        points[PoseEstimation.KeypointIndex.NOSE] = ((cx + 5.0) * factor, cy * factor)
-        points[PoseEstimation.KeypointIndex.BASE_NECK] = (cx * factor, cy * factor)
+        points[KeypointIndex.NOSE] = ((cx + 5.0) * factor, cy * factor)
+        points[KeypointIndex.BASE_NECK] = (cx * factor, cy * factor)
         if not self._nose_valid and identity == 0:
-            mask[PoseEstimation.KeypointIndex.NOSE] = 0
+            mask[KeypointIndex.NOSE] = 0
         return points, mask
 
     def get_identity_poses(
         self, identity: int, scale: float | None = None
     ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.uint8]]:
         """Return synthetic keypoints for every frame; zeros where ``identity`` is absent."""
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         points = np.zeros((self.num_frames, n_kp, 2), dtype=np.float32)
         mask = np.zeros((self.num_frames, n_kp), dtype=np.uint8)
         for frame in range(self.num_frames):
@@ -118,11 +124,50 @@ class _MultiFrameStubPose:
             dtype=np.uint8,
         )
 
-    def get_segmentation_data(self, identity: int) -> npt.NDArray[np.int16] | None:
-        """Return synthetic segmentation contours when configured."""
+    def segmentation_window(self, identity: int, start: int, stop: int) -> SegmentationWindow:
+        """Return the synthetic ``-1``-padded contours of frames ``[start, stop)``, packed."""
         if self._seg_contours_by_id is None:
-            return None
-        return self._seg_contours_by_id.get(identity)
+            raise NotImplementedError("no segmentation")
+        return _pack_contours(self._seg_contours_by_id[identity][start:stop], start)
+
+    def iter_segmentation(self, identity: int, block: int = 300) -> Iterator[SegmentationWindow]:
+        """Yield the synthetic segmentation in windows of ``block`` frames."""
+        if self._seg_contours_by_id is None:
+            raise NotImplementedError("no segmentation")
+        num_frames = len(self._seg_contours_by_id[identity])
+        return (
+            self.segmentation_window(identity, start, min(start + block, num_frames))
+            for start in range(0, num_frames, block)
+        )
+
+
+def _pack_contours(seg: npt.NDArray[np.int16], start: int) -> SegmentationWindow:
+    """Pack ``-1``-padded contours ``(n, C, P, 2)`` into a segmentation window.
+
+    A contour exists where its first x is not -1, and its points are the leading
+    ones before the first -1 x; valid contours are moved to the front in order.
+    """
+    n, num_contours, num_points, _ = seg.shape
+    contours = np.zeros((n, num_contours, num_points, 2), dtype=np.int32)
+    count = np.zeros(n, dtype=np.uint32)
+    length = np.zeros((n, num_contours), dtype=np.uint32)
+    for frame in range(n):
+        for contour in seg[frame]:
+            padding = np.flatnonzero(contour[:, 0] == -1)
+            num_valid = int(padding[0]) if len(padding) else num_points
+            if num_valid == 0:
+                continue
+            slot = int(count[frame])
+            contours[frame, slot, :num_valid] = contour[:num_valid]
+            length[frame, slot] = num_valid
+            count[frame] += 1
+    return SegmentationWindow(
+        contours=contours,
+        contour_count=count,
+        contour_length=length,
+        external_flag=None,
+        start=start,
+    )
 
 
 def test_nose_occlusion_preserves_closest_social_distance_while_masking_fov() -> None:
@@ -269,7 +314,6 @@ def test_symmetric_contact_graph_and_order_independent_bottleneck_in_mixed_chain
             2: [(42.0, 0.0), (0.0, 22.0)],
         },
         hull_size=10.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1, 2: seg_2},
     )
 
@@ -330,7 +374,6 @@ def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5(
             1: [(30.0, 0.0), (30.0, 0.0)],
         },
         hull_size=10.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1},
     )
     info_v6 = ClosestIdentityInfo(pose_v6, identity=0, pixel_scale=1.0)
@@ -348,7 +391,6 @@ def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5(
             1: [(30.0, 0.0), (30.0, 0.0)],
         },
         hull_size=10.0,
-        format_major_version=5,
     )
     info_v5 = ClosestIdentityInfo(pose_v5, identity=0, pixel_scale=1.0)
     dists_v5 = ClosestDistances(pose_v5, 1.0, info_v5).per_frame(0)
@@ -356,7 +398,7 @@ def test_closest_segmentation_distance_uses_contours_in_v6_and_falls_back_in_v5(
 
 
 def test_social_feature_group_on_real_pose_v6_slice() -> None:
-    """SocialFeatureGroup computes all distance and huddle features on real PoseEstimationV6 data."""
+    """SocialFeatureGroup computes all distance and huddle features on real converted v6 pose data."""
     sample_v6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
     with tempfile.TemporaryDirectory() as tmpdir:
         short_v6 = Path(tmpdir) / sample_v6.name
@@ -409,7 +451,6 @@ def test_segmentation_contour_fallback_hull_when_skeletal_keypoints_drop_out() -
             1: [(17.0, 5.0), (17.0, 5.0)],
         },
         hull_size=10.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1},
     )
     info = ClosestIdentityInfo(pose_occluded, identity=0, pixel_scale=1.0)
@@ -486,7 +527,6 @@ def test_contour_segment_distance_avoids_vertex_subsampling_overestimate() -> No
             1: [(30.0, 0.0)],
         },
         hull_size=10.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1},
     )
     info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
@@ -525,7 +565,7 @@ def test_equidistant_neighbors_rank_by_identity_order() -> None:
 
 
 @pytest.fixture(scope="module")
-def sample_pose_v6() -> Iterator[PoseEstimation]:
+def sample_pose_v6() -> Iterator[PoseLike]:
     """Real v6 pose data (4 identities, with segmentation) from a temporary copy."""
     sample_v6 = Path(__file__).parent.parent.parent / "data" / "sample_pose_est_v6.h5"
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -541,7 +581,7 @@ _INFO_PROPERTIES = [
 
 
 def test_contour_chunking_does_not_change_results(
-    sample_pose_v6: PoseEstimation, monkeypatch: pytest.MonkeyPatch
+    sample_pose_v6: PoseLike, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Contour distances computed in many small frame chunks equal a single chunk."""
     social_distance._VIDEO_SOCIAL_CACHES.pop(sample_pose_v6, None)
@@ -562,7 +602,7 @@ def test_contour_chunking_does_not_change_results(
     ids=["python_float", "numpy_float32", "numpy_float64", "python_int", "numpy_int"],
 )
 def test_scaled_distances_keep_scalar_precision(
-    sample_pose_v6: PoseEstimation, pixel_scale: float
+    sample_pose_v6: PoseLike, pixel_scale: float
 ) -> None:
     """Scaled distances match the original per-frame ``python_float * pixel_scale``.
 
@@ -575,8 +615,10 @@ def test_scaled_distances_keep_scalar_precision(
     # frames where both skeletal hulls exist (others may use segmentation fallback hulls)
     checked = 0
     for frame, closest_id in enumerate(info.closest_identities):
+        if closest_id == -1:
+            continue
         self_hull, other_hull = hulls[0][frame], hulls[int(closest_id)][frame]
-        if closest_id == -1 or self_hull is None or other_hull is None:
+        if self_hull is None or other_hull is None:
             continue
         expected = np.float32(float(self_hull.distance(other_hull)) * pixel_scale)
         assert info.closest_distances[frame] == expected, frame
@@ -585,10 +627,10 @@ def test_scaled_distances_keep_scalar_precision(
 
 
 def _reference_pairwise_social_distances(
-    poses: PoseEstimation,
+    poses: PoseLike,
     identity: int,
     pixel_scale: float,
-    social_points: list[PoseEstimation.KeypointIndex],
+    social_points: list[KeypointIndex],
     closest_identities: npt.NDArray[np.integer],
 ) -> dict[str, npt.NDArray[np.float32]]:
     """Original per-frame loop from compute_pairwise_social_distances, kept as a reference."""
@@ -619,13 +661,13 @@ def _reference_pairwise_social_distances(
 )
 @pytest.mark.parametrize("neighbor", ["closest", "closest_fov"])
 def test_pairwise_social_distances_match_reference(
-    sample_pose_v6: PoseEstimation, pixel_scale: float, neighbor: str
+    sample_pose_v6: PoseLike, pixel_scale: float, neighbor: str
 ) -> None:
     """Pairwise social distances equal the original per-frame loop, for every identity."""
     points = [
-        PoseEstimation.KeypointIndex.NOSE,
-        PoseEstimation.KeypointIndex.BASE_NECK,
-        PoseEstimation.KeypointIndex.BASE_TAIL,
+        KeypointIndex.NOSE,
+        KeypointIndex.BASE_NECK,
+        KeypointIndex.BASE_TAIL,
     ]
     for identity in sample_pose_v6.identities:
         info = ClosestIdentityInfo(sample_pose_v6, identity, pixel_scale)
@@ -653,9 +695,7 @@ def test_pairwise_social_distances_nan_without_neighbor_or_subject() -> None:
     info = ClosestIdentityInfo(pose, 0, 1.0)
     closest = np.array([1, 1, 1], dtype=np.int16)
 
-    dists = info.compute_pairwise_social_distances(
-        [PoseEstimation.KeypointIndex.BASE_NECK], closest
-    )
+    dists = info.compute_pairwise_social_distances([KeypointIndex.BASE_NECK], closest)
 
     np.testing.assert_array_equal(
         dists["social dist. BASE_NECK-BASE_NECK"], [20.0, np.nan, np.nan]
@@ -698,7 +738,6 @@ def test_torso_blob_morphological_opening_strips_tail_bridge_and_preserves_torso
             1: [(420.0, 100.0), (300.0, 100.0)],
         },
         hull_size=140.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1},
     )
     info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
@@ -713,7 +752,7 @@ def test_torso_blob_morphological_opening_strips_tail_bridge_and_preserves_torso
 
 
 def test_torso_blob_standard_resolution_strips_tail_and_handles_sample_v6(
-    sample_pose_v6: PoseEstimation,
+    sample_pose_v6: PoseLike,
 ) -> None:
     """Body-size scaling strips tails and measures real group topology at standard resolution."""
     # Synthetic open-field scale (~50 px body length, 50x40 torsos, 4 px tail bridge).
@@ -744,7 +783,6 @@ def test_torso_blob_standard_resolution_strips_tail_and_handles_sample_v6(
             1: [(125.0, 20.0), (75.0, 20.0)],
         },
         hull_size=30.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1},
     )
     std_info = ClosestIdentityInfo(std_pose, identity=0, pixel_scale=1.0)
@@ -773,15 +811,12 @@ def test_torso_blob_fallback_hull_does_not_overinflate_separated_mice() -> None:
     """Skeletal fallback hulls buffer only by 1x r_open instead of 2x on v3-v5 or dropouts."""
     # Standard-res 30x30 skeletal hulls centered 55 px apart -> 25 px hull gap; 1x r_open (~2.25 px)
     # leaves > 18 px separation, whereas the old 2x (+30 px/side) bug caused false touching.
-    for fmt_ver, seg_by_id in [
-        (5, None),
-        (
-            6,
-            {
-                0: np.full((2, 1, 4, 2), -1, dtype=np.int16),
-                1: np.full((2, 1, 4, 2), -1, dtype=np.int16),
-            },
-        ),
+    for seg_by_id in [
+        None,
+        {
+            0: np.full((2, 1, 4, 2), -1, dtype=np.int16),
+            1: np.full((2, 1, 4, 2), -1, dtype=np.int16),
+        },
     ]:
         pose = _MultiFrameStubPose(
             {
@@ -789,7 +824,6 @@ def test_torso_blob_fallback_hull_does_not_overinflate_separated_mice() -> None:
                 1: [(55.0, 0.0), (55.0, 0.0)],
             },
             hull_size=30.0,
-            format_major_version=fmt_ver,
             seg_contours_by_id=seg_by_id,
         )
         info = ClosestIdentityInfo(pose, identity=0, pixel_scale=1.0)
@@ -848,7 +882,6 @@ def test_torso_blob_buried_cagemate_scales_to_four_mouse_cages_and_visible_cagem
             3: [(1220.0, 120.0), (1220.0, 120.0), (1220.0, 720.0)],
         },
         hull_size=140.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1, 2: seg_2, 3: seg_3},
     )
     huddle_0 = HuddleFeatures(pose, 1.0, ClosestIdentityInfo(pose, 0, 1.0)).per_frame(0)
@@ -877,7 +910,6 @@ def test_torso_blob_overlapping_polygons_use_union_area_not_sum() -> None:
     pose = _MultiFrameStubPose(
         {0: [(100.0, 100.0)], 1: [(200.0, 200.0)]},
         hull_size=140.0,
-        format_major_version=6,
         seg_contours_by_id={0: seg_0, 1: seg_1},
     )
     huddle = HuddleFeatures(pose, 1.0, ClosestIdentityInfo(pose, 0, 1.0)).per_frame(0)

@@ -412,3 +412,72 @@ def test_missing_version_is_empty(tmp_path: Path) -> None:
         del h5["poseest"].attrs["version"]
 
     assert inspect_legacy(_write(tmp_path / "unversioned.h5", no_version)).version == ()
+
+
+def _unknown_dynamic_member(h5: h5py.File) -> None:
+    """Add a valid dynamic object with one dataset no catalog names."""
+    _dynamic_object(_POINTS, _COUNTS, _INDICES)(h5)
+    h5["dynamic_objects/fecal_boli"].create_dataset("extra", data=np.zeros(2))
+
+
+@pytest.mark.parametrize(
+    ("source", "waived", "objects"),
+    [
+        ("v8-unknown-dataset.h5", "poseest/mystery", ()),
+        ("v7-bad-dynamic-object.h5", "dynamic_objects/fecal_boli", ()),
+        (_bad_axis_order, "dynamic_objects/fecal_boli", ()),
+        (
+            _dynamic_object(_POINTS, _COUNTS, np.array([30, 0], dtype=np.uint32)),
+            "dynamic_objects/fecal_boli",
+            (),
+        ),
+        (_unknown_dynamic_member, "dynamic_objects/fecal_boli/extra", ("fecal_boli",)),
+        (_unknown_root, "extras", ()),
+        (_unknown_static_object, "static_objects/water_bottle", ()),
+        (_short_external_ids, "poseest/external_identity_mapping", ()),
+    ],
+    ids=[
+        "unknown-dataset",
+        "bad-dynamic-object",
+        "axis-order",
+        "dynamic-indices-unsorted",
+        "unknown-dynamic-member",
+        "unknown-root",
+        "unknown-static-object",
+        "external-ids-length",
+    ],
+)
+def test_lenient_inspection_waives_what_the_legacy_readers_ignored(
+    tmp_path: Path,
+    source: str | Callable[[h5py.File], None],
+    waived: str,
+    objects: tuple[str, ...],
+) -> None:
+    """strict=False leaves the item behind and records it, instead of refusing the file."""
+    path = legacy(source) if isinstance(source, str) else _write(tmp_path / "x.h5", source)
+    with pytest.raises(LegacyConversionError):
+        inspect_legacy(path)
+    layout = inspect_legacy(path, strict=False)
+    assert [name for name, _ in layout.waived] == [waived]
+    assert layout.waived[0][1].startswith(waived.split("/")[0])
+    assert waived in layout.dropped
+    assert layout.dynamic_objects == objects
+    assert "water_bottle" not in layout.static_objects
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [_delete_id_mask, _eleven_keypoints, _narrow_id_mask, _two_dimensional_external_ids],
+    ids=["no-id-mask", "eleven-keypoints", "id-mask-shape", "external-ids-shape"],
+)
+def test_lenient_inspection_still_refuses_what_cannot_be_read(
+    tmp_path: Path, edits: Callable[[h5py.File], None]
+) -> None:
+    """Only the listed refusals are waived; a file that cannot be read is refused either way."""
+    with pytest.raises(LegacyConversionError):
+        inspect_legacy(_write(tmp_path / "x.h5", edits, seg=True), strict=False)
+
+
+def test_strict_inspection_waives_nothing() -> None:
+    """A strict inspection, the default, records nothing waived."""
+    assert inspect_legacy(legacy("v8-with-centers.h5")).waived == ()

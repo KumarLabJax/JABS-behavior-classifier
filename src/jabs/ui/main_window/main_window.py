@@ -8,6 +8,7 @@ from PySide6.QtCore import QEvent, Qt
 
 from jabs.core.constants import ORG_NAME
 from jabs.core.utils.process_pool_manager import ProcessPoolManager
+from jabs.pose_estimation import PoseOpenError
 from jabs.version import version_str
 
 from ..constants import (
@@ -239,6 +240,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
         self._project_loader_thread.load_error.connect(self._project_load_error_callback)
+        self._project_loader_thread.conversion_progress.connect(self._pose_conversion_progress)
         self._project_loader_thread.start()
 
     def changeEvent(self, event: QEvent) -> None:
@@ -322,12 +324,44 @@ class MainWindow(QtWidgets.QMainWindow):
         self._menu_refs.export_frame.setEnabled(can_export)
         self._menu_refs.export_overlay_video.setEnabled(can_export)
 
+    def _pose_conversion_progress(self, completed: int, total: int) -> None:
+        """Show progress converting legacy pose files while the project loads.
+
+        Args:
+            completed: Legacy pose files converted so far.
+            total: Legacy pose files to convert.
+        """
+        if self._progress_dialog is None:
+            return
+        self._progress_dialog.setLabelText(f"Converting pose files ({completed} of {total})...")
+        self._progress_dialog.setMaximum(total)
+        self._progress_dialog.setValue(completed)
+
     def _video_list_selection(self, filename: str) -> None:
         """handle a click on a new video in the list loaded into the main window dock"""
+        if not self._project.is_usable(filename):
+            # the list disables unusable videos, but say why if one is requested anyway
+            MessageDialog.warning(
+                self,
+                title="Unusable Pose File",
+                message=f"{filename} cannot be opened because its pose file is unusable.",
+                details=self._project.unusable_videos[filename],
+            )
+            return
         try:
             self._central_widget.load_video(self._project.video_manager.video_path(filename))
             self._menu_refs.export_frame.setEnabled(True)
             self._menu_refs.export_overlay_video.setEnabled(True)
+        except PoseOpenError as e:
+            logger.error("Unable to open the pose file for %s", filename, exc_info=True)
+            self._menu_refs.export_frame.setEnabled(False)
+            self._menu_refs.export_overlay_video.setEnabled(False)
+            MessageDialog.error(
+                self,
+                title="Unable to Open Pose File",
+                message=f"Unable to open the pose file for {filename}.",
+                details=e.reason,
+            )
         except OSError as e:
             self._menu_refs.export_frame.setEnabled(False)
             self._menu_refs.export_overlay_video.setEnabled(False)
@@ -364,6 +398,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()
         self._progress_dialog = None
+
+        # tell the user once which videos are left out of training and why
+        notice = self._project.unusable_videos_notice()
+        if notice is not None:
+            MessageDialog.warning(
+                self, "Unusable Videos", message=notice.message, details=notice.details
+            )
 
     def update_feature_availability_menus(self) -> None:
         """Enable the feature menu items the project's videos can support.

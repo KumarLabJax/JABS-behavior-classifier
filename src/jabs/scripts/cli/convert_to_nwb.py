@@ -1,17 +1,16 @@
-"""Convert a JABS pose estimation file (any version) to NWB format."""
+"""Convert a JABS pose file (unified or legacy) to NWB format."""
 
 import collections
 import dataclasses
 import datetime
 import logging
 from pathlib import Path
-from typing import Any
 
 import h5py
 import numpy as np
-import numpy.typing as npt
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types.pose import PoseData, SegmentationData
 from jabs.io import save
 from jabs.io.internal.pose import (
@@ -107,102 +106,70 @@ def _collect_hdf5_attributes(path: Path) -> dict[str, dict[str, object]]:
     return collected
 
 
-# Padding value for unused contour points and unused contour slots in a pose file's
-# segmentation data, matching jabs.overlay_drawing.segmentation.
+# Padding written into unused contour points and unused contour slots of the exported
+# contours, matching what a legacy pose file's segmentation data uses.
 _SEG_PADDING = -1
 
 
-def _identity_first_contours(pose: PoseEstimation) -> npt.NDArray[np.signedinteger[Any]] | None:
-    """Return every identity's contours as one identity-first array, avoiding a copy.
-
-    ``seg_data`` can be gigabytes for a long video and the pose object already holds it, so
-    stacking per-identity slices would double the peak. A pose object that can hand out
-    the whole array identity-first does so as a view; anything else falls back to stacking.
-
-    Args:
-        pose: A loaded PoseEstimation object with segmentation.
-
-    Returns:
-        Array of shape (num_identities, num_frames, num_contours, num_vertices, 2) in
-        ``pose.identities`` order, or None when any identity has no segmentation.
-    """
-    identities = list(pose.identities)
-    by_identity = getattr(pose, "get_segmentation_data_by_identity", None)
-    if by_identity is not None and identities == list(range(len(identities))):
-        # The view is indexed by identity, so it only lines up when the identities are
-        # 0..n-1 in order, which is what a pose file carries.
-        all_contours = by_identity()
-        if all_contours is not None and all_contours.shape[0] == len(identities):
-            return all_contours
-
-    per_identity = [pose.get_segmentation_data(identity) for identity in identities]
-    if any(contours is None for contours in per_identity):
-        logger.warning(
-            "Pose file reports segmentation but an identity has none; skipping segmentation export"
-        )
-        return None
-    return np.stack(per_identity, axis=0)
-
-
-def _build_segmentation_data(pose: PoseEstimation) -> SegmentationData | None:
+def _build_segmentation_data(pose: PoseLike) -> SegmentationData | None:
     """Collect an identity-ordered SegmentationData from a pose file, if it has one.
 
-    Segmentation contours live in pose files v6 and newer, and even then only when the
-    file was generated with segmentation, so this returns None for most files.
-
-    Unlike ``poseest/points``, which is stored (y, x) and flipped on read, ``seg_data``
-    is already stored in (x, y) order, so the contours need no axis flip here.
+    Contours are read one window at a time (:meth:`PoseLike.iter_segmentation`) into
+    one preallocated ``(identities, frames, contours, points, 2)`` array, so the peak
+    is that array plus one window. Each window packs an identity's valid contours
+    first; the slots and points past ``contour_count`` and ``contour_length`` are
+    padding and are written as ``-1``.
 
     Args:
-        pose: A loaded PoseEstimation object (any version).
+        pose: An open pose.
 
     Returns:
         A SegmentationData covering every identity, or None when the pose file carries
-        no segmentation, or carries contours without ``seg_external_flag``. The NWB type
-        requires ``is_external`` and has no way to say "unknown", so exporting contours
-        without it would mean asserting a boundary type the file never made.
+        no segmentation, has no identities, or carries contours without external
+        flags. The NWB type requires ``is_external`` and has no way to say "unknown",
+        so exporting contours without it would mean asserting a boundary type the file
+        never made.
     """
-    if not getattr(pose, "has_segmentation", False):
+    if not pose.has_segmentation:
+        return None
+    identities = list(pose.identities)
+    if not identities:
         return None
 
-    # (num_identities, num_frames, num_contours, num_vertices, 2). Keep the pose file's
-    # own integer width: seg_data is int16, and this is the largest array JABS holds for a
-    # video, so widening it here would double both the peak and what the writer holds for
-    # the length of the export.
-    contour_array = _identity_first_contours(pose)
-    if contour_array is None:
-        return None
-
-    per_identity_flags = [pose.get_segmentation_flags(identity) for identity in pose.identities]
-    if any(flags is None for flags in per_identity_flags):
-        # seg_external_flag is optional even in files that have seg_data. JABS-pose
+    # an empty window gives the file's contour and point capacity
+    capacity = pose.segmentation_window(identities[0], 0, 0)
+    _, num_contours, num_points, _ = capacity.contours.shape
+    if capacity.external_flag is None:
+        # external flags are optional even in files that have contours. JABS-pose
         # writes the two together, so this should not fire for files it produced.
         logger.warning(
-            "Pose file has segmentation but no seg_external_flag; skipping segmentation "
+            "Pose file has segmentation but no external flags; skipping segmentation "
             "export rather than guessing which contours are holes"
         )
         return None
 
-    # PoseEstimationV6 sorts the flags into identity order with an array it fills with
-    # -1, so an identity's unused slots come back as -1 rather than False. Compare
-    # against 0 instead of casting: a bool cast would read that -1 as True and mark an
-    # unused slot an external boundary.
-    is_external = np.stack(per_identity_flags, axis=0) > 0
+    shape = (len(identities), pose.num_frames, num_contours)
+    contours = np.full((*shape, num_points, 2), _SEG_PADDING, dtype=np.int32)
+    vertex_counts = np.zeros(shape, dtype=np.uint32)
+    is_external = np.zeros(shape, dtype=bool)
+    slot_index = np.arange(num_contours)
+    point_index = np.arange(num_points)
 
-    # A vertex is real when neither of its coordinates is the padding sentinel. Padding
-    # always trails the real vertices, so counting them gives the length of each contour.
-    # One identity at a time: the comparison allocates a boolean array the size of its
-    # input, which for every identity at once is half the contour array again.
-    vertex_counts = np.stack(
-        [
-            np.all(identity_contours != _SEG_PADDING, axis=-1).sum(axis=-1).astype(np.uint32)
-            for identity_contours in contour_array
-        ],
-        axis=0,
-    )
+    for i, identity in enumerate(identities):
+        for window in pose.iter_segmentation(identity):
+            frames = slice(window.start, window.start + len(window.contour_count))
+            # (n, C): slots holding a contour; (n, C) points per slot, 0 past the count
+            used = slot_index[None, :] < window.contour_count[:, None]
+            lengths = np.where(used, window.contour_length, 0).astype(np.uint32)
+            # (n, C, P): real points
+            real = point_index[None, None, :] < lengths[:, :, None]
+            contours[i, frames] = np.where(real[..., None], window.contours, _SEG_PADDING)
+            vertex_counts[i, frames] = lengths
+            if window.external_flag is not None:
+                is_external[i, frames] = window.external_flag & used
 
     return SegmentationData(
-        contours=contour_array,
+        contours=contours,
         vertex_counts=vertex_counts,
         is_external=is_external,
     )
@@ -345,28 +312,30 @@ def _apply_identity_names(data: PoseData) -> PoseData:
 
 
 def pose_to_pose_data(
-    pose: PoseEstimation,
+    pose: PoseLike,
     subjects: dict[str, dict] | None = None,
     segmentation: bool = True,
 ) -> PoseData:
-    """Convert any PoseEstimation object to a PoseData dataclass.
+    """Convert an open pose to a PoseData dataclass.
 
-    Handles all supported JABS pose versions (v2-v8).
+    Handles unified pose files and every legacy version (v2-v8). The source
+    format (``"pose_est_v<N>"`` or ``"jabs.pose-file"``) is recorded in
+    ``PoseData.metadata["pose_source_format"]``.
 
     Every attribute stored anywhere in the source pose HDF5 file is captured
     into ``PoseData.metadata["hdf5_attributes"]`` (keyed by HDF5 object path)
     so arbitrary provenance attributes are not lost in the NWB conversion.
 
     Args:
-        pose: A loaded PoseEstimation object (any version).
+        pose: An open pose, unified or legacy.
         subjects: Optional per-animal biological metadata, keyed by identity
             name (matching external_identities values, or "subject_1",
             "subject_2", ... when the pose file has none).  Passed through to
             PoseData.subjects, except for a ``name`` field, which renames the
             identity it belongs to - see :func:`_apply_identity_names`.
         segmentation: Whether to include instance segmentation contours when the
-            pose file has them.  Pose files before v6, and v6+ files generated
-            without segmentation, carry none either way.
+            pose file has them.  A pose file without segmentation carries none
+            either way.
 
     Returns:
         A PoseData instance ready for NWB export.
@@ -386,7 +355,7 @@ def pose_to_pose_data(
         axis=0,
     )
 
-    body_parts = [kpt.name for kpt in PoseEstimation.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     edges = _segments_to_edges(pose.get_connected_segments())
 
     cm_per_pixel = getattr(pose, "cm_per_pixel", None)
@@ -403,7 +372,7 @@ def pose_to_pose_data(
     file_hash = getattr(pose, "hash", None)
     metadata: dict = {
         "source_file": str(pose.pose_file),
-        "pose_format_version": pose.format_major_version,
+        "pose_source_format": pose.source_format,
     }
     if file_hash is not None:
         metadata["source_file_hash"] = file_hash
@@ -491,11 +460,12 @@ def run_conversion(
     subjects: dict[str, dict] | None = None,
     session_metadata: dict | None = None,
     segmentation: bool = True,
+    cache_dir: Path | None = None,
 ) -> None:
     """Convert a JABS pose HDF5 file to NWB and write to disk.
 
-    The pose format version is inferred from the filename (e.g.
-    "_pose_est_v6.h5" → v6).  Supported versions: v2-v8.
+    The input is a unified ``*_pose.h5`` file or a legacy ``*_pose_est_v<N>.h5``
+    file (v2-v8), told apart by its name.
 
     By default one NWB file is written per identity.  In that mode
     ``output_path`` is a naming template; actual files are written alongside it
@@ -523,8 +493,10 @@ def run_conversion(
             (strings, stored in an ndx-jabs ``JaxAgingStudyMetaData``).  Unknown
             keys are ignored with a warning.
         segmentation: Whether to include instance segmentation contours when the
-            pose file has them.  Pose files before v6, and v6+ files generated
-            without segmentation, carry none either way.
+            pose file has them.  A pose file without segmentation carries none
+            either way.
+        cache_dir: Directory to keep a legacy pose file's conversion in; None
+            converts it into a temporary directory removed when done.
 
     Raises:
         ValueError: If the input file is not a recognized JABS pose file, if
@@ -535,19 +507,23 @@ def run_conversion(
         FileNotFoundError: If the input file does not exist.
     """
     logger.info("Loading %s", input_path)
-    pose = open_pose_file(input_path)
-    identity_word = "identity" if pose.num_identities == 1 else "identities"
-    logger.info(
-        "%d %s, %d frames, %d fps", pose.num_identities, identity_word, pose.num_frames, pose.fps
-    )
-
-    pose_data = pose_to_pose_data(pose, subjects=subjects, segmentation=segmentation)
-    if pose_data.segmentation_data is not None:
+    with open_pose_file(input_path, cache_dir, temporary_conversion=cache_dir is None) as pose:
+        identity_word = "identity" if pose.num_identities == 1 else "identities"
         logger.info(
-            "Including segmentation contours (up to %d contours of %d vertices per frame)",
-            pose_data.segmentation_data.contours.shape[2],
-            pose_data.segmentation_data.contours.shape[3],
+            "%d %s, %d frames, %d fps",
+            pose.num_identities,
+            identity_word,
+            pose.num_frames,
+            pose.fps,
         )
+
+        pose_data = pose_to_pose_data(pose, subjects=subjects, segmentation=segmentation)
+        if pose_data.segmentation_data is not None:
+            logger.info(
+                "Including segmentation contours (up to %d contours of %d vertices per frame)",
+                pose_data.segmentation_data.contours.shape[2],
+                pose_data.segmentation_data.contours.shape[3],
+            )
 
     # Validate before writing: per-identity output writes one file per identity in a
     # loop, so failing partway would leave an incomplete set on disk, and the whole

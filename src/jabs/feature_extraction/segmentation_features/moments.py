@@ -2,8 +2,9 @@ import typing
 
 import numpy as np
 
+from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .moment_cache import MomentInfo
@@ -13,6 +14,7 @@ class Moments(Feature):
     """feature for the image moments of the contours."""
 
     _name = "moments"
+    _requires = frozenset({PoseCapability.SEGMENTATION})
     # These are all the opencv moments
     # _feature_names = ['m00', 'm10', 'm01', 'm20', 'm11', 'm02', 'm30', 'm21', 'm12', 'm03', 'mu20', 'mu11', 'mu02', 'mu30', 'mu21', 'mu12', 'mu03', 'nu20', 'nu11', 'nu02', 'nu30', 'nu21', 'nu12', 'nu03']
     # However, we only want to look at egocentric (translational invariant)
@@ -36,7 +38,7 @@ class Moments(Feature):
         "nu03",
     ]
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"):
+    def __init__(self, poses: PoseLike, pixel_scale: float, moment_cache: "MomentInfo"):
         super().__init__(poses, pixel_scale)
         self._moment_cache = moment_cache
 

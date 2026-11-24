@@ -129,7 +129,7 @@ classifiers, and CLI scripts.
   ```
   project_directory/
   ├── video1.mp4
-  ├── video1_pose_est_v6.h5
+  ├── video1_pose.h5           # or a legacy video1_pose_est_v6.h5
   └── jabs/                    # JABS metadata directory
       ├── project.json         # Project configuration
       ├── annotations/         # User annotations
@@ -148,7 +148,9 @@ classifiers, and CLI scripts.
   subcommands of `jabs-cli` in `scripts/cli/`. Only create standalone scripts for
   primary, frequently-used commands (like `jabs` for the GUI). See
   `docs/development/development.md` for details on adding `jabs-cli` commands.
-- **`pose_estimation/`** — Version-specific pose file readers (v2-v8).
+- **`pose_estimation/`** — Opens every pose file as one `Pose` class over the unified
+  pose file (`<video>_pose.h5`, ADR 0002); legacy `*_pose_est_v2..v8.h5` files are
+  converted into the cache at open time.
 - **`behavior_search/`** — Behavior search and query functionality.
 - **`video_reader/`** — Video file reading and processing.
 
@@ -160,11 +162,12 @@ Feature groups are registered in `src/jabs/feature_extraction/features.py`:
   SegmentationFeatureGroup)
 - `_EXTENDED_FEATURE_MODULES`: optional groups (LandmarkFeatureGroup)
 
-**Adding a new feature:** Create a `Feature` subclass with `_name`, `_min_pose`, and
-`per_frame(identity)` method. Register it in the group's `_features` dict. The feature
-auto-integrates with caching, window operations, and classifier training. For angular
-features, set `_use_circular = True` (see `base_features/angles.py`). Features can also
-declare `_static_objects` for landmark dependencies.
+**Adding a new feature:** Create a `Feature` subclass with `_name`, `_requires` (a
+`frozenset` of `PoseCapability`, empty by default), and `per_frame(identity)` method.
+Register it in the group's `_features` dict. The feature auto-integrates with caching,
+window operations, and classifier training. For angular features, set
+`_use_circular = True` (see `base_features/angles.py`). Features can also declare
+`_static_objects` for landmark dependencies.
 
 **Adding a new feature group:** Create a new directory under `feature_extraction/`,
 create a `FeatureGroup` subclass with `_name`, `_features`, and `_init_feature_mods()`,
@@ -172,8 +175,10 @@ then register it in `_FEATURE_MODULES` or `_EXTENDED_FEATURE_MODULES` in `featur
 
 **`FEATURE_VERSION`** in `features.py` must be bumped when adding/modifying features,
 changing window operations, or altering HDF5 storage format. This triggers cache
-invalidation and recomputation. See `docs/development/development.md` for the full
-cache invalidation logic (version mismatch, pose hash, distance scale).
+invalidation and recomputation, and saved classifiers trained on the old version must be
+retrained (they record their `FEATURE_VERSION` and refuse to load otherwise). See
+`docs/development/development.md` for the full cache invalidation logic (version
+mismatch, pose hash, distance scale).
 
 ## Code Style
 

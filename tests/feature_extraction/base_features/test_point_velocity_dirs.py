@@ -8,8 +8,9 @@ import numpy.typing as npt
 import pytest
 import shapely
 
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.base_features import CentroidVelocityDir, PointVelocityDirs
-from jabs.pose_estimation import PoseEstimation
 
 
 def test_point_velocity_dirs_per_frame_dimensions(pose_est_v5):
@@ -17,7 +18,7 @@ def test_point_velocity_dirs_per_frame_dimensions(pose_est_v5):
     pixel_scale = pose_est_v5.cm_per_pixel
     velocity_dirs_feature = PointVelocityDirs(pose_est_v5, pixel_scale)
 
-    num_keypoints = len(PoseEstimation.KeypointIndex)
+    num_keypoints = len(KeypointIndex)
     # Each keypoint has 3 features: direction, sine, and cosine
     expected_num_features = num_keypoints * 3
 
@@ -78,7 +79,7 @@ def test_point_velocity_dirs_feature_names(pose_est_v5):
         values = velocity_dirs_feature.per_frame(identity)
 
         # Check that each keypoint has direction, sine, and cosine features
-        for keypoint in PoseEstimation.KeypointIndex:
+        for keypoint in KeypointIndex:
             expected_dir_name = f"{keypoint.name} velocity direction"
             expected_sine_name = f"{keypoint.name} velocity direction sine"
             expected_cosine_name = f"{keypoint.name} velocity direction cosine"
@@ -120,7 +121,7 @@ class _PoseLike(Protocol):
 
 
 def _pose_with_constant_motion(
-    pose_est_v5: PoseEstimation,
+    pose_est_v5: PoseLike,
     delta: tuple[float, float],
     bearing: float,
 ) -> _PoseLike:
@@ -141,7 +142,7 @@ def _pose_with_constant_motion(
         A pose-like object suitable for passing to :class:`PointVelocityDirs`.
     """
     num_frames: int = pose_est_v5.num_frames
-    num_keypoints: int = len(PoseEstimation.KeypointIndex)
+    num_keypoints: int = len(KeypointIndex)
 
     frame_numbers = np.arange(num_frames, dtype=np.float32)[:, np.newaxis]
     poses: npt.NDArray[np.float32] = np.empty((num_frames, num_keypoints, 2), dtype=np.float32)
@@ -229,7 +230,7 @@ def test_point_velocity_dirs_bearing_relative_convention(pose_est_v5, delta, bea
     poses = _pose_with_constant_motion(pose_est_v5, delta, bearing)
     values = PointVelocityDirs(poses, 1.0).per_frame(0)
 
-    for keypoint in PoseEstimation.KeypointIndex:
+    for keypoint in KeypointIndex:
         direction = values[f"{keypoint.name} velocity direction"]
         assert direction == pytest.approx(expected), keypoint.name
 
@@ -261,7 +262,7 @@ def test_point_velocity_dirs_matches_centroid_velocity_dir(
     centroid = CentroidVelocityDir(poses, 1.0).per_frame(0)["centroid_velocity_dir"]
 
     assert centroid == pytest.approx(expected)
-    for keypoint in PoseEstimation.KeypointIndex:
+    for keypoint in KeypointIndex:
         np.testing.assert_allclose(
             point_values[f"{keypoint.name} velocity direction"],
             centroid,

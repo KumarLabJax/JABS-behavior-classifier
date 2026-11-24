@@ -10,6 +10,7 @@ The rules are ADR 0002:1294-1315 and spec 0029-A §2.3-§2.5. Everything kept is
 ``O(F*S*C)`` integers; ``seg_data`` is read one block at a time.
 """
 
+import heapq
 import logging
 from dataclasses import dataclass
 
@@ -24,6 +25,9 @@ from jabs.io.internal.pose_file.convert.memory import open_cached
 logger = logging.getLogger(__name__)
 
 _TRACKLET_MAX = int(np.iinfo(np.uint32).max)
+
+# A pose_est_v3 track id is stored plus this, since tracklet 0 means none.
+TRACKLET_ID_OFFSET = 1
 
 
 @dataclass(frozen=True, eq=False)
@@ -99,6 +103,18 @@ _NO_SPLITS = TrackletSplits(
     first_frame=np.empty(0, np.uint32),
     last_frame=np.empty(0, np.uint32),
 )
+_NO_TAILS = TailSlots(
+    frame=np.empty(0, np.uint32),
+    slot=np.empty(0, np.int16),
+    legacy_index=np.empty(0, np.int16),
+    masked=np.empty(0, np.bool_),
+)
+_NO_MISMATCHES = LongtermMismatches(
+    frame=np.empty(0, np.uint32),
+    legacy_index=np.empty(0, np.int16),
+    embed_id=np.empty(0, np.int64),
+    longterm_seg_id=np.empty(0, np.int64),
+)
 
 
 @dataclass(frozen=True, eq=False)
@@ -155,6 +171,13 @@ def plan_placement(
     index order. Contours follow the instance, never ``longterm_seg_id``, which
     is only checked against the embed id.
 
+    A file with no instance axis (``pose_est_v2``) is one animal: its one
+    instance goes to slot 0 in every frame, and nothing is read.
+
+    A ``pose_est_v3`` file has tracks and no identity, and is placed by track
+    (see ``_track_plan``): each track keeps one slot for its run, and its id
+    is stored plus ``TRACKLET_ID_OFFSET``.
+
     Args:
         h5: The open legacy file.
         layout: What ``inspect_legacy`` found in it.
@@ -168,9 +191,15 @@ def plan_placement(
             identity, if one tracklet id is in two slots of a frame, if a
             tracklet id is negative or above the uint32 range, if splitting
             needs a new id above that range, or if the file's extents do not
-            fit the plan's index types. The message names the file, and the
-            frame and id where there is one.
+            fit the plan's index types; or, in a ``pose_est_v3`` file, if a
+            track id is on two counted instances of a frame or is the uint32
+            maximum. The message names the file, and the frame and id where
+            there is one.
     """
+    if not layout.instance_axis:
+        return _single_plan(layout)
+    if layout.placed_by_track:
+        return _track_plan(h5, layout, block_frames)
     pose = h5["poseest"]
     frames, instances, identity = layout.frames, layout.instances, layout.identity
     contours = layout.contour_axis
@@ -267,6 +296,124 @@ def plan_placement(
         tracklet_id=tracklet_id,
         tracklet_splits=splits,
     )
+
+
+def _single_plan(layout: LegacyLayout) -> PlacementPlan:
+    """Return the plan for a file with no instance axis: its one instance in slot 0."""
+    return PlacementPlan(
+        slots=1,
+        slot_of=np.zeros((layout.frames, 1), dtype=np.int16),
+        tail_slots=_NO_TAILS,
+        longterm_mismatches=_NO_MISMATCHES,
+        contour_count=None,
+        contour_length=None,
+        contour_source=None,
+        group_offsets=None,
+        instance_offsets=None,
+        tracklet_id=None,
+        tracklet_splits=_NO_SPLITS,
+    )
+
+
+def _track_plan(h5: h5py.File, layout: LegacyLayout, block_frames: int) -> PlacementPlan:
+    """Return the plan for a ``pose_est_v3`` file: each track in one slot for its run.
+
+    Only the first ``instance_count`` legacy instances of a frame hold tracks,
+    compacted to the front, so a track's legacy index shifts when an earlier
+    one ends; its slot does not. Slots come from the free list the legacy v3
+    reader used to build its identity map: at each frame, the slots of
+    tracks gone since the last frame are freed, then each new track, in legacy
+    index order, takes the lowest free slot. A slot is therefore reused the
+    frame after its track's last, and slot ``i`` is the legacy reader's
+    identity ``i``. Unlike that reader, a track id that ends and comes back
+    starts a new run in a fresh slot, and the tracklet split gives it a new id.
+
+    The stored tracklet id is the legacy id plus ``TRACKLET_ID_OFFSET``,
+    masked by ``slot_occupied`` and split into unbroken runs as for v4 on.
+    """
+    pose = h5["poseest"]
+    frames, instances, slots = layout.frames, layout.instances, layout.track_slots
+    _check_extents(layout)
+    track_ids = pose["instance_track_id"]
+
+    slot_of = np.full((frames, instances), -1, dtype=np.int16)
+    tracklet_id = np.zeros((frames, slots), dtype=np.uint32)
+    free = list(range(slots))
+    slot_of_track: dict[int, int] = {}
+    previous: list[int] = []
+    for start in range(0, frames, block_frames):
+        stop = min(start + block_frames, frames)
+        count = pose["instance_count"][start:stop].astype(np.int64)
+        track = _read_tracklets(layout, track_ids, start, stop)
+        counted = np.arange(instances) < count[:, np.newaxis]
+        _refuse_repeated_tracks(layout, start, np.where(counted, track.astype(np.int64), -1))
+        _refuse_unstorable_track(layout, start, track, counted)
+        block = slot_of[start:stop]
+        for f in range(stop - start):
+            current = track[f, : count[f]].tolist()
+            if current != previous:
+                ended = slot_of_track.keys() - set(current)
+                for gone in ended:
+                    heapq.heappush(free, slot_of_track.pop(gone))
+                for track_id in current:
+                    if track_id not in slot_of_track:
+                        # Never empty: a frame's tracks are distinct and at
+                        # most track_slots of them.
+                        slot_of_track[track_id] = heapq.heappop(free)
+            block[f, : count[f]] = [slot_of_track[t] for t in current]
+            previous = current
+        occupied = (pose["confidence"][start:stop] > 0).any(axis=-1) & counted
+        frame, instance = np.nonzero(occupied)
+        tracklet_id[start + frame, block[frame, instance]] = (
+            track[frame, instance] + TRACKLET_ID_OFFSET
+        )
+
+    return PlacementPlan(
+        slots=slots,
+        slot_of=slot_of,
+        tail_slots=_NO_TAILS,
+        longterm_mismatches=_NO_MISMATCHES,
+        contour_count=None,
+        contour_length=None,
+        contour_source=None,
+        group_offsets=None,
+        instance_offsets=None,
+        tracklet_id=tracklet_id,
+        tracklet_splits=_split_tracklets(layout, tracklet_id),
+    )
+
+
+def _refuse_repeated_tracks(
+    layout: LegacyLayout, start: int, track: npt.NDArray[np.int64]
+) -> None:
+    """Refuse the first frame where one track id is on two counted instances; -1 is uncounted."""
+    ordered = np.sort(track, axis=1)
+    repeated = (ordered[:, 1:] == ordered[:, :-1]) & (ordered[:, 1:] >= 0)
+    if repeated.any():
+        frame = int(np.nonzero(repeated.any(axis=1))[0][0])
+        track_id = int(ordered[frame, 1:][repeated[frame]][0])
+        holders = np.flatnonzero(track[frame] == track_id).tolist()
+        raise LegacyConversionError(
+            f"{layout.path}: frame {start + frame} has track {track_id} on legacy instances "
+            f"{holders}; a track is one animal, in one instance per frame"
+        )
+
+
+def _refuse_unstorable_track(
+    layout: LegacyLayout,
+    start: int,
+    track: npt.NDArray[np.uint32],
+    counted: npt.NDArray[np.bool_],
+) -> None:
+    """Refuse a counted track id with no ``id + TRACKLET_ID_OFFSET`` in uint32."""
+    unstorable = counted & (track.astype(np.int64) > _TRACKLET_MAX - TRACKLET_ID_OFFSET)
+    if unstorable.any():
+        frame, instance = (int(i[0]) for i in np.nonzero(unstorable))
+        raise LegacyConversionError(
+            f"{layout.path}: poseest/instance_track_id holds track id {track[frame, instance]} "
+            f"at frame {start + frame}, which plus {TRACKLET_ID_OFFSET} (tracklet 0 means none) "
+            f"would pass {_TRACKLET_MAX}, the uint32 maximum"
+        )
 
 
 def _columns(

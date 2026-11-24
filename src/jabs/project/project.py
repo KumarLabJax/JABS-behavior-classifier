@@ -1,10 +1,13 @@
 import contextlib
+import copy
 import getpass
 import gzip
 import json
 import logging
+import re
 import shutil
 from collections.abc import Callable, Collection, Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from concurrent.futures import as_completed
 from datetime import datetime
 from pathlib import Path
@@ -21,17 +24,19 @@ from jabs.core.enums import (
     CacheFormat,
     ClassifierMode,
     CrossValidationGroupingStrategy,
+    PoseCapability,
     ProjectDistanceUnit,
     compile_grouping_regex,
     filename_group_key,
 )
+from jabs.core.pose_protocol import PoseLike
 from jabs.io.annotations import AnnotationStore, LocalAnnotationStore
 from jabs.pose_estimation import (
-    PoseEstimation,
-    get_pose_file_major_version,
+    PoseOpenError,
     get_pose_path,
     open_pose_file,
 )
+from jabs.pose_estimation.discovery import is_legacy_pose_file
 
 from . import pose_attribute_cache
 from .feature_cache_status import (
@@ -42,10 +47,12 @@ from .feature_manager import FeatureManager
 from .parallel_workers import (
     BinaryFeatureLoadJobSpec,
     MulticlassFeatureLoadJobSpec,
+    PoseConversionJobSpec,
     VideoScanJobSpec,
     VideoScanResult,
     collect_binary_labeled_features,
     collect_multiclass_labeled_features,
+    convert_pose,
     scan_video_metadata,
 )
 from .prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
@@ -54,12 +61,19 @@ from .project_utils import to_safe_name
 from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
 from .track_labels import TrackLabels
+from .unusable_report import UnusableNotice, skipped_training_notice, unusable_videos_notice
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
 logger = logging.getLogger(__name__)
 
 MULTICLASS_CLASSIFIER_FILENAME = "_multiclass.pickle"
+
+# a cached conversion of a video's legacy pose file, under <cache_dir>/converted:
+# <video stem>.<40 hex digit legacy hash>-r<converter revision>.h5 (or, from earlier
+# JABS, -<jabs-io version>.h5)
+_CONVERTED_DIR = "converted"
+_CONVERTED_NAME = r"\.[0-9a-f]{40}-[^/\\]+\.h5"
 
 if TYPE_CHECKING:
     from jabs.classifier import ClassifierProtocol
@@ -76,6 +90,8 @@ def _is_str_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+_CAPABILITY_VALUES = frozenset(c.value for c in PoseCapability)
+
 # Pose-derived fields cached per video, mapped to a predicate validating the
 # cached value's type (matching the corresponding VideoScanResult field). An
 # entry is trusted only when it carries a matching token and pose filename plus
@@ -87,6 +103,9 @@ _POSE_CACHE_FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
     "static_objects": _is_str_list,
     "lixit_keypoints": _is_int,
     "has_cm_per_pixel": lambda value: isinstance(value, bool),
+    "capabilities": lambda value: (
+        _is_str_list(value) and all(item in _CAPABILITY_VALUES for item in value)
+    ),
 }
 
 
@@ -122,12 +141,16 @@ def _scan_result_from_pose_cache(video: str, entry: dict) -> VideoScanResult:
         static_objects=list(entry["static_objects"]),
         lixit_keypoints=entry["lixit_keypoints"],
         has_cm_per_pixel=entry["has_cm_per_pixel"],
+        capabilities=list(entry["capabilities"]),
+        error=None,
     )
 
 
-def _pose_cache_entry(result: VideoScanResult, pose_file: str, token: str) -> dict:
-    """Build a cache entry from a fresh scan result."""
-    return {
+def _pose_cache_entry(
+    result: VideoScanResult, pose_file: str, token: str, source_hash: str | None = None
+) -> dict:
+    """Build a cache entry from a scan result, with a legacy file's hash when known."""
+    entry = {
         "token": token,
         "pose_file": pose_file,
         "hdf5_frame_count": result["hdf5_frame_count"],
@@ -135,7 +158,98 @@ def _pose_cache_entry(result: VideoScanResult, pose_file: str, token: str) -> di
         "static_objects": list(result["static_objects"]),
         "lixit_keypoints": result["lixit_keypoints"],
         "has_cm_per_pixel": result["has_cm_per_pixel"],
+        "capabilities": list(result["capabilities"]),
     }
+    if source_hash is not None:
+        entry["source_hash"] = source_hash
+    return entry
+
+
+def _cached_source_hash(entry: object, token: str, pose_file: str) -> str | None:
+    """Return the legacy file hash recorded in a pose cache entry, if still current.
+
+    The hash is current only while the entry's ``stat`` token and pose file
+    name match the file now; a replaced or touched file is hashed again.
+    """
+    if (
+        isinstance(entry, dict)
+        and entry.get("token") == token
+        and entry.get("pose_file") == pose_file
+        and isinstance(entry.get("source_hash"), str)
+    ):
+        return entry["source_hash"]
+    return None
+
+
+def _record_source_hashes(
+    cache_path: Path | None,
+    entries: dict[str, dict],
+    tokens: Mapping[str, str],
+    hashes: Mapping[str, str],
+) -> None:
+    """Record legacy file hashes in the pose attribute cache beside their stat tokens.
+
+    Only entries whose token is the one the file had before it was hashed are
+    updated, and the cache is written only when something changed.
+    """
+    changed = False
+    for video, source_hash in hashes.items():
+        entry = entries.get(video)
+        if not isinstance(entry, dict) or entry.get("token") != tokens.get(video):
+            continue
+        if entry.get("source_hash") != source_hash:
+            entry["source_hash"] = source_hash
+            changed = True
+    if changed:
+        pose_attribute_cache.save(cache_path, entries)
+
+
+def _has_labels(counts: Mapping[object, Mapping[str, tuple[int, int]]]) -> bool:
+    """Return whether per-identity label counts (from ``load_counts``) hold any label."""
+    return any(sum(identity["unfragmented_frame_counts"]) > 0 for identity in counts.values())
+
+
+_LABEL_SECTIONS = ("labels", "unfragmented_labels")
+
+
+def _pop_behavior(document: dict, behavior: str) -> dict[str, dict[str, dict]]:
+    """Remove a behavior's blocks from an annotation document and return them.
+
+    Args:
+        document: A serialized annotation document; edited in place.
+        behavior: The behavior to remove.
+
+    Returns:
+        ``{section: {behavior: {identity: blocks}}}`` for both label sections.
+    """
+    removed: dict[str, dict[str, dict]] = {}
+    for section in _LABEL_SECTIONS:
+        removed_section = removed.setdefault(section, {}).setdefault(behavior, {})
+        for identity, identity_behaviors in document.get(section, {}).items():
+            if behavior in identity_behaviors:
+                removed_section[identity] = identity_behaviors.pop(behavior)
+    return removed
+
+
+def _rename_behavior_in_document(document: dict, old_name: str, new_name: str) -> None:
+    """Rename a behavior in both label sections of an annotation document, in place.
+
+    Mirrors :meth:`VideoLabels.rename_behavior` for a document edited without
+    its pose: identities without ``old_name`` are left as they are.
+
+    Raises:
+        KeyError: If ``new_name`` already has labels for any identity; the
+            document is then unchanged.
+    """
+    sections = [document.get(section, {}) for section in _LABEL_SECTIONS]
+    for section in sections:
+        for identity, identity_behaviors in section.items():
+            if new_name in identity_behaviors:
+                raise KeyError(f"Behavior '{new_name}' already exists for identity '{identity}'")
+    for section in sections:
+        for identity_behaviors in section.values():
+            if old_name in identity_behaviors:
+                identity_behaviors[new_name] = identity_behaviors.pop(old_name)
 
 
 class Project:
@@ -223,6 +337,12 @@ class Project:
         self._scan_results: dict[str, VideoScanResult] = self._run_video_scan(
             enable_video_check, process_pool
         )
+        # Videos whose pose file could not be scanned, mapped to the reason.
+        self._unusable_videos: dict[str, str] = {}
+        for video, result in sorted(self._scan_results.items()):
+            if result["error"] is not None:
+                self._unusable_videos[video] = result["error"]
+                logger.warning("%s is unusable: %s", video, result["error"])
         self._video_manager = VideoManager(
             self._paths,
             self._settings_manager,
@@ -267,8 +387,10 @@ class Project:
 
         Discovers videos and their pose files, then dispatches one
         :func:`~jabs.project.parallel_workers.scan_video_metadata` worker per
-        video. Workers open each HDF5 file exactly once and return everything
-        :class:`VideoManager` and :class:`FeatureManager` need at load time.
+        video. Workers read pose metadata only (no keypoint data) and return
+        everything :class:`VideoManager` and :class:`FeatureManager` need at
+        load time. A pose file that cannot be scanned gives a result whose
+        ``error`` holds the reason instead of aborting the scan.
 
         When ``process_pool`` is ``None`` (e.g. CLI scripts), workers run
         sequentially — still reduces HDF5 opens compared to the legacy path.
@@ -294,13 +416,11 @@ class Project:
             except ValueError:
                 # Missing pose file — VideoManager._validate_pose_files will report it.
                 continue
-            major_version = get_pose_file_major_version(pose_path)
             jobs.append(
                 VideoScanJobSpec(
                     video=video,
                     video_path=video_path,
                     pose_path=pose_path,
-                    pose_major_version=major_version,
                     scan_frame_counts=enable_video_check,
                 )
             )
@@ -390,11 +510,20 @@ class Project:
         if to_scan:
             results.update(self._scan_jobs(to_scan, process_pool))
 
+        # A video whose scan failed is not cached, so it is rescanned next time.
+        # A recorded legacy file hash (see prepare_poses) is kept while the
+        # file's stat token is unchanged.
         updated = {
             job["video"]: _pose_cache_entry(
-                results[job["video"]], job["pose_path"].name, tokens[job["video"]]
+                results[job["video"]],
+                job["pose_path"].name,
+                tokens[job["video"]],
+                _cached_source_hash(
+                    cached.get(job["video"]), tokens[job["video"]], job["pose_path"].name
+                ),
             )
             for job in jobs
+            if results[job["video"]]["error"] is None
         }
         if to_scan or set(updated) != set(cached):
             pose_attribute_cache.save(cache_path, updated)
@@ -449,6 +578,182 @@ class Project:
     def prediction_manager(self) -> PredictionManager:
         """get the prediction manager for this project"""
         return self._prediction_manager
+
+    @property
+    def unusable_videos(self) -> dict[str, str]:
+        """Videos whose pose file cannot be scanned or converted, mapped to the reason."""
+        return self._unusable_videos
+
+    def is_usable(self, video: str) -> bool:
+        """Return whether a video's pose file can be used.
+
+        An unusable video stays in the project (and is listed by the video
+        manager) but is skipped by training, classification and prediction.
+
+        Args:
+            video: Video filename.
+
+        Returns:
+            False when the video's pose file could not be scanned or converted.
+        """
+        return video not in self._unusable_videos
+
+    def _mark_unusable(self, video: str, reason: str) -> None:
+        """Record a video whose pose file cannot be used, logging a WARNING."""
+        self._unusable_videos[video] = reason
+        logger.warning("%s is unusable: %s", video, reason)
+
+    def _usable(self, videos: Iterable[str]) -> list[str]:
+        """Return the usable videos among ``videos``, logging a WARNING for each one skipped."""
+        usable = []
+        for video in videos:
+            if self.is_usable(video):
+                usable.append(video)
+            else:
+                logger.warning(
+                    "Skipping %s: its pose file is unusable: %s",
+                    video,
+                    self._unusable_videos[video],
+                )
+        return usable
+
+    def is_trainable(self, video: str) -> bool:
+        """Return whether a video's labels are used for training.
+
+        A video is trained on when its pose file is usable and it is not
+        excluded from training. Label counts that decide whether training can
+        run, or that report what was trained on, count only these videos.
+
+        Args:
+            video: Video filename.
+        """
+        return self.is_usable(video) and not self._settings_manager.is_video_excluded(video)
+
+    def unusable_videos_notice(self) -> UnusableNotice | None:
+        """Summarize the unusable videos for the user, flagging those with annotations.
+
+        Returns:
+            The notice, or None when every video is usable.
+        """
+        annotated = {
+            video
+            for video in self._unusable_videos
+            if self._annotation_store.load_document(video) is not None
+        }
+        return unusable_videos_notice(self._unusable_videos, annotated)
+
+    def warn_unusable_videos(self) -> None:
+        """Log one WARNING summarizing the unusable videos, for command-line tools.
+
+        Does nothing when every video is usable.
+        """
+        notice = self.unusable_videos_notice()
+        if notice is not None:
+            logger.warning("%s", notice.as_text())
+
+    def skipped_training_notice(self, behaviors: Iterable[str]) -> UnusableNotice | None:
+        """Summarize the labeled videos a training run left out because they are unusable.
+
+        Args:
+            behaviors: The behaviors (or classes) trained.
+
+        Returns:
+            The notice, or None when no unusable video, not excluded from
+            training, has labels for any of ``behaviors``.
+        """
+        behaviors = list(behaviors)
+        skipped = [
+            video
+            for video in self._video_manager.videos
+            if not self.is_usable(video)
+            and not self._settings_manager.is_video_excluded(video)
+            and any(_has_labels(self.load_counts(video, b)) for b in behaviors)
+        ]
+        return skipped_training_notice(skipped, self._unusable_videos)
+
+    def prepare_poses(self, progress: Callable[[int, int], None]) -> None:
+        """Convert every usable legacy pose file that is not yet in the conversion cache.
+
+        Conversion otherwise happens the first time a video's pose is opened;
+        running this first moves that cost into the process pool (when the
+        project has one) ahead of use. A video whose pose cannot be converted
+        is marked unusable. Unified pose files need no conversion, so a project
+        of unified files does nothing here.
+
+        When a video is refused, its identities stop counting toward the project
+        and the FeatureManager is rebuilt over the videos still usable, so the
+        refused video no longer restricts the project's features.
+
+        Args:
+            progress: Called with ``(completed, total)`` after each legacy video.
+        """
+        # A legacy file's hash keys its conversion. It is recorded in the pose
+        # attribute cache beside the file's stat token, so an unchanged file
+        # whose conversion exists is not read in full again on every open.
+        cache_path = self._paths.pose_attribute_cache_file
+        attribute_cache = pose_attribute_cache.load(cache_path)
+        tokens: dict[str, str] = {}
+        jobs: list[PoseConversionJobSpec] = []
+        for video in self._video_manager.videos:
+            if not self.is_usable(video):
+                continue
+            pose_path = self._video_manager.get_cached_pose_path(video)
+            if is_legacy_pose_file(pose_path):
+                known_hash = None
+                try:
+                    tokens[video] = pose_attribute_cache.pose_token(pose_path)
+                except OSError:
+                    # gone or unreadable since the scan: the job reports why
+                    pass
+                else:
+                    known_hash = _cached_source_hash(
+                        attribute_cache.get(video), tokens[video], pose_path.name
+                    )
+                jobs.append(
+                    PoseConversionJobSpec(
+                        video=video,
+                        pose_path=pose_path,
+                        cache_dir=self._paths.cache_dir,
+                        known_hash=known_hash,
+                    )
+                )
+        if not jobs:
+            return
+
+        logger.info("Preparing %d legacy pose files", len(jobs))
+        if self._process_pool is not None:
+            futures = [self._process_pool.submit(convert_pose, job) for job in jobs]
+            outcomes = (future.result() for future in as_completed(futures))
+        else:
+            outcomes = (convert_pose(job) for job in jobs)
+        refused: list[str] = []
+        hashes: dict[str, str] = {}
+        try:
+            for completed, (video, reason, source_hash) in enumerate(outcomes, start=1):
+                if reason is not None:
+                    self._mark_unusable(video, reason)
+                    refused.append(video)
+                elif source_hash is not None:
+                    hashes[video] = source_hash
+                progress(completed, len(jobs))
+        finally:
+            # also when a job raises part way, so the videos already refused
+            # stop counting identities and restricting features
+            if refused:
+                self._drop_refused_videos(refused)
+            _record_source_hashes(cache_path, attribute_cache, tokens, hashes)
+
+    def _drop_refused_videos(self, videos: list[str]) -> None:
+        """Recompute identity counts and features after videos became unusable mid-session.
+
+        Args:
+            videos: Videos just marked unusable.
+        """
+        for video in videos:
+            self._scan_results[video]["error"] = self._unusable_videos[video]
+            self._scan_results[video]["identity_count"] = 0
+            self._video_manager.mark_unusable(video)
+        self.refresh_feature_manager()
 
     @property
     def feature_manager(self) -> FeatureManager:
@@ -605,7 +910,8 @@ class Project:
             to_check = list(self._video_manager.videos)
 
         missing: list[str] = []
-        for video in to_check:
+        # an unusable video is never trained or classified, so needs no features
+        for video in filter(self.is_usable, to_check):
             status = self._feature_cache_status.get(video)
             if status is None:
                 status = self.refresh_feature_cache_status(video)
@@ -658,7 +964,10 @@ class Project:
         Includes:
           - all files under features/<video base name>/** (recursive)
           - all files under cache/convex_hulls/<video base name>/** (recursive)
-          - cache/<video base name>_pose_est_v*_cache.h5
+          - cache/<video base name>_pose_est_v*_cache.h5 (old pose reader caches)
+          - cache/converted/<video base name>.<hash>-<version>.h5 (converted
+            legacy pose files in the project cache; the per-user cache is not
+            touched)
           - predictions/<video base name>.h5
           - annotations/<video base name>.json
 
@@ -690,9 +999,18 @@ class Project:
                     if p.is_file():
                         paths.append(p)
 
-            # Cached pose files: cache/<base>_pose_est_v*_cache.h5
+            # Caches of the old pose readers: cache/<base>_pose_est_v*_cache.h5
             for p in self._paths.cache_dir.glob(f"{base}_pose_est_v*_cache.h5"):
                 paths.append(p)
+
+            # Converted legacy pose files: cache/converted/<base>.<hash>-<version>.h5,
+            # matched exactly so video "a" does not claim video "a.2"'s copies
+            converted_name = re.compile(re.escape(base) + _CONVERTED_NAME)
+            converted_dir = self._paths.cache_dir / _CONVERTED_DIR
+            if converted_dir.is_dir():
+                for p in converted_dir.iterdir():
+                    if converted_name.fullmatch(p.name):
+                        paths.append(p)
 
         # Predictions file: predictions/<base>.h5
         prediction = self._paths.prediction_dir / f"{base}.h5"
@@ -745,14 +1063,14 @@ class Project:
 
         return True
 
-    def load_pose_est(self, video_path: Path) -> PoseEstimation:
-        """return a PoseEstimation object for a given video path
+    def load_pose_est(self, video_path: Path) -> PoseLike:
+        """return a PoseLike object for a given video path
 
         Args:
             video_path: pathlib.Path containing location of video file
 
         Returns:
-            PoseEstimation object (PoseEstimationV2 or PoseEstimationV3)
+            PoseLike object for the video's pose file
 
         Raises:
             ValueError: if video no in project or it does not have post
@@ -767,16 +1085,22 @@ class Project:
             self._paths.cache_dir,
         )
 
-    def save_annotations(self, annotations: VideoLabels, pose: PoseEstimation):
+    def save_annotations(self, annotations: VideoLabels, pose: PoseLike):
         """save state of a VideoLabels object to the project directory
 
         Args:
             annotations: VideoLabels object
-            pose: PoseEstimation, identity mask is used to account for dropped identity when generating intervals
+            pose: PoseLike, identity mask is used to account for dropped identity when generating intervals
 
         Returns:
             None
         """
+        self._save_annotation_documents(
+            {annotations.filename: self._annotation_document(annotations, pose)}
+        )
+
+    def _annotation_document(self, annotations: VideoLabels, pose: PoseLike | None) -> dict:
+        """Serialize a video's labels as they are saved, with the project metadata and labeler."""
         video_filename = annotations.filename
         document = annotations.as_dict(
             pose,
@@ -784,11 +1108,15 @@ class Project:
             video_metadata=self.settings_manager.video_metadata(video_filename),
         )
         document["labeler"] = self.labeler
+        return document
 
-        self._annotation_store.save_document(video_filename, document)
-
-        # update app version saved in project metadata if necessary
-        self._settings_manager.update_version()
+    def _save_annotation_documents(self, documents: Mapping[str, dict]) -> None:
+        """Save serialized annotation documents, keyed by video filename."""
+        for video, document in documents.items():
+            self._annotation_store.save_document(video, document)
+        if documents:
+            # update app version saved in project metadata if necessary
+            self._settings_manager.update_version()
 
     def get_project_defaults(self):
         """obtain the default per-behavior settings
@@ -796,10 +1124,10 @@ class Project:
         Returns:
             dictionary of project settings
         """
-        return self.settings_by_pose_version(
-            self._feature_manager.min_pose_version,
-            self._feature_manager.distance_unit,
+        return self.settings_by_capabilities(
+            self._feature_manager.capabilities,
             self._feature_manager.static_objects,
+            self._feature_manager.distance_unit,
         )
 
     def _save_project_defaults(self) -> None:
@@ -811,9 +1139,10 @@ class Project:
     def refresh_feature_manager(self) -> None:
         """Rebuild the FeatureManager from the project's current set of videos.
 
-        The FeatureManager derives the project's capabilities -- minimum pose
-        version, the static objects common to every video, whether cm units are
-        available, and the enabled extended features -- once, from the videos
+        The FeatureManager derives the project's capabilities -- the pose
+        capabilities every usable video provides, the static objects common to
+        every video, whether cm units are available, and the enabled extended
+        features -- once, from the videos
         present when the project was opened. Removing a video (the GUI's
         "Prune Project" action) leaves those values describing a video set that
         no longer exists, so callers that change the video set must call this
@@ -838,17 +1167,22 @@ class Project:
         self._save_project_defaults()
 
     @staticmethod
-    def settings_by_pose_version(
-        pose_version: int = 2,
+    def settings_by_capabilities(
+        capabilities: AbstractSet[PoseCapability],
+        static_objects: AbstractSet[str] | None = None,
         distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL,
-        static_objects: set[str] | None = None,
-    ):
-        """obtain project settings for a specified pose version
+    ) -> dict:
+        """Obtain default per-behavior settings for a set of pose capabilities.
 
         Args:
-            pose_version: pose version to indicate settings
-            distance_unit: distance unit for settings
-            static_objects: keys of static objects to include
+            capabilities: Pose capabilities available (for a project, the
+                intersection over its usable videos).
+            static_objects: Names of the static objects available; each landmark
+                object is enabled when it is among them.
+            distance_unit: Distance unit for the settings.
+
+        Returns:
+            Dictionary of default per-behavior settings.
         """
         if static_objects is None:
             static_objects = set()
@@ -856,12 +1190,12 @@ class Project:
         return {
             "cm_units": distance_unit == ProjectDistanceUnit.CM,
             "window_size": fe.DEFAULT_WINDOW_SIZE,
-            "social": pose_version >= 3,
+            "social": PoseCapability.SOCIAL in capabilities,
             "static_objects": {
-                obj: bool(pose_version >= 5 and obj in static_objects)
+                obj: obj in static_objects
                 for obj in fe.landmark_features.LandmarkFeatureGroup.feature_map
             },
-            "segmentation": pose_version >= 6,
+            "segmentation": PoseCapability.SEGMENTATION in capabilities,
             "window": True,
             "fft": True,
             "balance_labels": False,
@@ -919,21 +1253,32 @@ class Project:
             behavior: Behavior name for binary classifiers. Ignored in multi-class mode.
 
         Returns:
-            True if load is successful and False if the file does not exist.
+            True if load is successful; False if the file cannot be read (any
+            ``OSError``, such as a missing file).
 
         Raises:
+            ClassifierFeatureVersionError: If the saved classifier was trained on
+                another feature version; it is logged and re-raised so the caller
+                can tell the user to retrain.
             ValueError: If binary mode is active and no behavior name is provided.
         """
+        # Imported here rather than at module scope because jabs.classifier
+        # imports jabs.project, so a top-level import would be circular.
+        from jabs.classifier import ClassifierFeatureVersionError
+
         classifier_path = self._classifier_path(behavior)
         try:
             classifier.load(classifier_path)
             return True
         except OSError:
             return False
+        except ClassifierFeatureVersionError as e:
+            logger.warning("Saved classifier %s must be retrained: %s", classifier_path, e)
+            raise
 
     def save_predictions(
         self,
-        pose_est: PoseEstimation,
+        pose_est: PoseLike,
         video_name: str,
         predictions: dict[int, np.ndarray],
         probabilities: dict[int, np.ndarray],
@@ -945,7 +1290,7 @@ class Project:
         """Save predictions for a video in the project folder.
 
         Args:
-            pose_est: PoseEstimation object for the video.
+            pose_est: PoseLike object for the video.
             video_name: name of the video these predictions correspond to.
             predictions: dict mapping identity to a 1D numpy array of predicted labels.
             probabilities: same structure as `predictions` but with floating-point values.
@@ -1033,8 +1378,10 @@ class Project:
         """
         conflicting: list[str] = []
         for video in self._video_manager.videos:
-            if (labels := self._video_manager.load_video_labels(video)) is None:
+            # behavior labels need no pose, so an unusable video is checked too
+            if (document := self._video_manager.load_annotations(video)) is None:
                 continue
+            labels = VideoLabels.load(document)
             identities = {identity for identity, _, _ in labels.iter_identity_behavior_labels()}
             video_has_conflict = False
             for identity in identities:
@@ -1055,76 +1402,89 @@ class Project:
                     break
         return sorted(conflicting)
 
-    def archive_behavior(self, behavior: str):
+    def archive_behavior(self, behavior: str) -> None:
         """Archive a behavior.
 
-        Archives any labels for this behavior. Deletes any other files associated with this behavior.
+        Moves every video's labels for this behavior into
+        ``archive/<behavior>_<timestamp>.json.gz`` and deletes the behavior's
+        classifier and predictions. Every annotation document is read and
+        edited in memory first, and the archive is written before any document
+        is saved, so a failure part way cannot lose labels.
+
+        A video whose pose file is unusable (or cannot be opened now) has its
+        saved annotation document edited directly: labels do not need a pose.
 
         Args:
-            behavior (str): behavior name
-
-        Returns:
-            None
+            behavior: behavior name
         """
         safe_behavior = to_safe_name(behavior)
 
-        # remove predictions
-        path = self._paths.prediction_dir / safe_behavior
-        shutil.rmtree(path, ignore_errors=True)
-
-        # remove classifier
-        path = self._paths.classifier_dir / f"{safe_behavior}.pickle"
-        with contextlib.suppress(FileNotFoundError):
-            path.unlink()
-
-        # archive labels and unfragmented_labels
         archived_labels: dict[str, dict] = {}
+        to_save: dict[str, dict] = {}
         for video in self._video_manager.videos:
-            if (video_labels := self._video_manager.load_video_labels(video)) is None:
+            if (document := self._video_manager.load_annotations(video)) is None:
                 continue
+            # one pose open at a time: each is closed before the next video's opens
+            pose = self._open_pose_for_annotations(video)
+            try:
+                if pose is None:
+                    annotations = copy.deepcopy(document)
+                else:
+                    annotations = VideoLabels.load(document, pose).as_dict(pose)
 
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            annotations = video_labels.as_dict(pose)
-
-            # ensure archive structure exists for this video:
-            # {
-            #   "num_frames": ...,
-            #   "labels": {"<behavior>": {}},
-            #   "unfragmented_labels": {"<behavior>": {}}
-            # }
-            # the behavior is keyed by its name as provided (not to_safe_name()) in the
-            # archive per requested schema
-            video_archive = archived_labels.setdefault(
-                video,
-                {
+                # the behavior is keyed by its name as provided (not to_safe_name())
+                # in the archive. Both label sections are archived: "labels" holds
+                # the blocks masked to frames where the identity has pose data,
+                # "unfragmented_labels" holds them unmasked.
+                archived_labels[video] = {
                     "num_frames": annotations["num_frames"],
-                    "labels": {},
-                    "unfragmented_labels": {},
-                },
-            )
+                    **_pop_behavior(annotations, behavior),
+                }
+                if pose is None:
+                    annotations["labeler"] = self.labeler
+                    to_save[video] = annotations
+                else:
+                    to_save[video] = self._annotation_document(
+                        VideoLabels.load(annotations, pose), pose
+                    )
+            finally:
+                if pose is not None:
+                    pose.close()
 
-            # Move per-identity blocks for the behavior from the live annotations into the
-            # archive. Identities are stored as string keys in annotations. Both label
-            # sections are archived: "labels" holds the blocks masked to frames where the
-            # identity has pose data, "unfragmented_labels" holds them unmasked.
-            for section in ("labels", "unfragmented_labels"):
-                archived_section = video_archive[section].setdefault(behavior, {})
-                # values are per-identity dicts of {behavior: blocks}; popping from them
-                # removes the behavior from the annotations saved back to disk below
-                for identity, identity_behaviors in annotations.get(section, {}).items():
-                    if behavior in identity_behaviors:
-                        archived_section[identity] = identity_behaviors.pop(behavior)
-
-            # persist the modified annotations back to disk (with the behavior removed)
-            self.save_annotations(VideoLabels.load(annotations, pose), pose)
-
-        # write the archived labels out
+        # write the archive before any annotation document loses the behavior
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt") as f:
             json.dump(archived_labels, f, indent=2)
 
+        self._save_annotation_documents(to_save)
+
+        # remove predictions
+        shutil.rmtree(self._paths.prediction_dir / safe_behavior, ignore_errors=True)
+
+        # remove classifier
+        with contextlib.suppress(FileNotFoundError):
+            (self._paths.classifier_dir / f"{safe_behavior}.pickle").unlink()
+
         # save project file
         self._settings_manager.remove_behavior(behavior)
+
+    def _open_pose_for_annotations(self, video: str) -> PoseLike | None:
+        """Open a video's pose to edit its annotations, or return None when it cannot be opened.
+
+        Editing annotations needs no pose; with one, the edited document is
+        re-fragmented by the identity mask as a normal save does. Without one
+        (an unusable video, or a pose that fails to open now), the caller edits
+        the saved document directly.
+        """
+        if not self.is_usable(video):
+            return None
+        try:
+            return self.load_pose_est(self._video_manager.video_path(video))
+        except PoseOpenError as error:
+            logger.warning(
+                "Editing the annotations of %s without its pose file: %s", video, error.reason
+            )
+            return None
 
     def counts(self, behavior: str) -> dict[str, dict[int, dict[str, tuple[int, int]]]]:
         """get the labeled frame counts and bout counts for each video in the project
@@ -1175,6 +1535,9 @@ class Project:
             should_terminate_callable: Called between submissions and completions,
                 if provided; should raise on user-requested cancellation.
 
+        A video whose pose file cannot be opened (``PoseOpenError``) is marked
+        unusable and left out of the results instead of failing the run.
+
         Returns:
             Dict keyed by video name. Callers reorder by their canonical
             ``videos`` list for deterministic concatenation.
@@ -1190,9 +1553,13 @@ class Project:
                 video_name = future_to_video[future]
                 try:
                     res = future.result()
+                except PoseOpenError as e:
+                    self._mark_unusable(video_name, e.reason)
+                    res = None
                 except Exception as e:
                     raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
-                results_by_video[video_name] = res
+                if res is not None:
+                    results_by_video[video_name] = res
                 if progress_callable:
                     progress_callable()
         else:
@@ -1201,11 +1568,15 @@ class Project:
                     should_terminate_callable()
                 try:
                     res = worker_fn(job)
+                except PoseOpenError as e:
+                    self._mark_unusable(job["video"], e.reason)
+                    res = None
                 except Exception as e:
                     raise RuntimeError(
                         f"Feature collection failed for video: {job['video']}"
                     ) from e
-                results_by_video[job["video"]] = res
+                if res is not None:
+                    results_by_video[job["video"]] = res
                 if progress_callable:
                     progress_callable()
 
@@ -1414,8 +1785,14 @@ class Project:
                 "excluded_groups": set(),
             }, {}
 
+        usable_videos = self._usable(videos)
+        if progress_callable:
+            # progress counts every video; a skipped one is done already
+            for _ in range(len(videos) - len(usable_videos)):
+                progress_callable()
+
         jobs: list[BinaryFeatureLoadJobSpec] = []
-        for video in videos:
+        for video in usable_videos:
             if should_terminate_callable:
                 should_terminate_callable()
             job: BinaryFeatureLoadJobSpec = {
@@ -1529,8 +1906,14 @@ class Project:
                 "excluded_groups": set(),
             }, {}
 
+        usable_videos = self._usable(videos)
+        if progress_callable:
+            # progress counts every video; a skipped one is done already
+            for _ in range(len(videos) - len(usable_videos)):
+                progress_callable()
+
         jobs: list[MulticlassFeatureLoadJobSpec] = []
-        for video in videos:
+        for video in usable_videos:
             if should_terminate_callable:
                 should_terminate_callable()
             job: MulticlassFeatureLoadJobSpec = {
@@ -1633,9 +2016,17 @@ class Project:
         }, group_mapping
 
     def clear_cache(self):
-        """clear the cache directory for this project"""
+        """Clear the project's derived pose cache.
+
+        The converted copies of legacy pose files (``cache/converted``) are kept: they
+        are not derived pose data, and reconverting them on the next load can take
+        about a minute per hour of video. A converter revision change replaces them
+        on its own.
+        """
         if self._paths.cache_dir is not None:
             for f in self._paths.cache_dir.glob("*"):
+                if f.name == _CONVERTED_DIR:
+                    continue
                 try:
                     if f.is_dir():
                         shutil.rmtree(f)
@@ -1736,14 +2127,18 @@ class Project:
         """Rename a behavior throughout the project.
 
         This updates the project settings, and renames any files associated with the behavior.
-        It also updates any labels for this behavior in all videos.
+        It also updates any labels for this behavior in all videos, including
+        videos whose pose file is unusable (their saved documents are edited
+        directly). Every video's labels are renamed in memory before anything is
+        written, so a refused rename changes nothing.
 
         Args:
             old_name (str): current behavior name
             new_name (str): new behavior name
 
-        Returns:
-            None
+        Raises:
+            ValueError: If ``new_name`` is already a behavior, or is reserved.
+            KeyError: If any video already has labels named ``new_name``.
         """
         if new_name in self._settings_manager.behavior_names:
             raise ValueError(f"Behavior {new_name} already exists in project")
@@ -1760,6 +2155,30 @@ class Project:
                 f"{MULTICLASS_NONE_BEHAVIOR!r}"
             )
 
+        # rename labels inside every video's annotation document in memory first
+        # (mode-independent: labels are always keyed by behavior name on disk),
+        # so a refusal for any video changes nothing. A video without a usable
+        # pose has its saved document renamed directly.
+        to_save: dict[str, dict] = {}
+        for video in self._video_manager.videos:
+            if (document := self._video_manager.load_annotations(video)) is None:
+                continue
+            # one pose open at a time: each is closed before the next video's opens
+            pose = self._open_pose_for_annotations(video)
+            try:
+                if pose is None:
+                    edited = copy.deepcopy(document)
+                    _rename_behavior_in_document(edited, old_name, new_name)
+                    edited["labeler"] = self.labeler
+                    to_save[video] = edited
+                else:
+                    labels = VideoLabels.load(document, pose)
+                    labels.rename_behavior(old_name, new_name)
+                    to_save[video] = self._annotation_document(labels, pose)
+            finally:
+                if pose is not None:
+                    pose.close()
+
         # Classifier and prediction storage differs between modes, so update the
         # mode-specific artifacts separately.
         if self._settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
@@ -1767,14 +2186,7 @@ class Project:
         else:
             self._rename_behavior_binary_artifacts(old_name, new_name)
 
-        # rename labels inside every video's annotation file (mode-independent:
-        # labels are always keyed by behavior name on disk)
-        for video in self._video_manager.videos:
-            if (labels := self._video_manager.load_video_labels(video)) is None:
-                continue
-            labels.rename_behavior(old_name, new_name)
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            self.save_annotations(labels, pose)
+        self._save_annotation_documents(to_save)
 
         # update project settings
         self._settings_manager.rename_behavior(old_name, new_name)
@@ -1827,24 +2239,35 @@ class Project:
         """
         # Imported here rather than at module scope because jabs.classifier
         # imports jabs.project, so a top-level import would be circular.
-        from jabs.classifier import MultiClassClassifier
+        from jabs.classifier import ClassifierFeatureVersionError, MultiClassClassifier
 
         # update behavior name inside the saved multi-class classifier
         classifier_path = self._paths.classifier_dir / MULTICLASS_CLASSIFIER_FILENAME
         new_classifier_file: str | None = None
         new_classifier_hash: str | None = None
+        classifier: MultiClassClassifier | None = None
         if classifier_path.exists():
-            classifier = MultiClassClassifier.from_pickle(classifier_path)
-            if old_name in classifier.behavior_names:
-                classifier.rename_behavior(old_name, new_name)
-                # The pickle's contents changed, so drop the stale file identity
-                # and let save() record a hash matching the rewritten file.
-                classifier.reset_persistence_identity()
-                classifier.save(classifier_path)
-                # Capture the rewritten pickle's identity so per-video prediction
-                # metadata can be repointed at the renamed classifier file.
-                new_classifier_file = classifier.classifier_file
-                new_classifier_hash = classifier.classifier_hash
+            try:
+                classifier = MultiClassClassifier.from_pickle(classifier_path)
+            except ClassifierFeatureVersionError as e:
+                # a stale classifier can't be used anyway; leave it for the user to
+                # retrain rather than failing the rename
+                logger.warning(
+                    "Not renaming %r in %s, which must be retrained: %s",
+                    old_name,
+                    classifier_path,
+                    e,
+                )
+        if classifier is not None and old_name in classifier.behavior_names:
+            classifier.rename_behavior(old_name, new_name)
+            # The pickle's contents changed, so drop the stale file identity
+            # and let save() record a hash matching the rewritten file.
+            classifier.reset_persistence_identity()
+            classifier.save(classifier_path)
+            # Capture the rewritten pickle's identity so per-video prediction
+            # metadata can be repointed at the renamed classifier file.
+            new_classifier_file = classifier.classifier_file
+            new_classifier_hash = classifier.classifier_hash
 
         # update the class_names dataset inside each video's prediction group
         safe_multiclass_name = to_safe_name(MULTICLASS_PREDICTION_KEY)

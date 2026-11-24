@@ -2,8 +2,10 @@
 
 For each entry in the batch file, reads the pose HDF5 to determine frame count,
 selects a start frame (randomly or at a fixed offset), and writes a clipped pose
-HDF5 and (optionally) a clipped AVI to the output directory. The pose file version
-is inferred automatically from the filename (highest available version is used).
+HDF5 and (optionally) a clipped AVI to the output directory. Only legacy
+``<video>_pose_est_v<N>.h5`` pose files are supported (the highest available
+version is used); a video whose pose file is a unified ``<video>_pose.h5`` file is
+skipped with a warning.
 
 \b
 Example:
@@ -25,7 +27,7 @@ import cv2
 import h5py
 import numpy as np
 
-from jabs.pose_estimation import get_pose_path
+from jabs.pose_estimation import get_pose_path, is_unified_pose_file
 from jabs.video_reader import VideoReader
 
 
@@ -57,6 +59,15 @@ def _sample_one(
         pose_in_path = get_pose_path(vid_path)
     except ValueError:
         click.echo(f"WARNING: no pose file found for {vid_filename}", err=True)
+        return
+
+    if is_unified_pose_file(pose_in_path):
+        # the clip copies legacy poseest datasets, which a unified file does not have
+        click.echo(
+            f"WARNING: {vid_filename} skipped: {pose_in_path.name} is a unified pose file; "
+            "sample_pose_intervals supports legacy pose_est files only",
+            err=True,
+        )
         return
 
     # Derive the output suffix from the discovered pose filename (e.g. _pose_est_v6.h5)

@@ -112,7 +112,7 @@ def test_bounding_boxes_follow_active_identity_emphasis(emphasize: bool) -> None
     """
     widget = PlayerWidget()
     frame_widget = widget._frame_widget
-    pose = mock.Mock(format_major_version=8, has_bounding_boxes=True, identities=[0, 1])
+    pose = mock.Mock(has_bounding_boxes=True, identities=[0, 1])
     pose.get_bounding_boxes.side_effect = lambda i: np.array(
         [[[10 + 40 * i, 10], [40 + 40 * i, 40]]], dtype=np.float64
     )
@@ -133,6 +133,26 @@ def test_bounding_boxes_follow_active_identity_emphasis(emphasize: bool) -> None
 
     overlay._get_accent_color.assert_called()
     assert overlay._get_highlight_color.called is emphasize
+
+
+@pytest.mark.parametrize("has_boxes", [True, False], ids=["boxes", "no-boxes"])
+def test_bounding_box_overlay_follows_the_capability(has_boxes: bool) -> None:
+    """Boxes are drawn exactly when the pose has BOUNDING_BOXES; no version is consulted."""
+    widget = PlayerWidget()
+    frame_widget = widget._frame_widget
+    pose = mock.Mock(has_bounding_boxes=has_boxes, identities=[0])
+    pose.get_bounding_boxes.return_value = np.array([[[10, 10], [40, 40]]], dtype=np.float32)
+    pose.identity_index_to_display.side_effect = str
+    frame_widget.set_pose(pose)
+    frame_widget.identity_overlay_mode = PlayerWidget.IdentityOverlayMode.BBOX
+    image = QtGui.QImage(100, 100, QtGui.QImage.Format.Format_RGB888)
+    image.fill(QtGui.QColor(60, 60, 60))
+    widget._display_image(image, 0)
+    frame_widget.resize(100, 100)
+
+    frame_widget.grab()
+
+    assert pose.get_bounding_boxes.called is has_boxes
 
 
 def test_reset_stops_the_player_thread_and_closes_the_stream():

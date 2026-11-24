@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,10 +8,17 @@ from unittest.mock import MagicMock
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.cli.update_pose as update_pose
+from jabs.core.enums import PoseCapability
+from jabs.core.types import SegmentationWindow
+from jabs.core.utils import hash_file
+from jabs.io.internal.pose_file import PoseFileError
+from jabs.pose_estimation import conversion_cache
+from jabs.pose_estimation.conversion_cache import ensure_converted
 from jabs.project import TimelineAnnotations, VideoLabels
 from jabs.project.timeline_annotations import is_valid_tag
 from jabs.scripts.cli.cli import cli
@@ -28,7 +36,6 @@ def _make_pose(identities, boxes_by_identity, *, num_identities=None):
     num_frames = next(iter(boxes_by_identity.values())).shape[0]
     identity_list = list(identities)
     return SimpleNamespace(
-        format_major_version=8,
         has_bounding_boxes=True,
         num_frames=num_frames,
         num_identities=num_identities if num_identities is not None else len(identity_list),
@@ -38,24 +45,60 @@ def _make_pose(identities, boxes_by_identity, *, num_identities=None):
     )
 
 
+@pytest.fixture(autouse=True)
+def _user_cache_in_tmp(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep conversions made without a project cache out of the real per-user cache."""
+    user_cache = tmp_path_factory.mktemp("user-cache")
+    monkeypatch.setattr(conversion_cache, "user_cache_dir", lambda _app: str(user_cache))
+
+
+# a 120-frame v8 pose file; the metadata tests replace its model metadata
+_V8_POSE = (
+    Path(__file__).parents[2]
+    / "packages"
+    / "jabs-io"
+    / "tests"
+    / "data"
+    / "legacy-pose"
+    / "v8-with-centers.h5"
+)
+
+
 def _write_pose_file_with_metadata(
     pose_path: Path,
     metadata: dict[str, object] | None = None,
     *,
     raw_json: str | None = None,
 ) -> None:
-    """Create a minimal pose H5 file with optional model metadata."""
-    with h5py.File(pose_path, "w") as pose_h5:
-        pose_grp = pose_h5.create_group("poseest")
+    """Write a small v8 pose file with the given model metadata, or none."""
+    shutil.copyfile(_V8_POSE, pose_path)
+    with h5py.File(pose_path, "a") as pose_h5:
+        pose_grp = pose_h5["poseest"]
+        pose_grp.attrs.pop("model_metadata_json", None)
         if raw_json is not None:
             pose_grp.attrs["model_metadata_json"] = raw_json
         elif metadata is not None:
             pose_grp.attrs["model_metadata_json"] = json.dumps(metadata)
 
 
+def _fake_scan(frames: int, identities: int, source_format: str = "pose_est_v8"):
+    """Return a ``scan_pose_metadata`` stand-in describing every pose file alike."""
+    metadata = SimpleNamespace(
+        source_format=source_format,
+        capabilities=frozenset({PoseCapability.BOUNDING_BOXES, PoseCapability.SOCIAL}),
+        frames=frames,
+        num_identities=identities,
+    )
+    return lambda _path: metadata
+
+
 def _make_metadata_project(pose_paths: dict[str, Path]) -> SimpleNamespace:
     """Build a minimal project stub for metadata injection tests."""
     return SimpleNamespace(
+        # no project cache: conversions go to the per-user cache, kept in tmp by a fixture
+        project_paths=SimpleNamespace(cache_dir=None),
         video_manager=SimpleNamespace(
             videos=list(pose_paths),
             get_cached_pose_path=lambda video: pose_paths[video],
@@ -102,12 +145,7 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
     (new_pose_dir / "video1_pose_est_v8.h5").touch()
     (new_pose_dir / "video1_pose_est_v7.h5").touch()
 
-    def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -161,15 +199,10 @@ def test_preflight_rejects_nonwritable_live_annotation_targets(
 
     unwritable_path = project_dir / unwritable
 
-    def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
-        )
-
     def fake_access(path, mode):
         return not (Path(path) == unwritable_path and mode & os.W_OK)
 
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -209,12 +242,7 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
         """
     )
 
-    def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -553,6 +581,11 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
     )
     monkeypatch.setattr(
         update_pose,
+        "_require_staged_poses_open",
+        lambda *_args, **_kwargs: sequence.append("open-staged"),
+    )
+    monkeypatch.setattr(
+        update_pose,
         "_run_staged_label_remap",
         lambda *_args, **_kwargs: (sequence.append("remap") or (3, 1)),
     )
@@ -610,6 +643,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
     assert sequence.index("preflight") < sequence.index("backup")
     assert sequence.index("backup") < sequence.index("apply")
     assert sequence.index("seed") < sequence.index("remap")
+    assert sequence.index("open-staged") < sequence.index("remap")
     assert sequence.index("remap") < sequence.index("apply")
     assert sequence.index("apply") < sequence.index("regen")
 
@@ -1090,12 +1124,7 @@ def test_preflight_update_inputs_raises_on_orphan_source_identities(tmp_path, mo
         )
     )
 
-    def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -1129,12 +1158,7 @@ def test_preflight_update_inputs_tolerates_orphans_and_warns(tmp_path, monkeypat
         )
     )
 
-    def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(
-            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
-        )
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "scan_pose_metadata", _fake_scan(frames=10, identities=2))
     monkeypatch.setattr(
         update_pose.VideoReader,
         "get_nframes_from_file",
@@ -1349,6 +1373,26 @@ def _diagonal_band(n: int, *, anti: bool = False) -> np.ndarray:
     return band
 
 
+def _padded_windows(seg: npt.NDArray[np.integer]) -> list[SegmentationWindow]:
+    """One segmentation window from -1 padded (frames, contours, vertices, 2) contours.
+
+    A slot holds a contour when its first x is not -1; its points are the leading ones
+    before the first -1 x. The fakes pack their contours first already.
+    """
+    padding = seg[..., 0] == -1
+    exists = ~padding[..., 0]
+    lengths = np.where(padding.any(axis=-1), padding.argmax(axis=-1), seg.shape[2])
+    return [
+        SegmentationWindow(
+            contours=seg.astype(np.int32),
+            contour_count=exists.sum(axis=-1).astype(np.uint32),
+            contour_length=np.where(exists, lengths, 0).astype(np.uint32),
+            external_flag=None,
+            start=0,
+        )
+    ]
+
+
 def _make_seg_pose(boxes_by_identity, bands_by_identity):
     """Build a v8-style pose fake with bounding boxes and one mask contour per frame."""
     pose = _make_pose(list(boxes_by_identity), boxes_by_identity)
@@ -1358,7 +1402,7 @@ def _make_seg_pose(boxes_by_identity, bands_by_identity):
         for identity, band in bands_by_identity.items()
     }
     pose.has_segmentation = True
-    pose.get_segmentation_data = lambda identity: seg[identity]
+    pose.iter_segmentation = lambda identity, block=300: _padded_windows(seg[identity])
     return pose
 
 
@@ -1461,7 +1505,7 @@ def test_remap_labels_for_video_splits_block_at_identity_handoff(capsys):
         1: np.where(np.arange(frames)[:, None, None, None] < 5, band, -1).astype(np.int32),
         2: np.where(np.arange(frames)[:, None, None, None] >= 5, band, -1).astype(np.int32),
     }
-    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.iter_segmentation = lambda identity, block=300: _padded_windows(seg[identity])
     dest_pose.identities = [1, 2]
 
     source_labels = VideoLabels("video1.avi", frames)
@@ -1515,7 +1559,7 @@ def test_remap_labels_for_video_flags_ambiguous_split(capsys):
     seg = {
         i: np.where((owner == i)[:, None, None, None], band, -1).astype(np.int32) for i in (1, 2)
     }
-    dest_pose.get_segmentation_data = lambda identity: seg[identity]
+    dest_pose.iter_segmentation = lambda identity, block=300: _padded_windows(seg[identity])
     dest_pose.identities = [1, 2]
 
     source_labels = VideoLabels("video1.avi", frames)
@@ -1791,3 +1835,215 @@ def test_run_staged_label_remap_is_serial_when_videos_share_an_annotation_file(
 
     assert printed == ["a.avi", "a.mp4"]
     assert "share an annotation file" in capsys.readouterr().err
+
+
+_REFUSED_AT_CONVERSION = _V8_POSE.parent / "v8-duplicate-embed.h5"
+
+
+def test_preflight_skips_the_live_pose_of_an_unlabeled_video(tmp_path, monkeypatch):
+    """An unlabeled video's live pose is not opened, so a bad one does not block the update.
+
+    Replacing an unusable pose file is the documented remedy for it, so its being
+    unusable must not stop the update.
+    """
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video, live in (("a", _REFUSED_AT_CONVERSION), ("b", _V8_POSE)):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(live, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(_V8_POSE, new_pose_dir / f"{video}_pose_est_v8.h5")
+    (annotations_dir / "b.json").write_text("{}")
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+
+    videos, replacement_pose_files, live_annotations, _counts = (
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
+    )
+
+    assert videos == ["a.avi", "b.avi"]
+    assert set(replacement_pose_files) == {"a.avi", "b.avi"}
+    assert live_annotations == {"b.avi"}
+
+
+def test_remap_labels_for_video_does_not_open_the_pose_of_an_unlabeled_video(capsys):
+    """With no labels to remap, neither pose file is opened."""
+    source = MagicMock()
+    source.video_manager.load_annotations.return_value = None
+    source.load_pose_est.side_effect = AssertionError("source pose opened")
+    destination = MagicMock()
+    destination.load_pose_est.side_effect = AssertionError("destination pose opened")
+
+    assert update_pose._remap_labels_for_video("a.avi", source, destination, 0.5) == (0, 0)
+    assert "No labels in source for a.avi" in capsys.readouterr().out
+
+
+def test_preflight_reads_the_pose_files_without_converting(tmp_path, monkeypatch):
+    """Validation reads the facts it checks from a metadata scan, converting nothing.
+
+    A full open converts a legacy file, which the staged project then repeats, so a
+    large legacy project took conversion time just to be validated.
+    """
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    shutil.copyfile(_V8_POSE, project_dir / "video1_pose_est_v8.h5")
+    shutil.copyfile(_V8_POSE, new_pose_dir / "video1_pose_est_v8.h5")
+    (project_dir / "jabs" / "annotations" / "video1.json").write_text("{}")
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    convert = MagicMock(side_effect=AssertionError("a pose file was converted"))
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
+
+    preflight = update_pose._preflight_update_inputs(project_dir, new_pose_dir)
+
+    assert preflight.replacement_identity_counts == {"video1.avi": 3}
+    convert.assert_not_called()
+    assert not (project_dir / "jabs" / "cache").exists()
+
+
+def test_model_metadata_is_read_without_converting(tmp_path, monkeypatch):
+    """The replacement poses' model metadata is read from the file, not a conversion."""
+    pose_path = tmp_path / "video1_pose_est_v8.h5"
+    _write_pose_file_with_metadata(pose_path, {"pose_model_name": "m"})
+    convert = MagicMock(side_effect=AssertionError("a pose file was converted"))
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
+
+    project = _make_metadata_project({"video1.avi": pose_path})
+
+    assert update_pose._inject_consistent_pose_model_metadata(project) == {"pose_model_name": "m"}
+    convert.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["legacy", "unified"])
+@pytest.mark.parametrize(
+    ("raw_json", "match"),
+    [("{not json", "not valid JSON"), ("[1, 2]", "must be a JSON object")],
+    ids=["invalid-json", "not-an-object"],
+)
+def test_corrupt_model_metadata_is_refused(tmp_path, kind, raw_json, match):
+    """Model metadata that is not a JSON object is an error, as on main, not "no metadata".
+
+    Counted as none, the other replacement files' metadata could be injected for it.
+    """
+    legacy = tmp_path / "video1_pose_est_v8.h5"
+    _write_pose_file_with_metadata(legacy, raw_json=raw_json)
+    pose_path = legacy
+    if kind == "unified":
+        converted = ensure_converted(legacy, hash_file(legacy), tmp_path / "cache")
+        pose_path = tmp_path / "video1_pose.h5"
+        shutil.copyfile(converted, pose_path)
+    project = _make_metadata_project(
+        {"video1.avi": pose_path, "video2.avi": _metadata_pose(tmp_path / "video2_pose_est_v8.h5")}
+    )
+
+    with pytest.raises(ValueError, match=match):
+        update_pose._inject_consistent_pose_model_metadata(project)
+
+
+def _metadata_pose(path: Path) -> Path:
+    """Write a pose file with valid model metadata."""
+    _write_pose_file_with_metadata(path, {"pose_model_name": "m"})
+    return path
+
+
+@pytest.mark.parametrize(
+    "skip_feature_gen", [False, True], ids=["feature-gen", "skip-feature-gen"]
+)
+def test_a_replacement_the_converter_refuses_is_not_installed(
+    tmp_path, monkeypatch, skip_feature_gen
+):
+    """A replacement the scan accepts but the converter refuses stops the update.
+
+    Validation reads metadata only, so the refusal must be caught where the staged
+    project converts the replacements, before anything is applied, even for an
+    unlabeled video whose pose the remap never opens.
+    """
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video, replacement in (("a", _REFUSED_AT_CONVERSION), ("b", _V8_POSE)):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(_V8_POSE, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(replacement, new_pose_dir / f"{video}_pose_est_v8.h5")
+        # the same model metadata (none) on both, so only the refusal can stop the update
+        with h5py.File(new_pose_dir / f"{video}_pose_est_v8.h5", "a") as h5:
+            h5["poseest"].attrs.pop("model_metadata_json", None)
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    live_pose = (project_dir / "a_pose_est_v8.h5").read_bytes()
+
+    with pytest.raises(ValueError, match=r"a\.avi.*(identity|embed)"):
+        update_pose.update_project_pose_in_place(
+            project_dir, new_pose_dir, min_iou=0.5, skip_feature_gen=skip_feature_gen
+        )
+
+    assert (project_dir / "a_pose_est_v8.h5").read_bytes() == live_pose
+
+
+def test_an_update_converts_each_replacement_once(tmp_path, monkeypatch):
+    """Preflight converts nothing; the staged project converts each replacement once."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video in ("a", "b"):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(_V8_POSE, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(_V8_POSE, new_pose_dir / f"{video}_pose_est_v8.h5")
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    convert = MagicMock(wraps=conversion_cache.convert_legacy)
+    monkeypatch.setattr(conversion_cache, "convert_legacy", convert)
+
+    update_pose.update_project_pose_in_place(
+        project_dir, new_pose_dir, min_iou=0.5, skip_feature_gen=True
+    )
+
+    converted = sorted(call.args[0].name for call in convert.call_args_list)
+    assert converted == ["a_pose_est_v8.h5", "b_pose_est_v8.h5"]
+
+
+def test_a_conversion_pose_refuses_is_not_installed(tmp_path, monkeypatch):
+    """A replacement that converts but that Pose refuses also stops the update before applying."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    new_pose_dir.mkdir()
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    for video in ("a", "b"):
+        (project_dir / f"{video}.avi").touch()
+        shutil.copyfile(_V8_POSE, project_dir / f"{video}_pose_est_v8.h5")
+        shutil.copyfile(_V8_POSE, new_pose_dir / f"{video}_pose_est_v8.h5")
+    monkeypatch.setattr(
+        update_pose.VideoReader, "get_nframes_from_file", staticmethod(lambda _path: 120)
+    )
+    real_pose = update_pose.Pose
+
+    def refusing_pose(pose_path, **kwargs):
+        if kwargs.get("source_path", pose_path).name.startswith("a_"):
+            raise PoseFileError(f"{pose_path}: refused by Pose")
+        return real_pose(pose_path, **kwargs)
+
+    monkeypatch.setattr(update_pose, "Pose", refusing_pose)
+    live_pose = (project_dir / "a_pose_est_v8.h5").read_bytes()
+
+    with pytest.raises(ValueError, match=r"a\.avi.*refused by Pose"):
+        update_pose.update_project_pose_in_place(
+            project_dir, new_pose_dir, min_iou=0.5, skip_feature_gen=True
+        )
+
+    assert (project_dir / "a_pose_est_v8.h5").read_bytes() == live_pose

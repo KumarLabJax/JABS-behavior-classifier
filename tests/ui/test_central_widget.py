@@ -1,5 +1,6 @@
 """Tests for CentralWidget helpers that don't require instantiating the widget."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -8,8 +9,10 @@ import pytest
 from jabs.classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.project.unusable_report import UnusableNotice
 
 try:
+    import jabs.ui.main_window.central_widget as central_widget_module
     from jabs.core.enums import ClassifierMode
     from jabs.ui.main_window.central_widget import CentralWidget
 
@@ -25,11 +28,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _stub_widget(excluded: set[str]) -> SimpleNamespace:
+def _stub_widget(excluded: set[str], unusable: frozenset[str] = frozenset()) -> SimpleNamespace:
     """Minimal stand-in exposing what _included_counts reads from self."""
     return SimpleNamespace(
         _project=SimpleNamespace(
-            settings_manager=SimpleNamespace(is_video_excluded=lambda v: v in excluded)
+            settings_manager=SimpleNamespace(is_video_excluded=lambda v: v in excluded),
+            is_trainable=lambda v: v not in excluded and v not in unusable,
         )
     )
 
@@ -46,6 +50,24 @@ def test_included_counts_drops_excluded_videos():
     assert set(result.keys()) == {"a.avi", "c.avi"}
     # surviving entries are passed through unchanged
     assert result["a.avi"] == counts["a.avi"]
+
+
+def test_included_counts_drops_unusable_videos():
+    """An unusable video is not trained on, so its labels do not count toward readiness."""
+    counts = {"a.avi": {0: {}}, "b.avi": {0: {}}}
+    result = CentralWidget._included_counts(_stub_widget(set(), frozenset({"b.avi"})), counts)
+    assert set(result.keys()) == {"a.avi"}
+
+
+def test_included_project_bout_totals_excludes_unusable_videos():
+    """Bout totals for the training report leave out unusable videos."""
+    counts = {
+        "a.avi": {0: {"unfragmented_bout_counts": (3, 2)}},
+        "b.avi": {0: {"unfragmented_bout_counts": (10, 10)}},  # unusable
+    }
+    stub = _stub_widget(set(), frozenset({"b.avi"}))
+    stub._counts = counts
+    assert CentralWidget._included_project_bout_totals(stub) == (3, 2)
 
 
 def test_included_counts_no_exclusions_returns_all():
@@ -722,7 +744,9 @@ def test_behavior_change_replaces_predictions_left_over_from_the_other_mode():
     assert stub._predictions == {}, "stale binary predictions were kept"
 
 
-def _training_completion_stub(cv_warning: str | None) -> SimpleNamespace:
+def _training_completion_stub(
+    cv_warning: str | None, skipped: UnusableNotice | None = None
+) -> SimpleNamespace:
     """Stand-in exposing what _training_thread_complete() reads from self."""
     return SimpleNamespace(
         _cleanup_training_thread=MagicMock(),
@@ -732,7 +756,27 @@ def _training_completion_stub(cv_warning: str | None) -> SimpleNamespace:
         _training_cv_warning=cv_warning,
         # no report markdown, so the report-dialog branch is skipped
         _training_report_markdown=None,
+        _training_behaviors=lambda: ["Walk"],
+        _project=SimpleNamespace(skipped_training_notice=MagicMock(return_value=skipped)),
     )
+
+
+def test_training_completion_reports_labeled_videos_left_out(monkeypatch):
+    """Labeled videos skipped as unusable are named in a dialog when training finishes."""
+    warnings = []
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    notice = UnusableNotice("1 video with labels was left out", "b.avi: refused")
+    stub = _training_completion_stub(None, notice)
+
+    CentralWidget._training_thread_complete(stub, 1234)
+
+    stub._project.skipped_training_notice.assert_called_once_with(["Walk"])
+    assert len(warnings) == 1
+    assert warnings[0][1]["message"] == notice.message
+    assert warnings[0][1]["details"] == "b.avi: refused"
 
 
 def test_training_completion_warns_when_cross_validation_was_skipped(monkeypatch):
@@ -764,3 +808,200 @@ def test_training_completion_is_quiet_when_cross_validation_ran(monkeypatch):
     CentralWidget._training_thread_complete(_training_completion_stub(None), 1234)
 
     assert warnings == []
+
+
+def _search_stub(project, hit_file: str) -> SimpleNamespace:
+    """Build a stub self for _on_search_hit_changed with one current search hit."""
+    hit = SimpleNamespace(file=hit_file, start_frame=5, identity=None, behavior=None)
+    return SimpleNamespace(
+        _search_bar_widget=SimpleNamespace(current_search_hit=hit),
+        _project=project,
+        _loaded_video=None,
+        load_video=MagicMock(),
+        _player_widget=MagicMock(),
+        search_hit_loaded=MagicMock(),
+    )
+
+
+def test_search_hit_in_an_unusable_video_shows_the_reason(monkeypatch):
+    """A search hit in an unusable video is not loaded; the reason is shown instead."""
+    dialog = MagicMock()
+    monkeypatch.setattr(central_widget_module, "MessageDialog", dialog)
+    project = MagicMock()
+    project.is_usable.return_value = False
+    project.unusable_videos = {"bad.avi": "shared tracklet"}
+    stub = _search_stub(project, "bad.avi")
+
+    CentralWidget._on_search_hit_changed(stub)
+
+    stub.load_video.assert_not_called()
+    stub.search_hit_loaded.emit.assert_not_called()
+    assert dialog.warning.call_args.kwargs["details"] == "shared tracklet"
+
+
+def test_search_hit_whose_pose_fails_to_open_is_reported(monkeypatch):
+    """A PoseOpenError loading a search hit's video is reported, not raised from the slot."""
+    dialog = MagicMock()
+    monkeypatch.setattr(central_widget_module, "MessageDialog", dialog)
+    project = MagicMock()
+    project.is_usable.return_value = True
+    stub = _search_stub(project, "a.avi")
+    stub.load_video.side_effect = central_widget_module.PoseOpenError(
+        Path("a_pose_est_v8.h5"), "disk full"
+    )
+
+    CentralWidget._on_search_hit_changed(stub)
+
+    assert dialog.error.call_args.kwargs["details"] == "disk full"
+    stub._player_widget.seek_to_frame.assert_not_called()
+
+
+def _stale_classifier_stub() -> SimpleNamespace:
+    """Stand-in for _load_cached_classifier whose saved classifier must be retrained."""
+    error = central_widget_module.ClassifierFeatureVersionError(
+        "trained with feature version 19; retrain the classifier", 19, 20
+    )
+    stub = SimpleNamespace(
+        _project=SimpleNamespace(
+            load_classifier=MagicMock(side_effect=error),
+            settings_manager=SimpleNamespace(classifier_mode=ClassifierMode.BINARY),
+        ),
+        _classifier=SimpleNamespace(classifier_name="Random Forest"),
+        behavior="Walk",
+        _unsupported_classifier_warned=set(),
+        _ensure_classifier_for_mode=MagicMock(),
+        _reset_classifier=MagicMock(),
+        _update_classifier_controls=MagicMock(),
+        _set_classify_enabled=MagicMock(),
+    )
+    stub._claim_saved_classifier_warning = lambda: CentralWidget._claim_saved_classifier_warning(
+        stub
+    )
+    stub._warn_stale_classifier = lambda e: CentralWidget._warn_stale_classifier(stub, e)
+    return stub
+
+
+def test_stale_classifier_is_reset_and_the_user_told_to_retrain(monkeypatch):
+    """A classifier from another feature version is dropped and a retrain dialog shown once."""
+    dialog = MagicMock()
+    monkeypatch.setattr(central_widget_module, "MessageDialog", dialog)
+    monkeypatch.setattr(
+        central_widget_module.QtCore.QTimer, "singleShot", lambda _ms, _ctx, fn: fn()
+    )
+    stub = _stale_classifier_stub()
+
+    CentralWidget._load_cached_classifier(stub)
+    CentralWidget._load_cached_classifier(stub)
+
+    stub._reset_classifier.assert_called()
+    stub._set_classify_enabled.assert_called_with(False)
+    dialog.warning.assert_called_once()
+    assert "retrain" in dialog.warning.call_args.args[2]
+
+
+def test_set_project_drops_the_previous_projects_video():
+    """Opening a project unloads the previous project's video, pose and selection state.
+
+    When none of the new project's videos is usable, no video is loaded to replace it,
+    and its leftover pose and enabled select button let the label keys act on labels
+    that are gone.
+    """
+    stub = SimpleNamespace(
+        _project=None,
+        _labels=MagicMock(),
+        _loaded_video=Path("old.avi"),
+        _pose_est=MagicMock(num_identities=2),
+        _controls=MagicMock(select_button_enabled=True),
+        _player_widget=MagicMock(),
+        _jabs_timeline=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+    )
+    stub._set_identities = lambda identities: CentralWidget._set_identities(stub, identities)
+    stub._start_selection = lambda pressed: CentralWidget._start_selection(stub, pressed)
+    stub._update_select_button_state = lambda: CentralWidget._update_select_button_state(stub)
+
+    CentralWidget.set_project(stub, MagicMock())
+
+    assert stub._labels is None
+    assert stub._loaded_video is None
+    assert stub._pose_est is None
+    stub._player_widget.reset.assert_called_once()
+    stub._controls.set_identities.assert_called_with([])
+    assert stub._controls.select_button_enabled is False
+
+
+def _load_video_stub(previous_pose: MagicMock, events: list[str]) -> MagicMock:
+    """A CentralWidget stand-in for load_video, recording player loads and pose closes."""
+    stub = MagicMock()
+    stub._pose_est = previous_pose
+    stub._labels = None
+    stub._loaded_video = Path("old.avi")
+    stub._frame_count_mismatch_message = lambda *_args: None
+    stub._player_widget.load_video.side_effect = lambda _path, pose, _labels: events.append(
+        f"player:{pose.name}"
+    )
+    previous_pose.close.side_effect = lambda: events.append("close:old")
+    return stub
+
+
+def test_load_video_closes_the_previous_pose_after_the_new_one_is_shown(monkeypatch):
+    """The replaced pose is closed (its file released) once the player holds the new one."""
+    events: list[str] = []
+    old_pose, new_pose = MagicMock(), MagicMock()
+    old_pose.name, new_pose.name = "old", "new"
+    stub = _load_video_stub(old_pose, events)
+    stub._project.load_pose_est.return_value = new_pose
+    monkeypatch.setattr(
+        central_widget_module.central_widget_mode,
+        "load_video_predictions",
+        lambda *_args: ({}, {}, {}, None),
+    )
+
+    CentralWidget.load_video(stub, Path("new.avi"))
+
+    assert stub._pose_est is new_pose
+    assert events == ["player:new", "close:old"]
+    new_pose.close.assert_not_called()
+
+
+def test_load_video_closes_the_previous_pose_when_the_new_one_fails():
+    """A failed load drops the previous pose from the player and closes it."""
+    events: list[str] = []
+    old_pose = MagicMock()
+    stub = _load_video_stub(old_pose, events)
+    stub._project.load_pose_est.side_effect = central_widget_module.PoseOpenError(
+        Path("new_pose_est_v6.h5"), "cannot read"
+    )
+
+    with pytest.raises(central_widget_module.PoseOpenError):
+        CentralWidget.load_video(stub, Path("new.avi"))
+
+    assert stub._pose_est is None
+    stub._player_widget.reset.assert_called_once()
+    old_pose.close.assert_called_once()
+
+
+def test_set_project_closes_the_previous_projects_pose():
+    """The pose set_project drops is closed after the player lets go of it."""
+    pose = MagicMock()
+    player = MagicMock()
+    player.reset.side_effect = lambda: pose.close.assert_not_called()
+    stub = SimpleNamespace(
+        _project=None,
+        _labels=None,
+        _loaded_video=None,
+        _pose_est=pose,
+        _controls=MagicMock(select_button_enabled=False),
+        _player_widget=player,
+        _jabs_timeline=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+    )
+    stub._set_identities = lambda identities: CentralWidget._set_identities(stub, identities)
+    stub._start_selection = lambda pressed: CentralWidget._start_selection(stub, pressed)
+    stub._update_select_button_state = lambda: CentralWidget._update_select_button_state(stub)
+
+    CentralWidget.set_project(stub, MagicMock())
+
+    pose.close.assert_called_once()

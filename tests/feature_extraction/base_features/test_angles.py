@@ -1,6 +1,7 @@
 """Unit tests for the Angles feature class."""
 
 import numpy as np
+import pytest
 
 from jabs.feature_extraction.angle_index import AngleIndex
 from jabs.feature_extraction.base_features import Angles
@@ -146,3 +147,14 @@ def test_angles_name_and_circular_flag() -> None:
     """Test that the feature name is set correctly and circular statistics are enabled."""
     assert Angles.name() == "angles"
     assert Angles._use_circular is True
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_compute_angles_tiny_negative_wraps_below_360(dtype: type) -> None:
+    """An angle just below 0 wraps into [0, 360), not to 360 by rounding."""
+    a = np.array([[1.0, 0.0]], dtype=dtype)
+    b = np.zeros((1, 2), dtype=dtype)
+    c = np.array([[1.0, -np.finfo(dtype).tiny]], dtype=dtype)
+    angles = Angles._compute_angles(a, b, c)
+    assert (angles >= 0).all()
+    assert (angles < 360).all()

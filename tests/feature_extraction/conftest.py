@@ -10,7 +10,7 @@ import h5py
 import pytest
 
 import jabs.pose_estimation as pose_est
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 
 _SAMPLE_POSE_V5 = Path(__file__).parent.parent / "data" / "sample_pose_est_v5.h5"
 
@@ -50,14 +50,14 @@ def _write_short_pose(source: Path, dest: Path, frames: slice) -> None:
 
 
 @pytest.fixture(scope="module")
-def pose_est_v5_short(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PoseEstimation]:
+def pose_est_v5_short(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PoseLike]:
     """Open a 100-frame slice of the sample v5 pose file.
 
     Window features cost time per frame, so tests that only need real feature names,
     NaN gaps and cache round trips use this instead of the full 1800-frame sample.
 
     Yields:
-        PoseEstimationV5 backed by a temporary shortened copy of the sample file.
+        Pose backed by a temporary shortened copy of the sample file.
     """
     pose_path = tmp_path_factory.mktemp("short_pose") / _SAMPLE_POSE_V5.name
     _write_short_pose(_SAMPLE_POSE_V5, pose_path, _SHORT_FRAMES)

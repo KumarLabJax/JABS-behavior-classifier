@@ -15,7 +15,7 @@ from collections.abc import Callable
 import numpy as np
 from PySide6 import QtCore, QtGui
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 
 from .mapping import visible_runs
 from .scaling import native_overlay_scale
@@ -35,7 +35,7 @@ _LIXIT_KEYPOINTS_3 = 3
 _DRAWN_STATIC_OBJECTS = ("corners", "lixit", "food_hopper")
 
 
-def pose_has_landmarks(pose: PoseEstimation) -> bool:
+def pose_has_landmarks(pose: PoseLike) -> bool:
     """Return whether a pose file carries any arena landmarks to draw.
 
     Args:
@@ -76,7 +76,7 @@ def native_landmark_sizes(width: int, height: int) -> tuple[int, int]:
 
 def draw_landmarks(
     painter: QtGui.QPainter,
-    pose: PoseEstimation,
+    pose: PoseLike,
     *,
     to_output: Callable[[float, float], tuple[int, int] | None],
     point_radius: int,
@@ -85,7 +85,7 @@ def draw_landmarks(
     """Draw whichever landmarks the pose file carries, with ``painter``.
 
     A pose file that records none of them draws nothing: the static objects are
-    optional, and older pose versions have no concept of them.
+    optional.
 
     Args:
         painter: The painter to draw with.

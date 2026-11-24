@@ -166,7 +166,7 @@ def test_labels_masked_to_identity_does_not_mutate_the_stored_labels() -> None:
 
 
 def test_labels_masked_to_identity_accepts_an_integer_mask() -> None:
-    """``PoseEstimation.identity_mask`` yields integers, not booleans."""
+    """``PoseLike.identity_mask`` yields integers, not booleans."""
     track = _labelled_track(4)
     as_int = track.labels_masked_to_identity(np.array([1, 0, 1, 0], dtype=np.int64))
     as_bool = track.labels_masked_to_identity(np.array([True, False, True, False]))

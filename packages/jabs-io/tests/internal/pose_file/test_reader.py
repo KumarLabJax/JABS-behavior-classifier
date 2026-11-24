@@ -8,6 +8,7 @@ import pytest
 
 from jabs.io.internal.pose_file import reader
 from jabs.io.internal.pose_file.reader import (
+    ComponentReader,
     NotAPoseFileError,
     PoseFileError,
     read_component,
@@ -202,3 +203,72 @@ def test_a_non_pose_file_is_not_described_through_a_link(tmp_path):
         read_manifest(upload)
 
     assert "v99" not in str(refused.value)
+
+
+def test_component_reader_reads_like_read_component(written):
+    """One open file serves many reads, whole and windowed, with the same results."""
+    with ComponentReader(written) as pose:
+        assert pose.manifest == read_manifest(written)
+        np.testing.assert_array_equal(
+            pose.read("jabs.pose.points"), read_component(written, "jabs.pose.points")
+        )
+        np.testing.assert_array_equal(
+            pose.read("jabs.pose.points", frames=slice(1, 3)),
+            read_component(written, "jabs.pose.points")[1:3],
+        )
+        assert pose.read("jabs.pose.point_valid").dtype == np.bool_
+
+
+def test_component_reader_opens_the_file_once(written, monkeypatch):
+    """The manifest and the self-containment check are done on open, not per read."""
+    calls = []
+    original = reader._require_self_contained
+
+    def counting(h5, path):
+        calls.append(path)
+        original(h5, path)
+
+    monkeypatch.setattr(reader, "_require_self_contained", counting)
+    with ComponentReader(written) as pose:
+        for start in range(4):
+            pose.read("jabs.pose.points", frames=slice(start, start + 1))
+    assert len(calls) == 1
+
+
+def test_component_reader_has_read_components_errors(written):
+    """An unknown id, a window over no frame axis, and a closed reader all refuse."""
+    pose = ComponentReader(written)
+    with pytest.raises(KeyError):
+        pose.read("jabs.pose.nonexistent")
+    pose.close()
+    pose.close()  # idempotent
+    with pytest.raises(ValueError, match="closed"):
+        pose.read("jabs.pose.points")
+
+
+def test_component_reader_refuses_a_legacy_file(tmp_path):
+    """Opening a legacy file is refused with read_manifest's message."""
+    legacy = tmp_path / "vid_pose_est_v6.h5"
+    with h5py.File(legacy, "w") as h5:
+        group = h5.create_group("poseest")
+        group.attrs["version"] = np.array([6, 0], dtype=np.uint16)
+    with pytest.raises(NotAPoseFileError, match="pose_est_v6"):
+        ComponentReader(legacy)
+
+
+def test_component_reader_refuses_outside_references_with_a_given_manifest(tmp_path, written):
+    """A caller's manifest skips validation, never the self-containment check."""
+    manifest = read_manifest(written)
+    with h5py.File(written, "r+") as h5:
+        del h5["/jabs/pose/confidence"]
+        add_outside_reference(h5, "/jabs/pose/confidence", "external-link", tmp_path)
+    with pytest.raises(PoseFileError, match="external link"):
+        ComponentReader(written, manifest=manifest)
+
+
+def test_component_reader_reads_provenance(written, sample_pose_file):
+    """The provenance document comes back parsed, as read_pose_file returns it."""
+    with ComponentReader(written) as pose:
+        provenance = pose.read_provenance()
+    assert provenance == read_pose_file(written).provenance
+    assert provenance.history[0].operation == "infer"

@@ -8,8 +8,9 @@ spot to extend the fakes as more UI thread tests are added.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -22,10 +23,6 @@ from jabs.core.enums import (
     CrossValidationGroupingStrategy,
     ProjectDistanceUnit,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Classifier fakes
@@ -177,6 +174,10 @@ class FakeTrainingProject:
         self.multiclass_calls = 0
         self.save_classifier = MagicMock()
 
+    def is_trainable(self, video: str) -> bool:
+        """Every video of the fake project is usable and included in training."""
+        return not self.settings_manager.is_video_excluded(video)
+
     def get_project_defaults(self) -> dict:
         """Return the default project settings used when classifier has none."""
         return dict(self._DEFAULT_BEHAVIOR_SETTINGS)
@@ -244,7 +245,15 @@ class FakeClassifyingProject:
             num_identities=1,
             num_frames=5,
             fps=30,
+            capabilities=frozenset(),
+            pose_file=Path("video_pose.h5"),
         )
+
+        self.unusable_videos: dict[str, str] = {}
+
+    def is_usable(self, video: str) -> bool:
+        """Return whether the video is usable (not in ``unusable_videos``)."""
+        return video not in self.unusable_videos
 
     def load_pose_est(self, _video_path) -> SimpleNamespace:
         """Return the fixed pose-estimation stand-in."""

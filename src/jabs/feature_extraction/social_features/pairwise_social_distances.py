@@ -2,8 +2,10 @@ import typing
 
 import numpy as np
 
+from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .social_distance import ClosestIdentityInfo
@@ -12,9 +14,9 @@ if typing.TYPE_CHECKING:
 # of points to capture just the most important
 # information for social.
 _social_point_subset = [
-    PoseEstimation.KeypointIndex.NOSE,
-    PoseEstimation.KeypointIndex.BASE_NECK,
-    PoseEstimation.KeypointIndex.BASE_TAIL,
+    KeypointIndex.NOSE,
+    KeypointIndex.BASE_NECK,
+    KeypointIndex.BASE_TAIL,
 ]
 
 
@@ -26,7 +28,7 @@ class PairwiseSocialDistances(Feature):
     based on pose estimation data.
 
     Args:
-        poses (PoseEstimation): Pose estimation data for all subjects.
+        poses (PoseLike): Pose estimation data for all subjects.
         pixel_scale (float): Scale factor to convert pixel distances to real-world units.
         social_distance_info (ClosestIdentityInfo): Object providing closest identity information.
 
@@ -35,7 +37,7 @@ class PairwiseSocialDistances(Feature):
     """
 
     _name = "social_pairwise_distances"
-    _min_pose = 3
+    _requires = frozenset({PoseCapability.SOCIAL})
 
     # total number of values created by pairwise distances between the
     # subject and closest other identity for this subset of points
@@ -43,7 +45,7 @@ class PairwiseSocialDistances(Feature):
 
     def __init__(
         self,
-        poses: PoseEstimation,
+        poses: PoseLike,
         pixel_scale: float,
         social_distance_info: "ClosestIdentityInfo",
     ):

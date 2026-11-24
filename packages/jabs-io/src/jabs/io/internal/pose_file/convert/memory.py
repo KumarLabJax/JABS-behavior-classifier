@@ -198,6 +198,9 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     cast, the datasets read whole: the static and dynamic objects,
     ``instance_id_center`` and ``external_identity_mapping``.
 
+    A file whose ``points`` has no instance axis (``pose_est_v2``) has
+    ``N = 1``, and every axis after the frame counts toward ``v``.
+
     Last, it adds the largest single chunk, ``prod(chunks) * itemsize``,
     across every dataset it reads (the frame datasets, the datasets read
     whole and the objects); a contiguous dataset adds nothing. HDF5
@@ -219,7 +222,12 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
         The estimate, in bytes.
     """
     pose = h5["poseest"]
-    frames, instances = (int(n) for n in pose["points"].shape[:2])
+    points = pose["points"]
+    instance_axis = points.ndim != 3
+    frames = int(points.shape[0])
+    instances = int(points.shape[1]) if instance_axis else 1
+    # Where a frame dataset's per-instance values start.
+    value_axis = 2 if instance_axis else 1
     slots = identity + instances
     seg = pose.get("seg_data")
     contours = int(seg.shape[2]) if seg is not None and seg.ndim == 5 else 0
@@ -241,9 +249,9 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     block = 0
     for name in FRAME_DATASETS:
         dataset = pose.get(name)
-        if not isinstance(dataset, h5py.Dataset) or dataset.ndim < 2:
+        if not isinstance(dataset, h5py.Dataset) or dataset.ndim < value_axis:
             continue
-        values = math.prod(dataset.shape[2:])
+        values = math.prod(dataset.shape[value_axis:])
         size = dataset.dtype.itemsize
         block = max(block, instances * values * (2 * size + 12) + 9 * slots * values)
     writing = min(block_frames, frames) * block

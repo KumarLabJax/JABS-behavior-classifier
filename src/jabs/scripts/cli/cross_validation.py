@@ -383,6 +383,9 @@ def run_cross_validation(
                 grouping_strategy=grouping_strategy,
                 grouping_regex=grouping_regex,
             )
+    # unusable videos (including any refused while collecting features) are
+    # left out of training; say so once
+    project.warn_unusable_videos()
 
     with progress:
         if k == 0:
