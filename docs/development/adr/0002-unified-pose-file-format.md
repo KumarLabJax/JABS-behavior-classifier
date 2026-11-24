@@ -1320,6 +1320,9 @@ plausible converter goes wrong:
 - **Duplicates are refused.** If two valid instances in one frame share an *e* in `1..identity`, the
   converter stops with an error naming the frame and identity, rather than choose which one the
   identity follows.
+- **A masked duplicate loses its tracklet.** A masked instance whose tracklet id a valid instance of
+  the same frame holds keeps its pose in its tail slot, with no tracklet; the `convert` entry lists
+  each one under `tracklets_cleared`. Any other tracklet id in two slots of a frame is refused.
 - **Coordinates.** `poseest/points` is `(y, x)` and is flipped to `(x, y)`. `poseest/seg_data` and
   `poseest/bbox` are already `(x, y)` and are **not** flipped: applying the keypoint flip to them
   transposes every outline and box.

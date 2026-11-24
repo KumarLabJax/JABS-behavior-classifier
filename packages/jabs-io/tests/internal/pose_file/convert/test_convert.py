@@ -786,3 +786,68 @@ def test_lenient_conversion_of_an_accepted_file_is_unchanged(tmp_path: Path, nam
     assert report.waived == ()
     assert _provenance(strict) == _provenance(lenient)
     assert strict.read_bytes() == lenient.read_bytes()
+
+
+_CLEARED_FRAMES = (5, 6, 7)
+
+
+def _masked_duplicate(h5: h5py.File) -> None:
+    """Give the spare legacy instance 3 pose data and instance 0's tracklet, still masked.
+
+    Real v6 files have this: a detection the identity step rejected
+    (``id_mask`` set) that the tracker gave a valid animal's tracklet.
+    """
+    pose = h5["poseest"]
+    for frame in _CLEARED_FRAMES:
+        pose["confidence"][frame, 3] = pose["confidence"][frame, 0]
+        pose["points"][frame, 3] = pose["points"][frame, 0]
+        pose["instance_track_id"][frame, 3] = pose["instance_track_id"][frame, 0]
+    assert pose["id_mask"][list(_CLEARED_FRAMES), 3].all()
+
+
+def test_masked_duplicate_loses_its_tracklet(tmp_path: Path) -> None:
+    """A masked instance holding a valid instance's tracklet keeps its pose, not the tracklet."""
+    gen = generator()
+    src = tmp_path / "masked-duplicate.h5"
+    gen.write_legacy(
+        src,
+        frames=120,
+        instances=4,
+        identities=3,
+        version=gen.V8,
+        seg=False,
+        edits=_masked_duplicate,
+    )
+    layout = inspect_legacy(src)
+    with h5py.File(src, "r") as h5:
+        plan = plan_placement(h5, layout)
+    frames = list(_CLEARED_FRAMES)
+    tail = plan.slot_of[frames, 3]
+    owner = plan.slot_of[frames, 0]
+    assert (tail >= layout.identity).all()
+
+    out = tmp_path / "out.h5"
+    convert_legacy(src, out, created=CREATED)
+    with h5py.File(out, "r") as h5:
+        tracklets = h5["jabs/pose/tracklet_id"][...]
+        occupied = h5["jabs/pose/slot_occupied"][...]
+    assert occupied[frames, tail].all()
+    assert (tracklets[frames, tail] == 0).all()
+    assert (tracklets[frames, owner] == gen.clean_track_id(0)).all()
+    _assert_tracklets_are_unbroken(out)
+    entry = _history(out)[0]
+    assert entry["extra"]["tracklets_cleared"] == {
+        "frame": frames,
+        "slot": tail.tolist(),
+        "legacy_index": [3, 3, 3],
+        "tracklet": [gen.clean_track_id(0)] * 3,
+    }
+    assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
+
+
+def test_no_tracklets_cleared_leaves_no_record(tmp_path: Path) -> None:
+    """A file with no masked duplicate records nothing, so its conversion is unchanged."""
+    out = tmp_path / "out.h5"
+    convert_legacy(legacy("v8-edge-cases.h5"), out, created=CREATED)
+    entry = _history(out)[0]
+    assert "tracklets_cleared" not in entry["extra"]

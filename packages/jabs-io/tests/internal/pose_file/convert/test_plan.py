@@ -446,3 +446,18 @@ def test_sample_v6_plans() -> None:
         plan = plan_placement(h5, layout)
     assert plan.slots >= layout.identity
     assert len(plan.tracklet_splits) == 1
+
+
+def test_masked_instances_sharing_a_tracklet_are_still_refused(tmp_path: Path) -> None:
+    """Only a valid instance's tracklet is kept over a masked one's; two masked ones are refused."""
+
+    def two_masked(h5: h5py.File) -> None:
+        """Give spare instances 3 and 4 pose data and one tracklet id, both masked."""
+        pose = h5["poseest"]
+        for instance in (3, 4):
+            pose["confidence"][5, instance] = pose["confidence"][5, 0]
+            pose["instance_track_id"][5, instance] = 99
+
+    path = _write(tmp_path / "two-masked.h5", two_masked, instances=5, identities=3)
+    with pytest.raises(LegacyConversionError, match=r"frame 5 has tracklet 99"):
+        _plan(path)
