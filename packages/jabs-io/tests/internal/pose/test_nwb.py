@@ -9,6 +9,8 @@ import h5py
 import numpy as np
 import pytest
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 # PoseNWBAdapter's dependencies live in the optional `nwb` extra, and the adapter
 # itself already degrades gracefully without them (see _NWB_AVAILABLE in
 # jabs.io.internal.pose.nwb). Skip this module when they are missing - a plain
@@ -25,7 +27,6 @@ from ndx_multisubjects import NdxMultiSubjectsNWBFile
 from ndx_pose import PoseEstimation
 from pynwb import NWBHDF5IO
 
-from jabs.core.abstract.pose_est import PoseEstimation as JABSPoseEst
 from jabs.core.enums import StorageFormat
 from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
 from jabs.io.internal.pose.nwb import (
@@ -90,7 +91,7 @@ def _make_pose_data(
     num_vertices=7,
     edges=None,
 ):
-    body_parts = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
+    body_parts = [kpt.name for kpt in KeypointIndex]
     num_keypoints = len(body_parts)
     rng = np.random.default_rng(42)
     points = rng.random((num_identities, num_frames, num_keypoints, 2)) * 100
@@ -400,7 +401,7 @@ def test_body_parts_not_in_jabs_metadata(tmp_path, adapter):
 def test_missing_keypoint_padded_with_nan(tmp_path, adapter, caplog):
     """A keypoint absent from the NWB file is padded with NaN and a warning is logged."""
     # Write with all canonical keypoints, then manually drop one series from the file.
-    canonical_names = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
+    canonical_names = [kpt.name for kpt in KeypointIndex]
     num_kp = len(canonical_names)
     rng = np.random.default_rng(2)
     data = PoseData(
@@ -446,7 +447,7 @@ def test_missing_keypoint_padded_with_nan(tmp_path, adapter, caplog):
 
 def test_keypoint_ordering_derived_from_series_names(tmp_path, adapter):
     """Canonical KeypointIndex names are returned in enum order regardless of HDF5 sort."""
-    canonical_names = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
+    canonical_names = [kpt.name for kpt in KeypointIndex]
     num_kp = len(canonical_names)
     rng = np.random.default_rng(1)
     data = PoseData(
@@ -1320,8 +1321,8 @@ def test_static_object_timestamps_span_first_and_last_frame(
 def test_bounding_box_description_documents_fill_value_ambiguity(tmp_path, adapter):
     """The bounding box description must not promise a single missing-value sentinel.
 
-    Missing boxes are usually NaN: PoseEstimationV8 initializes its regrouped array with
-    NaN and fills only slots where id_mask marks the instance valid. That is not
+    Missing boxes are usually NaN: the legacy v8 reader initialized its regrouped array
+    with NaN and filled only slots where id_mask marks the instance valid. That is not
     guaranteed, though - convert_parquet rewrites every NaN coordinate to -1, including
     rows it marks valid in id_mask, so -1 does reach this writer, and an integer-typed
     poseest/bbox dataset cannot hold NaN at all (the NaN fill casts to 0). The

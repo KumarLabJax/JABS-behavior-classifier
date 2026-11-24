@@ -1,4 +1,5 @@
 import json
+from collections.abc import Set as AbstractSet
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,7 +10,7 @@ import numpy as np
 import jabs.feature_extraction
 import jabs.version
 from jabs.core.constants import FINAL_TRAIN_SEED, MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierMode
+from jabs.core.enums import ClassifierMode, PoseCapability
 from jabs.project.project_utils import to_safe_name
 
 # these are used for type hints, but cause circular imports
@@ -31,6 +32,28 @@ JSON_ENCODED_SETTING_ATTR = "json_encoded"
 # ``identity`` of None is written as this sentinel and
 # jabs.project.read_training decodes it back into None.
 NO_IDENTITY_SENTINEL = -1
+
+# HDF5 attribute holding the pose capabilities the exported features were computed
+# with, as sorted string values. Older exports recorded a ``min_pose_version``
+# attribute instead; jabs.project.read_training maps it to capabilities.
+POSE_CAPABILITIES_ATTR = "pose_capabilities"
+
+
+def _write_pose_capabilities(out_h5: h5py.File, capabilities: AbstractSet[PoseCapability]) -> None:
+    """Store the pose capabilities as a sorted array of their string values.
+
+    An explicit string dtype keeps an empty set an empty string array rather than
+    the float array h5py would make of an empty list.
+
+    Args:
+        out_h5: Open HDF5 file to write into.
+        capabilities: Pose capabilities the exported features were computed with.
+    """
+    out_h5.attrs.create(
+        POSE_CAPABILITIES_ATTR,
+        data=sorted(PoseCapability(c).value for c in capabilities),
+        dtype=h5py.string_dtype(),
+    )
 
 
 def _write_group_mapping(
@@ -65,7 +88,7 @@ def _write_group_mapping(
 def export_training_data(
     project: "Project",
     behavior: str,
-    pose_version: int,
+    capabilities: AbstractSet[PoseCapability],
     classifier_type: "ClassifierType",
     training_seed: int = FINAL_TRAIN_SEED,
     out_file: Path | None = None,
@@ -80,7 +103,8 @@ def export_training_data(
     Args:
         project (Project): The JABS project to export data from.
         behavior (str): Name of the behavior to export.
-        pose_version (int): Minimum required pose version for the classifier.
+        capabilities (AbstractSet[PoseCapability]): Pose capabilities the project's
+            features were computed with (the project's capability intersection).
         classifier_type (ClassifierType): The classifier type for which data is exported.
         training_seed (int): Random seed to ensure reproducible training splits.
         out_file (Path, optional): Output file path. If None, a file is created in the
@@ -103,7 +127,7 @@ def export_training_data(
     with h5py.File(out_file, "w") as out_h5:
         out_h5.attrs["file_version"] = jabs.feature_extraction.FEATURE_VERSION
         out_h5.attrs["app_version"] = jabs.version.version_str()
-        out_h5.attrs["min_pose_version"] = pose_version
+        _write_pose_capabilities(out_h5, capabilities)
         out_h5.attrs["behavior"] = behavior
         write_project_settings(out_h5, project.settings_manager.get_behavior(behavior), "settings")
         out_h5.attrs["classifier_type"] = classifier_type.value
@@ -127,7 +151,7 @@ def export_training_data(
 
 def export_training_data_multiclass(
     project: "Project",
-    pose_version: int,
+    capabilities: AbstractSet[PoseCapability],
     classifier_type: "ClassifierType",
     training_seed: int = FINAL_TRAIN_SEED,
     out_file: Path | None = None,
@@ -140,7 +164,8 @@ def export_training_data_multiclass(
 
     Args:
         project: The JABS project to export data from.
-        pose_version: Minimum required pose version for the classifier.
+        capabilities: Pose capabilities the project's features were computed with
+            (the project's capability intersection).
         classifier_type: The classifier type for which data is exported.
         training_seed: Random seed to ensure reproducible training splits.
         out_file: Output file path. If None, a file is created in the project directory
@@ -166,7 +191,7 @@ def export_training_data_multiclass(
     with h5py.File(out_file, "w") as out_h5:
         out_h5.attrs["file_version"] = jabs.feature_extraction.FEATURE_VERSION
         out_h5.attrs["app_version"] = jabs.version.version_str()
-        out_h5.attrs["min_pose_version"] = pose_version
+        _write_pose_capabilities(out_h5, capabilities)
         out_h5.attrs["classifier_mode"] = ClassifierMode.MULTICLASS.value
         out_h5.attrs["classifier_type"] = classifier_type.value
         out_h5.attrs["training_seed"] = training_seed

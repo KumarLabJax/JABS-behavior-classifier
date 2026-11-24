@@ -11,7 +11,9 @@ coordinate), ``confidence``, ``point_valid`` and ``slot_occupied``.
 
 The values are spec 0029-A §2.3 and ADR 0002:1294-1315: points are flipped
 from ``(y, x)``, ``NaN`` only where there is no coordinate, and ``point_valid``
-is the confidence threshold alone, compared in float64. Empty slots get
+is the confidence threshold alone, compared in float64. A file with no
+instance axis (``pose_est_v2``) is read as one instance, the axis added after
+each read. Empty slots get
 ``NaN`` points and bbox, zero confidence, embeddings and tracklets, and false
 masks.
 """
@@ -78,6 +80,8 @@ def pose_components(
         tail: tuple[int, ...], dtype: type[np.generic], fill: object, read: _Reader
     ) -> BlockSource:
         """Return a block source scattering ``read``'s per-instance rows into slots."""
+        if not layout.instance_axis:
+            read = _one_instance(read)
         return _placed_source(path, plan, (frames, slots, *tail), dtype, fill, read, block_frames)
 
     components = [
@@ -140,6 +144,9 @@ def pose_components(
         centers = pose.get("instance_id_center")
         centers = centers[...].astype(np.float32) if centers is not None else None
         names = pose.get("external_identity_mapping")
+        if layout.leaves_behind("poseest/external_identity_mapping"):
+            # a lenient inspection waived it: not one name per identity
+            names = None
         names = _identity_names(path, names) if names is not None else None
 
     if layout.has_embeddings:
@@ -258,6 +265,16 @@ def _reader(name: str, dtype: type[np.generic]) -> _Reader:
         return pose[name][start:stop].astype(dtype, copy=False)
 
     return read
+
+
+def _one_instance(read: _Reader) -> _Reader:
+    """Return ``read`` with an instance axis of one added, for a file without one."""
+
+    def with_axis(pose: h5py.Group, start: int, stop: int) -> npt.NDArray[np.generic]:
+        """Read the rows in ``[start, stop)`` as one instance."""
+        return read(pose, start, stop)[:, np.newaxis]
+
+    return with_axis
 
 
 _read_confidence = _reader("confidence", np.float32)

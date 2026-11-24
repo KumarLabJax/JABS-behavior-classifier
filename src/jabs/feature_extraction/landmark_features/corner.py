@@ -5,9 +5,10 @@ import numpy as np
 import numpy.typing as npt
 import shapely
 
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 
 class CornerDistanceInfo:
@@ -22,7 +23,7 @@ class CornerDistanceInfo:
     class.
     """
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float):
         self._poses = poses
         self._pixel_scale = pixel_scale
         self._closest_corner_idx = {}
@@ -75,7 +76,7 @@ class CornerDistanceInfo:
             # don't scale the point coordinates by the pixel_scale value, since the
             # corners are in pixel space. we'll adjust the distance units later
             points, _ = self._poses.get_identity_poses(identity)
-            idx = PoseEstimation.KeypointIndex
+            idx = KeypointIndex
             nose = points[frames, idx.NOSE, :]
             base_neck = points[frames, idx.BASE_NECK, :]
 
@@ -242,16 +243,15 @@ class DistanceToCorner(Feature):
     """Feature extraction class for computing the distance to the nearest corner.
 
     Args:
-        poses (PoseEstimation): Pose estimation data for a video.
+        poses (PoseLike): Pose estimation data for a video.
         pixel_scale (float): Scale factor to convert pixel distances to cm.
         distances (CornerDistanceInfo): Object providing corner distance information.
     """
 
     _name = "corner_distances"
-    _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["corners"]
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
+    def __init__(self, poses: PoseLike, pixel_scale: float, distances: CornerDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -273,17 +273,16 @@ class BearingToCorner(Feature):
     """Feature extraction class for computing the bearing to the nearest corner.
 
     Args:
-        poses (PoseEstimation): Pose estimation data for a video.
+        poses (PoseLike): Pose estimation data for a video.
         pixel_scale (float): Scale factor to convert pixel distances to cm.
         distances (CornerDistanceInfo): Object providing corner distance and bearing information.
     """
 
     _name = "corner_bearings"
-    _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["corners"]
     _use_circular = True
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
+    def __init__(self, poses: PoseLike, pixel_scale: float, distances: CornerDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances

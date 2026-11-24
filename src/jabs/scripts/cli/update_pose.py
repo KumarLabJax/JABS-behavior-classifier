@@ -4,11 +4,13 @@ This is intended for keeping existing labels when pose files for the same
 videos have been regenerated or otherwise updated. The script validates the
 updated pose set first, then performs the label remap in two disposable
 staging projects so the live project stays unchanged while the update is
-underway. The updated pose directory must provide the same latest pose version
-for every project video, and only that latest version is copied back into the
-live project. Only after the staged label remap succeeds does it copy the
-staged annotations and project metadata back to the live project and swap in
-the updated pose files.
+underway. The updated pose directory must provide pose files of the same
+format for every project video (unified ``<video>_pose.h5`` files, or legacy
+files of one ``_pose_est_v<N>.h5`` version), and only the pose file JABS would
+pick for each video (``find_pose_file``: the unified file, else the highest
+legacy version) is copied back into the live project. Only after the staged
+label remap succeeds does it copy the staged annotations and project metadata
+back to the live project and swap in the updated pose files.
 
 Before the live project is modified, the script creates a timestamped backup
 zip under ``<project>/.backup`` containing every live file the update may
@@ -56,13 +58,26 @@ from pathlib import Path
 from typing import NamedTuple
 
 import click
-import h5py
 import numpy as np
 
+from jabs.core.enums import PoseCapability
 from jabs.core.utils import copy_file_atomic, find_video_files
 from jabs.io.annotations import annotation_filename
-from jabs.pose_estimation import get_pose_path, open_pose_file
+from jabs.io.internal.pose_file import PoseFileError
+from jabs.io.internal.pose_file import convert as pose_convert
+from jabs.pose_estimation import (
+    PoseOpenError,
+    get_pose_path,
+    is_legacy_pose_file,
+    is_pose_file,
+    open_pose_file,
+    scan_pose_metadata,
+    scan_raw_model_metadata,
+)
+from jabs.pose_estimation.conversion_cache import converted_path
+from jabs.pose_estimation.pose import Pose
 from jabs.project import Project
+from jabs.project.parallel_workers import PoseConversionJobSpec, convert_pose
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
 from jabs.scripts.initialize_project import (
@@ -89,16 +104,25 @@ def _project_videos(project_dir: Path) -> list[str]:
     project video. That matters here because every video found is sent straight
     to a pose file lookup: a macOS AppleDouble ``._<video>.mp4`` sidecar, which
     appears whenever a project is copied to an exFAT/NTFS drive, would otherwise
-    be checked for a ``._<video>_pose_est_v*.h5`` pose file that is not valid
+    be checked for a ``._<video>_pose.h5`` pose file that is not valid
     HDF5, failing the update of a project that is perfectly fine.
     """
     return find_video_files(project_dir)
 
 
 def _pose_files_for_video(video: str, pose_dir: Path) -> list[Path]:
-    """Return all pose files in ``pose_dir`` that correspond to ``video``."""
+    """Return all pose files in ``pose_dir`` that correspond to ``video``.
+
+    That is the unified ``<video>_pose.h5`` file and every legacy
+    ``<video>_pose_est_v<N>.h5`` file, so replacing a video's pose removes (and
+    backs up) both kinds.
+    """
     video_base = Path(video).with_suffix("").name
-    return sorted(pose_dir.glob(f"{video_base}_pose_est_v*.h5"))
+    candidates = [
+        pose_dir / f"{video_base}_pose.h5",
+        *pose_dir.glob(f"{video_base}_pose_est_v*.h5"),
+    ]
+    return sorted(path for path in candidates if path.is_file() and is_pose_file(path))
 
 
 def _require_writable_directory(path: Path, description: str) -> None:
@@ -344,6 +368,11 @@ def _remap_labels_for_video(
         Tuple of ``(success_count, skipped_count)``, counting each part of a split
         block separately.
     """
+    # an unlabeled video's pose is not opened: it may be the unusable file being replaced
+    if label_source_project.video_manager.load_annotations(video) is None:
+        print(f"INFO: No labels in source for {video}; skipping.")
+        return 0, 0
+
     source_pose = label_source_project.load_pose_est(
         label_source_project.video_manager.video_path(video)
     )
@@ -351,12 +380,11 @@ def _remap_labels_for_video(
         label_dest_project.video_manager.video_path(video)
     )
 
-    # Require pose v8+ with bounding boxes
+    # Require bounding boxes
     for name, pose in (("source", source_pose), ("destination", dest_pose)):
-        version = getattr(pose, "format_major_version", 0)
-        if version < 8 or not getattr(pose, "has_bounding_boxes", False):
+        if not pose.has_bounding_boxes:
             print(
-                f"WARNING: {video} {name} pose v{version} lacks bounding boxes; skipping.",
+                f"WARNING: {video} {name} pose lacks bounding boxes; skipping.",
                 file=sys.stderr,
             )
             return 0, 0
@@ -564,25 +592,44 @@ def _validate_pose_file(
     pose_path: Path,
     role: str,
     require_bboxes: bool,
-) -> tuple[int, int]:
+) -> tuple[str, int]:
     """Validate that a pose file is readable and matches the video frame count.
 
-    Returns:
-        Tuple of ``(format_major_version, num_identities)``.
-    """
-    pose = open_pose_file(pose_path, None)
-    version = getattr(pose, "format_major_version", 0)
-    if require_bboxes and (version < 8 or not getattr(pose, "has_bounding_boxes", False)):
-        raise ValueError(f"{video} {role} pose v{version} lacks bounding boxes")
+    The facts are read by a metadata scan (``scan_pose_metadata``): a legacy file
+    is inspected as its conversion would be, but not converted.
 
-    pose_frames = pose.num_frames
+    Args:
+        video: Video filename, for messages.
+        video_path: The video, for its frame count.
+        pose_path: The pose file to check.
+        role: What the pose file is (``"source"``, ``"replacement"``...), for messages.
+        require_bboxes: Whether the pose must have bounding boxes.
+
+    Returns:
+        Tuple of ``(source_format, num_identities)``; ``source_format`` is
+        ``"pose_est_v<N>"`` for a legacy file, ``"jabs.pose-file"`` for a unified one.
+
+    Raises:
+        ValueError: If the pose file cannot be read or would be refused by the
+            converter, lacks bounding boxes when they are required, or does not
+            match the video's frame count.
+    """
+    try:
+        metadata = scan_pose_metadata(pose_path)
+    except PoseOpenError as exc:
+        raise ValueError(f"{video} {role} pose cannot be opened: {exc}") from exc
+
+    if require_bboxes and PoseCapability.BOUNDING_BOXES not in metadata.capabilities:
+        raise ValueError(f"{video} {role} pose ({metadata.source_format}) lacks bounding boxes")
+
     video_frames = VideoReader.get_nframes_from_file(video_path)
-    if pose_frames != video_frames:
+    if metadata.frames != video_frames:
         raise ValueError(
-            f"{video} {role} pose frame count ({pose_frames}) does not match video ({video_frames})"
+            f"{video} {role} pose frame count ({metadata.frames}) does not match video "
+            f"({video_frames})"
         )
 
-    return int(version), int(pose.num_identities)
+    return metadata.source_format, int(metadata.num_identities)
 
 
 def _orphan_identities_in_annotation(
@@ -768,9 +815,14 @@ class _VideoPoseCheck(NamedTuple):
 
     video: str
     replacement_pose_path: Path
-    live_num_identities: int
-    replacement_version: int
+    live_num_identities: int | None
+    replacement_source_format: str
     replacement_num_identities: int
+
+
+def _annotation_path(project_dir: Path, video: str) -> Path:
+    """Return the live annotation file of a video."""
+    return project_dir / "jabs" / "annotations" / Path(video).with_suffix(".json")
 
 
 def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
@@ -779,26 +831,33 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
     Args:
         job: ``(video, project_dir, new_pose_dir)``.
 
+    The live pose file is checked only when the video has annotations: it is the
+    source of the label remap. An unlabeled video's live pose is replaced unread, so
+    an unusable one (which replacing is the remedy for) does not block the update.
+
     Returns:
-        The replacement pose path, its version and identity count, and the live pose
-        file's identity count.
+        The replacement pose path, its source format and identity count, and the live pose
+        file's identity count (``None`` when the video has no annotations).
 
     Raises:
-        ValueError: If either pose file is missing, unreadable, lacks bounding boxes, or
-            does not match the video's frame count.
+        ValueError: If the replacement pose file, or the live one of an annotated video,
+            is missing, unreadable, lacks bounding boxes, or does not match the video's
+            frame count.
     """
     video, project_dir, new_pose_dir = job
     video_path = project_dir / video
     live_pose_path = get_pose_path(video_path)
     replacement_pose_path = get_pose_path(video_path, new_pose_dir)
-    _, live_num_identities = _validate_pose_file(
-        video,
-        video_path,
-        live_pose_path,
-        "source",
-        require_bboxes=True,
-    )
-    replacement_version, replacement_num_identities = _validate_pose_file(
+    live_num_identities = None
+    if _annotation_path(project_dir, video).exists():
+        _, live_num_identities = _validate_pose_file(
+            video,
+            video_path,
+            live_pose_path,
+            "source",
+            require_bboxes=True,
+        )
+    replacement_source_format, replacement_num_identities = _validate_pose_file(
         video,
         video_path,
         replacement_pose_path,
@@ -809,7 +868,7 @@ def _check_video_pose_files(job: tuple[str, Path, Path]) -> _VideoPoseCheck:
         video,
         replacement_pose_path,
         live_num_identities,
-        replacement_version,
+        replacement_source_format,
         replacement_num_identities,
     )
 
@@ -861,8 +920,7 @@ def _preflight_update_inputs(
 
     replacement_pose_files: dict[str, Path] = {}
     live_annotations: set[str] = set()
-    annotations_dir = project_dir / "jabs" / "annotations"
-    replacement_version: int | None = None
+    replacement_source_format: str | None = None
     orphan_issues: list[tuple[str, int, list[int]]] = []
 
     replacement_identity_counts: dict[str, int] = {}
@@ -877,18 +935,18 @@ def _preflight_update_inputs(
             video = check.video
             live_num_identities = check.live_num_identities
             replacement_pose_path = check.replacement_pose_path
-            video_replacement_version = check.replacement_version
+            video_source_format = check.replacement_source_format
             replacement_identity_counts[video] = check.replacement_num_identities
-            if replacement_version is None:
-                replacement_version = video_replacement_version
-            elif video_replacement_version != replacement_version:
+            if replacement_source_format is None:
+                replacement_source_format = video_source_format
+            elif video_source_format != replacement_source_format:
                 raise ValueError(
-                    f"{video} replacement pose version v{video_replacement_version} does not "
-                    f"match replacement pose version v{replacement_version} used by other videos"
+                    f"{video} replacement pose format {video_source_format} does not match "
+                    f"replacement pose format {replacement_source_format} used by other videos"
                 )
             replacement_pose_files[video] = replacement_pose_path
-            annotation_path = annotations_dir / Path(video).with_suffix(".json")
-            if annotation_path.exists():
+            annotation_path = _annotation_path(project_dir, video)
+            if live_num_identities is not None and annotation_path.exists():
                 live_annotations.add(video)
                 orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
                 if orphans:
@@ -903,6 +961,82 @@ def _preflight_update_inputs(
     return _PreflightResult(
         videos, replacement_pose_files, live_annotations, replacement_identity_counts
     )
+
+
+def _require_staged_poses_open(
+    project: Project, videos: list[str], role: str, processes: int = 1
+) -> None:
+    """Convert and open a staged project's pose files, refusing any that cannot be.
+
+    Preflight validates pose files by a metadata scan, which does not catch what
+    only the converter or ``Pose`` refuses (two animals given one identity in a
+    frame, one track shared by two animals, an unreadable component). Converting
+    here, into the staged project's own cache, catches them before anything is
+    applied, and the label remap then reuses the conversions, so each legacy file
+    is converted once.
+
+    Args:
+        project: A staged project.
+        videos: The videos whose pose files must open.
+        role: What the pose files are (``"replacement"``, ``"current"``), for messages.
+        processes: Number of worker processes converting legacy files.
+
+    Raises:
+        ValueError: If any of the pose files cannot be converted or opened.
+    """
+    jobs: list[PoseConversionJobSpec] = []
+    unified: list[tuple[str, Path]] = []
+    for video in videos:
+        pose_path = project.video_manager.get_cached_pose_path(video)
+        if is_legacy_pose_file(pose_path):
+            jobs.append(
+                PoseConversionJobSpec(
+                    video=video,
+                    pose_path=pose_path,
+                    cache_dir=project.project_paths.cache_dir,
+                    known_hash=None,
+                )
+            )
+        else:
+            unified.append((video, pose_path))
+
+    refused: dict[str, str] = {}
+    converted: list[tuple[str, Path, str]] = []
+    with contextlib.ExitStack() as stack:
+        if processes > 1 and len(jobs) > 1:
+            pool = stack.enter_context(Pool(min(processes, len(jobs))))
+            outcomes = pool.imap(convert_pose, jobs)
+        else:
+            outcomes = map(convert_pose, jobs)
+        for job, (video, reason, source_hash) in zip(jobs, outcomes, strict=True):
+            if reason is not None:
+                refused[video] = reason
+            else:
+                converted.append((video, job["pose_path"], source_hash))
+    cache_dir = project.project_paths.cache_dir
+    for video, pose_path, source_hash in converted:
+        # open the conversion as the remap will (with the hash convert_pose read, so
+        # the file is not hashed again), so a Pose refusal also stops the update
+        try:
+            Pose(
+                converted_path(pose_path, source_hash, cache_dir),
+                source_path=pose_path,
+                source_hash=source_hash,
+                cache_dir=cache_dir,
+                converter_revision=pose_convert.CONVERTER_REVISION,
+            ).close()
+        except (PoseFileError, NotImplementedError, OSError, LookupError, ValueError) as exc:
+            refused[video] = str(exc)
+    for video, pose_path in unified:
+        try:
+            with open_pose_file(pose_path, project.project_paths.cache_dir):
+                pass
+        except PoseOpenError as exc:
+            refused[video] = exc.reason
+
+    if refused:
+        details = "; ".join(f"{video}: {refused[video]}" for video in sorted(refused))
+        raise ValueError(f"{role.capitalize()} pose files cannot be opened: {details}")
 
 
 def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
@@ -1023,14 +1157,24 @@ def _refresh_project_identity_counts(
 
 
 def _load_pose_file_model_metadata(pose_path: Path) -> dict[str, object] | None:
-    """Return parsed model metadata from a pose file, or ``None`` if it is absent."""
+    """Return a pose file's parsed model metadata, or ``None`` if it has none.
+
+    The stored ``model_metadata_json`` (a legacy file's attribute, or what a
+    unified file's conversion preserved) is read without converting, and parsed
+    strictly: unlike ``Pose.model_metadata``, metadata that is not a JSON object
+    is an error, not "none", so its file cannot pass the consistency check.
+
+    Args:
+        pose_path: The pose file.
+
+    Raises:
+        ValueError: If the pose file cannot be read, or its model metadata is not
+            valid JSON or not a JSON object.
+    """
     try:
-        with h5py.File(pose_path, "r") as pose_h5:
-            raw_json = pose_h5["poseest"].attrs.get("model_metadata_json")
-    except OSError as exc:
+        raw_json = scan_raw_model_metadata(pose_path)
+    except PoseOpenError as exc:
         raise ValueError(f"Could not read pose file metadata from {pose_path}: {exc}") from exc
-    except KeyError as exc:
-        raise ValueError(f"Pose file is missing the poseest group: {pose_path}") from exc
 
     if raw_json is None:
         return None
@@ -1045,7 +1189,7 @@ def _load_pose_file_model_metadata(pose_path: Path) -> dict[str, object] | None:
 
     try:
         metadata = json.loads(raw_json)
-    except json.JSONDecodeError as exc:
+    except (TypeError, json.JSONDecodeError) as exc:
         raise ValueError(
             f"Pose file model metadata is not valid JSON in {pose_path}: {exc}"
         ) from exc
@@ -1496,6 +1640,11 @@ def update_project_pose_in_place(
             video_dir=project_dir,
             pose_dir=new_pose_dir,
             validate_project_dir=False,
+        )
+        # what the metadata-only preflight cannot see: converter and Pose refusals
+        _require_staged_poses_open(label_dest_project, videos, "replacement", processes)
+        _require_staged_poses_open(
+            label_source_project, sorted(live_annotation_videos), "current", processes
         )
         _inject_consistent_pose_model_metadata(label_dest_project)
 

@@ -374,3 +374,66 @@ def test_feature_menus_follow_the_projects_capabilities(
     menu_refs.enable_segmentation_features.setEnabled.assert_called_once_with(can_use_segmentation)
     for landmark, menu_item in menu_refs.enable_landmark_features.items():
         menu_item.setEnabled.assert_called_once_with(landmark in static_objects)
+
+
+def _selection_stub(project) -> SimpleNamespace:
+    """Build a stub self for _video_list_selection."""
+    return SimpleNamespace(
+        _project=project,
+        _central_widget=MagicMock(),
+        _menu_refs=MagicMock(),
+        display_status_message=MagicMock(),
+        _project_load_error_callback=MagicMock(),
+    )
+
+
+def test_selecting_an_unusable_video_shows_the_reason_and_loads_nothing(monkeypatch):
+    """An unusable video is not loaded; its reason is shown with MessageDialog."""
+    project = MagicMock()
+    project.is_usable.return_value = False
+    project.unusable_videos = {"bad.avi": "shared tracklet"}
+    dialog = MagicMock()
+    monkeypatch.setattr(main_window_module, "MessageDialog", dialog)
+    stub = _selection_stub(project)
+
+    MainWindow._video_list_selection(stub, "bad.avi")
+
+    stub._central_widget.load_video.assert_not_called()
+    dialog.warning.assert_called_once()
+    assert dialog.warning.call_args.kwargs["details"] == "shared tracklet"
+
+
+def test_a_pose_that_fails_to_open_is_reported_without_crashing(monkeypatch):
+    """A PoseOpenError on load shows the reason and leaves the export actions off."""
+    project = MagicMock()
+    project.is_usable.return_value = True
+    dialog = MagicMock()
+    monkeypatch.setattr(main_window_module, "MessageDialog", dialog)
+    stub = _selection_stub(project)
+    stub._central_widget.load_video.side_effect = main_window_module.PoseOpenError(
+        main_window_module.Path("a_pose_est_v8.h5"), "disk full"
+    )
+
+    MainWindow._video_list_selection(stub, "a.avi")
+
+    dialog.error.assert_called_once()
+    assert dialog.error.call_args.kwargs["details"] == "disk full"
+    stub._menu_refs.export_frame.setEnabled.assert_called_with(False)
+    stub._project_load_error_callback.assert_not_called()
+
+
+def test_conversion_progress_updates_the_loading_dialog():
+    """Conversion progress turns the loading dialog into a determinate bar."""
+    dialog = MagicMock()
+    stub = SimpleNamespace(_progress_dialog=dialog)
+
+    MainWindow._pose_conversion_progress(stub, 1, 3)
+
+    dialog.setMaximum.assert_called_with(3)
+    dialog.setValue.assert_called_with(1)
+    assert "1 of 3" in dialog.setLabelText.call_args.args[0]
+
+
+def test_conversion_progress_without_a_dialog_is_ignored():
+    """A late progress signal after the dialog closed does nothing."""
+    MainWindow._pose_conversion_progress(SimpleNamespace(_progress_dialog=None), 1, 1)

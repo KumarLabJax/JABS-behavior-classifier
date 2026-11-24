@@ -445,34 +445,34 @@ IdentityFeatures (per identity/video)
 
 1. **`IdentityFeatures`** (in `features.py`) is the top-level class that manages all features for a single identity in a video.
    - Instantiated with pose data, identity, and project directory
-   - Automatically loads/creates all relevant `FeatureGroup` instances based on pose version
+   - Automatically loads/creates all relevant `FeatureGroup` instances based on the pose capabilities
    - Handles caching of computed features (HDF5 or Parquet, see [Feature Version Management and Cache Invalidation](#feature-version-management-and-cache-invalidation))
    - Provides methods like `get_per_frame()` and `get_window_features()`
 
 2. **`FeatureGroup`** subclasses organize related features:
    - `BaseFeatureGroup`: Core features (angles, distances, velocities) - always available
-   - `SocialFeatureGroup`: Multi-animal social features (requires pose v3+)
-   - `SegmentationFeatureGroup`: Spatial segmentation features (requires pose v6+)
+   - `SocialFeatureGroup`: Multi-animal social features (requires `PoseCapability.SOCIAL`: a pose format that can hold more than one animal, see `jabs.pose_estimation.pose.is_social`)
+   - `SegmentationFeatureGroup`: Spatial segmentation features (requires `PoseCapability.SEGMENTATION`)
    - `LandmarkFeatureGroup`: Static object/landmark features (extended features)
 
 3. **`Feature`** subclasses compute actual feature values:
    - Each implements `per_frame(identity)` to compute per-frame values
    - Inherits `window()` method for temporal window operations
-   - Can specify required pose version and dependencies
+   - Can specify required pose capabilities and dependencies
 
 ##### Feature Registration
 
 Feature groups are registered in `src/jabs/feature_extraction/features.py`:
 
 ```python
-# Core feature groups (always loaded if pose version supports them)
+# Core feature groups (always loaded if the pose capabilities support them)
 _FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGroup]
 
 # Extended feature groups (optional, loaded separately)
 _EXTENDED_FEATURE_MODULES = [LandmarkFeatureGroup]
 ```
 
-When `IdentityFeatures` is instantiated, it automatically creates instances of all applicable feature groups based on the pose file version.
+When `IdentityFeatures` is instantiated, it automatically creates instances of all applicable feature groups based on the pose capabilities (`Pose.has_social`, `Pose.has_segmentation`, and the static objects the file holds).
 
 ##### Adding a New Individual Feature
 
@@ -484,7 +484,7 @@ To add a new feature to an existing group (e.g., a new base feature):
    
    Key requirements:
    - Set `_name` class attribute (unique identifier)
-   - Set `_min_pose` (minimum pose version required)
+   - Set `_requires` if the feature needs pose capabilities (e.g. `frozenset({PoseCapability.SOCIAL})`); the default is none
    - Implement `per_frame(identity)` returning `dict[str, np.ndarray]`
    - Optionally set `_use_circular = True` for angular features
 
@@ -540,8 +540,8 @@ Key points:
 
 **Features with Dependencies:**
 
-Features can specify minimum pose versions and required static objects via class attributes:
-- `_min_pose`: Minimum pose version (e.g., `_min_pose = 6`)
+Features can specify required pose capabilities and static objects via class attributes:
+- `_requires`: Pose capabilities every pose file must provide (`jabs.core.enums.PoseCapability`), e.g. `_requires = frozenset({PoseCapability.SOCIAL})` for features that need a pose format that can hold more than one animal
 - `_static_objects`: List of required static objects (e.g., `["water_bottle", "food_hopper"]`)
 
 See `src/jabs/feature_extraction/landmark_features/` for examples.
@@ -588,8 +588,8 @@ Project opened
         └── IdentityFeatures.__init__(pose_est, identity=0)
             ├── Create FeatureGroup instances
             │   ├── BaseFeatureGroup(pose_est, pixel_scale)
-            │   ├── SocialFeatureGroup(pose_est, pixel_scale)  [if pose v3+]
-            │   └── SegmentationFeatureGroup(pose_est, pixel_scale)  [if pose v6+]
+            │   ├── SocialFeatureGroup(pose_est, pixel_scale)  [if SOCIAL]
+            │   └── SegmentationFeatureGroup(pose_est, pixel_scale)  [if SEGMENTATION]
             │
             └── Load or compute per-frame features (EAGERLY, during __init__)
                 ├── PATH 1: Cache hit → __load_from_file()
@@ -631,7 +631,7 @@ Project opened
 - **Cache bypasses Feature creation**: When loading from cache, Feature instances are never created - just numpy arrays loaded from the cache
 - **Memory efficiency**: Feature instances don't persist; only the computed numpy arrays are kept in memory
 - **Caching**: Expensive computations are cached to disk (HDF5 or Parquet files) and loaded once
-- **Flexibility**: Feature groups can be enabled/disabled based on pose version
+- **Flexibility**: Feature groups can be enabled/disabled based on pose capabilities
 - **Stateless features**: Each time Features are instantiated, they compute fresh values without carrying state
 
 ##### Feature Version Management and Cache Invalidation
@@ -741,12 +741,20 @@ FEATURE_VERSION = N + 1
    ```
 5. New features are computed and cached with the new version
 6. Users see one-time delay as all features are recomputed
+7. Saved classifiers trained on the old version are refused: every classifier records the
+   `FEATURE_VERSION` it was trained on (`_feature_version`), and `load()`/`from_pickle()` raise
+   `ClassifierFeatureVersionError` (a `ValueError`, in `jabs.classifier`) when the recorded
+   version is missing or differs. Training from an exported training file likewise refuses an
+   export whose `file_version` differs. The user has to retrain (and re-export training data).
 
 **Additional cache invalidation mechanisms:**
 
 Beyond version checking, `FeatureCacheReader._validate()` also invalidates the cache when:
 
 - **Pose file changes**: `pose_hash` mismatch raises `PoseHashException`
+- **Converter changes**: for a converted legacy pose file, a `converter_revision` mismatch
+  (jabs-io's `CONVERTER_REVISION`, bumped when converter output changes) raises
+  `PoseHashException`; unified pose files record none
 - **Distance scale changes**: switching between pixel/cm units changes
   `distance_scale_factor` and raises `DistanceScaleException`
 
@@ -786,8 +794,11 @@ operate on the nested feature dict *before* it is converted to a DataFrame and p
 classifier. This means the cache never needs to be invalidated when the user changes which feature
 groups are enabled.
 
-Features that were never computed (e.g., social features when using a pre-v3 pose file) are simply
-absent from both the cache and the nested dict.
+Features that were never computed (e.g., social features for a v2 pose file, whose format holds one animal) are
+simply absent from both the cache and the nested dict. Prediction does not fill them in: before computing features,
+`jabs-classify`, `jabs-cli evaluate` and the GUI's Classify check the classifier's `social` and `segmentation`
+settings against the pose's capabilities (`jabs.feature_extraction.require_pose_capabilities`) and refuse the file
+with `PoseCapabilityError` (the GUI skips the video with a warning).
 
 **Column ordering**
 

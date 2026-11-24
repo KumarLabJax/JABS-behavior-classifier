@@ -65,6 +65,7 @@ def _metadata_to_dict(metadata: FeatureCacheMetadata) -> dict[str, object]:
         if metadata.avg_wall_length is not None
         else None,
         "cached_window_sizes": sorted(metadata.cached_window_sizes),
+        "converter_revision": metadata.converter_revision,
     }
 
 
@@ -261,6 +262,7 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
         expected_feature_version: int,
         expected_pose_hash: str,
         expected_distance_scale_factor: float | None,
+        expected_converter_revision: int | None = None,
     ) -> None:
         """Initialize the reader, raising ``ImportError`` if pyarrow is absent.
 
@@ -271,12 +273,15 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
                 requested; used to detect caches built from a different pose file.
             expected_distance_scale_factor: Pixels-to-cm scale factor, or ``None``
                 when not using cm units.
+            expected_converter_revision: Converter revision of a converted
+                legacy pose file, or ``None`` for a unified pose file.
         """
         _require_pyarrow()
         super().__init__(
             expected_feature_version,
             expected_pose_hash,
             expected_distance_scale_factor,
+            expected_converter_revision,
         )
 
     @staticmethod
@@ -318,6 +323,8 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
         try:
             scale = raw["distance_scale_factor"]
             wall = raw["avg_wall_length"]
+            # absent from caches written before converted files recorded it
+            revision = raw.get("converter_revision")
             return FeatureCacheMetadata(
                 feature_version=int(raw["feature_version"]),  # type: ignore[arg-type]
                 identity=int(raw["identity"]),  # type: ignore[arg-type]
@@ -329,6 +336,7 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
                     int(s)
                     for s in raw["cached_window_sizes"]  # type: ignore[union-attr]
                 ),
+                converter_revision=int(revision) if revision is not None else None,  # type: ignore[arg-type]
             )
         except (KeyError, TypeError, ValueError) as exc:
             logger.debug("Failed to parse cache metadata: %s", exc)

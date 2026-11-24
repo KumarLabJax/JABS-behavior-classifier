@@ -898,3 +898,30 @@ def test_cli_multiclass_unknown_behavior_lists_none_class(tmp_path: Path) -> Non
     assert result.exit_code != 0
     assert f"{MULTICLASS_NONE_BEHAVIOR}, rearing" in result.output
     mock_collect.assert_not_called()
+
+
+def test_collect_bouts_with_a_pose_refused_at_conversion(tmp_path: Path) -> None:
+    """A labeled video whose pose cannot be opened still contributes its bouts."""
+    import json
+    import shutil
+
+    from jabs.project import Project, VideoLabels
+
+    corpus = Path(__file__).parents[2] / "packages" / "jabs-io" / "tests" / "data" / "legacy-pose"
+    annotations = tmp_path / "jabs" / "annotations"
+    annotations.mkdir(parents=True)
+    for video, pose, start in (
+        ("a", "v8-duplicate-embed.h5", 5),
+        ("b", "v8-with-centers.h5", 50),
+    ):
+        (tmp_path / f"{video}.avi").touch()
+        shutil.copyfile(corpus / pose, tmp_path / f"{video}_pose_est_v8.h5")
+        labels = VideoLabels(f"{video}.avi", 120)
+        labels.get_track_labels("0", "Walk").label_behavior(start, start + 4)
+        (annotations / f"{video}.json").write_text(json.dumps(labels.as_dict(None)))
+    project = Project(tmp_path, enable_session_tracker=False)
+
+    assert sorted(collect_behavior_bouts(project, "Walk")) == [
+        ("a.avi", 5, 9),
+        ("b.avi", 50, 54),
+    ]

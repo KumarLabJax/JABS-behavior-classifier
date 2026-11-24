@@ -13,6 +13,7 @@ from jabs.io.annotations import (
 )
 from jabs.project.project_paths import ProjectPaths
 from jabs.project.settings_manager import SettingsManager
+from jabs.project.video_labels import VideoLabels
 from jabs.project.video_manager import VideoManager
 
 
@@ -305,3 +306,31 @@ def test_valid_pose_files_populate_the_path_cache(video_manager, project_paths):
         "video1.avi": project_paths.project_dir / "video1_pose_est_v3.h5",
         "video2.mp4": project_paths.project_dir / "video2_pose_est_v6.h5",
     }
+
+
+def test_load_video_labels_does_not_need_a_usable_pose(video_manager, project_paths):
+    """Labels load without the pose when it cannot be opened.
+
+    The pose only maps identities to display names, so callers that load labels
+    without a pose (sample-frames, the bout analysis scripts) still get them.
+    """
+    refused = (
+        Path(__file__).parents[2]
+        / "packages"
+        / "jabs-io"
+        / "tests"
+        / "data"
+        / "legacy-pose"
+        / "v8-duplicate-embed.h5"
+    )
+    pose_path = video_manager.get_cached_pose_path("video1.avi")
+    shutil.copyfile(refused, pose_path)
+    labels = VideoLabels("video1.avi", 120)
+    labels.get_track_labels("0", "Walk").label_behavior(5, 9)
+    (project_paths.annotations_dir / "video1.json").write_text(json.dumps(labels.as_dict(None)))
+
+    loaded = video_manager.load_video_labels("video1.avi")
+
+    assert loaded is not None
+    blocks = loaded.get_track_labels("0", "Walk").get_blocks()
+    assert [(b["start"], b["end"]) for b in blocks] == [(5, 9)]

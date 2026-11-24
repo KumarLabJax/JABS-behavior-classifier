@@ -3,7 +3,7 @@ import logging
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -16,6 +16,7 @@ import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import (
     Classifier,
+    ClassifierFeatureVersionError,
     MultiClassClassifier,
     UnsupportedClassifierError,
     factories,
@@ -26,7 +27,8 @@ from jabs.core.enums import (
     ClassifierType,
     PredictionType,
 )
-from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
+from jabs.core.pose_protocol import PoseLike
+from jabs.pose_estimation import PoseOpenError
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 from jabs.video_export import LabelMarkerOverlay
 
@@ -130,6 +132,12 @@ class ExportLabelMarkers:
         )
 
 
+def _close_pose(pose: PoseLike | None) -> None:
+    """Close a pose the widget has stopped using; None is ignored."""
+    if pose is not None:
+        pose.close()
+
+
 class CentralWidget(QtWidgets.QWidget):
     """QT Widget implementing our main window contents"""
 
@@ -185,7 +193,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels: VideoLabels | None = None
         self._prediction_list = None
         self._probability_list = None
-        self._pose_est: PoseEstimation | None = None
+        self._pose_est: PoseLike | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
         # whether the player widget currently has label overlay values, so an overlay
         # that is already empty is not cleared again every time labels or predictions
@@ -271,7 +279,7 @@ class CentralWidget(QtWidgets.QWidget):
         # project-wide counts for the reserved "None" background track, used to
         # source the negative-class row of the label summary in multi-class mode
         self._none_counts = None
-        # behaviors whose saved classifier was already reported as unsupported, so
+        # behaviors whose saved classifier was already reported as unusable, so
         # the warning is shown once per project rather than on every behavior change
         self._unsupported_classifier_warned: set[str] = set()
         self._bouts_behavior = 0
@@ -433,6 +441,17 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
+        # Unload the previous project's video as a failed load_video does. When none of
+        # the new project's videos is usable, no video is loaded to replace it, and its
+        # pose and enabled select button would let the label keys act on gone labels.
+        previous_pose = self._pose_est
+        self._pose_est = None
+        self._set_identities([])
+        self._player_widget.reset()
+        self._update_select_button_state()
+        # the player no longer draws it: release its file (and any temporary conversion)
+        _close_pose(previous_pose)
+
         # The reserved "None"-track counts are behavior-independent, so they are
         # cached across behavior changes and only invalidated when the project
         # changes (they belong to the previous project here).
@@ -481,6 +500,7 @@ class CentralWidget(QtWidgets.QWidget):
             None
         """
         previous_video = self._loaded_video
+        previous_pose = self._pose_est
 
         self._suppress_label_track_update = True
         self._search_bar_widget.video_frame_position_changed(path.name, 0)
@@ -551,29 +571,32 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_timeline_search_results()
             self._update_label_counts()
 
-            # check if bbox overlay is supported by the pose file
-            if self._pose_est.format_major_version < 8:
-                self.bbox_overlay_supported.emit(False)
-            else:
-                # bboxes are optional in v8+, check if they exist. cast to a PoseEstimationV8 to access bbox methods
-                pose_v8 = cast(PoseEstimationV8, self._pose_est)
-                if pose_v8.has_bounding_boxes:
-                    self.bbox_overlay_supported.emit(True)
-                else:
-                    self.bbox_overlay_supported.emit(False)
+            # the bbox overlay needs a pose file with bounding boxes
+            self.bbox_overlay_supported.emit(bool(self._pose_est.has_bounding_boxes))
 
             if previous_video is not None:
                 self._project.session_tracker.video_closed(previous_video)
             self._project.session_tracker.video_opened(path)
 
-        except OSError as e:
+        except (OSError, PoseOpenError) as e:
             # error loading
+            failed_pose = self._pose_est
             self._labels = None
             self._loaded_video = None
             self._pose_est = None
             self._set_identities([])
             self._player_widget.reset()
+            # the player has let go of both: the previous pose, and the new one if it opened
+            _close_pose(previous_pose)
+            if failed_pose is not previous_pose:
+                _close_pose(failed_pose)
             raise e
+
+        # The player and timeline now hold the new pose, so the previous one is
+        # referenced nowhere: close it now rather than when it is collected, so its
+        # converted file is released at once (Windows cannot delete an open file).
+        if previous_pose is not self._pose_est:
+            _close_pose(previous_pose)
 
     def keyPressEvent(self, event) -> None:
         """handle key press events"""
@@ -1120,7 +1143,10 @@ class CentralWidget(QtWidgets.QWidget):
         if self._controls.all_kfold:
             if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
                 behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
-                counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+                counts_by_behavior = {
+                    name: self._included_counts(self._project.counts(name))
+                    for name in behavior_names
+                }
                 total_steps += MultiClassClassifier.count_label_threshold(
                     counts_by_behavior=counts_by_behavior,
                     behavior_names=behavior_names,
@@ -1128,7 +1154,9 @@ class CentralWidget(QtWidgets.QWidget):
                     cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
                 )
             else:
-                project_counts = self._project.counts(self._controls.current_behavior)
+                project_counts = self._included_counts(
+                    self._project.counts(self._controls.current_behavior)
+                )
                 total_steps += self._classifier.count_label_threshold(
                     project_counts,
                     cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
@@ -1332,6 +1360,17 @@ class CentralWidget(QtWidgets.QWidget):
                 details=self._training_cv_warning,
             )
             self._training_cv_warning = None
+
+        # Labeled videos left out because their pose is unusable; computed now,
+        # since a video can become unusable while the run collects features.
+        skipped = self._project.skipped_training_notice(self._training_behaviors())
+        if skipped is not None:
+            MessageDialog.warning(
+                self,
+                "Labeled Videos Not Trained On",
+                message=skipped.message,
+                details=skipped.details,
+            )
 
         # Display training report if available
         if self._training_report_markdown:
@@ -1992,10 +2031,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_button_color()
 
     def _included_counts(self, counts: dict | None) -> dict:
-        """Return a counts dict restricted to videos not excluded from training.
+        """Return a counts dict restricted to the videos training uses.
 
-        Excluded videos are held out of the training set, so their labels must
-        not count toward the train-button enablement thresholds.
+        Excluded videos, and videos whose pose file is unusable, are held out of
+        the training set, so their labels must not count toward the
+        train-button enablement thresholds.
 
         Args:
             counts: Per-video label/bout counts keyed by video filename, or
@@ -2008,11 +2048,10 @@ class CentralWidget(QtWidgets.QWidget):
         """
         if not counts:
             return {}
-        settings_manager = self._project.settings_manager
         return {
             video: identities
             for video, identities in counts.items()
-            if not settings_manager.is_video_excluded(video)
+            if self._project.is_trainable(video)
         }
 
     def _included_project_bout_totals(self) -> tuple[int, int]:
@@ -2027,9 +2066,8 @@ class CentralWidget(QtWidgets.QWidget):
         """
         behavior_bouts = 0
         not_behavior_bouts = 0
-        settings_manager = self._project.settings_manager
         for video, video_counts in (self._counts or {}).items():
-            if settings_manager.is_video_excluded(video):
+            if not self._project.is_trainable(video):
                 continue
             for identity_counts in video_counts.values():
                 behavior_bouts += identity_counts["unfragmented_bout_counts"][0]
@@ -2282,6 +2320,10 @@ class CentralWidget(QtWidgets.QWidget):
             )
             self._reset_classifier()
             self._warn_unsupported_classifier(e)
+        except ClassifierFeatureVersionError as e:
+            logger.warning("saved classifier must be retrained: %s", e)
+            self._reset_classifier()
+            self._warn_stale_classifier(e)
         except Exception as e:
             logger.error(
                 "failed to load classifier, it will need to be retrained: %s", e, exc_info=True
@@ -2302,6 +2344,45 @@ class CentralWidget(QtWidgets.QWidget):
         self._classifier = Classifier(self._controls.classifier_type, n_jobs=-1)
         self._ensure_classifier_for_mode()
 
+    def _claim_saved_classifier_warning(self) -> str | None:
+        """Claim the one warning allowed per saved classifier, and name that classifier.
+
+        Returns:
+            The HTML subject naming the saved classifier, or None when a warning
+            about it was already shown for this project.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            key = "multi-class classifier"
+            subject = "The saved multi-class classifier"
+        else:
+            key = self.behavior
+            subject = f"The saved classifier for <b>{html.escape(self.behavior)}</b>"
+        if key in self._unsupported_classifier_warned:
+            return None
+        self._unsupported_classifier_warned.add(key)
+        return subject
+
+    def _warn_stale_classifier(self, error: ClassifierFeatureVersionError) -> None:
+        """Tell the user the saved classifier was trained on other features and must be retrained.
+
+        Shown at most once per behavior per project, deferred like
+        :meth:`_warn_unsupported_classifier`.
+
+        Args:
+            error: The error raised while loading the saved classifier.
+        """
+        subject = self._claim_saved_classifier_warning()
+        if subject is None:
+            return
+        message = (
+            f"{subject} was trained with features from an earlier version of JABS, "
+            f"so it could not be loaded. You will need to retrain it before you can "
+            f"classify.<br><br>{html.escape(str(error))}"
+        )
+        QtCore.QTimer.singleShot(
+            0, self, lambda: MessageDialog.warning(self, "Retrain Classifier", message)
+        )
+
     def _warn_unsupported_classifier(self, error: UnsupportedClassifierError) -> None:
         """Tell the user the saved classifier can't be used and must be retrained.
 
@@ -2311,15 +2392,9 @@ class CentralWidget(QtWidgets.QWidget):
         Args:
             error: The error raised while loading the saved classifier.
         """
-        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            key = "multi-class classifier"
-            subject = "The saved multi-class classifier"
-        else:
-            key = self.behavior
-            subject = f"The saved classifier for <b>{html.escape(self.behavior)}</b>"
-        if key in self._unsupported_classifier_warned:
+        subject = self._claim_saved_classifier_warning()
+        if subject is None:
             return
-        self._unsupported_classifier_warned.add(key)
 
         saved_type = f" ({html.escape(error.classifier_name)})" if error.classifier_name else ""
         # the error names an optional type by its package or by its display name
@@ -2357,10 +2432,32 @@ class CentralWidget(QtWidgets.QWidget):
         """Handle updates when the current search hit changes."""
         search_hit = self._search_bar_widget.current_search_hit
         if search_hit is not None and self._project is not None:
+            # an unusable video's annotations can still match a search, but it has no
+            # pose to load
+            if not self._project.is_usable(search_hit.file):
+                MessageDialog.warning(
+                    self,
+                    title="Unusable Pose File",
+                    message=f"{search_hit.file} cannot be opened because its pose file is "
+                    "unusable.",
+                    details=self._project.unusable_videos[search_hit.file],
+                )
+                return
+
             # load the video and seek to frame for the search hit
             video_to_load = self._project.video_manager.video_path(search_hit.file)
             if video_to_load != self._loaded_video:
-                self.load_video(video_to_load)
+                try:
+                    self.load_video(video_to_load)
+                except PoseOpenError as e:
+                    logger.error("Unable to open the pose file for %s", search_hit.file)
+                    MessageDialog.error(
+                        self,
+                        title="Unable to Open Pose File",
+                        message=f"Unable to open the pose file for {search_hit.file}.",
+                        details=e.reason,
+                    )
+                    return
             self._player_widget.seek_to_frame(search_hit.start_frame)
 
             # set the current identity based on the search hit

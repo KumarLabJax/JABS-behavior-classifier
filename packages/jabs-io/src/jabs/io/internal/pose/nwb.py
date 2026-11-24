@@ -16,6 +16,8 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.pose_skeleton import KeypointIndex
+
 try:
     from hdmf.backends.hdf5 import H5DataIO
     from ndx_jabs import ContourSeries, JaxAgingStudyMetaData, JaxAgingSubject, JaxStudySubject
@@ -38,7 +40,6 @@ try:
 except ImportError:
     _MULTISUBJECTS_AVAILABLE = False
 
-from jabs.core.abstract.pose_est import PoseEstimation as _JABSPoseEstimation
 from jabs.core.enums import StorageFormat
 from jabs.core.exceptions import MissingOptionalDependencyError
 from jabs.core.types import DynamicObjectData, PoseData, SegmentationData
@@ -61,9 +62,7 @@ _JAX_AGING_SESSION_TEXT_FIELDS = ("batch", "tester")
 # Maps canonical keypoint name → its integer index in KeypointIndex.
 # Used by _sort_body_parts to recover the correct keypoint order from
 # PoseEstimationSeries names, since pynwb returns series alphabetically from HDF5.
-_KEYPOINT_ORDER: dict[str, int] = {
-    kpt.name: kpt.value for kpt in _JABSPoseEstimation.KeypointIndex
-}
+_KEYPOINT_ORDER: dict[str, int] = {kpt.name: kpt.value for kpt in KeypointIndex}
 
 
 def _sort_body_parts(names: list[str]) -> list[str]:
@@ -152,9 +151,9 @@ def _bounding_box_description(identity_name: str) -> str:
     """Return the TimeSeries description for bounding boxes of a given identity.
 
     The description does not promise a single missing-value sentinel, because the
-    writer cannot guarantee one. Missing boxes are usually NaN - PoseEstimationV8
-    initializes its regrouped array with NaN and fills only the slots id_mask marks
-    valid - but ``jabs-cli convert-parquet`` rewrites every NaN coordinate to -1,
+    writer cannot guarantee one. Missing boxes are usually NaN - the legacy v8
+    reader initialized its regrouped array with NaN and filled only the slots
+    id_mask marks valid - but ``jabs-cli convert-parquet`` rewrites every NaN coordinate to -1,
     including rows it marks valid in id_mask, and an integer-typed ``poseest/bbox``
     dataset cannot hold NaN at all (the NaN fill casts to 0). Normalizing the value
     here would change the exported coordinates and break the lossless roundtrip, so

@@ -24,7 +24,7 @@ from jabs.behavior_search import (
     TimelineAnnotationSearchQuery,
 )
 from jabs.core.enums import ClassifierMode
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_protocol import PoseLike
 
 from ..colors import (
     BACKGROUND_COLOR,
@@ -131,7 +131,7 @@ class BehaviorTimelineWidget(QWidget):
         self._per_class_separators: list[QFrame | None] = []
         self._identity_frames: list[QFrame] = []
         self._frame_labels = FrameRulerWidget(self)
-        self._pose: PoseEstimation | None = None
+        self._pose: PoseLike | None = None
 
         self._classifier_mode: ClassifierMode = ClassifierMode.BINARY
         self._behavior_names: list[str] = []
@@ -256,16 +256,16 @@ class BehaviorTimelineWidget(QWidget):
             self._update_widget_visibility()
 
     @property
-    def pose(self) -> PoseEstimation | None:
-        """Get the PoseEstimation object used by the label overview widgets."""
+    def pose(self) -> PoseLike | None:
+        """Get the PoseLike object used by the label overview widgets."""
         return self._pose
 
     @pose.setter
-    def pose(self, pose_est: PoseEstimation) -> None:
-        """Set the PoseEstimation object used by the label overview widgets.
+    def pose(self, pose_est: PoseLike) -> None:
+        """Set the PoseLike object used by the label overview widgets.
 
         Args:
-            pose_est: PoseEstimation object to set.
+            pose_est: PoseLike object to set.
         """
         self._pose = pose_est
         self._num_identities = pose_est.num_identities

@@ -1,9 +1,8 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 from PySide6.QtWidgets import QApplication
 
-from jabs.pose_estimation import PoseEstimationV8
 from jabs.ui.ear_tag_icons import EarTagIconManager
 
 from .overlay import Overlay
@@ -29,7 +28,7 @@ class BoundingBoxOverlay(Overlay):
     ear tag icon if available for the identity, otherwise displays the display ID as
     text.
 
-    Requires PoseEst v8 or later.
+    Draws nothing for a pose without bounding boxes.
     """
 
     id_label_clicked = QtCore.Signal(int)
@@ -58,19 +57,13 @@ class BoundingBoxOverlay(Overlay):
         if (
             not self._enabled
             or self.parent.pose is None
-            or self.parent.pose.format_major_version < 8
+            or not self.parent.pose.has_bounding_boxes
             or self.parent.pixmap().isNull()
             or self.parent.identity_overlay_mode != self.parent.IdentityOverlayMode.BBOX
         ):
             return
 
-        # we use methods available only in PoseEstimationV8 and later
-        # cast the base PoseEstimation to PoseEstimationV8 to avoid IDE warnings about undefined methods
-        pose = cast(PoseEstimationV8, self.parent.pose)
-
-        # no need to proceed if there are no bounding boxes to draw
-        if not pose.has_bounding_boxes:
-            return
+        pose = self.parent.pose
 
         # Reset tab rects each paint; they'll be repopulated for hit-testing
         self._tab_rects.clear()

@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, call
 import numpy as np
 import pytest
 
-from jabs.pose_estimation import PoseEstimationV5, PoseEstimationV6
-
 try:
     from PySide6.QtWidgets import QApplication
 
@@ -433,40 +431,23 @@ def test_export_overlay_video_without_video_warns(handler_setup, monkeypatch):
     warning.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    ("pose_class", "has_segmentation", "expected_reason"),
-    [
-        (PoseEstimationV6, True, None),
-        (PoseEstimationV6, False, "generated without it"),
-        (PoseEstimationV5, False, "requires pose version 6 or newer"),
-    ],
-    ids=["v6-with-segmentation", "v6-without-segmentation", "before-v6"],
-)
+@pytest.mark.parametrize("has_segmentation", [True, False], ids=["with", "without"])
 def test_export_overlay_video_reports_segmentation_availability(
-    video_export_setup,
-    monkeypatch,
-    pose_class: type,
-    has_segmentation: bool,
-    expected_reason: str | None,
+    video_export_setup, monkeypatch, has_segmentation: bool
 ):
-    """Segmentation is optional even in v6+, so the box tracks the data, not the version.
-
-    A v6+ pose file without the data and an older pose version give different reasons.
-    """
+    """The segmentation box follows the pose file's segmentation capability."""
     handlers, _window, player, _thread_cls, _thread = video_export_setup
-    player.pose_est = MagicMock(spec=pose_class)
-    if pose_class is PoseEstimationV6:
-        player.pose_est.has_segmentation = has_segmentation
+    player.pose_est = MagicMock()
+    player.pose_est.has_segmentation = has_segmentation
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
 
     handlers.export_overlay_video()
 
     reason = options_cls.call_args.kwargs["segmentation_unavailable"]
-    if expected_reason is None:
+    if has_segmentation:
         assert reason is None
     else:
-        assert reason.startswith("No segmentation data available")
-        assert expected_reason in reason
+        assert reason == "No segmentation data available: this pose file was generated without it"
 
 
 @pytest.mark.parametrize(
@@ -736,3 +717,29 @@ def test_prune_cancelled_leaves_feature_support_alone(monkeypatch):
     handler.move_files_to_recycle_bin_with_delete_fallback.assert_not_called()
     handler.window.display_status_message.assert_not_called()
     assert recorder.mock_calls == []
+
+
+def test_clear_pose_cache_reloads_through_the_guarded_selection(monkeypatch):
+    """The reload after clearing goes through the path that reports a pose that fails to open.
+
+    Reloading with load_video directly let a PoseOpenError escape the slot, unloading
+    the video with no message.
+    """
+    dialog = MagicMock()
+    dialog.confirm.return_value = True
+    monkeypatch.setattr(menu_handlers_module, "MessageDialog", dialog)
+    central = SimpleNamespace(
+        loaded_video=Path("/project/a.avi"),
+        load_video=MagicMock(side_effect=AssertionError("unguarded reload")),
+    )
+    window = SimpleNamespace(
+        _project=MagicMock(),
+        _central_widget=central,
+        _video_list_selection=MagicMock(),
+        display_status_message=MagicMock(),
+    )
+
+    MenuHandlers(window).clear_cache()
+
+    window._project.clear_cache.assert_called_once()
+    window._video_list_selection.assert_called_once_with("a.avi")

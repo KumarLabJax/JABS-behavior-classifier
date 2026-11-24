@@ -8,7 +8,7 @@ import pytest
 import torch
 
 import jabs.vision.cli.pose as pose_cli
-from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE
+from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE
 from jabs.vision.cli.pose import _build_pose_data, run_pose_inference
 
 

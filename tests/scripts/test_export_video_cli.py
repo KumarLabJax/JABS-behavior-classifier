@@ -40,7 +40,9 @@ def export_spy(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
     fake.VideoExportError = _FakeExportError
     fake.export_overlay_video = spy
     monkeypatch.setitem(sys.modules, _VIDEO_EXPORT, fake)
-    monkeypatch.setattr(ev, "open_pose_file", lambda path: mock.Mock(name=f"pose:{path}"))
+    monkeypatch.setattr(
+        ev, "open_pose_file", lambda path, *_args, **_kwargs: mock.MagicMock(name=f"pose:{path}")
+    )
     return spy
 
 
@@ -74,13 +76,15 @@ def test_pose_file_is_discovered_beside_the_video(
     wraps long paths at the terminal width, so the filename is not reliably intact
     in what gets printed.
     """
-    loader = mock.Mock(return_value=mock.Mock())
+    loader = mock.Mock(return_value=mock.MagicMock())
     monkeypatch.setattr(ev, "open_pose_file", loader)
 
     result = _invoke(str(video))
 
     assert result.exit_code == 0, result.output
-    loader.assert_called_once_with(video.with_name("clip_pose_est_v6.h5"))
+    loader.assert_called_once_with(
+        video.with_name("clip_pose_est_v6.h5"), None, temporary_conversion=True
+    )
 
 
 def test_missing_pose_file_is_a_clean_error(tmp_path: Path, export_spy: mock.Mock) -> None:
@@ -185,7 +189,7 @@ def test_unimportable_qt_fails_gracefully(video: Path, monkeypatch: pytest.Monke
     that headless machines routinely lack. Setting the entry to None makes the import
     raise the same way a missing ``libEGL.so.1`` does.
     """
-    monkeypatch.setattr(ev, "open_pose_file", lambda path: mock.Mock())
+    monkeypatch.setattr(ev, "open_pose_file", lambda path: mock.MagicMock())
     monkeypatch.setitem(sys.modules, _VIDEO_EXPORT, None)
 
     result = _invoke(str(video))
@@ -243,3 +247,20 @@ def test_unreadable_pose_file_is_a_clean_error(
     assert result.exit_code != 0
     assert "Could not read pose file" in result.output
     export_spy.assert_not_called()
+
+
+def test_cache_dir_keeps_the_conversion(
+    video: Path, export_spy: mock.Mock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--cache-dir opens the pose through that cache instead of a temporary directory."""
+    loader = mock.Mock(return_value=mock.MagicMock())
+    monkeypatch.setattr(ev, "open_pose_file", loader)
+
+    result = _invoke(str(video), "--cache-dir", str(tmp_path / "conversions"))
+
+    assert result.exit_code == 0, result.output
+    loader.assert_called_once_with(
+        video.with_name("clip_pose_est_v6.h5"),
+        tmp_path / "conversions",
+        temporary_conversion=False,
+    )

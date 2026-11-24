@@ -79,6 +79,8 @@ class ConversionReport:
             ``longterm_seg_id`` other than their embed id.
         dropped: The legacy paths left behind.
         seconds: Wall-clock time the conversion took.
+        waived: ``(path, reason)`` for each refusal a lenient conversion
+            (``strict=False``) waived, leaving the item behind.
     """
 
     source: Path
@@ -90,6 +92,7 @@ class ConversionReport:
     longterm_mismatches: int
     dropped: tuple[str, ...]
     seconds: float
+    waived: tuple[tuple[str, str], ...] = ()
 
 
 def block_frames_for(layout: LegacyLayout, block_bytes: int) -> int:
@@ -123,8 +126,9 @@ def convert_legacy(
     block_bytes: int = 64 * 2**20,
     max_memory: int = DEFAULT_MAX_MEMORY,
     created: str | None = None,
+    strict: bool = True,
 ) -> ConversionReport:
-    """Convert a legacy ``pose_est_v4``..``v8`` file to a ``jabs.pose-file``.
+    """Convert a legacy ``pose_est_v2``..``v8`` file to a ``jabs.pose-file``.
 
     The legacy file is only read. The destination is written atomically and
     deep-checked before it replaces any existing file, so a refusal or a
@@ -146,6 +150,12 @@ def convert_legacy(
             sample's widths.
         created: The timestamp for the manifest and the history, ISO 8601.
             Defaults to now.
+        strict: Refuse every legacy item outside the catalog or malformed
+            (the default, which the Hub needs: it deletes the original). False
+            waives the refusals ``inspect_legacy`` lists for a lenient
+            inspection: the item is left behind, listed in the convert
+            entry's ``dropped`` and, with the reason, in its ``extra``
+            ``waived``, so a reader can open what the legacy readers opened.
 
     Returns:
         What the conversion did.
@@ -157,7 +167,7 @@ def convert_legacy(
             catalog, its estimated peak memory is above ``max_memory``, a
             large dataset declares far more than it stores, it cannot be
             placed (a duplicate identity, a tracklet in two slots of a
-            frame), or the converted file fails validation. The message says
+            frame, a v3 track on two instances of a frame), or the converted file fails validation. The message says
             why.
     """
     started = time.perf_counter()
@@ -173,7 +183,7 @@ def convert_legacy(
     stamp = created or datetime.now(timezone.utc).isoformat()
     version = importlib.metadata.version("jabs-io")
 
-    layout = inspect_legacy(source, max_memory=max_memory)
+    layout = inspect_legacy(source, max_memory=max_memory, strict=strict)
     logger.debug(
         "inspected %s: %d frames, %d legacy instances, %d identities, version %s",
         source,
@@ -251,6 +261,7 @@ def convert_legacy(
         longterm_mismatches=len(plan.longterm_mismatches),
         dropped=layout.dropped,
         seconds=time.perf_counter() - started,
+        waived=layout.waived,
     )
     logger.info(
         "converted %s (%s): %d frames, %d slots, %d tail instances in %.2f seconds",

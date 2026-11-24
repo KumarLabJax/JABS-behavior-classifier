@@ -15,7 +15,7 @@ from jabs.video_reader import BlankFrameReader, VideoReader
 from .frame_renderer import render_overlay_frame
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
     from .label_marker_overlay import LabelMarkerOverlay
 
@@ -92,7 +92,7 @@ def _open_writer(
 def export_overlay_video(
     video_path: Path,
     output_path: Path,
-    pose_est: PoseEstimation,
+    pose_est: PoseLike,
     *,
     draw_pose: bool = True,
     draw_segmentation: bool = True,
@@ -112,8 +112,8 @@ def export_overlay_video(
         pose_est: Pose estimation for ``video_path``.
         draw_pose: Whether to include the pose keypoints and skeleton.
         draw_segmentation: Whether to include segmentation contours.
-        draw_bounding_boxes: Whether to include each identity's bounding box (v8+
-            pose files only).
+        draw_bounding_boxes: Whether to include each identity's bounding box (pose
+            files with bounding boxes only).
         draw_landmarks: Whether to include the arena landmarks (corners, lixit and
             food hopper) the pose file records.
         label_overlay: Labels and/or predictions to mark next to each identity,

@@ -15,7 +15,7 @@ MULTICLASS_PREDICTION_KEY = "__multiclass__"
 
 if typing.TYPE_CHECKING:
     from jabs.classifier import Classifier, MultiClassClassifier
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
     from .project import Project
 
@@ -49,7 +49,7 @@ class PredictionManager:
         output_path: Path,
         predictions: np.ndarray,
         probabilities: np.ndarray,
-        poses: "PoseEstimation",
+        poses: "PoseLike",
         classifier: "Classifier | MultiClassClassifier",
         postprocessed_predictions: np.ndarray | None = None,
         class_names: list[str] | None = None,
@@ -67,7 +67,7 @@ class PredictionManager:
             probabilities (np.ndarray): Array of predicted class probabilities. Binary predictions use shape
                 (n_animals, n_frames); multi-class predictions use shape
                 (n_animals, n_frames, n_classes).
-            poses: PoseEstimation object corresponding to the video.
+            poses: PoseLike object corresponding to the video.
             classifier: Binary or multi-class classifier instance used to generate predictions.
             postprocessed_predictions (np.ndarray | None): Optional array of post-processed predictions.
             class_names (list[str] | None): Optional ordered class names for multi-class predictions.

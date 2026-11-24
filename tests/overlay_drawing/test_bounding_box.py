@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
+
+from jabs.core.enums import PoseCapability
+from jabs.pose_estimation import open_pose_file
+
+from .conftest import BBOX_SOURCE, NO_BBOX_SOURCE, POSE_KINDS, copy_pose
 
 try:
     from PySide6 import QtGui
@@ -42,10 +49,8 @@ class StubPose:
     def __init__(
         self,
         bbox: list[list[float]] | None = None,
-        version: int = 8,
         has_bounding_boxes: bool = True,
     ) -> None:
-        self.format_major_version = version
         self.has_bounding_boxes = has_bounding_boxes
         self._bboxes = None if bbox is None else np.array([bbox], dtype=np.float32)
 
@@ -99,10 +104,9 @@ def test_draws_identity_tab_above_the_box() -> None:
         StubPose([[-1, -1], [-1, -1]]),
         StubPose([[80, 80], [40, 40]]),
         StubPose(None),
-        StubPose([[60, 60], [140, 140]], version=6),
         StubPose([[60, 60], [140, 140]], has_bounding_boxes=False),
     ],
-    ids=["missing", "degenerate", "no-data", "pre-v8", "not-generated"],
+    ids=["missing", "degenerate", "no-data", "no-bounding-boxes"],
 )
 def test_draws_nothing_without_a_usable_box(pose: StubPose) -> None:
     """Missing, degenerate or unavailable boxes leave the frame untouched."""
@@ -112,11 +116,32 @@ def test_draws_nothing_without_a_usable_box(pose: StubPose) -> None:
     assert not array.any()
 
 
-def test_pose_has_bounding_boxes_needs_v8_and_data() -> None:
-    """Only a v8+ pose file generated with boxes has any to draw."""
+def test_pose_has_bounding_boxes_follows_the_capability() -> None:
+    """Only a pose with bounding boxes has any to draw."""
     assert pose_has_bounding_boxes(StubPose([[0, 0], [1, 1]]))
-    assert not pose_has_bounding_boxes(StubPose([[0, 0], [1, 1]], version=7))
     assert not pose_has_bounding_boxes(StubPose([[0, 0], [1, 1]], has_bounding_boxes=False))
+
+
+@pytest.mark.parametrize("kind", POSE_KINDS)
+@pytest.mark.parametrize(
+    ("source", "expected"), [(BBOX_SOURCE, True), (NO_BBOX_SOURCE, False)], ids=["boxes", "none"]
+)
+def test_real_pose_bounding_boxes_follow_capabilities(
+    tmp_path: Path, kind: str, source: Path, expected: bool
+) -> None:
+    """A real legacy or unified file is drawable exactly when it has BOUNDING_BOXES."""
+    with open_pose_file(copy_pose(source, tmp_path, "clip", kind, 8)) as pose:
+        assert (PoseCapability.BOUNDING_BOXES in pose.capabilities) is expected
+        assert pose_has_bounding_boxes(pose) is expected
+        image = QtGui.QImage(800, 800, QtGui.QImage.Format.Format_RGB888)
+        image.fill(QtGui.QColor(0, 0, 0))
+        painter = QtGui.QPainter(image)
+        try:
+            draw_identity_bounding_box(painter, pose, 0, 0, width=800, height=800)
+        finally:
+            painter.end()
+
+    assert bool(np.frombuffer(image.constBits(), dtype=np.uint8).any()) is expected
 
 
 def test_sizes_grow_with_the_frame() -> None:

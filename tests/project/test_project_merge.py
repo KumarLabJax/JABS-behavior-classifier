@@ -1,10 +1,35 @@
+import json
+import logging
+import os
+import shutil
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import h5py
 import pytest
 
+from jabs.project import Project
 from jabs.project.project_merge import MergeStrategy, merge_projects
 from jabs.project.video_labels import VideoLabels
+
+# a legacy pose file the converter refuses, so its video is unusable
+LEGACY_CORPUS = (
+    Path(__file__).parents[2] / "packages" / "jabs-io" / "tests" / "data" / "legacy-pose"
+)
+UNUSABLE_POSE = LEGACY_CORPUS / "v8-unknown-dataset.h5"
+
+
+@pytest.fixture(autouse=True)
+def _strict_pose_conversion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse the unknown-dataset fixture, as only strict conversion does.
+
+    Lenient conversion (the default) opens it, leaving the dataset behind.
+    """
+    monkeypatch.setenv("JABS_STRICT_POSE_CONVERSION", "1")
+
+
+USABLE_POSE = LEGACY_CORPUS / "v8-with-centers.h5"
 
 
 class DummyPoseEst:
@@ -235,3 +260,149 @@ def test_merge_projects_unique_labeled_video_falls_back_to_direct_pose_path(tmp_
     dest.load_pose_est.assert_called_once()
     dest.video_manager.get_cached_pose_path.assert_not_called()
     dest.save_annotations.assert_called_once_with(src_labels, dest_pose)
+
+
+def _real_project(project_dir: Path, videos: dict[str, Path]) -> "Project":
+    """Create a project whose videos are stubs beside copies of the given pose files."""
+    project_dir.mkdir(parents=True, exist_ok=True)
+    for video, pose in videos.items():
+        (project_dir / video).touch()
+        shutil.copyfile(pose, project_dir / f"{Path(video).stem}_pose_est_v8.h5")
+    return Project(project_dir, enable_session_tracker=False)
+
+
+def _labels_document(project: "Project", video: str) -> dict:
+    """Return the saved annotation document of a video."""
+    return json.loads(project.annotation_store.document_path(video).read_text())
+
+
+def _write_labels(project_dir: Path, video: str, blocks: list[tuple[int, int, bool]]) -> None:
+    """Write an annotation document for identity 0 and behavior ``foo``."""
+    labels = VideoLabels(video, 120)
+    track = labels.get_track_labels("0", "foo")
+    for start, end, present in blocks:
+        (track.label_behavior if present else track.label_not_behavior)(start, end)
+    document = labels.as_dict(DummyPoseEst())
+    document["external_identities"] = {"0": "mouse_a"}
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True, exist_ok=True)
+    (annotations_dir / f"{Path(video).stem}.json").write_text(json.dumps(document))
+
+
+def _foo_blocks(document: dict, key: str = "unfragmented_labels") -> list[tuple[int, int, bool]]:
+    """Return identity 0's ``foo`` blocks of a document as tuples."""
+    return [(b["start"], b["end"], b["present"]) for b in document[key]["0"]["foo"]]
+
+
+def test_merge_copies_annotations_of_an_unusable_video(tmp_path: Path) -> None:
+    """A video whose pose the converter refuses still has its annotations merged."""
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    src = _real_project(tmp_path / "src", {"bad.avi": UNUSABLE_POSE})
+    dest = _real_project(tmp_path / "dest", {"ok.avi": USABLE_POSE})
+    assert not src.is_usable("bad.avi")
+
+    merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    merged = Project(tmp_path / "dest", enable_session_tracker=False)
+    document = _labels_document(merged, "bad.avi")
+    assert _foo_blocks(document) == [(10, 20, True)]
+    # no pose to fragment by, so the usable blocks are the labeled blocks
+    assert _foo_blocks(document, "labels") == [(10, 20, True)]
+    assert document["external_identities"] == {"0": "mouse_a"}
+
+
+def test_merge_merges_annotations_of_an_unusable_video_in_both_projects(tmp_path: Path) -> None:
+    """Both projects label the unusable video: the documents merge by the strategy."""
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "dest", "bad.avi", [(15, 30, False)])
+    src = _real_project(tmp_path / "src", {"bad.avi": UNUSABLE_POSE})
+    dest = _real_project(tmp_path / "dest", {"bad.avi": UNUSABLE_POSE})
+
+    merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    document = _labels_document(dest, "bad.avi")
+    assert _foo_blocks(document) == [(10, 20, True), (21, 30, False)]
+
+
+def test_merge_skips_annotations_of_an_unusable_video_whose_pose_differs(
+    tmp_path: Path,
+) -> None:
+    """The pose-hash check still applies when the pose is unusable."""
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "dest", "bad.avi", [(15, 30, False)])
+    src = _real_project(tmp_path / "src", {"bad.avi": UNUSABLE_POSE})
+    dest = _real_project(tmp_path / "dest", {"bad.avi": UNUSABLE_POSE})
+    with h5py.File(dest.video_manager.get_cached_pose_path("bad.avi"), "a") as h5:
+        h5.attrs["changed"] = 1
+
+    merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    assert _foo_blocks(_labels_document(dest, "bad.avi")) == [(15, 30, False)]
+
+
+# passes the metadata scan, but the converter refuses it: identity 2 is held twice
+CONVERSION_REFUSED_POSE = LEGACY_CORPUS / "v8-duplicate-embed.h5"
+
+
+def test_merge_falls_back_when_a_pose_is_refused_at_conversion(tmp_path: Path) -> None:
+    """A pose the scan accepts but the converter refuses does not stop the merge.
+
+    Its annotations are merged without the pose, and later videos are still merged.
+    """
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "src", "extra.avi", [(30, 40, True)])
+    src = _real_project(
+        tmp_path / "src", {"bad.avi": CONVERSION_REFUSED_POSE, "extra.avi": USABLE_POSE}
+    )
+    dest = _real_project(tmp_path / "dest", {"ok.avi": USABLE_POSE})
+    assert src.is_usable("bad.avi")  # the scan does not see the problem
+
+    merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    merged = Project(tmp_path / "dest", enable_session_tracker=False)
+    assert _foo_blocks(_labels_document(merged, "bad.avi")) == [(10, 20, True)]
+    assert _foo_blocks(_labels_document(merged, "extra.avi")) == [(30, 40, True)]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions, not root"
+)
+def test_merge_skips_a_video_whose_pose_cannot_be_read(tmp_path: Path) -> None:
+    """An unreadable pose file skips that video's annotations, not the rest of the merge."""
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "src", "extra.avi", [(30, 40, True)])
+    _write_labels(tmp_path / "dest", "bad.avi", [(15, 30, False)])
+    src = _real_project(tmp_path / "src", {"bad.avi": USABLE_POSE, "extra.avi": USABLE_POSE})
+    dest = _real_project(tmp_path / "dest", {"bad.avi": USABLE_POSE})
+    unreadable = dest.video_manager.get_cached_pose_path("bad.avi")
+    unreadable.chmod(0)
+    try:
+        dest = Project(tmp_path / "dest", enable_session_tracker=False)
+        merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+    finally:
+        unreadable.chmod(0o644)
+
+    merged = Project(tmp_path / "dest", enable_session_tracker=False)
+    assert _foo_blocks(_labels_document(merged, "bad.avi")) == [(15, 30, False)]
+    assert _foo_blocks(_labels_document(merged, "extra.avi")) == [(30, 40, True)]
+
+
+def test_merge_skips_a_video_whose_destination_pose_is_gone(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A destination with no pose file for the video skips its annotations, with a warning."""
+    _write_labels(tmp_path / "src", "bad.avi", [(10, 20, True)])
+    _write_labels(tmp_path / "src", "extra.avi", [(30, 40, True)])
+    _write_labels(tmp_path / "dest", "bad.avi", [(15, 30, False)])
+    src = _real_project(tmp_path / "src", {"bad.avi": UNUSABLE_POSE, "extra.avi": USABLE_POSE})
+    dest = _real_project(tmp_path / "dest", {"bad.avi": USABLE_POSE})
+    # removed after the destination was opened
+    dest.video_manager.get_cached_pose_path("bad.avi").unlink()
+
+    with caplog.at_level(logging.WARNING, logger="jabs.project.project_merge"):
+        merge_projects(dest, src, MergeStrategy.BEHAVIOR_WINS)
+
+    assert any("bad.avi" in r.getMessage() for r in caplog.records)
+    annotations = tmp_path / "dest" / "jabs" / "annotations"
+    assert _foo_blocks(json.loads((annotations / "bad.json").read_text())) == [(15, 30, False)]
+    assert _foo_blocks(json.loads((annotations / "extra.json").read_text())) == [(30, 40, True)]

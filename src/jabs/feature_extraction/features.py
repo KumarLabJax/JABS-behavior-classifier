@@ -1,20 +1,23 @@
 import logging
+from collections.abc import Set as AbstractSet
 from pathlib import Path
-from typing import TypeAlias, cast
+from typing import TypeAlias
 
 import numpy as np
 import numpy.typing as npt
 
 import jabs.project.track_labels
-from jabs.core.enums import CacheFormat
+from jabs.core.enums import CacheFormat, PoseCapability
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
 from jabs.core.utils import pose_file_stem
 from jabs.io.feature_cache import clear_cache, detect_cache_format
 from jabs.io.feature_cache.base import FeatureCacheReader, FeatureCacheWriter
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
 from jabs.io.feature_cache.parquet import ParquetFeatureCacheReader, ParquetFeatureCacheWriter
-from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashException
+from jabs.pose_estimation import PoseHashException
 
 from .base_features import BaseFeatureGroup
 
@@ -36,7 +39,7 @@ FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.generic]]
 PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.generic]]]
 WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.generic]]]]
 
-FEATURE_VERSION = 19
+FEATURE_VERSION = 20
 
 _FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGroup]
 
@@ -125,13 +128,12 @@ class IdentityFeatures:
           path of the project directory. A value of None can be given
           to prevent saving to and loading from a project dir.
         pose_est:
-          PoseEstimation object corresponding to this video
+          pose object corresponding to this video. Its capabilities decide
+          which feature groups are computed, and its ``fps`` is the frame
+          rate time-derived features (speeds, angular velocities) use
         force:
           force regeneration of per frame features even if they are
           already cached for this video/identity
-        fps:
-          frames per second. Used for converting angular velocity
-          from degrees per frame to degrees per second
         op_settings:
           dict of optional settings to enable/disable when returning
           features. This will modify the contents returned by
@@ -151,19 +153,18 @@ class IdentityFeatures:
         source_file: str | Path,
         identity: int,
         directory: str | Path | None,
-        pose_est: PoseEstimation,
+        pose_est: PoseLike,
         force: bool = False,
-        fps: int = 30,
         op_settings: dict | None = None,
         cache_window: bool = True,
         cache_format: CacheFormat = CacheFormat.HDF5,
         include_pose_hash: bool = False,
         timings: FeatureTimings | None = None,
     ) -> None:
-        self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
-        self._fps = fps
         self._pose_hash = pose_est.hash
+        # features of a converted legacy file also depend on the converter
+        self._converter_revision = pose_est.converter_revision
         self._identity = identity
         self._identity_mask = pose_est.identity_mask(identity)
         self._op_settings = _normalize_op_settings(op_settings) if op_settings else None
@@ -185,12 +186,9 @@ class IdentityFeatures:
                 base = base / self._pose_hash
             self._identity_feature_dir = base / str(self._identity)
         self._cache_window = cache_window
-        self._compute_social_features = pose_est.format_major_version >= 3
-
-        self._compute_segmentation_features = (
-            pose_est.format_major_version >= 6
-            and cast(PoseEstimationV6, pose_est).has_segmentation
-        )
+        capabilities = pose_est.capabilities
+        self._compute_social_features = PoseCapability.SOCIAL in capabilities
+        self._compute_segmentation_features = PoseCapability.SEGMENTATION in capabilities
 
         distance_scale = (
             self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
@@ -228,7 +226,7 @@ class IdentityFeatures:
         self._keypoint_mask = {
             "point_mask": {
                 f"point_mask {keypoint.name}": point_mask[:, keypoint.value]
-                for keypoint in PoseEstimation.KeypointIndex
+                for keypoint in KeypointIndex
             }
         }
 
@@ -321,24 +319,26 @@ class IdentityFeatures:
                     FEATURE_VERSION,
                     self._pose_hash,
                     self._distance_scale_factor,
+                    self._converter_revision,
                 )
             case CacheFormat.HDF5:
                 return HDF5FeatureCacheReader(
                     FEATURE_VERSION,
                     self._pose_hash,
                     self._distance_scale_factor,
+                    self._converter_revision,
                 )
             case _:
                 raise NotImplementedError(f"Unsupported cache format: {fmt}")
 
-    def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
-        """Compute per-frame features from a PoseEstimation object and cache them
+    def __initialize_from_pose_estimation(self, pose_est: PoseLike):
+        """Compute per-frame features from a PoseLike object and cache them
 
         The features are written to the feature cache only when this instance was
         given a project directory; with ``directory=None`` they are kept in memory.
 
         Args:
-            pose_est: PoseEstimation object used to initialize self
+            pose_est: pose object used to initialize self
 
         Returns:
             None
@@ -403,6 +403,7 @@ class IdentityFeatures:
             identity=self._identity,
             num_frames=self._num_frames,
             pose_hash=self._pose_hash,
+            converter_revision=self._converter_revision,
             distance_scale_factor=self._distance_scale_factor,
             avg_wall_length=avg_wall_length,
         )
@@ -429,6 +430,7 @@ class IdentityFeatures:
             identity=self._identity,
             num_frames=self._num_frames,
             pose_hash=self._pose_hash,
+            converter_revision=self._converter_revision,
             distance_scale_factor=self._distance_scale_factor,
         )
         self._writer.write_window(
@@ -879,15 +881,16 @@ class IdentityFeatures:
     @classmethod
     def get_available_extended_features(
         cls,
-        pose_version: int,
-        static_objects: set[str],
+        capabilities: AbstractSet[PoseCapability],
+        static_objects: AbstractSet[str],
         **kwargs,
     ) -> dict[str, list[str]]:
-        """get all the extended features that can be used given a minimum pose version and list of available static objects
+        """get all the extended features that can be used given pose capabilities and available static objects
 
         Args:
-            pose_version: integer pose version
-            static_objects: list of static object names
+            capabilities: pose capabilities available (for a project, those every
+                pose file provides)
+            static_objects: static object names
             **kwargs: additional keyword arguments that might be used to
                 determine if a feature is supported for a given pose
                 file
@@ -903,7 +906,7 @@ class IdentityFeatures:
         """
         return {
             feature_group.name(): feature_group.get_supported_feature_modules(
-                pose_version, static_objects, **kwargs
+                capabilities, static_objects, **kwargs
             )
             for feature_group in _EXTENDED_FEATURE_MODULES
         }

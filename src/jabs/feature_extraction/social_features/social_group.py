@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import typing
 
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
-from jabs.pose_estimation import PoseEstimation
 
 from ..feature_base_class import Feature
 from .closest_distances import ClosestDistances
@@ -30,7 +30,7 @@ class SocialFeatureGroup(FeatureGroup):
     subject identity. It initializes and provides access to feature modules relevant to social behavior analysis.
 
     Args:
-        poses (PoseEstimation): Pose estimation data for a video.
+        poses (PoseLike): Pose estimation data for a video.
         pixel_scale (float): Scale factor to convert pixel distances to real-world units (cm).
     """
 
@@ -46,7 +46,7 @@ class SocialFeatureGroup(FeatureGroup):
         PairwiseSocialFovDistances.name(): PairwiseSocialFovDistances,
     }
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float) -> None:
+    def __init__(self, poses: PoseLike, pixel_scale: float) -> None:
         super().__init__(poses, pixel_scale)
         self._closest_identities_cache: ClosestIdentityInfo | None = None
         self._closest_identities_cache_identity: int | None = None

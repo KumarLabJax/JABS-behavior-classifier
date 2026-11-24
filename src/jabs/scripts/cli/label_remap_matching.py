@@ -5,9 +5,9 @@ destination identity a block of labels belongs to. Two scores are computed for e
 candidate destination identity:
 
 - **mask IoU**: per-frame intersection over union of the two identities' filled
-  segmentation contours (pose v6+ with segmentation)
+  segmentation contours (pose files with segmentation)
 - **bbox IoU**: per-frame intersection over union of the two identities' bounding
-  boxes (pose v8+)
+  boxes (pose files with bounding boxes)
 
 Which score decides the match is controlled by `MatchMetric`.
 
@@ -21,6 +21,7 @@ median over the frames where both identities have data.
 
 from __future__ import annotations
 
+import bisect
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -31,7 +32,8 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
+    from jabs.core.types import SegmentationWindow
 
 logger = logging.getLogger(__name__)
 
@@ -200,16 +202,15 @@ def _valid_boxes(boxes: npt.NDArray[np.floating]) -> npt.NDArray[np.bool_]:
 class _PoseShapes:
     """Lazily loaded bounding boxes and segmentation contours for one pose file."""
 
-    def __init__(self, pose: PoseEstimation) -> None:
+    def __init__(self, pose: PoseLike) -> None:
         self._pose = pose
         self._has_bboxes = bool(getattr(pose, "has_bounding_boxes", False)) and hasattr(
             pose, "get_bounding_boxes"
         )
-        self._has_segmentation = bool(getattr(pose, "has_segmentation", False)) and hasattr(
-            pose, "get_segmentation_data"
-        )
+        self._has_segmentation = bool(getattr(pose, "has_segmentation", False))
         self._bboxes: dict[int, npt.NDArray[np.floating] | None] = {}
-        self._seg_data: dict[int, npt.NDArray[np.integer] | None] = {}
+        # per identity: its segmentation windows, and the first frame of each
+        self._windows: dict[int, tuple[list[SegmentationWindow], list[int]]] = {}
         self._contours: dict[tuple[int, int], Contours | None] = {}
 
     def bboxes(self, identity: int) -> npt.NDArray[np.floating] | None:
@@ -221,21 +222,32 @@ class _PoseShapes:
             self._bboxes[identity] = None if boxes is None else boxes.reshape(boxes.shape[0], 4)
         return self._bboxes[identity]
 
+    def _window_at(self, identity: int, frame: int) -> SegmentationWindow | None:
+        """The segmentation window of ``identity`` holding ``frame``, or None."""
+        if identity not in self._windows:
+            windows = list(self._pose.iter_segmentation(identity))
+            self._windows[identity] = (windows, [w.start for w in windows])
+        windows, starts = self._windows[identity]
+        index = bisect.bisect_right(starts, frame) - 1
+        if index < 0 or frame - starts[index] >= len(windows[index].contour_count):
+            return None
+        return windows[index]
+
     def contours(self, identity: int, frame: int) -> Contours | None:
         """Segmentation contours of ``identity`` on ``frame``, or None if it has none."""
         if not self._has_segmentation:
             return None
         key = (identity, frame)
         if key not in self._contours:
-            if identity not in self._seg_data:
-                self._seg_data[identity] = self._pose.get_segmentation_data(identity)
-            seg = self._seg_data[identity]
             contours: Contours = []
-            if seg is not None and frame < len(seg):
-                for contour in seg[frame]:
-                    valid = np.all(contour != -1, axis=1)
-                    if valid.any():
-                        contours.append(contour[valid].astype(np.int32))
+            window = self._window_at(identity, frame)
+            if window is not None:
+                row = frame - window.start
+                # valid contours are packed first
+                for slot in range(int(window.contour_count[row])):
+                    length = int(window.contour_length[row, slot])
+                    if length:
+                        contours.append(window.contours[row, slot, :length].astype(np.int32))
             self._contours[key] = contours or None
         return self._contours[key]
 
@@ -336,8 +348,8 @@ class IdentityMatcher:
 
     def __init__(
         self,
-        source_pose: PoseEstimation,
-        dest_pose: PoseEstimation,
+        source_pose: PoseLike,
+        dest_pose: PoseLike,
         settings: MatchSettings,
     ) -> None:
         self._source = _PoseShapes(source_pose)

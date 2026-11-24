@@ -1,11 +1,7 @@
 from typing import TYPE_CHECKING
 
 import jabs.feature_extraction as feature_extraction
-from jabs.core.enums import ProjectDistanceUnit
-from jabs.pose_estimation import (
-    get_pose_file_major_version,
-    get_pose_path,
-)
+from jabs.core.enums import PoseCapability, ProjectDistanceUnit
 
 from .project_paths import ProjectPaths
 from .video_manager import VideoManager
@@ -17,21 +13,22 @@ if TYPE_CHECKING:
 class FeatureManager:
     """Manages feature support and metadata for a JABS project.
 
-    Determines which features are available for a project by analyzing pose file versions
-    and static objects across all videos. Provides access to feature availability, distance
+    Determines which features are available for a project from the pose capabilities
+    and static objects every usable video provides. Provides access to feature availability, distance
     units, and extended feature support, ensuring consistency across the project.
 
     Args:
         project_paths: Paths object for the project.
         videos: List of video filenames in the project.
-        video_manager: Optional VideoManager instance used for cached pose path
-            lookups. When ``None``, pose paths are resolved directly from
-            ``project_paths``.
+        video_manager: Optional VideoManager instance (kept for callers; feature
+            support comes from ``scan_results`` alone).
         scan_results: Per-video metadata collected by
             :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
             by video filename. Every entry in ``videos`` must have a
             corresponding key. Required fields: ``static_objects``,
-            ``lixit_keypoints``, ``has_cm_per_pixel``.
+            ``lixit_keypoints``, ``has_cm_per_pixel``, ``capabilities``,
+            ``error``. Videos whose scan failed (``error`` set) do not
+            restrict the project's features.
     """
 
     def __init__(
@@ -49,12 +46,8 @@ class FeatureManager:
         self._video_manager = video_manager
         self.__initialize_pose_data(videos, scan_results)
 
-        # determine if this project can use social features or not
-        # social data is available for V3+
-        self._can_use_social = self._min_pose_version >= 3
-
-        # segmentation data is available for V6+
-        self._can_use_segmentation = self._min_pose_version >= 6
+        self._can_use_social = PoseCapability.SOCIAL in self._capabilities
+        self._can_use_segmentation = PoseCapability.SEGMENTATION in self._capabilities
 
         self._extended_features = self.__initialize_extended_features()
 
@@ -63,33 +56,27 @@ class FeatureManager:
         videos: list[str],
         scan_results: "dict[str, VideoScanResult]",
     ) -> None:
-        """Initialize pose version, static object, distance unit, and lixit data.
+        """Initialize capability, static object, distance unit, and lixit data.
 
         Args:
             videos: List of video filenames to process for metadata extraction.
             scan_results: Per-video metadata from the project scan, keyed by
                 video filename.
         """
-        pose_versions = []
+        capability_sets: list[frozenset[PoseCapability]] = []
         static_object_sets = []
         lixit_keypoints = []
         distance_unit_valid = True
 
         # Single pass through all videos to gather all needed metadata
         for vid in videos:
-            # Use cached pose path if video_manager is available
-            if self._video_manager:
-                pose_path = self._video_manager.get_cached_pose_path(vid)
-            else:
-                pose_path = get_pose_path(
-                    self._project_paths.video_dir / vid,
-                    self._project_paths.pose_dir,
-                )
-
-            # Get pose version (filename regex — no I/O)
-            pose_versions.append(get_pose_file_major_version(pose_path))
-
             result = scan_results[vid]
+            # an unusable video must not strip features from the others
+            if result["error"] is not None:
+                continue
+
+            capability_sets.append(frozenset(PoseCapability(c) for c in result["capabilities"]))
+
             static_objs = result["static_objects"]
             if "lixit" in static_objs:
                 lixit_keypoints.append(result["lixit_keypoints"])
@@ -98,8 +85,10 @@ class FeatureManager:
 
             static_object_sets.append(set(static_objs))
 
-        # Set pose version to minimum across all videos
-        self._min_pose_version = min(pose_versions) if pose_versions else 0
+        # Capabilities are those of ALL usable videos
+        self._capabilities: frozenset[PoseCapability] = (
+            frozenset.intersection(*capability_sets) if capability_sets else frozenset()
+        )
 
         # Static objects are those present in ALL videos
         self._static_objects = (
@@ -119,13 +108,13 @@ class FeatureManager:
         )
 
     def __initialize_extended_features(self) -> dict:
-        """Initialize extended features based on the pose version and static objects.
+        """Initialize extended features based on the capabilities and static objects.
 
         Returns:
             Dictionary of enabled extended features.
         """
         return feature_extraction.IdentityFeatures.get_available_extended_features(
-            self._min_pose_version,
+            self._capabilities,
             self._static_objects,
             lixit_keypoints=self._lixit_keypoints,
         )
@@ -178,13 +167,14 @@ class FeatureManager:
         return self._distance_unit
 
     @property
-    def min_pose_version(self) -> int:
-        """Get the minimum pose version for the project.
+    def capabilities(self) -> frozenset[PoseCapability]:
+        """Pose capabilities every usable video in the project provides.
 
         Returns:
-            Minimum pose version.
+            Intersection of the scanned capabilities of the usable videos; empty
+            when there are none.
         """
-        return self._min_pose_version
+        return self._capabilities
 
     @property
     def static_objects(self) -> set[str]:

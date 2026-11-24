@@ -1,94 +1,55 @@
 """JABS pose file handler module"""
 
-import re
 from pathlib import Path
 
-import h5py
-
-from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.exceptions import PoseHashException
-from jabs.core.utils.static_objects import lixit_keypoint_count
+from jabs.core.pose_skeleton import MINIMUM_CONFIDENCE
 
-from .pose_est_v2 import PoseEstimationV2
-from .pose_est_v3 import PoseEstimationV3
-from .pose_est_v4 import PoseEstimationV4
-from .pose_est_v5 import PoseEstimationV5
-from .pose_est_v6 import PoseEstimationV6
-from .pose_est_v7 import PoseEstimationV7
-from .pose_est_v8 import PoseEstimationV8
-
-# matches the version suffix of a pose file name, e.g. "_v6.h5" in
-# "video_pose_est_v6.h5". Anchored at the end so only the filename's suffix can
-# supply the version.
-_POSE_VERSION_RE = re.compile(r"_v(\d+)\.h5$")
-
-# reader class for each pose file major version JABS can open. This is the single
-# source of truth for the supported versions: open_pose_file() dispatches on it and
-# get_pose_path() searches for these versions, newest first.
-_POSE_READERS: dict[int, type[PoseEstimation]] = {
-    2: PoseEstimationV2,
-    3: PoseEstimationV3,
-    4: PoseEstimationV4,
-    5: PoseEstimationV5,
-    6: PoseEstimationV6,
-    7: PoseEstimationV7,
-    8: PoseEstimationV8,
-}
+from .conversion_cache import open_unified
+from .discovery import find_pose_file, is_legacy_pose_file, is_pose_file, is_unified_pose_file
+from .errors import PoseOpenError
+from .metadata import (
+    PoseMetadata,
+    scan_model_metadata,
+    scan_pose_metadata,
+    scan_raw_model_metadata,
+)
+from .pose import Pose
 
 
-def get_pose_file_major_version(path: Path) -> int:
-    """get the major version of a pose file from the _filename_
+def open_pose_file(
+    path: Path, cache_dir: Path | None = None, *, temporary_conversion: bool = False
+) -> Pose:
+    """Open a pose file as :class:`Pose`.
 
-    Note: does not inspect contents of file, assumes the file name follows the
-    JABS convention ``<video name>_pose_est_v<major version>.h5``.
+    A unified ``*_pose.h5`` file opens directly. A legacy ``*_pose_est_v<N>.h5``
+    file is converted through the conversion cache (see
+    :func:`~jabs.pose_estimation.conversion_cache.open_unified`) and its
+    conversion opens.
 
     Args:
         path: path of pose file
+        cache_dir: optional project cache directory; conversions and convex
+            hulls are cached here, or in the per-user cache when None
+        temporary_conversion: without ``cache_dir``, convert a legacy file into
+            a temporary directory removed when the pose is closed, not into the
+            per-user cache (for batch commands)
 
     Returns:
-        integer major version number
+        The opened pose; the caller closes it.
 
     Raises:
-        ValueError: if the file name does not end with a ``_v<major version>.h5``
-            suffix
+        PoseOpenError: if the name is not a pose file name, or the file cannot
+            be read, converted or opened
     """
-    match = _POSE_VERSION_RE.search(path.name)
-    if match is None:
-        raise ValueError(f"'{path.name}' is not a valid pose file name")
-    return int(match.group(1))
-
-
-def open_pose_file(path: Path, cache_dir: Path | None = None) -> PoseEstimation:
-    """open a pose file using the reader for the version declared by its filename
-
-    The version comes from :func:`get_pose_file_major_version`, so a file name
-    this function accepts is one the rest of JABS also recognizes.
-
-    Args:
-        path: path of pose file, named following the JABS convention
-            ``<video name>_pose_est_v<major version>.h5``
-        cache_dir: optional directory the reader may use to cache the converted
-            pose data
-
-    Returns:
-        PoseEstimation subclass instance for the file's format version
-
-    Raises:
-        ValueError: if the file name does not declare a major version, or declares
-            a version JABS is unable to open
-    """
-    version = get_pose_file_major_version(path)
-    try:
-        reader = _POSE_READERS[version]
-    except KeyError:
-        raise ValueError(
-            f"'{path.name}': pose file major version {version} is not supported"
-        ) from None
-    return reader(path, cache_dir)
+    return open_unified(path, cache_dir, temporary_conversion=temporary_conversion)
 
 
 def get_pose_path(video_path: Path, pose_dir: Path | None = None) -> Path:
-    """take a path to a video file and return the path to the corresponding pose_est h5 file
+    """take a path to a video file and return the path to its pose file
+
+    The unified ``<video>_pose.h5`` wins; otherwise the highest version legacy
+    ``<video>_pose_est_v<N>.h5`` (see :func:`find_pose_file`).
 
     Args:
         video_path: Path to video file in project
@@ -96,55 +57,12 @@ def get_pose_path(video_path: Path, pose_dir: Path | None = None) -> Path:
             search beside ``video_path``.
 
     Returns:
-        Path object representing location of corresponding pose_est h5 file
+        Path object representing location of corresponding pose file
 
     Raises:
-        ValueError: if video_path does not have corresponding pose_est file
+        ValueError: if video_path does not have corresponding pose file
     """
-    file_base = video_path.with_suffix("")
-    search_dir = pose_dir if pose_dir is not None else video_path.parent
-
-    # default to the highest version pose file for a video
-    for version in sorted(_POSE_READERS, reverse=True):
-        pose_file = search_dir / f"{file_base.name}_pose_est_v{version}.h5"
-        if pose_file.exists():
-            return pose_file
-    raise ValueError("Video does not have pose file")
-
-
-def get_frames_from_file(path: Path):
-    """peek into a pose_est file to count number of frames"""
-    with h5py.File(path, "r") as pose_h5:
-        vid_grp = pose_h5["poseest"]
-        return vid_grp["points"].shape[0]
-
-
-def get_static_objects_in_file(path: Path):
-    """peek into a pose file to get a list of the static objects it contains
-
-    Args:
-        path: path of pose file
-
-    Returns:
-        list of static object names contained in pose file
-    """
-    if get_pose_file_major_version(path) >= 5:
-        with h5py.File(path, "r") as pose_h5:
-            if "static_objects" in pose_h5:
-                return list(pose_h5["static_objects"].keys())
-    return []
-
-
-def get_points_per_lixit(path: Path) -> int:
-    """inspect a pose file to get the number of keypoints per lixit
-
-    returns zero if the pose file does not have any lixit keypoints, which
-    includes a lixit dataset that is present but empty -- the same rule the
-    v5+ readers and the project scan apply.
-    """
-    points_per_lixit = 0
-    if get_pose_file_major_version(path) >= 5:
-        with h5py.File(path, "r") as pose_h5:
-            if "static_objects" in pose_h5 and "lixit" in pose_h5["static_objects"]:
-                points_per_lixit = lixit_keypoint_count(pose_h5["static_objects"]["lixit"].shape)
-    return points_per_lixit
+    pose_file = find_pose_file(video_path, pose_dir)
+    if pose_file is None:
+        raise ValueError("Video does not have pose file")
+    return pose_file

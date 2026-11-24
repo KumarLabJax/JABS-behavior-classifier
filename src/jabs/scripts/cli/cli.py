@@ -134,7 +134,7 @@ def export_training(
         with console.status(status_text, spinner="dots"):
             outfile = export_training_data_multiclass(
                 jabs_project,
-                jabs_project.feature_manager.min_pose_version,
+                jabs_project.feature_manager.capabilities,
                 classifier_type,
                 out_file=outfile,
             )
@@ -156,11 +156,14 @@ def export_training(
             outfile = export_training_data(
                 jabs_project,
                 behavior,
-                jabs_project.feature_manager.min_pose_version,
+                jabs_project.feature_manager.capabilities,
                 classifier_type,
                 out_file=outfile,
             )
 
+    # unusable videos (including any refused while collecting features) are left
+    # out of the export; say so once
+    jabs_project.warn_unusable_videos()
     click.echo(f"Exported training data to {outfile}")
 
 
@@ -583,6 +586,16 @@ def cross_validation(
         "v6+. Files without it convert the same either way."
     ),
 )
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Directory to keep conversions of legacy *_pose_est_v<N>.h5 pose files in, so "
+        "later runs reuse them. By default a legacy file is converted into a temporary "
+        "directory removed when the command finishes."
+    ),
+)
 @click.pass_context
 def convert_to_nwb(
     ctx: click.Context,
@@ -593,11 +606,12 @@ def convert_to_nwb(
     subjects_path: Path | None,
     session_metadata_path: Path | None,
     segmentation: bool,
+    cache_dir: Path | None,
 ) -> None:
     """Convert a JABS pose estimation file to NWB format.
 
-    INPUT_PATH is a JABS pose HDF5 file (any version, v2-v8). The format
-    version is inferred automatically from the filename (e.g. _pose_est_v6.h5).
+    INPUT_PATH is a JABS pose file: a unified <video>_pose.h5 file, or a legacy
+    <video>_pose_est_v<N>.h5 file (v2-v8). The format is told by the filename.
 
     OUTPUT is the destination NWB file. By default one file per identity is
     written: OUTPUT is a naming template and is not created directly; instead
@@ -673,6 +687,7 @@ def convert_to_nwb(
                 subjects=subjects,
                 session_metadata=session_metadata,
                 segmentation=segmentation,
+                cache_dir=cache_dir,
             )
         except MissingOptionalDependencyError as e:
             raise missing_extra_error(e) from e

@@ -17,7 +17,6 @@ from PySide6.QtWidgets import QProgressDialog
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import ClassifierMode, PredictionType
 from jabs.overlay_drawing import pose_has_landmarks
-from jabs.pose_estimation import PoseEstimationV6
 from jabs.utils import check_for_update
 
 from ..behavior_timeline import BehaviorTimelineWidget
@@ -219,16 +218,12 @@ class MenuHandlers:
             MessageDialog.warning(self.window, message="No video loaded to export.")
             return
 
-        # Segmentation needs a v6+ pose file *and* that file to actually contain
-        # segmentation data, which is optional even in v6+.
+        # segmentation is a capability of the pose file, present only when it holds the data
         segmentation_unavailable = None
-        if not getattr(pose_est, "has_segmentation", False):
-            reason = (
-                "this pose file was generated without it"
-                if isinstance(pose_est, PoseEstimationV6)
-                else "requires pose version 6 or newer"
+        if not pose_est.has_segmentation:
+            segmentation_unavailable = (
+                "No segmentation data available: this pose file was generated without it"
             )
-            segmentation_unavailable = f"No segmentation data available: {reason}"
 
         # Gathered up front so each checkbox can say whether there is anything to draw,
         # and why not when there is not. Gathering is proportional to the length of the
@@ -388,7 +383,7 @@ class MenuHandlers:
         classifier_mode = self.window._project.settings_manager.classifier_mode
         self._export_thread = ExportTrainingDataThread(
             project=self.window._project,
-            pose_version=self.window._project.feature_manager.min_pose_version,
+            capabilities=self.window._project.feature_manager.capabilities,
             classifier_type=self.window._central_widget.classifier_type,
             classifier_mode=classifier_mode,
             behavior=(
@@ -508,9 +503,11 @@ class MenuHandlers:
         )
         if result:
             self.window._project.clear_cache()
-            # need to reload the current video to force the pose file to reload
-            if self.window._central_widget.loaded_video:
-                self.window._central_widget.load_video(self.window._central_widget.loaded_video)
+            # need to reload the current video to force the pose file to reload; the
+            # video list's selection handler reports a pose file that fails to open
+            loaded_video = self.window._central_widget.loaded_video
+            if loaded_video:
+                self.window._video_list_selection(loaded_video.name)
             self.window.display_status_message("Pose cache cleared", duration=3000)
 
     def clear_feature_cache(self) -> None:

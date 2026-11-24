@@ -68,7 +68,8 @@ import numpy.typing as npt
 from rich.console import Console
 from rich.table import Table
 
-from jabs.pose_estimation import PoseEstimation, open_pose_file
+from jabs.core.pose_protocol import PoseLike
+from jabs.pose_estimation import open_pose_file
 from jabs.video_export.frame_renderer import render_overlay_frame
 
 logger = logging.getLogger(__name__)
@@ -319,7 +320,7 @@ def _short_identity_events(
     return events
 
 
-def find_events(pose: PoseEstimation, video: str, pose_file: Path) -> list[FailureEvent]:
+def find_events(pose: PoseLike, video: str, pose_file: Path) -> list[FailureEvent]:
     """Find likely failure events in one pose file.
 
     Args:
@@ -347,7 +348,7 @@ def find_events(pose: PoseEstimation, video: str, pose_file: Path) -> list[Failu
 
 
 @contextmanager
-def _open_pose_copy(pose_path: Path) -> Iterator[PoseEstimation]:
+def _open_pose_copy(pose_path: Path) -> Iterator[PoseLike]:
     """Open a temporary copy of ``pose_path`` so the original is never written."""
     with tempfile.TemporaryDirectory() as tmp:
         copy = Path(tmp) / pose_path.name
@@ -384,7 +385,7 @@ def _detect(job: tuple[Path, Path]) -> list[FailureEvent]:
         return []
 
 
-def _draw_overlay(image: npt.NDArray[np.uint8], pose: PoseEstimation, frame: int) -> npt.NDArray:
+def _draw_overlay(image: npt.NDArray[np.uint8], pose: PoseLike, frame: int) -> npt.NDArray:
     """Draw pose, segmentation, labeled identity boxes, and the frame number."""
     out = render_overlay_frame(image, pose, frame, draw_pose=True, draw_segmentation=True)
     for identity in pose.identities:

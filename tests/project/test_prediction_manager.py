@@ -57,7 +57,7 @@ def prediction_manager(mock_project):
 def mock_pose():
     """Fixture to create a minimal pose object for prediction writes."""
     return type(
-        "PoseEstimation",
+        "PoseLike",
         (object,),
         {
             "pose_file": "pose_file.h5",
@@ -85,7 +85,7 @@ def test_write_predictions(prediction_manager, tmp_path):
     predictions = np.array([[1, 0, -1], [0, 1, -1]])
     probabilities = np.array([[0.9, 0.8, -1], [0.7, 0.6, -1]])
     poses = type(
-        "PoseEstimation",
+        "PoseLike",
         (object,),
         {
             "pose_file": "pose_file.h5",

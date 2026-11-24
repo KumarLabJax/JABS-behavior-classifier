@@ -4,8 +4,10 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
+from jabs.core.pose_skeleton import KeypointIndex
+from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
+
 try:
-    from jabs.pose_estimation import PoseEstimation
     from jabs.ui.player_widget.closest_identity import HALF_FOV_DEGREES, closest_identity
 
     SKIP_UI_TESTS = False
@@ -37,6 +39,10 @@ class StubPose:
         self._facing = facing
         self.identities = list(centers)
 
+    def identity_mask(self, identity: int) -> np.ndarray:
+        """Present on the one frame when the animal has a center."""
+        return np.array([self._centers[identity] is not None])
+
     def get_identity_convex_hulls(self, identity: int):
         """One hull per frame; a None center means no pose on that frame."""
         center = self._centers[identity]
@@ -44,14 +50,14 @@ class StubPose:
 
     def get_points(self, frame_index: int, identity: int):
         """Nose ahead of the neck on the x axis, so the subject faces +x."""
-        n_kp = len(PoseEstimation.KeypointIndex)
+        n_kp = len(KeypointIndex)
         points = np.zeros((n_kp, 2), dtype=np.float32)
         mask = np.ones(n_kp, dtype=np.uint8)
         cx, cy = self._centers[identity]
-        points[PoseEstimation.KeypointIndex.NOSE] = (cx + 5, cy)
-        points[PoseEstimation.KeypointIndex.BASE_NECK] = (cx, cy)
+        points[KeypointIndex.NOSE] = (cx + 5, cy)
+        points[KeypointIndex.BASE_NECK] = (cx, cy)
         if not self._facing:
-            mask[PoseEstimation.KeypointIndex.NOSE] = 0
+            mask[KeypointIndex.NOSE] = 0
         return points, mask
 
 
@@ -106,3 +112,33 @@ def test_a_half_angle_of_180_or_more_ignores_facing() -> None:
     pose = StubPose({0: (0, 0), 1: (-20, 0), 2: (60, 0)})
 
     assert closest_identity(pose, 0, 0, 180) == 1
+
+
+class UnusableSubjectPose(StubPose):
+    """As ``Pose`` has a slot ``slot_usable`` marks unusable: a hull, but no pose."""
+
+    def __init__(self, centers: dict[int, tuple[float, float]], unusable: int):
+        super().__init__(centers)
+        self._unusable = unusable
+
+    def identity_mask(self, identity: int) -> np.ndarray:
+        """Absent where unusable, though its points still make a hull."""
+        return np.array([identity != self._unusable])
+
+    def get_points(self, frame_index: int, identity: int):
+        """``(None, None)`` for the unusable slot, as ``Pose.get_points`` returns."""
+        if identity == self._unusable:
+            return None, None
+        return super().get_points(frame_index, identity)
+
+
+# from the feature, not the UI module, so collection works without Qt
+@pytest.mark.parametrize("half_fov_degrees", [None, ClosestIdentityInfo.HALF_FOV_DEGREE])
+def test_an_unusable_slot_is_no_pose(half_fov_degrees: float | None) -> None:
+    """A slot that is not usable on the frame is neither measured from nor against.
+
+    The facing check used to index the ``(None, None)`` ``get_points`` gives it.
+    """
+    pose = UnusableSubjectPose({0: (0, 0), 1: (30, 0), 2: (60, 0)}, unusable=0)
+    assert closest_identity(pose, 0, 0, half_fov_degrees) is None
+    assert closest_identity(pose, 1, 0, half_fov_degrees) == 2

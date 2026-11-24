@@ -21,6 +21,9 @@ class FeatureCacheMetadata:
         identity: Identity index this cache entry belongs to.
         num_frames: Total frame count in the source video.
         pose_hash: Hash of the pose file content; used to detect stale caches.
+        converter_revision: Revision of the converter that produced the pose
+            the features were computed from, for a converted legacy pose
+            file; ``None`` for a unified pose file.
         distance_scale_factor: Pixels-to-cm conversion factor; ``None`` when
             not using cm units.
         avg_wall_length: Mean arena wall length in distance units; ``None``
@@ -38,6 +41,7 @@ class FeatureCacheMetadata:
     distance_scale_factor: float | None = None
     avg_wall_length: float | None = None
     cached_window_sizes: frozenset[int] = field(default_factory=frozenset)
+    converter_revision: int | None = None
 
 
 @dataclass(frozen=True)

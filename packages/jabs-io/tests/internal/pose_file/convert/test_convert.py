@@ -737,3 +737,52 @@ def test_an_embed_id_past_the_slot_index_is_refused_for_what_it_is(tmp_path: Pat
 
     with pytest.raises(LegacyConversionError, match="exceed the slots a plan can index"):
         convert_legacy(src, tmp_path / "out.h5")
+
+
+@pytest.mark.parametrize(
+    ("name", "waived"),
+    [
+        ("v8-unknown-dataset.h5", "poseest/mystery"),
+        ("v7-bad-dynamic-object.h5", "dynamic_objects/fecal_boli"),
+    ],
+)
+def test_lenient_conversion_records_what_it_left_behind(
+    tmp_path: Path, name: str, waived: str
+) -> None:
+    """strict=False converts a file the strict default refuses, and records the waiver."""
+    out = tmp_path / "out.h5"
+    with pytest.raises(LegacyConversionError):
+        convert_legacy(legacy(name), out)
+    report = convert_legacy(legacy(name), out, strict=False)
+    assert [path for path, _ in report.waived] == [waived]
+    assert waived in report.dropped
+    assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
+    (entry,) = [e for e in _history(out) if e["operation"] == "convert"]
+    assert waived in entry["dropped"]
+    assert entry["extra"]["waived"]["path"] == [waived]
+    assert entry["extra"]["waived"]["reason"][0].startswith(waived.split("/")[0])
+    ids = [component.id for component in read_pose_file(out).components]
+    assert "jabs.pose.points" in ids
+    assert not any("fecal_boli" in component_id for component_id in ids)
+
+
+@pytest.mark.parametrize("name", ["v8-duplicate-embed.h5", "v8-tracklet-two-slots.h5"])
+def test_lenient_conversion_still_refuses_what_it_cannot_place(tmp_path: Path, name: str) -> None:
+    """Duplicate identities and shared tracklets are refused in both modes."""
+    with pytest.raises(LegacyConversionError):
+        convert_legacy(legacy(name), tmp_path / "out.h5", strict=False)
+
+
+@pytest.mark.parametrize("name", CONVERTIBLE)
+def test_lenient_conversion_of_an_accepted_file_is_unchanged(tmp_path: Path, name: str) -> None:
+    """A file the strict converter accepts converts to the same file either way.
+
+    So the lenient mode needs no new converter revision: copies already
+    cached are what it would write.
+    """
+    strict, lenient = tmp_path / "strict.h5", tmp_path / "lenient.h5"
+    convert_legacy(legacy(name), strict, created=CREATED)
+    report = convert_legacy(legacy(name), lenient, created=CREATED, strict=False)
+    assert report.waived == ()
+    assert _provenance(strict) == _provenance(lenient)
+    assert strict.read_bytes() == lenient.read_bytes()

@@ -219,7 +219,7 @@ def test_jabs_init_uses_the_canonical_default_window_size():
 def test_generate_files_worker_processes_every_identity_with_one_pose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One job computes every identity in a video using a single PoseEstimation.
+    """One job computes every identity in a video using a single PoseLike.
 
     Per-video work that feature groups cache on the pose object (e.g. the social
     contact graph) is only shared if every identity uses the same object. The worker
@@ -336,17 +336,22 @@ class _SerialPool:
         return map(func, iterable)
 
 
-def _fake_project(identities_per_video: dict[str, list[int]]) -> SimpleNamespace:
+def _fake_project(
+    identities_per_video: dict[str, list[int]], unusable: dict[str, str] | None = None
+) -> SimpleNamespace:
     """Build the minimal project surface used by compute_project_features."""
 
     def no_load(path: str) -> NoReturn:
         raise AssertionError("pose files should only be opened by the workers")
 
+    unusable_videos = dict(unusable or {})
     return SimpleNamespace(
         video_manager=SimpleNamespace(
             videos=list(identities_per_video), video_path=lambda video: video
         ),
         load_pose_est=no_load,
+        unusable_videos=unusable_videos,
+        is_usable=lambda video: video not in unusable_videos,
     )
 
 
@@ -379,6 +384,19 @@ def test_compute_project_features_runs_one_job_per_video(monkeypatch, collect_ti
         assert summary.total_seconds == pytest.approx(3.0)
     else:
         assert result is None
+
+
+def test_compute_project_features_skips_unusable_videos(monkeypatch, caplog):
+    """No job is run for a video whose pose file is unusable; a WARNING names it."""
+    jobs = []
+    monkeypatch.setattr(initialize_project, "generate_files_worker", jobs.append)
+    project = _fake_project({"a.mp4": [0], "b.mp4": [0]}, unusable={"b.mp4": "refused"})
+
+    with caplog.at_level("WARNING", logger=initialize_project.__name__):
+        initialize_project.compute_project_features(project, [5], False, _SerialPool())
+
+    assert [job["video"] for job in jobs] == ["a.mp4"]
+    assert any("b.mp4" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize("force", [True, False])

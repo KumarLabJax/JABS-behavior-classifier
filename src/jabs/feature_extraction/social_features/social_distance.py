@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import weakref
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -21,9 +22,16 @@ from shapely.geometry import (
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
+from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.pose_skeleton import KeypointIndex
+from jabs.core.types import SegmentationWindow
 from jabs.core.utils import signed_angle_degrees
 from jabs.core.utils.pose_util import identity_centroids
-from jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.segmentation_features.moment_cache import MomentInfo
+
+# yields an identity's segmentation windows covering every frame
+SegmentationWindows = Callable[[int], Iterator[SegmentationWindow]]
 
 logger = logging.getLogger(__name__)
 
@@ -114,18 +122,23 @@ def _seg_contact_tolerances(
     return np.maximum(_SEG_CONTACT_MIN_RASTER_PX, _SEG_CONTACT_BODY_SCALE * mean_body_len)
 
 
+def _frame_contours(window: SegmentationWindow, index: int) -> list[npt.NDArray[np.int32]]:
+    """Return the valid contours of one frame of a segmentation window, each ``(L, 2)``."""
+    return MomentInfo.frame_contours(window, index)[0]
+
+
 def _extract_contour_geometry(
-    frame_seg: npt.NDArray[np.generic],
+    contours: Sequence[npt.NDArray[np.integer]],
 ) -> BaseGeometry | None:
-    """Build a closed Shapely contour geometry from one frame's segmentation array.
+    """Build a closed Shapely contour geometry from one frame's segmentation contours.
 
     Constructs closed ``LineString`` rings (or a ``MultiLineString`` when an animal's
-    mask has multiple contour components) over all valid vertices in ``frame_seg``
+    mask has multiple contour components) over all vertices of ``contours``
     without subsampling, so ``geom_a.distance(geom_b)`` measures exact Euclidean
     distance between contour line segments rather than strided vertices.
 
     Args:
-        frame_seg: Array of shape ``(num_contours, num_vertices, 2)`` padded with ``-1``.
+        contours: The frame's valid contours, each of shape ``(num_vertices, 2)``.
 
     Returns:
         Shapely ``LineString``, ``MultiLineString``, or ``Point`` representing the
@@ -133,11 +146,8 @@ def _extract_contour_geometry(
     """
     rings: list[npt.NDArray[np.float32]] = []
     single_pt: npt.NDArray[np.float32] | None = None
-    for contour in frame_seg:
-        valid_mask = contour[:, 0] != -1
-        if not np.any(valid_mask):
-            continue
-        pts = contour[valid_mask].astype(np.float32, copy=False)
+    for contour in contours:
+        pts = contour.astype(np.float32, copy=False)
         if len(pts) >= 2:
             closed = np.empty((len(pts) + 1, 2), dtype=np.float32)
             closed[:-1] = pts
@@ -156,7 +166,7 @@ def _extract_contour_geometry(
 
 def _populate_segmentation_fallback_hulls(
     hulls: list[BaseGeometry | None],
-    seg_arr: npt.NDArray[np.generic] | None,
+    seg_windows: Iterable[SegmentationWindow] | None,
 ) -> tuple[list[BaseGeometry | None], npt.NDArray[np.bool_]]:
     """Fill missing skeletal convex hulls from segmentation contours when ``< 3`` keypoints are valid.
 
@@ -165,20 +175,27 @@ def _populate_segmentation_fallback_hulls(
     visible. Constructing a fallback convex hull from the contour geometry preserves
     social distance and group topology features on those frames.
 
+    Args:
+        hulls: Skeletal convex hull of each frame, None where there is none.
+        seg_windows: The identity's segmentation windows, or None without segmentation.
+
     Returns:
         Tuple of ``(updated_hulls, is_fallback_mask)`` where ``is_fallback_mask[frame]``
-        is True on frames populated from ``seg_arr`` so hull-margin contact tests do not
+        is True on frames populated from segmentation so hull-margin contact tests do not
         double-count the fur coat.
     """
     num_frames = len(hulls)
     is_fallback = np.zeros(num_frames, dtype=bool)
-    if seg_arr is None:
-        return list(hulls), is_fallback
-
     updated = list(hulls)
-    for frame_idx, hull in enumerate(updated):
-        if hull is None and frame_idx < len(seg_arr):
-            contour_geom = _extract_contour_geometry(seg_arr[frame_idx])
+    if seg_windows is None:
+        return updated, is_fallback
+
+    for window in seg_windows:
+        for index in range(len(window.contour_count)):
+            frame_idx = window.start + index
+            if frame_idx >= num_frames or updated[frame_idx] is not None:
+                continue
+            contour_geom = _extract_contour_geometry(_frame_contours(window, index))
             if contour_geom is not None:
                 cand_hull = contour_geom.convex_hull
                 if cand_hull.area > 0.0:
@@ -188,7 +205,7 @@ def _populate_segmentation_fallback_hulls(
 
 
 def _compute_identity_centroid_speeds(
-    poses: PoseEstimation,
+    poses: PoseLike,
     identity: int,
 ) -> npt.NDArray[np.float32]:
     """Compute per-frame convex-hull centroid speed for one identity, in pixels per second.
@@ -222,7 +239,7 @@ _CONTOUR_CHUNK_FRAMES = 4096
 
 
 def _contour_geometries(
-    seg_arr: npt.NDArray[np.generic] | None,
+    window: SegmentationWindow | None,
     present: npt.NDArray[np.bool_],
     start: int,
     stop: int,
@@ -230,8 +247,8 @@ def _contour_geometries(
     """Build closed contour geometries for one identity over a range of frames.
 
     Args:
-        seg_arr: Segmentation contours for the identity, shape
-            ``(num_frames, num_contours, num_vertices, 2)``, or None without segmentation.
+        window: The identity's segmentation window for frames ``[start, stop)``, or
+            None without segmentation.
         present: Whether the identity has a hull on each frame of the whole video.
         start: First frame of the range.
         stop: End of the range (exclusive).
@@ -241,11 +258,10 @@ def _contour_geometries(
         where the identity has no hull or no valid contour vertices.
     """
     geoms = np.full(stop - start, None, dtype=object)
-    if seg_arr is None:
+    if window is None:
         return geoms
-    for frame in np.flatnonzero(present[start:stop]) + start:
-        if frame < len(seg_arr):
-            geoms[frame - start] = _extract_contour_geometry(seg_arr[frame])
+    for index in np.flatnonzero(present[start:stop]):
+        geoms[index] = _extract_contour_geometry(_frame_contours(window, int(index)))
     return geoms
 
 
@@ -304,15 +320,9 @@ _TORSO_DESPIKE_KERNEL_FRAMES = 5
 _DEFAULT_CHAR_BODY_LEN_PX = 50.0
 
 
-def _extract_raw_seg_polygon(frame_seg: npt.NDArray[np.generic] | None) -> BaseGeometry:
-    """Build a closed Shapely Polygon/MultiPolygon from one frame's segmentation array."""
-    if frame_seg is None:
-        return Polygon()
-    mp: list[Polygon] = []
-    for contour in frame_seg:
-        valid_mask = contour[:, 0] != -1
-        if int(np.sum(valid_mask)) >= 3:
-            mp.append(Polygon(contour[valid_mask]))
+def _extract_raw_seg_polygon(contours: Sequence[npt.NDArray[np.integer]]) -> BaseGeometry:
+    """Build a closed Shapely Polygon/MultiPolygon from one frame's segmentation contours."""
+    mp = [Polygon(contour) for contour in contours if len(contour) >= 3]
     if len(mp) == 1:
         return mp[0]
     if len(mp) > 1:
@@ -369,10 +379,14 @@ def _despike_contiguous_segments(
 def _extract_seg_polys_and_body_scale(
     identities: list[int],
     num_frames: int,
-    seg_by_id: dict[int, npt.NDArray[np.generic] | None],
+    seg_windows: SegmentationWindows | None,
     body_lengths_px_by_id: dict[int, npt.NDArray[np.float64]],
 ) -> tuple[float, npt.NDArray[np.object_], npt.NDArray[np.bool_]]:
-    """Extract segmentation polygons and estimate the video's characteristic body length."""
+    """Extract segmentation polygons and estimate the video's characteristic body length.
+
+    ``seg_windows`` gives an identity's segmentation windows, or is None without
+    segmentation.
+    """
     n_ids = len(identities)
     pose_chunks = [
         vals[np.isfinite(vals)]
@@ -387,14 +401,17 @@ def _extract_seg_polys_and_body_scale(
     has_seg_poly = np.zeros((num_frames, n_ids), dtype=bool)
     id_seg_medians: list[float] = []
     for m_idx, curr_id in enumerate(identities):
-        seg_arr = seg_by_id.get(curr_id)
-        if seg_arr is None:
-            continue
-        for fr in range(min(num_frames, len(seg_arr))):
-            poly = _extract_raw_seg_polygon(seg_arr[fr])
-            if not poly.is_empty and poly.area > 0.0:
-                seg_polys[fr, m_idx] = poly
-                has_seg_poly[fr, m_idx] = True
+        if seg_windows is None:
+            break
+        for window in seg_windows(curr_id):
+            for index in range(len(window.contour_count)):
+                fr = window.start + index
+                if fr >= num_frames:
+                    break
+                poly = _extract_raw_seg_polygon(_frame_contours(window, index))
+                if not poly.is_empty and poly.area > 0.0:
+                    seg_polys[fr, m_idx] = poly
+                    has_seg_poly[fr, m_idx] = True
         if np.any(has_seg_poly[:, m_idx]):
             id_seg_medians.append(
                 float(np.median(shapely.area(seg_polys[has_seg_poly[:, m_idx], m_idx])))
@@ -412,7 +429,7 @@ def _extract_seg_polys_and_body_scale(
 def _compute_video_torso_blob_features(
     identities: list[int],
     num_frames: int,
-    seg_by_id: dict[int, npt.NDArray[np.generic] | None],
+    seg_windows: SegmentationWindows | None,
     hulls_by_id: dict[int, list[BaseGeometry | None] | npt.NDArray[np.object_]],
     is_fallback_by_id: dict[int, npt.NDArray[np.bool_]],
     body_lengths_px_by_id: dict[int, npt.NDArray[np.float64]],
@@ -450,7 +467,7 @@ def _compute_video_torso_blob_features(
         )
 
     l_ref, seg_polys, has_seg_poly = _extract_seg_polys_and_body_scale(
-        identities, num_frames, seg_by_id, body_lengths_px_by_id
+        identities, num_frames, seg_windows, body_lengths_px_by_id
     )
     r_open = max(_TORSO_OPENING_MIN_PX, _TORSO_OPENING_BODY_SCALE * l_ref)
     simp_tol = max(_TORSO_SIMPLIFY_MIN_PX, _TORSO_SIMPLIFY_BODY_SCALE * l_ref)
@@ -630,7 +647,7 @@ class _VideoSocialCache:
     """Video-level pre-computed hulls, distances, and contact topology for all identities.
 
     ``IdentityFeatures`` builds a new ``SocialFeatureGroup`` (and ``ClosestIdentityInfo``)
-    for each identity, but callers reuse the same ``PoseEstimation`` object across
+    for each identity, but callers reuse the same ``PoseLike`` object across
     identities. ``for_pose()`` keys the cache on that object so the per-video work is
     done once rather than once per subject animal.
 
@@ -699,7 +716,7 @@ class _VideoSocialCache:
         return result
 
     @classmethod
-    def for_pose(cls, poses: PoseEstimation) -> _VideoSocialCache:
+    def for_pose(cls, poses: PoseLike) -> _VideoSocialCache:
         """Return the shared cache for ``poses``, building it on first use."""
         cache = _VIDEO_SOCIAL_CACHES.get(poses)
         if cache is None:
@@ -708,7 +725,7 @@ class _VideoSocialCache:
         return cache
 
     @classmethod
-    def build(cls, poses: PoseEstimation) -> _VideoSocialCache:
+    def build(cls, poses: PoseLike) -> _VideoSocialCache:
         """Build shared social geometry and contact caches for all identities in ``poses``."""
         num_frames = poses.num_frames
         identities = list(poses.identities)
@@ -717,21 +734,19 @@ class _VideoSocialCache:
             len(identities),
             num_frames,
         )
-        has_seg = bool(poses.format_major_version >= 6 and poses.has_segmentation)
+        has_seg = PoseCapability.SEGMENTATION in poses.capabilities
+        seg_windows: SegmentationWindows | None = poses.iter_segmentation if has_seg else None
 
         hulls_by_id: dict[int, npt.NDArray[np.object_]] = {}
         is_fallback_by_id: dict[int, npt.NDArray[np.bool_]] = {}
         present_by_id: dict[int, npt.NDArray[np.bool_]] = {}
-        seg_by_id: dict[int, npt.NDArray[np.generic] | None] = {}
         centroids_px_by_id: dict[int, npt.NDArray[np.float64]] = {}
         body_lengths_px_by_id: dict[int, npt.NDArray[np.float64]] = {}
         margins_px_by_id: dict[int, npt.NDArray[np.float64]] = {}
         for curr_id in identities:
-            seg_arr = poses.get_segmentation_data(curr_id) if has_seg else None
-            seg_by_id[curr_id] = seg_arr
             raw_hulls: list[BaseGeometry | None] = list(poses.get_identity_convex_hulls(curr_id))
             hull_list, is_fallback_by_id[curr_id] = _populate_segmentation_fallback_hulls(
-                raw_hulls, seg_arr
+                raw_hulls, None if seg_windows is None else seg_windows(curr_id)
             )
             hulls = np.array(hull_list, dtype=object)
             present = ~shapely.is_missing(hulls)
@@ -770,7 +785,12 @@ class _VideoSocialCache:
             for start in range(0, num_frames, _CONTOUR_CHUNK_FRAMES):
                 stop = min(start + _CONTOUR_CHUNK_FRAMES, num_frames)
                 chunk_contours = [
-                    _contour_geometries(seg_by_id[curr_id], present_by_id[curr_id], start, stop)
+                    _contour_geometries(
+                        poses.segmentation_window(curr_id, start, stop),
+                        present_by_id[curr_id],
+                        start,
+                        stop,
+                    )
                     for curr_id in identities
                 ]
                 for (a_idx, b_idx), seg_gap in seg_gaps.items():
@@ -824,7 +844,7 @@ class _VideoSocialCache:
         ) = _compute_video_torso_blob_features(
             identities,
             num_frames,
-            seg_by_id,
+            seg_windows,
             hulls_by_id,
             is_fallback_by_id,
             body_lengths_px_by_id,
@@ -882,9 +902,9 @@ def _gather_by_identity(
     return result
 
 
-# Shared caches keyed weakly on the PoseEstimation object, so a cache is released
+# Shared caches keyed weakly on the PoseLike object, so a cache is released
 # together with the pose data it was built from.
-_VIDEO_SOCIAL_CACHES: weakref.WeakKeyDictionary[PoseEstimation, _VideoSocialCache] = (
+_VIDEO_SOCIAL_CACHES: weakref.WeakKeyDictionary[PoseLike, _VideoSocialCache] = (
     weakref.WeakKeyDictionary()
 )
 
@@ -906,8 +926,8 @@ class ClosestIdentityInfo:
     # Taken from the ICY paper where the full field of view is 240 degrees.
     HALF_FOV_DEGREE = 120
 
-    def __init__(self, poses: PoseEstimation, identity: int, pixel_scale: float) -> None:
-        idx = PoseEstimation.KeypointIndex
+    def __init__(self, poses: PoseLike, identity: int, pixel_scale: float) -> None:
+        idx = KeypointIndex
 
         self._poses = poses
         self._identity = identity
@@ -1184,7 +1204,7 @@ class ClosestIdentityInfo:
 
     def compute_pairwise_social_distances(
         self,
-        social_points: list[PoseEstimation.KeypointIndex],
+        social_points: list[KeypointIndex],
         closest_identities: npt.NDArray[np.integer],
     ) -> dict[str, npt.NDArray[np.float32]]:
         """Compute pairwise distances between specified keypoints of the subject and closest identity.

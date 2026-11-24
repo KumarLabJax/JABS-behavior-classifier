@@ -10,6 +10,7 @@ from .cv_grouping import (
     filename_group_key,
 )
 from .inference import ConfidenceMetric, Method, SamplingStrategy
+from .pose_capability import PoseCapability
 from .pose_version import JabsPoseVersion
 from .prediction_type import PredictionType
 from .storage_format import StorageFormat
@@ -25,6 +26,7 @@ __all__ = [
     "CrossValidationGroupingStrategy",
     "JabsPoseVersion",
     "Method",
+    "PoseCapability",
     "PredictionType",
     "ProjectDistanceUnit",
     "SamplingStrategy",

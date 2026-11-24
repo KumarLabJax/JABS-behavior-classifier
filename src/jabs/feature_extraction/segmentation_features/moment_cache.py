@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from jabs.pose_estimation import PoseEstimationV6
+from jabs.core.pose_protocol import PoseLike
+from jabs.core.types import SegmentationWindow
 
 # raw (spatial) moment keys returned by cv2.moments; these depend on the image origin,
 # unlike the central (mu) and normalized (nu) moments
@@ -45,13 +46,16 @@ class MomentInfo:
 
     get_moment(frame, key) retrieves the calculated image moment
 
+    Segmentation is read one window at a time (``iter_segmentation``); only the
+    valid contours of each frame are kept.
+
     Args:
-        poses (PoseEstimationV6): V6+ Pose estimation data for one video.
+        poses (PoseLike): Pose data with segmentation for one video.
         identity (int): Identity to compute moments for.
         pixel_scale (float): Scale factor to convert pixel distances to cm.
     """
 
-    def __init__(self, poses: PoseEstimationV6, identity: int, pixel_scale: float):
+    def __init__(self, poses: PoseLike, identity: int, pixel_scale: float):
         # These keys are necessary because opencv returns a dict which may not always be sorted
         self._moment_keys = list(cv2.moments(np.empty(0)))
         self._moment_conversion_powers = [
@@ -63,15 +67,13 @@ class MomentInfo:
         self._moments = np.zeros(
             (self._poses.num_frames, len(self._moment_keys)), dtype=np.float32
         )
-        self._seg_data = self._poses.get_segmentation_data(identity)
-        self._seg_flags = self._poses.get_segmentation_flags(identity)
-
-        # Parse out the contour matrix into a list of contour lists
-        tmp_contour_data = []
-        for frame in range(self._moments.shape[0]):
-            tmp_contour_data.append(self.trim_contour_list(self._seg_data[frame, ...]))
-
-        self._seg_data = tmp_contour_data
+        self._seg_data: list[list[npt.NDArray[np.int32]]] = []
+        self._seg_flags: list[npt.NDArray[np.bool_]] = []
+        for window in self._poses.iter_segmentation(identity):
+            for i in range(len(window.contour_count)):
+                contours, flags = self.frame_contours(window, i)
+                self._seg_data.append(contours)
+                self._seg_flags.append(flags)
 
         for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
@@ -167,43 +169,46 @@ class MomentInfo:
         """
         return self._seg_data[frame]
 
-    def get_flags(self, frame):
+    def get_flags(self, frame: int) -> npt.NDArray[np.bool_]:
         """retrieves the internal/external flags for a specific frame
 
         Args:
             frame: frame to retrieve flags
 
         Returns:
-            a binary vector of whether the segmentation contours are
-            external (1) or internal (0)
+            bool vector aligned with :meth:`get_trimmed_contours`: True where the
+            contour is external, False where it is internal (a hole)
         """
         return self._seg_flags[frame]
 
-    def trim_contour(self, arr):
-        """removes -1s from contour data
+    @staticmethod
+    def frame_contours(
+        window: SegmentationWindow, index: int
+    ) -> tuple[list[npt.NDArray[np.int32]], npt.NDArray[np.bool_]]:
+        """Extract one frame's valid contours and their external flags from a window.
+
+        Without external flags in the source every contour is taken as external.
 
         Args:
-            arr: contour, padded with -1s
+            window: Segmentation window holding the frame.
+            index: Frame index within the window.
 
         Returns:
-            opencv-complaint contour
+            The opencv-compliant contour list (each contour ``(L, 2)`` int32 with
+            ``L >= 1``) and the matching bool external flags.
         """
-        assert arr.ndim == 2
-        return_arr = arr[np.all(arr != -1, axis=1), :]
-        if len(return_arr) > 0:
-            return return_arr.astype(np.int32)
-
-    def trim_contour_list(self, arr):
-        """trims a fully padded 3D matrix into opencv-compliant contour list
-
-        Args:
-            arr: a full matrix of contours, padded with -1s
-
-        Returns:
-            opencv-complaint contour list
-        """
-        assert arr.ndim == 3
-        return [self.trim_contour(x) for x in arr if np.any(x != -1)]
+        count = int(window.contour_count[index])
+        lengths = window.contour_length[index, :count]
+        valid = lengths > 0
+        contours = [
+            window.contours[index, c, : int(lengths[c])].astype(np.int32, copy=False)
+            for c in np.flatnonzero(valid)
+        ]
+        if window.external_flag is None:
+            flags = np.ones(len(contours), dtype=bool)
+        else:
+            flags = np.asarray(window.external_flag[index, :count], dtype=bool)[valid]
+        return contours, flags
 
     @staticmethod
     def calculate_moments(contour_list: list[npt.NDArray[np.int32]]) -> dict[str, float]:

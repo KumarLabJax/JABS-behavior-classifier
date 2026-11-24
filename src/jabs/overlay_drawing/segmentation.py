@@ -23,7 +23,7 @@ from .mapping import visible_runs
 from .scaling import native_overlay_scale
 
 if TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
 # Contours of the active identity are red, every other identity's are blue. These are
 # the colors the cv2 drawing used, converted from its BGR tuples.
@@ -41,13 +41,6 @@ _PREDICTION_BEHAVIOR = 1
 
 # Contour line width at the reference frame size, matching the single pixel cv2 drew.
 _BASE_LINE_WIDTH = 1
-
-# Padding value for unused contour points and unused contour slots in a pose file's
-# segmentation data.
-_PADDING = -1
-
-# The pose file's first segmentation version. Earlier files carry no contours at all.
-_MIN_SEGMENTATION_POSE_VERSION = 6
 
 
 def native_segmentation_line_width(width: int, height: int) -> int:
@@ -97,16 +90,15 @@ def segmentation_prediction_color(
 
 
 def identity_contours(
-    pose: "PoseEstimation", frame_index: int, identity: int
+    pose: "PoseLike", frame_index: int, identity: int
 ) -> list[npt.NDArray[np.int_]]:
-    """Return one identity's segmentation contours for a frame, padding removed.
+    """Return one identity's segmentation contours for a frame.
 
-    A pose file stores a fixed number of contour slots per identity, each with a fixed
-    number of points, padded with ``-1`` where an animal needs fewer. Unused slots and
-    unused points are dropped here so callers only see real contours.
+    Reads the one-frame window ``[frame_index, frame_index + 1)``, whose valid
+    contours are packed first, and keeps only each contour's real points.
 
     Args:
-        pose: Pose estimation for the video.
+        pose: Pose for the video.
         frame_index: Frame to return contours for.
         identity: Identity to return contours for.
 
@@ -115,24 +107,22 @@ def identity_contours(
         this identity has no contours on this frame, or when the pose file has no
         segmentation data at all.
     """
-    if pose.format_major_version < _MIN_SEGMENTATION_POSE_VERSION:
+    if not pose.has_segmentation:
         return []
 
-    contours = pose.get_segmentation_data_per_frame(frame_index, identity)
-    if contours is None:
-        return []
-
-    trimmed = []
-    for contour in contours:
-        points = contour[np.all(contour != _PADDING, axis=1), :]
-        if len(points) > 0:
-            trimmed.append(points.astype(int))
-    return trimmed
+    window = pose.segmentation_window(identity, frame_index, frame_index + 1)
+    count = int(window.contour_count[0])
+    lengths = window.contour_length[0, :count]
+    return [
+        window.contours[0, c, : int(lengths[c])].astype(int)
+        for c in range(count)
+        if lengths[c] > 0
+    ]
 
 
 def draw_identity_segmentation(
     painter: QtGui.QPainter,
-    pose: "PoseEstimation",
+    pose: "PoseLike",
     frame_index: int,
     identity: int,
     *,
@@ -145,7 +135,7 @@ def draw_identity_segmentation(
 
     Args:
         painter: The painter to draw with.
-        pose: Pose estimation data for the video.
+        pose: Pose for the video.
         frame_index: Frame to draw the contours for.
         identity: Identity whose contours are drawn.
         to_output: Maps an image-space ``(x, y)`` to the painter's coordinate space, or

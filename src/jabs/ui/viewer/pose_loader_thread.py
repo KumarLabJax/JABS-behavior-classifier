@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 class PoseLoaderThread(QThread):
     """Opens a pose file off the GUI thread, so the viewer stays responsive.
 
-    Opening a pose file can take several seconds: a v6+ file with segmentation
-    decompresses all of its contours up front, several GB for an hour of video.
+    Opening a pose file can take several seconds: a legacy file is converted into
+    the unified format first, which on a large file takes long enough to freeze the
+    window if done on the GUI thread.
 
     Signals:
-        pose_loaded: Emitted with the loader's result, normally the opened
-            ``PoseEstimation``.
+        pose_loaded: Emitted with the loader's result, normally the opened pose.
         load_error: Emitted with the exception if the file could not be opened.
 
     Args:

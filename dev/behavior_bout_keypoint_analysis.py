@@ -7,7 +7,7 @@ pose keypoint is absent (below the confidence threshold). Produces:
   * A project-wide summary table with overall %, mean, median, and std
     of per-bout missing rates for each keypoint.
 
-Pose files v3 and above are supported (v2 has an incompatible point-mask layout).
+Every pose file JABS opens is supported: unified files and legacy v2-v8 files.
 
 Usage::
 
@@ -121,9 +121,6 @@ def _collect_bouts(
 
     Returns:
         List of BoutRecord objects, one per positive bout, in video-iteration order.
-
-    Raises:
-        click.ClickException: If a pose file is v2 (unsupported point-mask shape).
     """
     bouts: list[BoutRecord] = []
 
@@ -148,12 +145,6 @@ def _collect_bouts(
 
         pose_path = project.video_manager.get_cached_pose_path(video_name)
         pose = open_pose_file(pose_path, cache_dir=project.project_paths.cache_dir)
-
-        if pose.format_major_version <= 2:
-            raise click.ClickException(
-                f"Pose file for '{video_name}' is v{pose.format_major_version}. "
-                "Only v3 and above are supported (v2 has an incompatible point-mask shape)."
-            )
 
         # Stack masks: (n_identities, n_frames, 12) — 1 = valid, 0 = missing
         point_mask = np.stack(
@@ -379,7 +370,7 @@ def main(
     each pose keypoint is absent. Prints a per-bout table and a project-wide
     summary with mean, median, and standard deviation per keypoint.
 
-    Pose file versions v3 and above are supported.
+    Every pose file JABS opens is supported.
     """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.WARNING,

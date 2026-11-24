@@ -2,10 +2,11 @@ import typing
 
 import numpy as np
 
+from jabs.core.enums import PoseCapability
 from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
-    from jabs.pose_estimation import PoseEstimation
+    from jabs.core.pose_protocol import PoseLike
 
     from .social_distance import ClosestIdentityInfo
 
@@ -14,17 +15,17 @@ class ClosestFovDistances(Feature):
     """Computes the closest distance between a subject and the nearest other identity within its field of view (FoV).
 
     Args:
-        poses (PoseEstimation): Pose estimation data for one video.
+        poses (PoseLike): Pose estimation data for one video.
         pixel_scale (float): Scale factor to convert pixel distances to cm.
         social_distance_info (ClosestIdentityInfo): Object providing closest identity and FoV information.
     """
 
     _name = "closest_fov_distances"
-    _min_pose = 3
+    _requires = frozenset({PoseCapability.SOCIAL})
 
     def __init__(
         self,
-        poses: "PoseEstimation",
+        poses: "PoseLike",
         pixel_scale: float,
         social_distance_info: "ClosestIdentityInfo",
     ):

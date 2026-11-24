@@ -9,14 +9,14 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.pose_skeleton import KeypointIndex
 
 KEYPOINT_MAP = {
-    1: PoseEstimation.KeypointIndex.NOSE,
-    2: PoseEstimation.KeypointIndex.LEFT_EAR,
-    3: PoseEstimation.KeypointIndex.RIGHT_EAR,
-    4: PoseEstimation.KeypointIndex.BASE_TAIL,
-    5: PoseEstimation.KeypointIndex.TIP_TAIL,
+    1: KeypointIndex.NOSE,
+    2: KeypointIndex.LEFT_EAR,
+    3: KeypointIndex.RIGHT_EAR,
+    4: KeypointIndex.BASE_TAIL,
+    5: KeypointIndex.TIP_TAIL,
 }
 
 

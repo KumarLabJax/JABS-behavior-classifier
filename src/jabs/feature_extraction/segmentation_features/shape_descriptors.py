@@ -7,8 +7,9 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from jabs.core.enums import PoseCapability
+from jabs.core.pose_protocol import PoseLike
 from jabs.feature_extraction.feature_base_class import Feature
-from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .moment_cache import MomentInfo
@@ -36,10 +37,11 @@ class ShapeDescriptors(Feature):
     """
 
     _name = "shape_descriptor"
+    _requires = frozenset({PoseCapability.SEGMENTATION})
     # TODO: we're discarding centroid angle and ellipse-fit angle (theta)
     # These need to be handled similar to other angle terms (circular statistics)
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: MomentInfo):
+    def __init__(self, poses: PoseLike, pixel_scale: float, moment_cache: MomentInfo):
         super().__init__(poses, pixel_scale)
         self._moment_cache = moment_cache
         self._pixel_scale = pixel_scale
@@ -175,7 +177,7 @@ class ShapeDescriptors(Feature):
         )
         for i, frame in enumerate(frames):
             contour_list = self._moment_cache.get_trimmed_contours(frame)
-            contour_flags = self._moment_cache.get_flags(frame)[: len(contour_list)]
+            external = self._moment_cache.get_flags(frame)
             all_points = np.concatenate(contour_list, axis=0)
             stats.rect_width[i], stats.rect_height[i] = cv2.minAreaRect(all_points)[1]
             stats.perimeter[i] = np.sum([cv2.arcLength(x, True) for x in contour_list])
@@ -191,8 +193,8 @@ class ShapeDescriptors(Feature):
             stats.hull_area[i] = cv2.contourArea(hull)
             # "Holes" are only internal contours
             stats.hole_area[i] = np.sum(
-                [cv2.contourArea(contour_list[int(x)]) for x in np.where(contour_flags == 0)[0]]
+                [cv2.contourArea(contour_list[int(x)]) for x in np.flatnonzero(~external)]
             )
-            stats.num_external[i] = np.sum(contour_flags == 1)
-            stats.num_internal[i] = np.sum(contour_flags == 0)
+            stats.num_external[i] = np.count_nonzero(external)
+            stats.num_internal[i] = np.count_nonzero(~external)
         return stats
