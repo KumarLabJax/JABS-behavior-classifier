@@ -1182,6 +1182,7 @@ class BaleDialog(QtWidgets.QDialog):
         self._suppress_auto_seek: bool = False
         self._pending_click_already_sought_row: int | None = None
         self._standalone_help_dialog: UserGuideDialog | None = None
+        self._initial_splitters_applied: bool = False
 
         # Whole-video screener (`4. Videos`) state — zero Parquet I/O, lazy-cached per scope
         self._video_report: VideoScreenerReport | None = None
@@ -1222,6 +1223,21 @@ class BaleDialog(QtWidgets.QDialog):
         self._init_refresh_timer.timeout.connect(self._on_initial_refresh_timeout)
         self._init_refresh_timer.start(60)
 
+    def _apply_default_splitter_sizes(
+        self, total_w: int | None = None, total_h: int | None = None
+    ) -> None:
+        """Apply default 2/3 : 1/3 horizontal (2D Plot vs Inspector) and 60% : 40% vertical splits."""
+        avail_w = max(420, int((total_w if total_w is not None else self.width()) - 24))
+        left_w = round((2.0 / 3.0) * avail_w)
+        right_w = max(260, avail_w - left_w)
+        left_w = max(180, avail_w - right_w)
+        self._upper_splitter.setSizes([left_w, right_w])
+
+        avail_h = max(360, int((total_h if total_h is not None else self.height()) - 96))
+        top_h = round(0.60 * avail_h)
+        bot_h = max(140, avail_h - top_h)
+        self._main_splitter.setSizes([top_h, bot_h])
+
     def _apply_initial_window_geometry(self) -> None:
         """Size dialog comfortably within the active screen so all edges stay resizable on every OS."""
         target_w, target_h = 1340, 820
@@ -1232,6 +1248,7 @@ class BaleDialog(QtWidgets.QDialog):
                 target_w = max(self.minimumWidth(), min(target_w, avail.width() - 40))
                 target_h = max(self.minimumHeight(), min(target_h, avail.height() - 60))
         self.resize(target_w, target_h)
+        self._apply_default_splitter_sizes(target_w, target_h)
 
     # ------------------------------------------------------------------
     # UI Construction (Clean, Minimalist, Progressive Disclosure)
@@ -1722,15 +1739,15 @@ class BaleDialog(QtWidgets.QDialog):
         # Right Pane: Unified "Selected Bout Triage Card" (Zero nested bordered boxes!)
         card_panel = QtWidgets.QFrame()
         self._card_panel = card_panel
-        card_panel.setMinimumWidth(220)
+        card_panel.setMinimumWidth(260)
         card_panel.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Ignored,
             QtWidgets.QSizePolicy.Policy.Preferred,
         )
         card_panel.setStyleSheet("QFrame { background-color: #F8FAFC; border-radius: 6px; }")
         card_vbox = QtWidgets.QVBoxLayout(card_panel)
-        card_vbox.setContentsMargins(12, 10, 12, 8)
-        card_vbox.setSpacing(7)
+        card_vbox.setContentsMargins(10, 8, 10, 6)
+        card_vbox.setSpacing(5)
 
         # Card Row 1: Elided Bout Title + Metadata + Play Clip Button
         hdr_row = QtWidgets.QHBoxLayout()
@@ -1992,14 +2009,14 @@ class BaleDialog(QtWidgets.QDialog):
             interactive_x_scrub=True,
             parent=card_panel,
         )
-        self.insp_canvas.setMinimumSize(160, 92)
+        self.insp_canvas.setMinimumSize(140, 60)
         self.insp_canvas.x_value_clicked.connect(self._on_prob_curve_frame_clicked)
         self.insp_canvas.y_value_clicked.connect(self._on_cluster_heatmap_row_clicked)
         card_vbox.addWidget(self.insp_canvas, 1)
 
         upper_splitter.addWidget(card_panel)
-        upper_splitter.setStretchFactor(0, 52)
-        upper_splitter.setStretchFactor(1, 48)
+        upper_splitter.setStretchFactor(0, 2)
+        upper_splitter.setStretchFactor(1, 1)
         main_splitter.addWidget(upper_splitter)
 
         # 3. Bottom Triage / Whole-Video Queue (Responsive Wrapping Controls + Stacked Sortable Tables)
@@ -2494,6 +2511,14 @@ class BaleDialog(QtWidgets.QDialog):
     def _on_initial_refresh_timeout(self) -> None:
         if not self._is_closing and self._report is None and self._active_worker is None:
             self.refresh_analysis()
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:
+        """Apply default 2/3 : 1/3 horizontal splitter proportions on first window reveal."""
+        super().showEvent(event)
+        if not self._initial_splitters_applied:
+            self._initial_splitters_applied = True
+            if not self._map_expanded:
+                self._apply_default_splitter_sizes()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         """Keep Mode 4 Video column well-proportioned when resizing between desktop and compact widths."""
@@ -6141,12 +6166,14 @@ class BaleDialog(QtWidgets.QDialog):
                 self._upper_splitter.setSizes(self._saved_upper_sizes)
             else:
                 tot_w = max(800, sum(self._upper_splitter.sizes()) or self.width())
-                self._upper_splitter.setSizes([int(0.52 * tot_w), int(0.48 * tot_w)])
+                left_w = round((2.0 / 3.0) * tot_w)
+                self._upper_splitter.setSizes([left_w, max(160, tot_w - left_w)])
             if self._saved_main_sizes and sum(self._saved_main_sizes) > 0:
                 self._main_splitter.setSizes(self._saved_main_sizes)
             else:
                 tot_h = max(560, sum(self._main_splitter.sizes()) or self.height())
-                self._main_splitter.setSizes([int(0.58 * tot_h), int(0.42 * tot_h)])
+                top_h = round(0.60 * tot_h)
+                self._main_splitter.setSizes([top_h, max(140, tot_h - top_h)])
 
         self.scatter_canvas.mark_layout_dirty()
         self.insp_canvas.mark_layout_dirty()

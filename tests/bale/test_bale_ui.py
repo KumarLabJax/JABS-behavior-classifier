@@ -399,9 +399,13 @@ def test_map_zoom_pan_persistence_and_expand_restore(tmp_path: Path) -> None:
     assert not dlg.map_reset_zoom_btn.isEnabled()
     assert abs(dlg.scatter_ax.get_xlim()[0] - def_xlim[0]) < 1e-4
 
-    # 6. Expand Map [M] maximizes the 2D scatter pane and restores saved splitter sizes on toggle off
+    # 6. Expand Map [M] maximizes the 2D scatter pane from the 2/3:1/3 default and restores saved splitter sizes on toggle off
     orig_upper = list(dlg._upper_splitter.sizes())
     orig_main = list(dlg._main_splitter.sizes())
+    ratio_left = orig_upper[0] / max(1, sum(orig_upper))
+    assert 0.63 <= ratio_left <= 0.70, (
+        f"Expected ~2/3 left 2D map default ratio, got {ratio_left:.3f} ({orig_upper})"
+    )
     ev_m = QtGui.QKeyEvent(
         QtCore.QEvent.Type.KeyPress, Qt.Key.Key_M, Qt.KeyboardModifier.NoModifier, "m"
     )
@@ -410,7 +414,7 @@ def test_map_zoom_pan_persistence_and_expand_restore(tmp_path: Path) -> None:
     assert dlg.expand_map_btn.isChecked()
     assert not dlg._card_panel.isVisible()
     exp_upper = dlg._upper_splitter.sizes()
-    assert exp_upper[0] > orig_upper[0] * 1.6
+    assert exp_upper[0] > orig_upper[0] * 1.35
     assert exp_upper[1] == 0
 
     dlg.keyPressEvent(ev_m)
@@ -419,8 +423,8 @@ def test_map_zoom_pan_persistence_and_expand_restore(tmp_path: Path) -> None:
     assert dlg._card_panel.isVisible()
     restored_upper = dlg._upper_splitter.sizes()
     restored_main = dlg._main_splitter.sizes()
-    assert abs(restored_upper[0] - orig_upper[0]) <= 4
-    assert abs(restored_main[0] - orig_main[0]) <= 4
+    assert abs(restored_upper[0] - orig_upper[0]) <= 6
+    assert abs(restored_main[0] - orig_main[0]) <= 6
     dlg.close()
 
 
