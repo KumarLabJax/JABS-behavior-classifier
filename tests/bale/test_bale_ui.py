@@ -2642,9 +2642,117 @@ def test_arena_spatial_map_toggle_inverted_y_zoom_and_nan_selection(tmp_path: Pa
         assert dlg._proj_method == "pca"
         assert not dlg.arena_map_btn.isChecked()
 
-        # Mode 4 (Videos) hides the Arena button
+        # Mode 4 (Videos) hides the Arena button and Map Class Filter
         dlg.mode_videos_btn.setChecked(True)
         dlg._on_mode_pill_clicked(3)
         assert not dlg.arena_map_btn.isVisible()
+        assert not dlg.map_class_combo.isVisible()
+    finally:
+        dlg.close()
+
+
+def test_class_and_table_filters_sync_pca_and_arena_plots(tmp_path: Path) -> None:
+    """Verify Class Filter dropdowns, search text, Quick Select, and Esc sync across Table, PCA, and Arena plots."""
+    from jabs.bale.models import BoutSpatialResult
+
+    _ensure_qapp()
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+    central_mock = MagicMock()
+    central_mock.behavior = "Grooming"
+
+    dlg = BaleDialog(project, central_widget=central_mock)
+    try:
+        rep = run_bale(project, "Grooming", include_predictions=False, space="classifier")
+        n_bouts = len(rep.feature_matrix.records)
+        rng = np.random.default_rng(7)
+        coords_xy = rng.uniform(100.0, 500.0, size=(n_bouts, 2)).astype(np.float32)
+        rep.spatial = BoutSpatialResult(
+            coords_xy=coords_xy,
+            nose_xy=coords_xy.copy(),
+            valid_mask=np.ones(n_bouts, dtype=bool),
+            frame_width=800.0,
+            frame_height=600.0,
+            normalized=False,
+            reference_frame_gray=np.full((300, 400), 120, dtype=np.uint8),
+            static_objects={},
+            elapsed_ms=2.1,
+        )
+        dlg._on_analysis_finished(rep, included_preds=False)
+        dlg.show()
+        QtWidgets.QApplication.processEvents()
+
+        # Both Class Filter combos carry NoFocus so Spacebar still plays clips cleanly
+        assert dlg.map_class_combo.focusPolicy() == Qt.FocusPolicy.NoFocus
+        assert dlg.class_filter_combo.focusPolicy() == Qt.FocusPolicy.NoFocus
+
+        records = rep.feature_matrix.records
+        pos_ids = {i for i, r in enumerate(records) if r.is_positive}
+        neg_ids = {i for i, r in enumerate(records) if not r.is_positive}
+        assert pos_ids and neg_ids
+
+        # Switch to All Bouts queue and capture full-cloud PCA limits
+        dlg.qf_all_btn.setChecked(True)
+        dlg._on_queue_filter_pill_clicked(1)
+        assert dlg._scatter_default_limits is not None
+        full_pca_xlim, full_pca_ylim = dlg._scatter_default_limits
+
+        # 1. Selecting Positive Only in map_class_combo syncs table combo, table rows, AND PCA plot
+        idx_pos = dlg.map_class_combo.findData("pos")
+        assert idx_pos >= 0
+        dlg.map_class_combo.setCurrentIndex(idx_pos)
+        assert dlg._class_filter == "pos"
+        assert dlg.class_filter_combo.currentData() == "pos"
+        pca_picks = set(dlg.scatter_canvas._pick_global_indices.tolist())
+        assert pca_picks == pos_ids
+        assert dlg.table.rowCount() == len(pos_ids)
+        assert dlg._scatter_default_limits == (full_pca_xlim, full_pca_ylim)
+
+        # Switching to Arena [A] keeps the exact same positive class filter + inverted-Y bounds
+        dlg._toggle_arena_map(True)
+        arena_picks_pos = set(dlg.scatter_canvas._pick_global_indices.tolist())
+        assert arena_picks_pos == pos_ids
+        ay0, ay1 = dlg.scatter_ax.get_ylim()
+        assert ay0 > ay1
+
+        # 2. Selecting Negative Only in table class_filter_combo updates Arena plot & map combo
+        idx_neg = dlg.class_filter_combo.findData("neg")
+        assert idx_neg >= 0
+        dlg.class_filter_combo.setCurrentIndex(idx_neg)
+        assert dlg._class_filter == "neg"
+        assert dlg.map_class_combo.currentData() == "neg"
+        arena_picks_neg = set(dlg.scatter_canvas._pick_global_indices.tolist())
+        assert arena_picks_neg == neg_ids
+        assert dlg.table.rowCount() == len(neg_ids)
+
+        # Back to All Classes
+        idx_all = dlg.class_filter_combo.findData("all")
+        dlg.class_filter_combo.setCurrentIndex(idx_all)
+        assert set(dlg.scatter_canvas._pick_global_indices.tolist()) == (pos_ids | neg_ids)
+
+        # 3. Text filtering ("Grooming" vs "Not-Grooming") never matches "Not-Grooming" for "Grooming"
+        # and immediately updates Arena + PCA scatter plots even when row 0 stays identical
+        dlg.search_input.setText("Grooming")
+        QtWidgets.QApplication.processEvents()
+        search_pos_picks = set(dlg.scatter_canvas._pick_global_indices.tolist())
+        assert search_pos_picks == pos_ids
+        assert dlg.table.rowCount() == len(pos_ids)
+
+        dlg.search_input.setText("Not-Grooming")
+        QtWidgets.QApplication.processEvents()
+        assert set(dlg.scatter_canvas._pick_global_indices.tolist()) == neg_ids
+        assert dlg.table.rowCount() == len(neg_ids)
+        dlg.search_input.clear()
+        QtWidgets.QApplication.processEvents()
+
+        # 4. Quick Select cohort filters Arena plot (and PCA on toggle back), and Esc restores all
+        dlg._select_quick_slice("class:Grooming")
+        assert set(dlg.scatter_canvas._pick_global_indices.tolist()) == pos_ids
+        dlg._toggle_arena_map(False)
+        assert set(dlg.scatter_canvas._pick_global_indices.tolist()) == pos_ids
+        ev_esc = QtGui.QKeyEvent(
+            QtCore.QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier, ""
+        )
+        dlg.keyPressEvent(ev_esc)
+        assert set(dlg.scatter_canvas._pick_global_indices.tolist()) == (pos_ids | neg_ids)
     finally:
         dlg.close()

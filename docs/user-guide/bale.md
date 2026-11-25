@@ -55,6 +55,7 @@ Use **2. Review Predictions** after running **Classify** in JABS to rapidly turn
 Use **3. Sub-Types** to explore behavioral diversity, check whether a behavior contains distinct biological variants, and inspect how bouts cluster in feature space.
 
 - **Interactive 2D Map:** Zoom with the mouse wheel (or **`+` / `-` / `0`**), pan by dragging, press **`M`** to expand/collapse the map, click any bout point to jump JABS directly to that video and animal, press **`N`** to select the 15 nearest similar bouts, or box/lasso-select a cohort of bouts to filter the table or batch-triage them together.
+- **Synchronized Class & Table Filtering:** Use the synchronized **Class Filter** dropdown (available on both the 2D Map bar and Table Filter bar) to isolate **All Classes**, **`+ <Behavior>`** (positive bouts only), **`− Not-<Behavior>` / `None`** (negative bouts only), or an individual Multi-Class behavior. Filtering the bout table by class, **`Quick Select`**, **`Esc`** cohorts, or search text dynamically filters **both** the feature (`PCA` / `MDS` / `t-SNE`) and **`🗺 Arena [A]`** scatter plots simultaneously.
 - **Scopes & Feature Lenses:** Choose **Positive Only** or **All Labeled (Pos + Neg)** and switch cleanly between six lenses:
   - **Intrinsic Kinematics**,
   - **Locomotion & Turn**,

@@ -1120,6 +1120,7 @@ class BaleDialog(QtWidgets.QDialog):
         # Core workflow state
         self._mode: ExplorerWorkflowMode = "audit"
         self._queue_filter: QueueFilterMode = "needs_review"
+        self._class_filter: str = "all"
         self._inspector_view: InspectorViewMode = "prob"
         self._subtypes_scope: SubtypeScope = "pos_only"
         self._subtypes_lens_ui: str = "intrinsic"
@@ -1601,6 +1602,20 @@ class BaleDialog(QtWidgets.QDialog):
         self.arena_map_btn.clicked.connect(self._toggle_arena_map)
         map_bar.addWidget(self.arena_map_btn)
 
+        self.map_class_combo = QtWidgets.QComboBox()
+        self.map_class_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.map_class_combo.setMinimumContentsLength(10)
+        self.map_class_combo.setMaximumWidth(185)
+        self.map_class_combo.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.map_class_combo.addItem("All Classes", "all")
+        self.map_class_combo.setToolTip(
+            "Filter 2D plot & bout table by Positive, Negative, or specific behavior class"
+        )
+        self.map_class_combo.currentIndexChanged.connect(self._on_class_filter_combo_changed)
+        map_bar.addWidget(self.map_class_combo)
+
         self.drag_mode_group = QtWidgets.QButtonGroup(self)
         self.drag_mode_group.setExclusive(True)
 
@@ -2037,6 +2052,20 @@ class BaleDialog(QtWidgets.QDialog):
         qbar.addWidget(self.qf_all_btn)
         qbar.addWidget(self.qf_done_btn)
 
+        self.class_filter_combo = QtWidgets.QComboBox()
+        self.class_filter_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.class_filter_combo.setMinimumContentsLength(10)
+        self.class_filter_combo.setMaximumWidth(195)
+        self.class_filter_combo.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.class_filter_combo.addItem("All Classes", "all")
+        self.class_filter_combo.setToolTip(
+            "Filter bout table & 2D plot by Positive, Negative, or specific behavior class"
+        )
+        self.class_filter_combo.currentIndexChanged.connect(self._on_class_filter_combo_changed)
+        qbar.addWidget(self.class_filter_combo)
+
         self.quick_select_btn = QtWidgets.QToolButton()
         self.quick_select_btn.setText("⚡ Quick Select ▾")
         self.quick_select_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -2081,7 +2110,7 @@ class BaleDialog(QtWidgets.QDialog):
         qbar.addWidget(self.clear_box_btn)
 
         self.search_input = QtWidgets.QLineEdit()
-        self.search_input.setPlaceholderText("Filter cage, video, animal, C1…")
+        self.search_input.setPlaceholderText("Filter cage, video, animal, class, C1…")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.setMinimumWidth(135)
         self.search_input.setMaximumWidth(210)
@@ -2427,6 +2456,13 @@ class BaleDialog(QtWidgets.QDialog):
         self.show_pred_backdrop_action.setCheckable(True)
         self.show_pred_backdrop_action.setChecked(True)
         self.show_pred_backdrop_action.toggled.connect(lambda _c=False: self._draw_scatter())
+
+        self.sync_plot_to_queue_tab_action = menu.addAction(
+            "Restrict 2D Map to Active Queue Tab (Needs Review / Reviewed)"
+        )
+        self.sync_plot_to_queue_tab_action.setCheckable(True)
+        self.sync_plot_to_queue_tab_action.setChecked(False)
+        self.sync_plot_to_queue_tab_action.toggled.connect(lambda _c=False: self._draw_scatter())
 
         menu.addSeparator()
         reset_beh_act = menu.addAction("↺ Reset Examined Flags (Current Behavior)…")
@@ -2944,6 +2980,8 @@ class BaleDialog(QtWidgets.QDialog):
         self._subtypes_lens_ui = str(self.subtypes_lens_combo.currentData() or "intrinsic")
         raw_k = self.subtypes_k_combo.currentData()
         self._subtypes_forced_k = int(raw_k) if raw_k is not None else None
+        if self._subtypes_scope == "pos_only" and self._class_filter == "neg":
+            self._class_filter = "all"
         if self._report is None or self._mode != "subtypes":
             return
 
@@ -2989,6 +3027,8 @@ class BaleDialog(QtWidgets.QDialog):
 
     def _on_behavior_combo_changed(self) -> None:
         self._video_report_key = None
+        self._class_filter = "all"
+        self._refresh_class_filter_combos()
         self._refresh_target_pos_combo()
         if self._mode == "videos":
             self._analysis_needed_on_bout_mode = True
@@ -3011,6 +3051,12 @@ class BaleDialog(QtWidgets.QDialog):
         self._mode = new_mode
         self._pinned_needs_review_bout_ids.clear()
         self._clear_custom_selection_state()
+        if (
+            new_mode == "subtypes"
+            and self._effective_subtype_scope() == "pos_only"
+            and self._class_filter == "neg"
+        ):
+            self._class_filter = "all"
         self._scatter_view_limits = None
         self._scatter_default_limits = None
         self._sync_zoom_reset_button()
@@ -3032,6 +3078,7 @@ class BaleDialog(QtWidgets.QDialog):
         self.view_prob_btn.setVisible(not is_sub)
         self.qf_halos_btn.setVisible(new_mode == "predict")
         self.arena_map_btn.setVisible(not is_vid)
+        self.map_class_combo.setVisible(not is_vid)
 
         if is_vid:
             self.insp_canvas._interactive_x_scrub = True
@@ -3254,6 +3301,136 @@ class BaleDialog(QtWidgets.QDialog):
         else:
             self._set_queue_filter(qf, redraw=True)
 
+    @staticmethod
+    def _is_bout_unlabeled(rec: BoutRecord, unlabeled_ids: set[int]) -> bool:
+        return rec.bout_id in unlabeled_ids or rec.source == "unlabeled"
+
+    def _class_filter_choices(self) -> list[tuple[str, str]]:
+        """Build `(display_label, filter_key)` items for the synchronized Class Filter dropdowns."""
+        if self._report is None:
+            return [("All Classes", "all")]
+        records = self._report.feature_matrix.records
+        base = self._mode_eligible_indices()
+        unlabeled_ids = self._unlabeled_bout_ids
+
+        n_pos = 0
+        n_neg = 0
+        n_unlbl = 0
+        pos_cls_counts: dict[str, int] = {}
+        for gi in base:
+            rec = records[gi]
+            if self._is_bout_unlabeled(rec, unlabeled_ids):
+                n_unlbl += 1
+            elif rec.is_positive:
+                n_pos += 1
+                if rec.class_name != MULTICLASS_NONE_BEHAVIOR:
+                    pos_cls_counts[rec.class_name] = pos_cls_counts.get(rec.class_name, 0) + 1
+            else:
+                n_neg += 1
+
+        include_all_mc = bool(
+            getattr(self._report, "include_all_multiclass", False)
+            or self.behavior_combo.currentData() == "__ALL_MC__"
+        )
+        choices: list[tuple[str, str]] = [(f"All Classes ({len(base)})", "all")]
+        if include_all_mc:
+            choices.append((f"+ All Positive ({n_pos})", "pos"))
+            choices.append((f"- None ({n_neg})", "neg"))
+            for cls_name in sorted(pos_cls_counts):
+                choices.append((f"● {cls_name} ({pos_cls_counts[cls_name]})", f"class:{cls_name}"))
+        else:
+            beh = self._selected_single_behavior() or self._report.behavior
+            neg_lbl = "None" if self._report.is_multiclass else f"Not-{beh}"
+            choices.append((f"+ {beh} ({n_pos})", "pos"))
+            choices.append((f"- {neg_lbl} ({n_neg})", "neg"))
+        if n_unlbl > 0 or self._class_filter == "unlabeled":
+            choices.append((f"○ No Label ({n_unlbl})", "unlabeled"))
+        return choices
+
+    def _refresh_class_filter_combos(self) -> None:
+        """Populate both Class Filter combos with live counts and synchronize active styling."""
+        choices = self._class_filter_choices()
+        valid_keys = {k for _, k in choices}
+        if self._class_filter not in valid_keys:
+            self._class_filter = "all"
+
+        is_filtered = self._class_filter != "all"
+        css = (
+            "QComboBox { background-color: #DBEAFE; color: #1E40AF; "
+            "border: 1px solid #93C5FD; border-radius: 4px; font-weight: 700; padding: 2px 6px; }"
+            if is_filtered
+            else ""
+        )
+        for combo in (self.map_class_combo, self.class_filter_combo):
+            combo.blockSignals(True)
+            combo.clear()
+            for lbl, key in choices:
+                combo.addItem(lbl, key)
+            idx = combo.findData(self._class_filter)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.setStyleSheet(css)
+            combo.blockSignals(False)
+
+    def _set_class_filter(self, filt_key: str, *, redraw: bool = True) -> None:
+        """Set active class filter (`all`, `pos`, `neg`, `unlabeled`, or `class:<Name>`)."""
+        key = str(filt_key or "all")
+        if self._report is not None and key.startswith("class:"):
+            cls_name = key.split(":", 1)[1]
+            include_all_mc = bool(
+                getattr(self._report, "include_all_multiclass", False)
+                or self.behavior_combo.currentData() == "__ALL_MC__"
+            )
+            if not include_all_mc:
+                beh = self._selected_single_behavior() or self._report.behavior
+                if cls_name == beh:
+                    key = "pos"
+                elif cls_name in (f"Not-{beh}", MULTICLASS_NONE_BEHAVIOR):
+                    key = "neg"
+
+        scope_changed = False
+        if (
+            self._mode == "subtypes"
+            and key == "neg"
+            and self._effective_subtype_scope() == "pos_only"
+        ):
+            self._subtypes_scope = "all_labeled"
+            idx_all = self.subtypes_scope_combo.findData("all_labeled")
+            if idx_all >= 0:
+                self.subtypes_scope_combo.blockSignals(True)
+                self.subtypes_scope_combo.setCurrentIndex(idx_all)
+                self.subtypes_scope_combo.blockSignals(False)
+            if self._report is not None:
+                self._report = recompute_embedding_only(
+                    self._report,
+                    space=self._effective_space(),
+                    subtype_scope="all_labeled",
+                    feature_lens=self._effective_feature_lens(),
+                    target_behavior=self._effective_subtype_target_behavior(),
+                    compute_tsne=(self._proj_method == "tsne"),
+                    compute_mds=True,
+                    forced_k=self._effective_forced_k(),
+                )
+                self._repr_matrix_cache = None
+                self._sync_subtypes_bar_from_report()
+                scope_changed = True
+
+        self._class_filter = key
+        self._refresh_class_filter_combos()
+        if redraw:
+            self._populate_table(redraw_scatter_on_change=False)
+            self._draw_scatter()
+            if scope_changed:
+                self._update_inspector_card()
+
+    def _on_class_filter_combo_changed(self, idx: int = -1) -> None:
+        sender = self.sender()
+        combo = sender if isinstance(sender, QtWidgets.QComboBox) else self.class_filter_combo
+        if idx < 0:
+            idx = combo.currentIndex()
+        key = str(combo.itemData(idx) or "all")
+        if key != self._class_filter:
+            self._set_class_filter(key, redraw=True)
+
     def _set_inspector_view(self, view: InspectorViewMode, *, redraw: bool = True) -> None:
         self._inspector_view = view
         self.view_prob_btn.setChecked(view == "prob")
@@ -3448,6 +3625,7 @@ class BaleDialog(QtWidgets.QDialog):
         self._scatter_view_limits = None
         self._scatter_default_limits = None
         self._sync_zoom_reset_button()
+        self._refresh_class_filter_combos()
         self.recalc_btn.setEnabled(True)
         self._update_recalc_button_badge()
 
@@ -3921,16 +4099,77 @@ class BaleDialog(QtWidgets.QDialog):
                 return pos_out
         return out
 
+    def _bout_matches_class_filter(self, b_idx: int) -> bool:
+        """Return whether bout index `b_idx` satisfies the active `self._class_filter`."""
+        if self._report is None or self._class_filter == "all":
+            return True
+        rec = self._report.feature_matrix.records[b_idx]
+        is_unlbl = self._is_bout_unlabeled(rec, self._unlabeled_bout_ids)
+        if self._class_filter == "unlabeled":
+            return is_unlbl
+        if is_unlbl:
+            return False
+        if self._class_filter == "pos":
+            return bool(rec.is_positive)
+        if self._class_filter == "neg":
+            return not bool(rec.is_positive)
+        if self._class_filter.startswith("class:"):
+            target_cls = self._class_filter.split(":", 1)[1]
+            return rec.class_name == target_cls
+        return True
+
+    def _class_filtered_indices(self) -> list[int]:
+        """Return mode-eligible bout indices restricted by the active Class Filter."""
+        eligible = self._mode_eligible_indices()
+        if self._class_filter == "all":
+            return eligible
+        return [i for i in eligible if self._bout_matches_class_filter(i)]
+
+    def _bout_matches_search_query(self, b_idx: int, q: str) -> bool:
+        """Return whether bout index `b_idx` matches lowercase search query `q` without `Not-X` false hits."""
+        if not q or self._report is None:
+            return True
+        r = self._report.feature_matrix.records[b_idx]
+        emb = self._report.embedding
+        anim_txt = self._animal_display_text(r.video, r.identity).lower()
+        anim_num = anim_txt.removeprefix("animal ").strip()
+        if (
+            q in r.video.lower()
+            or q in _short_video_name(r.video).lower()
+            or q in anim_txt
+            or q == anim_num
+            or q == str(r.identity)
+            or q in f"c{int(emb.cluster_labels[b_idx])}"
+        ):
+            return True
+
+        is_unlbl = self._is_bout_unlabeled(r, self._unlabeled_bout_ids)
+        if is_unlbl:
+            return q in ("no label", "unlabeled")
+        cls_l = r.class_name.lower()
+        if cls_l.startswith("not-"):
+            return (
+                (q.startswith("not") and q in cls_l)
+                or "not-" in q
+                or q in ("neg", "negative", "-")
+            )
+        if r.class_name == MULTICLASS_NONE_BEHAVIOR:
+            return q in "none" or q in ("neg", "negative", "-")
+        return q in cls_l or q in ("pos", "positive", "+")
+
     def _scatter_backdrop_indices(self) -> list[int]:
         """Non-interactive human-labeled context dots plotted behind predictions in Predict mode."""
         if (
             self._report is None
             or self._mode != "predict"
             or not self.show_pred_backdrop_action.isChecked()
+            or self._lasso_selected_indices
+            or self._class_filter == "unlabeled"
         ):
             return []
         records = self._report.feature_matrix.records
         single_beh = self._selected_single_behavior()
+        q = self.search_input.text().strip().lower()
         out: list[int] = []
         for i, r in enumerate(records):
             if r.bout_id in self._deleted_bout_ids:
@@ -3943,20 +4182,46 @@ class BaleDialog(QtWidgets.QDialog):
                 and r.behavior not in (single_beh, MULTICLASS_NONE_BEHAVIOR)
             ):
                 continue
+            if self._class_filter == "pos" and not r.is_positive:
+                continue
+            if self._class_filter == "neg" and r.is_positive:
+                continue
+            if (
+                self._class_filter.startswith("class:")
+                and r.class_name != self._class_filter.split(":", 1)[1]
+            ):
+                continue
+            if q and not self._bout_matches_search_query(i, q):
+                continue
             out.append(i)
         return out
+
+    def _scatter_plot_indices(self) -> list[int]:
+        """Indices plotted on the 2D scatter map synchronized with class, cohort, and search filters."""
+        if self._report is None:
+            return []
+        if self.sync_plot_to_queue_tab_action.isChecked():
+            return self._filtered_bout_indices()
+        vis = self._class_filtered_indices()
+        if self._lasso_selected_indices:
+            cohort_set = set(self._lasso_selected_indices)
+            vis = [i for i in vis if i in cohort_set]
+        q = self.search_input.text().strip().lower()
+        if q:
+            vis = [i for i in vis if self._bout_matches_search_query(i, q)]
+        return vis
 
     def _scatter_visible_indices(self) -> list[int]:
         """Indices plotted on the 2D scatter map (includes non-pickable labeled backdrop in Predict mode)."""
         if self._report is None:
             return []
-        eligible = self._mode_eligible_indices()
+        vis = self._scatter_plot_indices()
         if self._mode == "predict":
-            return eligible + self._scatter_backdrop_indices()
-        return eligible
+            return vis + self._scatter_backdrop_indices()
+        return vis
 
     def _filtered_bout_indices(self) -> list[int]:
-        eligible = self._mode_eligible_indices()
+        eligible = self._class_filtered_indices()
         if not eligible or self._report is None:
             return []
 
@@ -3999,30 +4264,15 @@ class BaleDialog(QtWidgets.QDialog):
 
         q = self.search_input.text().strip().lower()
         if q:
-            records = self._report.feature_matrix.records
-            emb = self._report.embedding
-            matched: list[int] = []
-            for i in pool:
-                r = records[i]
-                anim_txt = self._animal_display_text(r.video, r.identity).lower()
-                anim_num = anim_txt.removeprefix("animal ").strip()
-                if (
-                    q in r.video.lower()
-                    or q in anim_txt
-                    or q == anim_num
-                    or q == str(r.identity)
-                    or q in r.class_name.lower()
-                    or q in f"c{int(emb.cluster_labels[i])}"
-                ):
-                    matched.append(i)
-            pool = matched
+            pool = [i for i in pool if self._bout_matches_search_query(i, q)]
 
         if not self._lasso_selected_indices:
             pool.sort(key=self._bout_priority_score, reverse=True)
         return pool
 
     def _update_queue_filter_counts(self) -> None:
-        eligible = self._mode_eligible_indices()
+        self._refresh_class_filter_combos()
+        eligible = self._class_filtered_indices()
         if self._report is None:
             self.qf_needs_btn.setText("Needs Review (0)")
             self.qf_halos_btn.setText("Label Edges (0)")
@@ -4351,12 +4601,12 @@ class BaleDialog(QtWidgets.QDialog):
                 self._pending_click_already_sought_row = None
                 self._scrubbed_frame = None
                 self._update_inspector_card()
-                if redraw_scatter_on_change and self._selected_bout_idx != prev_b_idx:
+                if redraw_scatter_on_change:
                     self._draw_scatter()
         else:
             self._selected_bout_idx = None
             self._update_empty_card_state()
-            if redraw_scatter_on_change and prev_b_idx is not None:
+            if redraw_scatter_on_change:
                 self._draw_scatter()
 
     # ------------------------------------------------------------------
@@ -4730,10 +4980,12 @@ class BaleDialog(QtWidgets.QDialog):
         else:
             ax.set_aspect("auto", adjustable="box")
 
-        vis_indices = self._mode_eligible_indices()
+        base_eligible = self._mode_eligible_indices()
+        vis_indices = self._scatter_plot_indices()
         backdrop_indices = self._scatter_backdrop_indices()
         all_coords, xlab, ylab = self._current_2d_coords()
         if is_spatial:
+            base_eligible = [gi for gi in base_eligible if np.isfinite(all_coords[gi]).all()]
             vis_indices = [gi for gi in vis_indices if np.isfinite(all_coords[gi]).all()]
             backdrop_indices = [gi for gi in backdrop_indices if np.isfinite(all_coords[gi]).all()]
 
@@ -4746,15 +4998,45 @@ class BaleDialog(QtWidgets.QDialog):
                 ax.set_xlim(0.0, w_bound)
                 ax.set_ylim(h_bound, 0.0)
                 ax.set_aspect("equal", adjustable="box")
-                empty_msg = "No mappable arena pose coordinates for this view."
-            elif self._mode == "predict":
-                scope_lbl = self._active_scope_label()
+                self._scatter_default_limits = ((0.0, w_bound), (h_bound, 0.0))
+                if self._scatter_view_limits is not None:
+                    ax.set_xlim(self._scatter_view_limits[0])
+                    ax.set_ylim(self._scatter_view_limits[1])
                 empty_msg = (
-                    f"No predicted {scope_lbl} bouts to review.\n"
-                    f"0 unannotated predicted bouts found for {scope_lbl} in jabs/predictions/*.h5."
+                    "No bouts match the active filter."
+                    if base_eligible
+                    else "No mappable arena pose coordinates for this view."
                 )
             else:
-                empty_msg = "No bouts to display for this view."
+                if base_eligible:
+                    bc = all_coords[np.asarray(base_eligible, dtype=np.int32)]
+                    x_min, x_max = float(np.nanmin(bc[:, 0])), float(np.nanmax(bc[:, 0]))
+                    y_min, y_max = float(np.nanmin(bc[:, 1])), float(np.nanmax(bc[:, 1]))
+                    px = 0.05 * (x_max - x_min) if (x_max - x_min) > 1e-6 else 1.0
+                    py = 0.05 * (y_max - y_min) if (y_max - y_min) > 1e-6 else 1.0
+                    def_xlim = (x_min - px, x_max + px)
+                    def_ylim = (y_min - py, y_max + py)
+                    ax.set_xlim(def_xlim)
+                    ax.set_ylim(def_ylim)
+                    self._scatter_default_limits = (def_xlim, def_ylim)
+                    if self._scatter_view_limits is not None:
+                        ax.set_xlim(self._scatter_view_limits[0])
+                        ax.set_ylim(self._scatter_view_limits[1])
+                if self._mode == "predict" and not base_eligible:
+                    scope_lbl = self._active_scope_label()
+                    empty_msg = (
+                        f"No predicted {scope_lbl} bouts to review.\n"
+                        f"0 unannotated predicted bouts found for {scope_lbl} in jabs/predictions/*.h5."
+                    )
+                elif base_eligible:
+                    empty_msg = "No bouts match the active filter."
+                else:
+                    empty_msg = "No bouts to display for this view."
+            self._sync_zoom_reset_button()
+            ax.set_xlabel(xlab, fontsize=11.0, fontweight="bold", color="#1E293B")
+            ax.set_ylabel(ylab, fontsize=11.0, fontweight="bold", color="#1E293B")
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
             ax.text(
                 0.5,
                 0.5,
@@ -4771,6 +5053,7 @@ class BaleDialog(QtWidgets.QDialog):
                 transform=ax.transAxes,
             )
             self.scatter_canvas.set_pick_points(None)
+            self.scatter_canvas.mark_layout_dirty()
             self.scatter_canvas.draw_idle()
             return
 
@@ -5056,7 +5339,7 @@ class BaleDialog(QtWidgets.QDialog):
                 label=f"Selected #{sel_rec.bout_id}",
             )
 
-        # Enforce fixed arena bounds and top-down inverted Y before capturing zoom defaults
+        # Keep full-cohort bounds anchored across class/search filtering (Arena inverted-Y or full-cloud PCA)
         if is_spatial:
             sp = self._report.spatial
             assert sp is not None
@@ -5065,8 +5348,17 @@ class BaleDialog(QtWidgets.QDialog):
             ax.set_xlim(0.0, w_bound)
             ax.set_ylim(h_bound, 0.0)
             ax.set_aspect("equal", adjustable="box")
+        elif base_eligible:
+            base_arr = np.asarray(base_eligible, dtype=np.int32)
+            base_c = all_coords[base_arr]
+            x_min, x_max = float(np.nanmin(base_c[:, 0])), float(np.nanmax(base_c[:, 0]))
+            y_min, y_max = float(np.nanmin(base_c[:, 1])), float(np.nanmax(base_c[:, 1]))
+            px = 0.05 * (x_max - x_min) if (x_max - x_min) > 1e-6 else 1.0
+            py = 0.05 * (y_max - y_min) if (y_max - y_min) > 1e-6 else 1.0
+            ax.set_xlim(x_min - px, x_max + px)
+            ax.set_ylim(y_min - py, y_max + py)
 
-        # Capture full-view autoscale bounds, then re-apply persistent user zoom if active
+        # Capture full-view bounds, then re-apply persistent user zoom if active
         def_xlim = tuple(float(v) for v in ax.get_xlim())
         def_ylim = tuple(float(v) for v in ax.get_ylim())
         self._scatter_default_limits = (def_xlim, def_ylim)  # type: ignore[assignment]
@@ -5076,6 +5368,17 @@ class BaleDialog(QtWidgets.QDialog):
         self._sync_zoom_reset_button()
 
         zoom_tag = " [Zoomed]" if self._scatter_view_limits else ""
+        has_active_filter = bool(
+            self._class_filter != "all"
+            or self._lasso_selected_indices
+            or self.search_input.text().strip()
+            or self.sync_plot_to_queue_tab_action.isChecked()
+        )
+        filt_cnt_tag = (
+            f" [{len(vis_indices)}/{len(base_eligible)}]"
+            if (has_active_filter and len(vis_indices) != len(base_eligible))
+            else ""
+        )
         pred_subtitle = "◆ Pred / ● Labeled" if backdrop_indices else "◆ Pred only"
         lens_lbl = self.subtypes_lens_combo.currentText()
         if is_spatial:
@@ -5087,14 +5390,18 @@ class BaleDialog(QtWidgets.QDialog):
                 "predict": "Predictions",
                 "subtypes": f"{emb.optimal_k} Clusters",
             }.get(self._mode, self._mode)
-            title_txt = (
-                f"Arena Spatial Map ({n_mapped}/{len(records)} mapped • {mode_short}){zoom_tag}"
-            )
+            if has_active_filter and len(vis_indices) != len(base_eligible):
+                title_txt = (
+                    f"Arena Spatial Map ({len(vis_indices)}/{len(base_eligible)} shown • "
+                    f"{mode_short}){zoom_tag}"
+                )
+            else:
+                title_txt = f"Arena Spatial Map ({n_mapped}/{len(records)} mapped • {mode_short}){zoom_tag}"
         else:
             mode_titles = {
-                "audit": f"2D Label Map{zoom_tag}",
-                "predict": f"2D Active-Learning Map ({pred_subtitle}){zoom_tag}",
-                "subtypes": f"2D Sub-Types ({emb.optimal_k} Clusters • {lens_lbl}){zoom_tag}",
+                "audit": f"2D Label Map{filt_cnt_tag}{zoom_tag}",
+                "predict": f"2D Active-Learning Map ({pred_subtitle}){filt_cnt_tag}{zoom_tag}",
+                "subtypes": f"2D Sub-Types ({emb.optimal_k} Clusters • {lens_lbl}){filt_cnt_tag}{zoom_tag}",
             }
             title_txt = mode_titles[self._mode]
         ax.set_title(
@@ -5946,7 +6253,12 @@ class BaleDialog(QtWidgets.QDialog):
         if self._report is None or ((x1 - x0) < 1e-4 and (y1 - y0) < 1e-4):
             return
         coords, _, _ = self._current_2d_coords()
-        eligible = [gi for gi in self._mode_eligible_indices() if np.isfinite(coords[gi]).all()]
+        q = self.search_input.text().strip().lower()
+        eligible = [
+            gi
+            for gi in self._class_filtered_indices()
+            if np.isfinite(coords[gi]).all() and (not q or self._bout_matches_search_query(gi, q))
+        ]
         selected = [
             gi
             for gi in eligible
@@ -5964,7 +6276,12 @@ class BaleDialog(QtWidgets.QDialog):
         if poly_arr.ndim != 2 or len(poly_arr) < 3:
             return
         coords, _, _ = self._current_2d_coords()
-        eligible = [gi for gi in self._mode_eligible_indices() if np.isfinite(coords[gi]).all()]
+        q = self.search_input.text().strip().lower()
+        eligible = [
+            gi
+            for gi in self._class_filtered_indices()
+            if np.isfinite(coords[gi]).all() and (not q or self._bout_matches_search_query(gi, q))
+        ]
         if not eligible:
             return
         el_arr = np.asarray(eligible, dtype=np.int32)
@@ -6410,6 +6727,11 @@ class BaleDialog(QtWidgets.QDialog):
             act_vid.setEnabled(n_vid > 0)
             act_vid.triggered.connect(lambda: self._select_same_video_cohort(b_idx))
 
+            act_cls = menu.addAction(f"🔍 Filter Class: {rec.class_name}")
+            act_cls.triggered.connect(
+                lambda _c=False, cn=rec.class_name: self._set_class_filter(f"class:{cn}")
+            )
+
             menu.addSeparator()
             is_rev = rec.bout_id in self._reviewed_bout_ids
             act_ex = menu.addAction(
@@ -6426,7 +6748,11 @@ class BaleDialog(QtWidgets.QDialog):
                 lambda: self._mark_cohort_examined(list(self._lasso_selected_indices))
             )
 
-        if self._scatter_view_limits is not None or self._lasso_selected_indices:
+        if (
+            self._scatter_view_limits is not None
+            or self._lasso_selected_indices
+            or self._class_filter != "all"
+        ):
             menu.addSeparator()
         if self._scatter_view_limits is not None:
             act_rz = menu.addAction("⟲ Reset 2D Map Zoom [0]")
@@ -6434,6 +6760,9 @@ class BaleDialog(QtWidgets.QDialog):
         if self._lasso_selected_indices:
             act_clr = menu.addAction("✕ Clear Active Selection [Esc]")
             act_clr.triggered.connect(self._on_clear_box_filter)
+        if self._class_filter != "all":
+            act_all_cls = menu.addAction("✕ Show All Classes")
+            act_all_cls.triggered.connect(lambda: self._set_class_filter("all"))
 
         if menu.actions():
             menu.exec(global_pos)
@@ -6510,9 +6839,14 @@ class BaleDialog(QtWidgets.QDialog):
             else:
                 self._update_empty_card_state()
         else:
-            # In "Reviewed ✓" filter, adding a newly reviewed bout changes row membership
+            # In "Reviewed ✓" filter (or when a flipped bout leaves the active Class Filter),
+            # rebuild visible table rows so membership stays synchronized
             edited_row = self._find_table_row_for_bout(edited_b_idx)
-            if edited_row is None or self._queue_filter == "reviewed":
+            if (
+                edited_row is None
+                or self._queue_filter == "reviewed"
+                or not self._bout_matches_class_filter(edited_b_idx)
+            ):
                 if auto_adv:
                     self._selected_bout_idx = next_b_idx
                 self._populate_table(redraw_scatter_on_change=False)
@@ -7554,6 +7888,10 @@ class BaleDialog(QtWidgets.QDialog):
                     return True
                 if self._scatter_view_limits is not None:
                     self._reset_scatter_zoom()
+                    event.accept()
+                    return True
+                if self._class_filter != "all":
+                    self._set_class_filter("all")
                     event.accept()
                     return True
                 return False
