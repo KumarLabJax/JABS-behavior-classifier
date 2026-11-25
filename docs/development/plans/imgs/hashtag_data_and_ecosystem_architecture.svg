@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-11-24T21:07:10.027044</dc:date>
+    <dc:date>2026-11-24T21:58:58.963270</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -35,7 +35,7 @@ L 300.4848 341.429908
 L 300.4848 135.045364 
 L 16.97616 135.045364 
 z
-" clip-path="url(#p559ae803bb)" style="fill: #f8fafc"/>
+" clip-path="url(#p3eb9d26409)" style="fill: #f8fafc"/>
    </g>
    <g id="patch_3">
     <path d="M 349.3656 341.429908 
@@ -43,7 +43,7 @@ L 642.6504 341.429908
 L 642.6504 135.045364 
 L 349.3656 135.045364 
 z
-" clip-path="url(#p559ae803bb)" style="fill: #f1f5f9"/>
+" clip-path="url(#p3eb9d26409)" style="fill: #f1f5f9"/>
    </g>
    <g id="patch_4">
     <path d="M 691.5312 341.429908 
@@ -51,7 +51,7 @@ L 975.03984 341.429908
 L 975.03984 135.045364 
 L 691.5312 135.045364 
 z
-" clip-path="url(#p559ae803bb)" style="fill: #f8fafc"/>
+" clip-path="url(#p3eb9d26409)" style="fill: #f8fafc"/>
    </g>
    <g id="patch_5">
     <path d="M 16.97616 341.429908 
@@ -59,12 +59,12 @@ L 26.75232 341.429908
 L 26.75232 135.045364 
 L 16.97616 135.045364 
 z
-" clip-path="url(#p559ae803bb)" style="fill: #1e40af"/>
+" clip-path="url(#p3eb9d26409)" style="fill: #1e40af"/>
    </g>
    <g id="line2d_1">
     <path d="M 36.52848 192.833036 
 L 280.93248 192.833036 
-" clip-path="url(#p559ae803bb)" style="fill: none; stroke: #cbd5e1; stroke-width: 1.1; stroke-linecap: square"/>
+" clip-path="url(#p3eb9d26409)" style="fill: none; stroke: #cbd5e1; stroke-width: 1.1; stroke-linecap: square"/>
    </g>
    <g id="patch_6">
     <path d="M 349.3656 341.429908 
@@ -72,12 +72,12 @@ L 359.14176 341.429908
 L 359.14176 135.045364 
 L 349.3656 135.045364 
 z
-" clip-path="url(#p559ae803bb)" style="fill: #0f766e"/>
+" clip-path="url(#p3eb9d26409)" style="fill: #0f766e"/>
    </g>
    <g id="line2d_2">
     <path d="M 368.91792 192.833036 
 L 623.09808 192.833036 
-" clip-path="url(#p559ae803bb)" style="fill: none; stroke: #cbd5e1; stroke-width: 1.1; stroke-linecap: square"/>
+" clip-path="url(#p3eb9d26409)" style="fill: none; stroke: #cbd5e1; stroke-width: 1.1; stroke-linecap: square"/>
    </g>
    <g id="patch_7">
     <path d="M 691.5312 341.429908 
@@ -85,18 +85,18 @@ L 701.30736 341.429908
 L 701.30736 135.045364 
 L 691.5312 135.045364 
 z
-" clip-path="url(#p559ae803bb)" style="fill: #b91c1c"/>
+" clip-path="url(#p3eb9d26409)" style="fill: #b91c1c"/>
    </g>
    <g id="line2d_3">
     <path d="M 711.08352 192.833036 
 L 955.48752 192.833036 
-" clip-path="url(#p559ae803bb)" style="fill: none; stroke: #cbd5e1; stroke-width: 1.1; stroke-linecap: square"/>
+" clip-path="url(#p3eb9d26409)" style="fill: none; stroke: #cbd5e1; stroke-width: 1.1; stroke-linecap: square"/>
    </g>
    <g id="text_1">
-    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e40af" x="41.41656" y="172.603219" transform="rotate(-0 41.41656 172.603219)">01 • Shift+# &amp; Vocab</text>
+    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e40af" x="41.41656" y="172.595016" transform="rotate(-0 41.41656 172.595016)">01 • # Key &amp; Vocab</text>
    </g>
    <g id="text_2">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="41.41656" y="229.990813" transform="rotate(-0 41.41656 229.990813)">• Select frames + Shift+#</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="41.41656" y="229.994563" transform="rotate(-0 41.41656 229.994563)">• Frame or span + # key</text>
    </g>
    <g id="text_3">
     <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="41.41656" y="258.884649" transform="rotate(-0 41.41656 258.884649)">• Controlled #sha -&gt; #shake</text>
@@ -105,40 +105,40 @@ L 955.48752 192.833036
     <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="41.41656" y="287.782235" transform="rotate(-0 41.41656 287.782235)">• Prose + live #tag links</text>
    </g>
    <g id="text_5">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="41.41656" y="316.578572" transform="rotate(-0 41.41656 316.578572)">• Physical anchor_xy_px</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="41.41656" y="316.602322" transform="rotate(-0 41.41656 316.602322)">• 1..32 char tag validation</text>
    </g>
    <g id="text_6">
-    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0f766e" x="373.806" y="172.603219" transform="rotate(-0 373.806 172.603219)">02 • Per-Video &amp; Vocab JSON</text>
+    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0f766e" x="373.806" y="172.603219" transform="rotate(-0 373.806 172.603219)">02 • Lossless JSON + Vocab</text>
    </g>
    <g id="text_7">
     <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="373.806" y="229.994563" transform="rotate(-0 373.806 229.994563)">• jabs/annotations/*.json</text>
    </g>
    <g id="text_8">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="373.806" y="258.790899" transform="rotate(-0 373.806 258.790899)">• hashtag_vocabulary.json</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="373.806" y="258.790899" transform="rotate(-0 373.806 258.790899)">• extras + UUID merge union</text>
    </g>
    <g id="text_9">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="373.806" y="287.782235" transform="rotate(-0 373.806 287.782235)">• Manual-track marks (0 px)</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="373.806" y="287.684735" transform="rotate(-0 373.806 287.684735)">• project.json vocabulary</text>
    </g>
    <g id="text_10">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="373.806" y="316.672322" transform="rotate(-0 373.806 316.672322)">• Clickable links -&gt; Search</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="373.806" y="316.676072" transform="rotate(-0 373.806 316.676072)">• In-memory search (&lt; 40 ms)</text>
    </g>
    <g id="text_11">
-    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #b91c1c" x="715.9716" y="172.595016" transform="rotate(-0 715.9716 172.595016)">03 • Lab &amp; Cloud Sync</text>
+    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #b91c1c" x="715.9716" y="172.595016" transform="rotate(-0 715.9716 172.595016)">03 • Hub (D13/D21) &amp; MLflow</text>
    </g>
    <g id="text_12">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="229.994563" transform="rotate(-0 715.9716 229.994563)">• Shared hashtags.parquet</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="229.897063" transform="rotate(-0 715.9716 229.897063)">• Hub per project_video_id</text>
    </g>
    <g id="text_13">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="258.884649" transform="rotate(-0 715.9716 258.884649)">• JABS Hub vocab + notes</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="258.982149" transform="rotate(-0 715.9716 258.982149)">• Clip-offset [clip_start..]</text>
    </g>
    <g id="text_14">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="287.875985" transform="rotate(-0 715.9716 287.875985)">• MLflow annotations.zip</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="287.782235" transform="rotate(-0 715.9716 287.782235)">• ACL-gated Phase 3 sharing</text>
    </g>
    <g id="text_15">
-    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="316.676072" transform="rotate(-0 715.9716 316.676072)">• + hashtags.csv (proposed)</text>
+    <text style="font-size: 16px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="715.9716" y="316.769822" transform="rotate(-0 715.9716 316.769822)">• MLflow annotations.zip</text>
    </g>
    <g id="text_16">
-    <text style="font-weight: 700; font-size: 22px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0f172a" x="7.2" y="89.5776" transform="rotate(-0 7.2 89.5776)">Two-Tier Data Architecture (Manual-Track Safe &amp; Controlled Vocabulary)</text>
+    <text style="font-weight: 700; font-size: 22px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0f172a" x="7.2" y="89.5776" transform="rotate(-0 7.2 89.5776)">Phase-1 Lossless Architecture (Zero Sidecars, Controlled Vocab)</text>
    </g>
    <g id="patch_8">
     <path d="M 307.372983 238.237636 
@@ -166,7 +166,7 @@ L 984.816 553.525221
 L 984.816 492.167654 
 L 7.2 492.167654 
 z
-" clip-path="url(#p52e1167cd6)" style="fill: #f1f5f9"/>
+" clip-path="url(#p25b5c8d033)" style="fill: #f1f5f9"/>
    </g>
    <g id="patch_11">
     <path d="M 7.2 604.656527 
@@ -174,7 +174,7 @@ L 984.816 604.656527
 L 984.816 553.525221 
 L 7.2 553.525221 
 z
-" clip-path="url(#p52e1167cd6)" style="fill: #ffffff"/>
+" clip-path="url(#p25b5c8d033)" style="fill: #ffffff"/>
    </g>
    <g id="patch_12">
     <path d="M 7.2 655.787833 
@@ -182,7 +182,7 @@ L 984.816 655.787833
 L 984.816 604.656527 
 L 7.2 604.656527 
 z
-" clip-path="url(#p52e1167cd6)" style="fill: #f8fafc"/>
+" clip-path="url(#p25b5c8d033)" style="fill: #f8fafc"/>
    </g>
    <g id="patch_13">
     <path d="M 7.2 706.919138 
@@ -190,7 +190,7 @@ L 984.816 706.919138
 L 984.816 655.787833 
 L 7.2 655.787833 
 z
-" clip-path="url(#p52e1167cd6)" style="fill: #ffffff"/>
+" clip-path="url(#p25b5c8d033)" style="fill: #ffffff"/>
    </g>
    <g id="patch_14">
     <path d="M 7.2 758.050444 
@@ -198,42 +198,42 @@ L 984.816 758.050444
 L 984.816 706.919138 
 L 7.2 706.919138 
 z
-" clip-path="url(#p52e1167cd6)" style="fill: #f8fafc"/>
+" clip-path="url(#p25b5c8d033)" style="fill: #f8fafc"/>
    </g>
    <g id="line2d_4">
     <path d="M 7.2 604.656527 
 L 984.816 604.656527 
-" clip-path="url(#p52e1167cd6)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
+" clip-path="url(#p25b5c8d033)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
    </g>
    <g id="line2d_5">
     <path d="M 7.2 655.787833 
 L 984.816 655.787833 
-" clip-path="url(#p52e1167cd6)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
+" clip-path="url(#p25b5c8d033)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
    </g>
    <g id="line2d_6">
     <path d="M 7.2 706.919138 
 L 984.816 706.919138 
-" clip-path="url(#p52e1167cd6)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
+" clip-path="url(#p25b5c8d033)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
    </g>
    <g id="line2d_7">
     <path d="M 7.2 758.050444 
 L 984.816 758.050444 
-" clip-path="url(#p52e1167cd6)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
+" clip-path="url(#p25b5c8d033)" style="fill: none; stroke: #e2e8f0; stroke-width: 0.85; stroke-linecap: square"/>
    </g>
    <g id="line2d_8">
     <path d="M 7.2 492.167654 
 L 984.816 492.167654 
-" clip-path="url(#p52e1167cd6)" style="fill: none; stroke: #475569; stroke-width: 1.6; stroke-linecap: square"/>
+" clip-path="url(#p25b5c8d033)" style="fill: none; stroke: #475569; stroke-width: 1.6; stroke-linecap: square"/>
    </g>
    <g id="line2d_9">
     <path d="M 7.2 553.525221 
 L 984.816 553.525221 
-" clip-path="url(#p52e1167cd6)" style="fill: none; stroke: #475569; stroke-width: 1.35; stroke-linecap: square"/>
+" clip-path="url(#p25b5c8d033)" style="fill: none; stroke: #475569; stroke-width: 1.35; stroke-linecap: square"/>
    </g>
    <g id="line2d_10">
     <path d="M 7.2 758.050444 
 L 984.816 758.050444 
-" clip-path="url(#p52e1167cd6)" style="fill: none; stroke: #475569; stroke-width: 1.6; stroke-linecap: square"/>
+" clip-path="url(#p25b5c8d033)" style="fill: none; stroke: #475569; stroke-width: 1.6; stroke-linecap: square"/>
    </g>
    <g id="text_17">
     <text style="font-weight: 700; font-size: 22px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0f172a" x="7.2" y="465.558709" transform="rotate(-0 7.2 465.558709)">Where #Hashtags &amp; Vocabulary Live Across JABS Tools</text>
@@ -242,72 +242,72 @@ L 984.816 758.050444
     <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="527.374562" transform="rotate(-0 21.86424 527.374562)">System Layer</text>
    </g>
    <g id="text_19">
-    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="276.0444" y="527.267922" transform="rotate(-0 276.0444 527.267922)">Unit Key</text>
+    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="285.82056" y="527.374562" transform="rotate(-0 285.82056 527.374562)">Scope Key</text>
    </g>
    <g id="text_20">
-    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="471.5676" y="527.374562" transform="rotate(-0 471.5676 527.374562)">Cross-Project Query</text>
+    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="491.11992" y="527.374562" transform="rotate(-0 491.11992 527.374562)">Cross-Project</text>
    </g>
    <g id="text_21">
-    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="667.0908" y="527.267922" transform="rotate(-0 667.0908 527.267922)">Primary Role</text>
+    <text style="font-weight: 700; font-size: 17.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="696.41928" y="527.267922" transform="rotate(-0 696.41928 527.267922)">Primary Role</text>
    </g>
    <g id="text_22">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="583.356382" transform="rotate(-0 21.86424 583.356382)">Per-Video &amp; Vocab JSON</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="583.365405" transform="rotate(-0 21.86424 583.365405)">Per-Video JSON (extras)</text>
    </g>
    <g id="text_23">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="276.0444" y="583.356382" transform="rotate(-0 276.0444 583.356382)">Video + UUID</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="285.82056" y="583.356382" transform="rotate(-0 285.82056 583.356382)">Video + UUID</text>
    </g>
    <g id="text_24">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="471.5676" y="583.360249" transform="rotate(-0 471.5676 583.360249)">Current project</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="491.11992" y="583.360249" transform="rotate(-0 491.11992 583.360249)">In-memory (&lt; 40 ms)</text>
    </g>
    <g id="text_25">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="667.0908" y="583.259702" transform="rotate(-0 667.0908 583.259702)">In-track notes + canonical tags</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="696.41928" y="583.259702" transform="rotate(-0 696.41928 583.259702)">Lossless description + hashtags[]</text>
    </g>
    <g id="text_26">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="634.496711" transform="rotate(-0 21.86424 634.496711)">Parquet / JSONL Ledger</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="634.391008" transform="rotate(-0 21.86424 634.391008)">project.json Vocab</text>
    </g>
    <g id="text_27">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="276.0444" y="634.491555" transform="rotate(-0 276.0444 634.491555)">Video + #tag</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="285.82056" y="634.391008" transform="rotate(-0 285.82056 634.391008)">project.json</text>
    </g>
    <g id="text_28">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="471.5676" y="634.491555" transform="rotate(-0 471.5676 634.491555)">Yes (&lt; 20 ms)</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="491.11992" y="634.491555" transform="rotate(-0 491.11992 634.491555)">Syncs via Hub</text>
    </g>
    <g id="text_29">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="667.0908" y="634.491555" transform="rotate(-0 667.0908 634.491555)">Live #tag queries &amp; seeding</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="696.41928" y="634.491555" transform="rotate(-0 696.41928 634.491555)">Canonical tags, aliases &amp; colors</text>
    </g>
    <g id="text_30">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="685.622861" transform="rotate(-0 21.86424 685.622861)">JABS Hub (Proposed)</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="685.622861" transform="rotate(-0 21.86424 685.622861)">JABS Hub (Future)</text>
    </g>
    <g id="text_31">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="276.0444" y="685.522314" transform="rotate(-0 276.0444 685.522314)">Library Video ID</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="285.82056" y="685.522314" transform="rotate(-0 285.82056 685.522314)">project_video_id</text>
    </g>
    <g id="text_32">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="471.5676" y="685.622861" transform="rotate(-0 471.5676 685.622861)">Yes (multi-user)</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="491.11992" y="685.724696" transform="rotate(-0 491.11992 685.724696)">Opt-in ACL + D21</text>
    </g>
    <g id="text_33">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="667.0908" y="685.618993" transform="rotate(-0 667.0908 685.618993)">Team vocab &amp; shared video notes</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="696.41928" y="685.71954" transform="rotate(-0 696.41928 685.71954)">Team vocab + clip-offset queries</text>
    </g>
    <g id="text_34">
     <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="21.86424" y="736.754166" transform="rotate(-0 21.86424 736.754166)">MLflow (--mlflow)</text>
    </g>
    <g id="text_35">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="276.0444" y="736.65362" transform="rotate(-0 276.0444 736.65362)">Training Run ID</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="285.82056" y="736.65362" transform="rotate(-0 285.82056 736.65362)">Training Run ID</text>
    </g>
    <g id="text_36">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="471.5676" y="736.754166" transform="rotate(-0 471.5676 736.754166)">Snapshot only</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="491.11992" y="736.754166" transform="rotate(-0 491.11992 736.754166)">Snapshot only</text>
    </g>
    <g id="text_37">
-    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="667.0908" y="736.850846" transform="rotate(-0 667.0908 736.850846)">Provenance: annotations.zip + CSV</text>
+    <text style="font-size: 16.5px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1e293b" x="696.41928" y="736.750299" transform="rotate(-0 696.41928 736.750299)">Provenance via annotations.zip</text>
    </g>
   </g>
   <g id="text_38">
-   <text style="font-weight: 700; font-size: 26px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0f172a" x="490.752" y="26.127187" transform="rotate(-0 490.752 26.127187)">Cross-Project #Hashtag Storage: JSON, Vocab, Hub &amp; MLflow</text>
+   <text style="font-weight: 700; font-size: 26px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0f172a" x="490.752" y="26.127187" transform="rotate(-0 490.752 26.127187)">JABS #Hashtag Storage: Lossless JSON, Project Vocab, Hub &amp; MLflow</text>
   </g>
  </g>
  <defs>
-  <clipPath id="p559ae803bb">
+  <clipPath id="p3eb9d26409">
    <rect x="7.2" y="101.5776" width="977.616" height="278.898032"/>
   </clipPath>
-  <clipPath id="p52e1167cd6">
+  <clipPath id="p25b5c8d033">
    <rect x="7.2" y="477.558709" width="977.616" height="292.178891"/>
   </clipPath>
  </defs>
