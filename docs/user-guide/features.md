@@ -1,5 +1,15 @@
 # Per-Frame Features
 
+> **Rotation-invariant segmentation moments (`FEATURE_VERSION = 21`):** The 14 central (`mu*`)
+> and normalized central (`nu*`) segmentation image moments in `Moments` are now analytically
+> rotated into the animal's egocentric bearing frame (`+x'` along the animal's heading, `+y'`
+> perpendicular) rather than fixed camera `(x, y)` axes. Mask area (`m00`) is unchanged and
+> remains finite whenever segmentation is present; rotated `mu*` and `nu*` moments are `NaN` on
+> frames where the animal's bearing is missing. This makes all 32 segmentation features
+> invariant to arena and rig orientation (for example, transferring classifiers between bottom-
+> and right-hopper layouts such as DAX2 and DAX3). Because cached moment values change, existing
+> feature caches are recomputed and classifiers trained on earlier versions must be retrained.
+
 > **Unified pose file semantics (`FEATURE_VERSION = 20`):** JABS now reads every pose file, legacy
 > or unified, through the unified pose file format, and features follow that format's rules.
 > Feature names do not change, but values can, so every feature cache is recomputed and
@@ -152,7 +162,7 @@ Optionally supports extended set of lixit features if the lixit is labeled with 
 
 32 features from segmentation data
 
-* 15 translation-invariant image moments
+* 15 egocentric (translation- and rotation-invariant) image moments aligned to the animal's bearing
 * 7 hu image moments
 * 10 shape descriptors
 
