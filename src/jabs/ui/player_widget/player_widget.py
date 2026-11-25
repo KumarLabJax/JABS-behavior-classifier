@@ -226,6 +226,10 @@ class PlayerWidget(QtWidgets.QWidget):
         """set the overlay annotations in the frame widget"""
         self._frame_widget.overlay_annotations_enabled = enabled
 
+    def set_timeline_annotations(self, annotations) -> None:
+        """Update the timeline annotations overlay reference without reloading the video."""
+        self._frame_widget.annotations = annotations
+
     @property
     def segmentation_color_mode(self) -> FrameWithOverlaysWidget.SegmentationColorMode:
         """return how segmentation contours are colored"""

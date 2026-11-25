@@ -2508,3 +2508,167 @@ def test_perf_lazy_mds_byte_capped_cache_rf_prox_and_cancel(
         extract_bout_spatial_locations(project, rep.feature_matrix.records, cancel_event=ev)
     with pytest.raises(RuntimeError, match="cancelled"):
         summarize_project_videos(project, "Grooming", cancel_event=ev)
+
+
+def test_pr608_review_hdf5_feature_cache_frame_valid_static_objects_and_invalidation(
+    tmp_path: Path,
+) -> None:
+    """PR #608 review (#2, #5, #7): canonical HDF5 cache path, frame_valid, static_objects, per-id invalidation."""
+    import jabs.bale.bout_extractor as be
+    from jabs.bale import (
+        collect_labeled_bout_records,
+        extract_bout_feature_matrix,
+        invalidate_track_cache,
+    )
+    from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+    from jabs.feature_extraction.features import FEATURE_VERSION
+    from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheWriter
+
+    clear_bout_extractor_cache()
+    proj_dir = tmp_path / "hdf5_proj"
+    anno_dir = proj_dir / "jabs" / "annotations"
+    feat_dir = proj_dir / "jabs" / "features"
+    anno_dir.mkdir(parents=True)
+    feat_dir.mkdir(parents=True)
+
+    video_name = "study_275.cage_h5.2024-11-12.21.00.top.mp4"
+    stem = "study_275.cage_h5.2024-11-12.21.00.top"
+    n_frames = 80
+    writer = HDF5FeatureCacheWriter()
+    for ident in (0, 1):
+        id_dir = feat_dir / stem / str(ident)
+        frame_valid = np.ones(n_frames, dtype=np.uint8)
+        frame_valid[15:20] = 0  # half of bout [10, 29] is invalid!
+        feats = {
+            "nose_speed": np.full(n_frames, 3.0 + ident, dtype=np.float32),
+            "closest_distances dist_to_nearest": np.full(n_frames, 12.0, dtype=np.float32),
+            "hu_moments hu1": np.full(n_frames, 0.5, dtype=np.float32),
+            "lixit_distances nose_to_lixit": np.full(n_frames, 4.0, dtype=np.float32),
+        }
+        meta = FeatureCacheMetadata(
+            feature_version=FEATURE_VERSION,
+            identity=ident,
+            num_frames=n_frames,
+            pose_hash="abc123",
+            distance_scale_factor=None,
+            avg_wall_length=None,
+            cached_window_sizes=frozenset(),
+        )
+        writer.write_per_frame(
+            id_dir,
+            meta,
+            PerFrameCacheData(frame_valid=frame_valid, features=feats),
+        )
+
+    anno_doc = {
+        "version": 1,
+        "file": video_name,
+        "num_frames": n_frames,
+        "labels": {
+            "0": {
+                "Grooming": [
+                    {"start": 10, "end": 29, "present": True},
+                    {"start": 40, "end": 59, "present": False},
+                ]
+            },
+            "1": {
+                "Grooming": [
+                    {"start": 10, "end": 29, "present": True},
+                ]
+            },
+        },
+        "unfragmented_labels": {
+            "0": {
+                "Grooming": [
+                    {"start": 10, "end": 29, "present": True},
+                    {"start": 40, "end": 59, "present": False},
+                ]
+            },
+            "1": {
+                "Grooming": [
+                    {"start": 10, "end": 29, "present": True},
+                ]
+            },
+        },
+    }
+    (anno_dir / f"{stem}.json").write_text(json.dumps(anno_doc))
+
+    project = MagicMock()
+    project.dir = proj_dir
+    project.project_paths.project_dir = proj_dir
+    project.project_paths.feature_dir = feat_dir
+    project.project_paths.annotations_dir = anno_dir
+    project.project_paths.prediction_dir = proj_dir / "jabs" / "predictions"
+    from jabs.project import VideoLabels
+
+    project.video_manager.videos = [video_name]
+    project.video_manager.load_video_labels.side_effect = lambda _v: VideoLabels.load(
+        json.loads((anno_dir / f"{stem}.json").read_text())
+    )
+    project.settings_manager.is_video_excluded.return_value = False
+    project.settings_manager.classifier_mode = ClassifierMode.BINARY
+    project.settings_manager.behavior_names = ["Grooming"]
+    project.settings_manager.project_settings = {"defaults": {"window_size": 10}}
+    project.settings_manager.get_behavior.return_value = {
+        "window_size": 10,
+        "social": False,
+        "segmentation": False,
+        "static_objects": {"lixit": False},
+    }
+
+    recs = collect_labeled_bout_records(project, "Grooming")
+    assert len(recs) == 3
+
+    fm = extract_bout_feature_matrix(project, recs, "Grooming")
+    # Social, segmentation, and disabled lixit features are gated out; only nose_speed remains
+    assert fm.base_feature_names == ["nose_speed"]
+    # Bout [10, 29] has 15/20 valid frames (0.75), proving frame_valid was read from HDF5
+    assert fm.records[0].valid_pose_fraction == pytest.approx(0.75, abs=1e-5)
+    assert float(fm.X_bout[0, -1]) == pytest.approx(0.75, abs=1e-5)
+
+    # Comment #5: per-identity invalidation removes identity=0 only and leaves identity=1 cached
+    keys_before = {k[1] for k in be._TRACK_ARRAY_CACHE}
+    assert keys_before == {0, 1}
+    invalidate_track_cache(project, video_name, identity=0)
+    keys_after = {k[1] for k in be._TRACK_ARRAY_CACHE}
+    assert keys_after == {1}
+    clear_bout_extractor_cache()
+
+
+def test_pr608_review_relabel_guard_pairing_uses_pose_proxy(tmp_path: Path) -> None:
+    """PR #608 review (#9): `find_dual_class_pairing_candidate` passes pose proxy to `load_video_labels`."""
+    from jabs.bale import find_dual_class_pairing_candidate, run_bale
+
+    project, proj_dir = _build_synthetic_explorer_project(tmp_path)
+    rep = run_bale(project, "Grooming", include_predictions=False, space="classifier")
+
+    pred_path = proj_dir / "jabs" / "predictions" / "cage_00.h5"
+    pred_path.write_bytes(b"stub")
+    probs = np.full(600, 0.05, dtype=np.float32)
+    zeros = np.zeros(600, dtype=np.int32)
+    project.prediction_manager.load_predictions.return_value = (
+        {0: zeros},
+        {0: probs},
+        {0: zeros},
+    )
+
+    pose_calls: list[object] = []
+    orig_load = project.video_manager.load_video_labels
+
+    def _recording_load(video: str, pose: object = None):
+        pose_calls.append(pose)
+        return orig_load(video)
+
+    project.video_manager.load_video_labels = _recording_load
+    find_dual_class_pairing_candidate(
+        project,
+        "cage_00.mp4",
+        0,
+        "Grooming",
+        needed_positive=False,
+        exclude_span=(50, 90),
+    )
+    assert len(pose_calls) == 1
+    assert pose_calls[0] is not None
+    # Verify rep stays unused warning-free
+    assert rep.behavior == "Grooming"

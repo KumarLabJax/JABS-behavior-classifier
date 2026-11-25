@@ -42,6 +42,7 @@ def _widget() -> SimpleNamespace:
         set_train_button_enabled_state=MagicMock(),
         _set_label_track=MagicMock(),
         _player_widget=SimpleNamespace(reload_frame=MagicMock(), update=MagicMock()),
+        labels_modified=SimpleNamespace(emit=MagicMock()),
     )
 
 

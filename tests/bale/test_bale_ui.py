@@ -2832,3 +2832,133 @@ def test_perf_ui_interactive_header_o1_ring_search_debounce_and_clean_close(
         assert not dlg.insp_canvas._viewport_timer.isActive()
     finally:
         dlg.close()
+
+
+def test_pr608_review_lazy_import_menu_lifecycle_worker_slots_and_timeline_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PR #608 review (#1, #3, #4, #6, #8, #10): lazy dialog export, guarded destroyed, bound worker slots, MessageDialog, timeline & signal sync."""
+    from types import SimpleNamespace
+
+    import jabs.ui.dialogs as dialogs_pkg
+    from jabs.ui.dialogs.message_dialog import MessageDialog
+    from jabs.ui.main_window.central_widget import CentralWidget
+    from jabs.ui.main_window.menu_handlers import MenuHandlers
+
+    # #1: BaleDialog is not re-exported from jabs.ui.dialogs (keeps startup lazy & matplotlib-safe)
+    assert "BaleDialog" not in dialogs_pkg.__all__
+    assert not hasattr(dialogs_pkg, "BaleDialog")
+
+    # #8: Zero QMessageBox calls in bale_dialog.py
+    bale_dialog_src = (
+        Path(__file__).resolve().parents[2] / "src" / "jabs" / "ui" / "dialogs" / "bale_dialog.py"
+    ).read_text(encoding="utf-8")
+    assert "QMessageBox" not in bale_dialog_src
+
+    _ensure_qapp()
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+    central_mock = MagicMock()
+    central_mock.behavior = "Grooming"
+
+    # #3: Old dialog's deferred `destroyed` signal must NOT clear replacement dialog reference
+    win = SimpleNamespace(
+        _project=project,
+        _central_widget=central_mock,
+        _bale_dialog=None,
+    )
+    mh = MenuHandlers(win)
+    mh.open_bale_dialog()
+    dlg1 = win._bale_dialog
+    assert dlg1 is not None
+    project2, _ = _build_synthetic_explorer_project(tmp_path / "proj2")
+    win._project = project2
+    mh.open_bale_dialog()
+    dlg2 = win._bale_dialog
+    assert dlg2 is not None and dlg2 is not dlg1
+    QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    QtWidgets.QApplication.processEvents()
+    assert win._bale_dialog is dlg2
+
+    # #8: _on_reset_examined_flags uses MessageDialog.confirm
+    confirm_msgs: list[str] = []
+    monkeypatch.setattr(
+        MessageDialog,
+        "confirm",
+        staticmethod(lambda *_a, **kw: confirm_msgs.append(str(kw.get("message", ""))) or False),
+    )
+    rep = run_bale(project2, "Grooming", include_predictions=False, space="classifier")
+    dlg2._on_analysis_finished(rep, included_preds=False)
+    dlg2._examined_only_bout_ids.add(rep.feature_matrix.records[0].bout_id)
+    dlg2._examined_store.count = MagicMock(return_value=1)
+    dlg2._on_reset_examined_flags(all_behaviors=False)
+    assert len(confirm_msgs) == 1
+
+    # #4: Calling _on_analysis_finished / _on_analysis_error after close returns safely without touching _init_refresh_timer
+    dlg2.close()
+    assert dlg2._is_closing is True
+    dlg2._init_refresh_timer = MagicMock()
+    dlg2._on_analysis_finished(rep, False)
+    dlg2._on_analysis_error("late error")
+    dlg2._init_refresh_timer.stop.assert_not_called()
+    QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    QtWidgets.QApplication.processEvents()
+
+    # #6 & #10: CentralWidget.sync_external_video_labels updates player timeline_annotations;
+    # on_annotation_edited / on_annotation_deleted / _save_and_refresh_annotations emit labels_modified.
+    new_annos = object()
+    new_labels = SimpleNamespace(timeline_annotations=new_annos)
+    set_annos_calls: list[object] = []
+    emitted_count = 0
+
+    class _Sig:
+        def emit(self) -> None:
+            nonlocal emitted_count
+            emitted_count += 1
+
+    cw_stub = SimpleNamespace(
+        _project=SimpleNamespace(
+            settings_manager=SimpleNamespace(classifier_mode=ClassifierMode.BINARY),
+            save_annotations=MagicMock(),
+        ),
+        _loaded_video=SimpleNamespace(name="cage_00.mp4"),
+        _pose_est=SimpleNamespace(identity_index_to_display=lambda i: str(i)),
+        _labels=SimpleNamespace(
+            timeline_annotations=SimpleNamespace(
+                annotation_exists=lambda **_kw: False,
+                remove_annotation_by_key=MagicMock(),
+                add_annotation=MagicMock(),
+            )
+        ),
+        _counts=None,
+        _none_counts=None,
+        _controls=SimpleNamespace(select_button_set_checked=MagicMock()),
+        _start_selection=MagicMock(),
+        _update_label_counts=MagicMock(),
+        _set_label_track=MagicMock(),
+        set_train_button_enabled_state=MagicMock(),
+        _player_widget=SimpleNamespace(
+            set_timeline_annotations=lambda ann: set_annos_calls.append(ann),
+            update=MagicMock(),
+        ),
+        labels_modified=_Sig(),
+    )
+    CentralWidget.sync_external_video_labels(cw_stub, "cage_00.mp4", updated_labels=new_labels)
+    assert set_annos_calls == [new_annos]
+
+    cw_stub._labels = SimpleNamespace(
+        timeline_annotations=SimpleNamespace(
+            annotation_exists=lambda **_kw: False,
+            remove_annotation_by_key=MagicMock(),
+            add_annotation=MagicMock(),
+        )
+    )
+    CentralWidget.on_annotation_edited(
+        cw_stub,
+        {"start": 10, "end": 20, "tag": "t1", "identity": 0},
+        {"tag": "t2", "identity_scoped": True, "color": "#00FF00", "description": ""},
+    )
+    CentralWidget.on_annotation_deleted(
+        cw_stub, {"start": 10, "end": 20, "tag": "t2", "identity_index": 0}
+    )
+    CentralWidget._save_and_refresh_annotations(cw_stub)
+    assert emitted_count == 3

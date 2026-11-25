@@ -336,7 +336,11 @@ def find_dual_class_pairing_candidate(
         e0 = min(num_frames, int(exclude_span[1]) + min_gap + 1)
         forbidden[s0:e0] = True
 
-    video_labels = project.video_manager.load_video_labels(video)
+    pose = load_annotation_pose_proxy(project, video)
+    try:
+        video_labels = project.video_manager.load_video_labels(video, pose)
+    except TypeError:
+        video_labels = project.video_manager.load_video_labels(video)
     if video_labels is not None:
         for _, tl in video_labels.iter_behavior_labels(str(identity)):
             arr = tl.get_labels()

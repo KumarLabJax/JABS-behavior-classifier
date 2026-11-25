@@ -1006,9 +1006,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
         self.set_train_button_enabled_state()
         self._set_label_track()
-        labels_modified = getattr(self, "labels_modified", None)
-        if labels_modified is not None:
-            labels_modified.emit()
+        self.labels_modified.emit()
 
     def _set_identities(self, identities: list[str]) -> None:
         """populate the identity_selection combobox"""
@@ -2688,6 +2686,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # refresh video player to show updated annotation
         self._player_widget.update()
+        self.labels_modified.emit()
 
     def on_annotation_deleted(self, payload: dict) -> None:
         """Handle the event when an existing annotation is deleted.
@@ -2715,11 +2714,13 @@ class CentralWidget(QtWidgets.QWidget):
 
         # refresh video player to show updated annotation
         self._player_widget.update()
+        self.labels_modified.emit()
 
     def _save_and_refresh_annotations(self) -> None:
         """Persist annotation changes and update UI widgets."""
         self._project.save_annotations(self._labels, self._pose_est)
         self._player_widget.update()
+        self.labels_modified.emit()
 
     # ========== BALE (Bout & Label Explorer) Navigation & Sync Helpers ==========
 
@@ -2907,6 +2908,9 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.select_button_set_checked(False)
             self._update_label_counts()
             self._set_label_track()
+            self._player_widget.set_timeline_annotations(
+                self._labels.timeline_annotations if self._labels is not None else None
+            )
             self._player_widget.update()
         else:
             if self._counts is not None:

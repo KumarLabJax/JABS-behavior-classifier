@@ -4,7 +4,6 @@ from .about_dialog import AboutDialog
 from .annotation_edit_dialog import AnnotationEditDialog
 from .annotation_info_dialog import AnnotationInfoDialog
 from .archive_behavior_dialog import ArchiveBehaviorDialog
-from .bale_dialog import BaleDialog
 from .behavior_search_dialog import BehaviorSearchDialog
 from .license_dialog import LicenseAgreementDialog
 from .message_dialog import MessageDialog
@@ -21,7 +20,6 @@ __all__ = [
     "AnnotationEditDialog",
     "AnnotationInfoDialog",
     "ArchiveBehaviorDialog",
-    "BaleDialog",
     "BehaviorSearchDialog",
     "CustomProgressDialog",
     "LicenseAgreementDialog",

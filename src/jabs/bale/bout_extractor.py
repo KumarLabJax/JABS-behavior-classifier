@@ -20,8 +20,15 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierMode
+from jabs.core.enums import CacheFormat, ClassifierMode
+from jabs.core.utils.utilities import pose_file_stem
+from jabs.feature_extraction.landmark_features.landmark_group import LandmarkFeatureGroup
+from jabs.feature_extraction.segmentation_features.segment_group import SegmentationFeatureGroup
+from jabs.feature_extraction.social_features.huddle_features import HuddleFeatures
+from jabs.feature_extraction.social_features.social_group import SocialFeatureGroup
 from jabs.io.annotations import read_document
+from jabs.io.feature_cache import detect_cache_format, inspect_identity_cache
+from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader
 
 from .models import BoutFeatureMatrix, BoutRecord
 
@@ -45,26 +52,17 @@ _INTERNAL_META_PREFIXES: tuple[str, ...] = (
     "point_mask",
 )
 
-_SOCIAL_PREFIXES: tuple[str, ...] = (
-    "closest_distances",
-    "closest_fov_angles",
-    "closest_fov_distances",
-    "social_pairwise_distances",
-    "social_pairwise_fov_distances",
-    "huddle_features",
-)
+_SOCIAL_PREFIXES: tuple[str, ...] = tuple(SocialFeatureGroup._features.keys())
 
-_SEGMENTATION_PREFIXES: tuple[str, ...] = (
-    "hu_moments",
-    "moments",
-    "shape_descriptor",
-    "huddle_features",
+_SEGMENTATION_PREFIXES: tuple[str, ...] = tuple(
+    dict.fromkeys([*SegmentationFeatureGroup._features.keys(), HuddleFeatures.name()])
 )
 
 # In-memory LRU cache of loaded per-track feature matrices with strict byte budget:
-# key -> (X_track_float32, valid_mask_bool, col_names)
+# key -> (cache_file_path, identity, mtime_ns, use_social, use_segmentation, disabled_landmarks)
 _TRACK_ARRAY_CACHE: OrderedDict[
-    tuple[str, int, bool, bool], tuple[np.ndarray, np.ndarray, list[str]]
+    tuple[str, int, int, bool, bool, tuple[str, ...]],
+    tuple[np.ndarray, np.ndarray, list[str]],
 ] = OrderedDict()
 _TRACK_CACHE_LOCK = threading.Lock()
 _MAX_CACHED_TRACKS = 512
@@ -110,6 +108,25 @@ def _entry_nbytes(entry: tuple[np.ndarray, np.ndarray, list[str]]) -> int:
     return int(entry[0].nbytes + entry[1].nbytes)
 
 
+def _resolve_cache_stem(video_name: str) -> str:
+    """Resolve the feature cache subdirectory stem using JABS's `pose_file_stem` convention."""
+    base = Path(video_name).name
+    if Path(base).suffix.lower() in _KNOWN_SIDE_EXTS:
+        return pose_file_stem(base)
+    return strip_known_video_suffix(base)
+
+
+def _disabled_landmark_prefixes(static_objects: dict[str, Any] | None) -> tuple[str, ...]:
+    """Return landmark feature prefixes explicitly disabled in behavior `static_objects` config."""
+    if not isinstance(static_objects, dict) or not static_objects:
+        return ()
+    disabled: list[str] = []
+    for obj_name, enabled in static_objects.items():
+        if not bool(enabled):
+            disabled.extend(LandmarkFeatureGroup.static_object_features(str(obj_name)))
+    return tuple(dict.fromkeys(sorted(disabled)))
+
+
 def clear_bout_extractor_cache() -> None:
     """Clear the in-memory track feature array cache and video-name index."""
     global _TRACK_CACHE_BYTES
@@ -131,7 +148,7 @@ def invalidate_track_cache(
             _TRACK_ARRAY_CACHE.clear()
             _TRACK_CACHE_BYTES = 0
             return
-        stem = strip_known_video_suffix(video) if video else None
+        stem = _resolve_cache_stem(video) if video else None
         to_remove = [
             k
             for k in list(_TRACK_ARRAY_CACHE.keys())
@@ -257,8 +274,9 @@ def _select_active_feature_columns(
     *,
     use_social: bool = True,
     use_segmentation: bool = True,
+    disabled_landmark_prefixes: tuple[str, ...] = (),
 ) -> list[str]:
-    """Filter `per_frame.parquet` columns according to behavior feature flags."""
+    """Filter per-frame feature columns according to behavior feature & static-object flags."""
     selected: list[str] = []
     for col in all_columns:
         if any(col.startswith(p) for p in _INTERNAL_META_PREFIXES):
@@ -267,8 +285,43 @@ def _select_active_feature_columns(
             continue
         if not use_segmentation and any(col.startswith(p) for p in _SEGMENTATION_PREFIXES):
             continue
+        if disabled_landmark_prefixes and any(
+            col.startswith(p) for p in disabled_landmark_prefixes
+        ):
+            continue
         selected.append(col)
     return selected
+
+
+def _cache_get_track_array(
+    cache_key: tuple[str, int, int, bool, bool, tuple[str, ...]],
+) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
+    with _TRACK_CACHE_LOCK:
+        cached = _TRACK_ARRAY_CACHE.get(cache_key)
+        if cached is not None:
+            _TRACK_ARRAY_CACHE.move_to_end(cache_key)
+        return cached
+
+
+def _cache_put_track_array(
+    cache_key: tuple[str, int, int, bool, bool, tuple[str, ...]],
+    result: tuple[np.ndarray, np.ndarray, list[str]],
+) -> None:
+    global _TRACK_CACHE_BYTES
+    entry_bytes = _entry_nbytes(result)
+    with _TRACK_CACHE_LOCK:
+        old_existing = _TRACK_ARRAY_CACHE.pop(cache_key, None)
+        if old_existing is not None:
+            _TRACK_CACHE_BYTES = max(0, _TRACK_CACHE_BYTES - _entry_nbytes(old_existing))
+        while _TRACK_ARRAY_CACHE and (
+            len(_TRACK_ARRAY_CACHE) >= _MAX_CACHED_TRACKS
+            or (_TRACK_CACHE_BYTES + entry_bytes) > _MAX_TRACK_CACHE_BYTES
+        ):
+            _, evicted = _TRACK_ARRAY_CACHE.popitem(last=False)
+            _TRACK_CACHE_BYTES = max(0, _TRACK_CACHE_BYTES - _entry_nbytes(evicted))
+        if entry_bytes <= _MAX_TRACK_CACHE_BYTES:
+            _TRACK_ARRAY_CACHE[cache_key] = result
+            _TRACK_CACHE_BYTES += entry_bytes
 
 
 def load_track_per_frame_array(
@@ -278,24 +331,42 @@ def load_track_per_frame_array(
     *,
     use_social: bool = True,
     use_segmentation: bool = True,
+    disabled_landmark_prefixes: tuple[str, ...] = (),
+    feature_dir: Path | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
     """Load `(X_track, valid_mask, feature_names)` for one `(video, identity)` track.
 
-    Uses an in-memory cache keyed by `(parquet_path, mtime_ns, use_social, use_segmentation)`
-    so repeated queries or single-video annotation edits incur zero redundant Parquet I/O.
+    Uses `detect_cache_format` + Parquet / `HDF5FeatureCacheReader` under
+    `<feature_dir>/<stem>/<identity>/`, backed by a byte-budgeted LRU cache keyed by
+    `(cache_path, identity, mtime_ns, use_social, use_segmentation, disabled_landmark_prefixes)`.
     """
-    global _TRACK_CACHE_BYTES
-    stem = strip_known_video_suffix(video_name)
-    parquet_path = project_dir / "jabs" / "features" / stem / str(identity) / "per_frame.parquet"
+    eff_feature_dir = (
+        Path(feature_dir) if feature_dir is not None else (project_dir / "jabs" / "features")
+    )
+    stem = _resolve_cache_stem(video_name)
+    identity_dir = eff_feature_dir / stem / str(identity)
+    if not identity_dir.is_dir():
+        return None
 
-    if parquet_path.is_file():
+    fmt = detect_cache_format(identity_dir)
+    parquet_path = identity_dir / "per_frame.parquet"
+    h5_path = identity_dir / "features.h5"
+
+    if fmt == CacheFormat.PARQUET or (fmt is None and parquet_path.is_file()):
+        if not parquet_path.is_file():
+            return None
         mtime_ns = parquet_path.stat().st_mtime_ns
-        cache_key = (str(parquet_path), mtime_ns, use_social, use_segmentation)
-        with _TRACK_CACHE_LOCK:
-            cached = _TRACK_ARRAY_CACHE.get(cache_key)
-            if cached is not None:
-                _TRACK_ARRAY_CACHE.move_to_end(cache_key)
-                return cached
+        cache_key = (
+            str(parquet_path),
+            int(identity),
+            mtime_ns,
+            use_social,
+            use_segmentation,
+            disabled_landmark_prefixes,
+        )
+        cached = _cache_get_track_array(cache_key)
+        if cached is not None:
+            return cached
 
         schema = pq.read_schema(parquet_path)
         all_cols = schema.names
@@ -303,6 +374,7 @@ def load_track_per_frame_array(
             all_cols,
             use_social=use_social,
             use_segmentation=use_segmentation,
+            disabled_landmark_prefixes=disabled_landmark_prefixes,
         )
         read_cols = list(feat_cols)
         has_valid_col = "_jabs_frame_valid" in all_cols
@@ -328,46 +400,71 @@ def load_track_per_frame_array(
             X_track = np.zeros((n_rows, len(feat_cols)), dtype=np.float32)
 
         result = (X_track, valid_mask, feat_cols)
-        entry_bytes = _entry_nbytes(result)
-        with _TRACK_CACHE_LOCK:
-            old_existing = _TRACK_ARRAY_CACHE.pop(cache_key, None)
-            if old_existing is not None:
-                _TRACK_CACHE_BYTES = max(0, _TRACK_CACHE_BYTES - _entry_nbytes(old_existing))
-            while _TRACK_ARRAY_CACHE and (
-                len(_TRACK_ARRAY_CACHE) >= _MAX_CACHED_TRACKS
-                or (_TRACK_CACHE_BYTES + entry_bytes) > _MAX_TRACK_CACHE_BYTES
-            ):
-                _, evicted = _TRACK_ARRAY_CACHE.popitem(last=False)
-                _TRACK_CACHE_BYTES = max(0, _TRACK_CACHE_BYTES - _entry_nbytes(evicted))
-            if entry_bytes <= _MAX_TRACK_CACHE_BYTES:
-                _TRACK_ARRAY_CACHE[cache_key] = result
-                _TRACK_CACHE_BYTES += entry_bytes
+        _cache_put_track_array(cache_key, result)
         return result
 
-    # Legacy HDF5 fallback (`jabs/features/<stem>/features.h5`)
-    h5_path = project_dir / "jabs" / "features" / stem / "features.h5"
-    if h5_path.is_file():
-        with h5py.File(h5_path, "r") as h5f:
-            id_key = str(identity)
-            if id_key not in h5f or "per_frame" not in h5f[id_key]:
-                return None
-            pf_grp = h5f[id_key]["per_frame"]
-            all_cols = sorted(pf_grp.keys())
-            feat_cols = _select_active_feature_columns(
-                all_cols,
-                use_social=use_social,
-                use_segmentation=use_segmentation,
-            )
-            if not feat_cols:
-                return None
-            first_arr = np.asarray(pf_grp[feat_cols[0]][:])
-            n_rows = first_arr.shape[0]
-            X_track = np.empty((n_rows, len(feat_cols)), dtype=np.float32)
-            for j, col_name in enumerate(feat_cols):
-                arr = np.asarray(pf_grp[col_name][:], dtype=np.float32).reshape(n_rows, -1)[:, 0]
-                X_track[:, j] = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    if fmt == CacheFormat.HDF5 or h5_path.is_file():
+        if not h5_path.is_file():
+            return None
+        mtime_ns = h5_path.stat().st_mtime_ns
+        cache_key = (
+            str(h5_path),
+            int(identity),
+            mtime_ns,
+            use_social,
+            use_segmentation,
+            disabled_landmark_prefixes,
+        )
+        cached = _cache_get_track_array(cache_key)
+        if cached is not None:
+            return cached
+
+        info = inspect_identity_cache(identity_dir)
+        raw_features: dict[str, np.ndarray] | None = None
+        valid_mask: np.ndarray | None = None
+        if info is not None and info.cache_format == CacheFormat.HDF5:
+            try:
+                reader = HDF5FeatureCacheReader(
+                    expected_feature_version=info.feature_version,
+                    expected_pose_hash=info.pose_hash,
+                    expected_distance_scale_factor=info.distance_scale_factor,
+                )
+                pf_data = reader.read_per_frame(identity_dir)
+                raw_features = pf_data.features
+                valid_mask = np.asarray(pf_data.frame_valid, dtype=np.uint8) > 0
+            except Exception:
+                raw_features = None
+                valid_mask = None
+
+        if raw_features is None:
+            with h5py.File(h5_path, "r") as h5f:
+                if "features" not in h5f or "per_frame" not in h5f["features"]:
+                    return None
+                pf_grp = h5f["features"]["per_frame"]
+                raw_features = {k: pf_grp[k][:] for k in pf_grp}
+                if "frame_valid" in h5f:
+                    valid_mask = np.asarray(h5f["frame_valid"][:], dtype=np.uint8) > 0
+
+        all_cols = sorted(raw_features.keys())
+        feat_cols = _select_active_feature_columns(
+            all_cols,
+            use_social=use_social,
+            use_segmentation=use_segmentation,
+            disabled_landmark_prefixes=disabled_landmark_prefixes,
+        )
+        if not feat_cols:
+            return None
+        first_arr = np.asarray(raw_features[feat_cols[0]])
+        n_rows = int(first_arr.shape[0])
+        if valid_mask is None:
             valid_mask = np.ones(n_rows, dtype=bool)
-            return (X_track, valid_mask, feat_cols)
+        X_track = np.empty((n_rows, len(feat_cols)), dtype=np.float32)
+        for j, col_name in enumerate(feat_cols):
+            arr = np.asarray(raw_features[col_name], dtype=np.float32).reshape(n_rows, -1)[:, 0]
+            X_track[:, j] = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        result = (X_track, valid_mask, feat_cols)
+        _cache_put_track_array(cache_key, result)
+        return result
 
     return None
 
@@ -556,10 +653,18 @@ def extract_bout_feature_matrix(
 
     Groups `records` by `(video, identity)` so each `per_frame.parquet` is opened at most once.
     """
-    project_dir = Path(project.project_paths.project_dir)
+    pp = getattr(project, "project_paths", None)
+    project_dir = Path(pp.project_dir) if pp is not None else Path(project.dir)
+    raw_feat_dir = getattr(pp, "feature_dir", None) if pp is not None else None
+    feature_dir = (
+        Path(raw_feat_dir)
+        if isinstance(raw_feat_dir, str | Path)
+        else (project_dir / "jabs" / "features")
+    )
     beh_settings = resolve_behavior_settings(project, behavior)
     use_social = bool(beh_settings.get("social", True))
     use_segmentation = bool(beh_settings.get("segmentation", True))
+    disabled_landmarks = _disabled_landmark_prefixes(beh_settings.get("static_objects"))
 
     # Group bout indices by (video, identity) for single-open I/O
     by_track: dict[tuple[str, int], list[int]] = defaultdict(list)
@@ -584,6 +689,8 @@ def extract_bout_feature_matrix(
             identity,
             use_social=use_social,
             use_segmentation=use_segmentation,
+            disabled_landmark_prefixes=disabled_landmarks,
+            feature_dir=feature_dir,
         )
         if loaded is None:
             continue

@@ -723,7 +723,12 @@ class MenuHandlers:
             central_widget=self.window._central_widget,
             parent=None,
         )
-        dialog.destroyed.connect(lambda: setattr(self.window, "_bale_dialog", None))
+
+        def _clear_bale_dialog_ref(_obj: object = None, dlg: object = dialog) -> None:
+            if getattr(self.window, "_bale_dialog", None) is dlg:
+                self.window._bale_dialog = None
+
+        dialog.destroyed.connect(_clear_bale_dialog_ref)
         self.window._bale_dialog = dialog
         dialog.show()
         dialog.raise_()

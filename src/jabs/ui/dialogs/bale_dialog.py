@@ -210,8 +210,15 @@ def _qcolor_to_hex(color: QtGui.QColor, darken_light: bool = True) -> str:
 class _BaleWorkerSignals(QtCore.QObject):
     """Signals emitted by the background `QRunnable` explorer worker."""
 
-    finished = QtCore.Signal(object)  # BaleReport
+    finished = QtCore.Signal(object, bool)  # BaleReport, included_preds
     error = QtCore.Signal(str)
+
+
+class _VideoScreenerSignals(QtCore.QObject):
+    """Signals emitted by the background Mode 4 video screener worker."""
+
+    finished = QtCore.Signal(object, object, int)  # VideoScreenerReport, key, req_id
+    error = QtCore.Signal(str, int)  # err_msg, req_id
 
 
 class _ExplorerComputeTask(QtCore.QRunnable):
@@ -280,7 +287,7 @@ class _ExplorerComputeTask(QtCore.QRunnable):
             if self.cancel_event.is_set():
                 return
             with contextlib.suppress(RuntimeError):
-                self.signals.finished.emit(report)
+                self.signals.finished.emit(report, self.include_predictions)
         except Exception as exc:
             if self.cancel_event.is_set():
                 return
@@ -342,6 +349,8 @@ class _VideoScreenerTask(QtCore.QRunnable):
         include_all_multiclass: bool,
         use_postprocessed: bool = True,
         source: VideoMetricSource = "predictions",
+        key: tuple[str, bool] = ("", False),
+        req_id: int = 0,
     ) -> None:
         super().__init__()
         self.project = project
@@ -349,8 +358,10 @@ class _VideoScreenerTask(QtCore.QRunnable):
         self.include_all_multiclass = include_all_multiclass
         self.use_postprocessed = use_postprocessed
         self.source = source
+        self.key = key
+        self.req_id = int(req_id)
         self.cancel_event = threading.Event()
-        self.signals = _BaleWorkerSignals()
+        self.signals = _VideoScreenerSignals()
 
     def run(self) -> None:
         if self.cancel_event.is_set():
@@ -367,13 +378,13 @@ class _VideoScreenerTask(QtCore.QRunnable):
             if self.cancel_event.is_set():
                 return
             with contextlib.suppress(RuntimeError):
-                self.signals.finished.emit(report)
+                self.signals.finished.emit(report, self.key, self.req_id)
         except Exception as exc:
             if self.cancel_event.is_set():
                 return
             logger.exception("BALE video screener task failed")
             with contextlib.suppress(RuntimeError):
-                self.signals.error.emit(str(exc))
+                self.signals.error.emit(str(exc), self.req_id)
 
 
 class _ElidedLabel(QtWidgets.QLabel):
@@ -2673,8 +2684,12 @@ class BaleDialog(QtWidgets.QDialog):
         self.insp_canvas._resize_timer.stop()
         self.insp_canvas._viewport_timer.stop()
         for worker in (self._active_worker, self._spatial_worker, self._video_worker):
-            if worker is not None and hasattr(worker, "cancel_event"):
-                worker.cancel_event.set()
+            if worker is not None:
+                if hasattr(worker, "cancel_event"):
+                    worker.cancel_event.set()
+                if hasattr(worker, "signals"):
+                    with contextlib.suppress(RuntimeError, TypeError):
+                        worker.signals.disconnect(self)
         self._identity_label_cache.clear()
         self._video_ext_id_cache.clear()
         self._repr_matrix_cache = None
@@ -3695,17 +3710,15 @@ class BaleDialog(QtWidgets.QDialog):
             compute_spatial=(self._proj_method == "spatial"),
         )
         self._active_worker = worker
-        worker.signals.finished.connect(
-            lambda rep, inc_p=include_preds: self._on_analysis_finished(rep, inc_p)
-        )
+        worker.signals.finished.connect(self._on_analysis_finished)
         worker.signals.error.connect(self._on_analysis_error)
         self._thread_pool.start(worker)
 
     def _on_analysis_finished(self, report: BaleReport, included_preds: bool) -> None:
-        self._init_refresh_timer.stop()
-        self._active_worker = None
         if self._is_closing:
             return
+        self._init_refresh_timer.stop()
+        self._active_worker = None
         if self._queued_refresh:
             self._queued_refresh = False
             self.refresh_analysis()
@@ -3837,9 +3850,9 @@ class BaleDialog(QtWidgets.QDialog):
             self.status_summary_label.setText(f"Loaded {n_tot} bouts in {total_ms:.0f} ms")
 
     def _on_analysis_error(self, err_msg: str) -> None:
-        self._active_worker = None
         if self._is_closing:
             return
+        self._active_worker = None
         if self._queued_refresh:
             self._queued_refresh = False
             self.refresh_analysis()
@@ -7372,16 +7385,16 @@ class BaleDialog(QtWidgets.QDialog):
                 f"No saved Examined flags to reset for {scope_desc}."
             )
             return
-        reply = QtWidgets.QMessageBox.question(
+        confirmed = MessageDialog.confirm(
             self,
-            "Reset Examined Flags",
-            f"Clear {existing_cnt} saved Examined flag(s) for {scope_desc}?\n\n"
-            "Your manual JABS annotations are not affected — those bouts will simply "
-            "re-enter the Needs Review queue.",
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
-            QtWidgets.QMessageBox.StandardButton.No,
+            title="Reset Examined Flags",
+            message=(
+                f"Clear {existing_cnt} saved Examined flag(s) for {scope_desc}?\n\n"
+                "Your manual JABS annotations are not affected — those bouts will simply "
+                "re-enter the Needs Review queue."
+            ),
         )
-        if reply != QtWidgets.QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
         cleared = self._examined_store.clear(behavior=scope_beh)
         if self._report is not None:
@@ -8445,15 +8458,13 @@ class BaleDialog(QtWidgets.QDialog):
             include_all_multiclass=include_all_mc,
             use_postprocessed=True,
             source=self._video_source,
+            key=key,
+            req_id=req_id,
         )
         self._video_worker = worker
         self._update_recalc_button_badge()
-        worker.signals.finished.connect(
-            lambda rep, k=key, rid=req_id: self._on_video_summary_finished(rep, k, rid)
-        )
-        worker.signals.error.connect(
-            lambda msg, rid=req_id: self._on_video_summary_error(msg, rid)
-        )
+        worker.signals.finished.connect(self._on_video_summary_finished)
+        worker.signals.error.connect(self._on_video_summary_error)
         self._thread_pool.start(worker)
 
     def _on_video_summary_finished(
@@ -8462,9 +8473,9 @@ class BaleDialog(QtWidgets.QDialog):
         key: tuple[str, bool],
         req_id: int | None = None,
     ) -> None:
-        self._video_worker = None
         if self._is_closing:
             return
+        self._video_worker = None
         queued = self._queued_video_refresh
         self._queued_video_refresh = False
         current_key = self._active_video_scope_key()
@@ -8527,9 +8538,9 @@ class BaleDialog(QtWidgets.QDialog):
             )
 
     def _on_video_summary_error(self, err_msg: str, req_id: int | None = None) -> None:
-        self._video_worker = None
         if self._is_closing:
             return
+        self._video_worker = None
         queued = self._queued_video_refresh
         self._queued_video_refresh = False
         if queued and self._mode == "videos":
