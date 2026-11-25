@@ -2760,3 +2760,75 @@ def test_class_and_table_filters_sync_pca_and_arena_plots(tmp_path: Path) -> Non
         assert set(dlg.scatter_canvas._pick_global_indices.tolist()) == (pos_ids | neg_ids)
     finally:
         dlg.close()
+
+
+def test_perf_ui_interactive_header_o1_ring_search_debounce_and_clean_close(
+    tmp_path: Path,
+) -> None:
+    """C2 + C3 + C4 + C6/M6 regressions: Interactive table header, O(1) scatter ring, search debounce, timer stop."""
+    _ensure_qapp()
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+    central_mock = MagicMock()
+    central_mock.behavior = "Grooming"
+
+    dlg = BaleDialog(project, central_widget=central_mock)
+    try:
+        rep = run_bale(project, "Grooming", include_predictions=False, space="classifier")
+        dlg._on_analysis_finished(rep, included_preds=False)
+        dlg.resize(1340, 820)
+        dlg.show()
+        QtWidgets.QApplication.processEvents()
+
+        # C2: Header modes stay Interactive (col 5 Stretch) after populate and in-place row update
+        hdr = dlg.table.horizontalHeader()
+        for col in (0, 1, 3, 4, 6):
+            assert hdr.sectionResizeMode(col) == QtWidgets.QHeaderView.ResizeMode.Interactive
+        assert hdr.sectionResizeMode(5) == QtWidgets.QHeaderView.ResizeMode.Stretch
+        dlg._update_table_rows_in_place({0})
+        for col in (0, 1, 3, 4, 6):
+            assert hdr.sectionResizeMode(col) == QtWidgets.QHeaderView.ResizeMode.Interactive
+
+        # C3: Row stepping moves the persistent O(1) selection ring without calling _draw_scatter
+        # (Visit row 1 and row 0 once first so their initial auto-Examined transitions settle)
+        assert dlg._bout_scatter_sel_artist is not None
+        if dlg.table.rowCount() >= 2:
+            from PySide6.QtTest import QTest
+
+            dlg.table.selectRow(1)
+            QTest.qWait(80)
+            dlg.table.selectRow(0)
+            QTest.qWait(80)
+            with patch.object(dlg, "_draw_scatter", wraps=dlg._draw_scatter) as spy_draw:
+                dlg.table.selectRow(1)
+                QTest.qWait(70)
+                dlg.table.selectRow(0)
+                QTest.qWait(70)
+                assert not dlg._scatter_redraw_timer.isActive()
+                assert spy_draw.call_count == 0
+                assert dlg._bout_scatter_sel_artist.get_visible()
+
+        # C4: Focused typing activates 120 ms debounce timer; flush applies filter immediately
+        dlg._set_queue_filter("all", redraw=False)
+        with patch.object(dlg.search_input, "hasFocus", return_value=True):
+            dlg.search_input.setText("Not-Grooming")
+            assert dlg._bout_search_timer.isActive()
+            dlg._flush_bout_search_if_pending()
+            assert not dlg._bout_search_timer.isActive()
+            assert dlg.table.rowCount() >= 1
+
+        # C6 / M6: Coalesced resize/viewport timers and active worker cancel_event stop on close
+        assert dlg.scatter_canvas._resize_timer.interval() == 50
+        assert dlg.scatter_canvas._viewport_timer.interval() == 60
+        dummy_worker = MagicMock()
+        import threading
+
+        dummy_worker.cancel_event = threading.Event()
+        dlg._active_worker = dummy_worker
+        dlg.scatter_canvas._resize_timer.start()
+        dlg.insp_canvas._viewport_timer.start()
+        dlg.close()
+        assert dummy_worker.cancel_event.is_set()
+        assert not dlg.scatter_canvas._resize_timer.isActive()
+        assert not dlg.insp_canvas._viewport_timer.isActive()
+    finally:
+        dlg.close()

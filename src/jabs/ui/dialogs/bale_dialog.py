@@ -14,6 +14,7 @@ import contextlib
 import logging
 import math
 import re
+import threading
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -57,6 +58,7 @@ from jabs.bale import (
     summarize_cv_track_counts,
     summarize_project_videos,
 )
+from jabs.bale.trajectory_and_export import clear_pose_cache
 from jabs.behavior_search import SearchHit
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
@@ -231,6 +233,7 @@ class _ExplorerComputeTask(QtCore.QRunnable):
         target_behavior: str | None = None,
         forced_k: int | None = None,
         compute_tsne: bool = False,
+        compute_mds: bool = False,
         compute_spatial: bool = False,
     ) -> None:
         super().__init__()
@@ -247,10 +250,14 @@ class _ExplorerComputeTask(QtCore.QRunnable):
         self.target_behavior = target_behavior
         self.forced_k = forced_k
         self.compute_tsne = compute_tsne
+        self.compute_mds = compute_mds
         self.compute_spatial = compute_spatial
+        self.cancel_event = threading.Event()
         self.signals = _BaleWorkerSignals()
 
     def run(self) -> None:
+        if self.cancel_event.is_set():
+            return
         try:
             report = run_bale(
                 self.project,
@@ -266,12 +273,17 @@ class _ExplorerComputeTask(QtCore.QRunnable):
                 target_behavior=self.target_behavior,
                 forced_k=self.forced_k,
                 compute_tsne=self.compute_tsne,
-                compute_mds=True,
+                compute_mds=self.compute_mds,
                 compute_spatial=self.compute_spatial,
+                cancel_event=self.cancel_event,
             )
+            if self.cancel_event.is_set():
+                return
             with contextlib.suppress(RuntimeError):
                 self.signals.finished.emit(report)
         except Exception as exc:
+            if self.cancel_event.is_set():
+                return
             logger.exception("BALE background task failed")
             with contextlib.suppress(RuntimeError):
                 self.signals.error.emit(str(exc))
@@ -297,14 +309,23 @@ class _SpatialComputeTask(QtCore.QRunnable):
         self.req_id = int(req_id)
         self.project = project
         self.records = list(records)
+        self.cancel_event = threading.Event()
         self.signals = _SpatialWorkerSignals()
 
     def run(self) -> None:
+        if self.cancel_event.is_set():
+            return
         try:
-            res = extract_bout_spatial_locations(self.project, self.records)
+            res = extract_bout_spatial_locations(
+                self.project, self.records, cancel_event=self.cancel_event
+            )
+            if self.cancel_event.is_set():
+                return
             with contextlib.suppress(RuntimeError):
                 self.signals.finished.emit(self.req_id, res)
         except Exception as exc:
+            if self.cancel_event.is_set():
+                return
             logger.exception("BALE spatial localization failed")
             with contextlib.suppress(RuntimeError):
                 self.signals.error.emit(self.req_id, str(exc))
@@ -328,9 +349,12 @@ class _VideoScreenerTask(QtCore.QRunnable):
         self.include_all_multiclass = include_all_multiclass
         self.use_postprocessed = use_postprocessed
         self.source = source
+        self.cancel_event = threading.Event()
         self.signals = _BaleWorkerSignals()
 
     def run(self) -> None:
+        if self.cancel_event.is_set():
+            return
         try:
             report = summarize_project_videos(
                 self.project,
@@ -338,10 +362,15 @@ class _VideoScreenerTask(QtCore.QRunnable):
                 include_all_multiclass=self.include_all_multiclass,
                 use_postprocessed=self.use_postprocessed,
                 source=self.source,
+                cancel_event=self.cancel_event,
             )
+            if self.cancel_event.is_set():
+                return
             with contextlib.suppress(RuntimeError):
                 self.signals.finished.emit(report)
         except Exception as exc:
+            if self.cancel_event.is_set():
+                return
             logger.exception("BALE video screener task failed")
             with contextlib.suppress(RuntimeError):
                 self.signals.error.emit(str(exc))
@@ -650,6 +679,17 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
         self._render_pending = False
         self._layout_dirty = True
         self._last_layout_key: tuple[int, int, float] | None = None
+        self._rendered_xlim: tuple[float, float] | None = None
+        self._rendered_ylim: tuple[float, float] | None = None
+        self._rendered_ax_rect: QtCore.QRectF | None = None
+        self._resize_timer = QtCore.QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(50)
+        self._resize_timer.timeout.connect(self._render_now)
+        self._viewport_timer = QtCore.QTimer(self)
+        self._viewport_timer.setSingleShot(True)
+        self._viewport_timer.setInterval(60)
+        self._viewport_timer.timeout.connect(self._render_now)
         self.setMouseTracking(interactive_scatter)
         self.setMinimumSize(160, 120)
         self.setSizePolicy(
@@ -693,12 +733,31 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
 
     def draw_idle(self) -> None:
         """Schedule a coalesced offscreen Agg render on the Qt event loop."""
+        self._resize_timer.stop()
+        self._viewport_timer.stop()
         if not self._render_pending:
             self._render_pending = True
             QtCore.QTimer.singleShot(0, self._render_now)
 
+    def draw_viewport_preview(self) -> None:
+        """Blit cached plot pixels immediately during pan/wheel zoom (`60+ FPS`), settling cleanly after 60 ms."""
+        if (
+            self._pixmap is None
+            or self._pixmap.isNull()
+            or not self.isVisible()
+            or self._rendered_ax_rect is None
+            or self._rendered_xlim is None
+            or self._rendered_ylim is None
+        ):
+            self.draw_idle()
+            return
+        self._viewport_timer.start()
+        self.update()
+
     def _render_now(self) -> None:
         self._render_pending = False
+        self._resize_timer.stop()
+        self._viewport_timer.stop()
         w_log = max(80, self.width())
         h_log = max(80, self.height())
         dpr = max(1.0, float(self.devicePixelRatioF()))
@@ -714,10 +773,10 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
             self._layout_dirty = False
         try:
             self._agg.draw()
-            rgba = np.asarray(self._agg.buffer_rgba(), dtype=np.uint8).copy()
-            h_px, w_px, _ = rgba.shape
+            buf = self._agg.buffer_rgba()
+            w_px, h_px = self._agg.get_width_height()
             qimg = QtGui.QImage(
-                rgba.data,
+                buf,
                 w_px,
                 h_px,
                 4 * w_px,
@@ -725,13 +784,27 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
             ).copy()
             qimg.setDevicePixelRatio(dpr)
             self._pixmap = QtGui.QPixmap.fromImage(qimg)
+            bbox = self.ax.bbox
+            self._rendered_xlim = tuple(float(v) for v in self.ax.get_xlim())
+            self._rendered_ylim = tuple(float(v) for v in self.ax.get_ylim())
+            self._rendered_ax_rect = QtCore.QRectF(
+                float(bbox.x0) / dpr,
+                float(h_log) - float(bbox.y1) / dpr,
+                max(1.0, float(bbox.width) / dpr),
+                max(1.0, float(bbox.height) / dpr),
+            )
         except Exception:
             logger.exception("Failed to rasterize Matplotlib figure via FigureCanvasAgg")
         self.update()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
-        self.draw_idle()
+        if self._pixmap is None or self._pixmap.isNull() or not self.isVisible():
+            self.draw_idle()
+        else:
+            self._viewport_timer.stop()
+            self._resize_timer.start()
+            self.update()
 
     def leaveEvent(self, event: QtCore.QEvent) -> None:
         """Clear in-canvas scatter hover callout cleanly on cursor exit (zero NSWindow tooltip moves)."""
@@ -790,7 +863,52 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         painter.fillRect(self.rect(), QtGui.QColor("#FFFFFF"))
         if self._pixmap is not None and not self._pixmap.isNull():
-            painter.drawPixmap(0, 0, self._pixmap)
+            dpr_pix = max(1.0, float(self._pixmap.devicePixelRatio()))
+            pix_w = float(self._pixmap.width()) / dpr_pix
+            pix_h = float(self._pixmap.height()) / dpr_pix
+            if abs(pix_w - float(self.width())) > 1.0 or abs(pix_h - float(self.height())) > 1.0:
+                painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, True)
+                painter.drawPixmap(self.rect(), self._pixmap)
+            else:
+                painter.drawPixmap(0, 0, self._pixmap)
+                if (
+                    self._viewport_timer.isActive()
+                    and self._rendered_ax_rect is not None
+                    and self._rendered_xlim is not None
+                    and self._rendered_ylim is not None
+                ):
+                    cx0, cx1 = (float(v) for v in self.ax.get_xlim())
+                    cy0, cy1 = (float(v) for v in self.ax.get_ylim())
+                    rx0, rx1 = self._rendered_xlim
+                    ry0, ry1 = self._rendered_ylim
+                    if (
+                        abs(cx1 - cx0) > 1e-12
+                        and abs(cy1 - cy0) > 1e-12
+                        and ((cx0, cx1) != (rx0, rx1) or (cy0, cy1) != (ry0, ry1))
+                    ):
+                        ax_r = self._rendered_ax_rect
+                        fx0 = (rx0 - cx0) / (cx1 - cx0)
+                        fx1 = (rx1 - cx0) / (cx1 - cx0)
+                        dst_x0 = ax_r.left() + min(fx0, fx1) * ax_r.width()
+                        dst_x1 = ax_r.left() + max(fx0, fx1) * ax_r.width()
+                        fy_top = (cy1 - ry1) / (cy1 - cy0)
+                        fy_bot = (cy1 - ry0) / (cy1 - cy0)
+                        dst_y0 = ax_r.top() + min(fy_top, fy_bot) * ax_r.height()
+                        dst_y1 = ax_r.top() + max(fy_top, fy_bot) * ax_r.height()
+                        dst_r = QtCore.QRectF(
+                            dst_x0, dst_y0, max(1.0, dst_x1 - dst_x0), max(1.0, dst_y1 - dst_y0)
+                        )
+                        src_r = QtCore.QRectF(
+                            ax_r.left() * dpr_pix,
+                            ax_r.top() * dpr_pix,
+                            ax_r.width() * dpr_pix,
+                            ax_r.height() * dpr_pix,
+                        )
+                        painter.save()
+                        painter.setClipRect(ax_r)
+                        painter.fillRect(ax_r, QtGui.QColor("#FFFFFF"))
+                        painter.drawPixmap(dst_r, self._pixmap, src_r)
+                        painter.restore()
         if (
             self._interactive_scatter
             and self._press_pos is not None
@@ -863,10 +981,6 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
         y_mpl = (float(self.height()) - pos.y()) * dpr
         if not self.ax.bbox.contains(x_mpl, y_mpl):
             return None
-        try:
-            pts_px = self.ax.transData.transform(self._pick_coords)
-        except Exception:
-            return None
         x0, x1 = sorted(float(v) for v in self.ax.get_xlim())
         y0, y1 = sorted(float(v) for v in self.ax.get_ylim())
         in_view = (
@@ -875,16 +989,17 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
             & (self._pick_coords[:, 1] >= y0)
             & (self._pick_coords[:, 1] <= y1)
         )
-        if not np.any(in_view):
+        in_idx = np.flatnonzero(in_view)
+        if in_idx.size == 0:
             return None
-        dists = np.where(
-            in_view,
-            np.hypot(pts_px[:, 0] - x_mpl, pts_px[:, 1] - y_mpl),
-            np.inf,
-        )
-        best_local = int(np.argmin(dists))
-        if float(dists[best_local]) <= 12.0 * dpr:
-            return best_local
+        try:
+            pts_px = self.ax.transData.transform(self._pick_coords[in_idx])
+        except Exception:
+            return None
+        dists = np.hypot(pts_px[:, 0] - x_mpl, pts_px[:, 1] - y_mpl)
+        best_sub = int(np.argmin(dists))
+        if float(dists[best_sub]) <= 12.0 * dpr:
+            return int(in_idx[best_sub])
         return None
 
     def _begin_pan(self, pos: QtCore.QPointF, button: Qt.MouseButton) -> None:
@@ -1035,6 +1150,8 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
                     else -1
                 )
                 self.context_menu_requested.emit(event.globalPosition().toPoint(), hit_gi)
+            elif exceeded and self._viewport_timer.isActive():
+                self._render_now()
             event.accept()
             return
 
@@ -1202,6 +1319,9 @@ class BaleDialog(QtWidgets.QDialog):
         self._video_scatter_coords: np.ndarray | None = None
         self._video_scatter_names: list[str] = []
         self._video_scatter_sel_artist: Any = None
+        self._bout_scatter_sel_artist: Any = None
+        self._bout_scatter_vis_coords: np.ndarray | None = None
+        self._bout_scatter_vis_map: dict[int, int] = {}
         self._video_table_mouse_press_btn: Qt.MouseButton | None = None
         self._pending_video_click_already_sought_row: int | None = None
         self._pending_select_video_after_refresh: str | None = None
@@ -1212,8 +1332,12 @@ class BaleDialog(QtWidgets.QDialog):
         self._wire_central_widget_signals()
         self._scatter_redraw_timer = QtCore.QTimer(self)
         self._scatter_redraw_timer.setSingleShot(True)
-        self._scatter_redraw_timer.setInterval(35)
+        self._scatter_redraw_timer.setInterval(45)
         self._scatter_redraw_timer.timeout.connect(self._draw_scatter)
+        self._bout_search_timer = QtCore.QTimer(self)
+        self._bout_search_timer.setSingleShot(True)
+        self._bout_search_timer.setInterval(120)
+        self._bout_search_timer.timeout.connect(self._on_bout_search_applied)
         self._video_search_timer = QtCore.QTimer(self)
         self._video_search_timer.setSingleShot(True)
         self._video_search_timer.setInterval(120)
@@ -2132,7 +2256,7 @@ class BaleDialog(QtWidgets.QDialog):
         self.search_input.setMinimumWidth(135)
         self.search_input.setMaximumWidth(210)
         self.search_input.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self.search_input.textChanged.connect(self._populate_table)
+        self.search_input.textChanged.connect(self._on_bout_search_text_changed)
         qbar.addWidget(self.search_input)
 
         self.send_queue_btn = QtWidgets.QPushButton("⇄ Send to JABS")
@@ -2290,14 +2414,19 @@ class BaleDialog(QtWidgets.QDialog):
         hdr.setSectionsClickable(True)
         hdr.setSortIndicatorShown(False)
         hdr.sectionClicked.connect(self._on_table_header_clicked)
-        hdr.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Interactive)
-        hdr.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(0, 64)
+        self.table.setColumnWidth(1, 120)
         self.table.setColumnWidth(2, 220)
+        self.table.setColumnWidth(3, 96)
+        self.table.setColumnWidth(4, 130)
+        self.table.setColumnWidth(6, 92)
         self.table.setTabKeyNavigation(False)
         self.table.installEventFilter(self)
         self.table.viewport().installEventFilter(self)
@@ -2531,13 +2660,25 @@ class BaleDialog(QtWidgets.QDialog):
             self._fit_video_table_columns()
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        """Cancel pending background scans and close the explorer dialog safely."""
+        """Cancel pending background scans, release caches, and close the explorer dialog safely."""
         self._is_closing = True
         self._queued_refresh = False
         self._queued_video_refresh = False
         self._init_refresh_timer.stop()
         self._scatter_redraw_timer.stop()
+        self._bout_search_timer.stop()
         self._video_search_timer.stop()
+        self.scatter_canvas._resize_timer.stop()
+        self.scatter_canvas._viewport_timer.stop()
+        self.insp_canvas._resize_timer.stop()
+        self.insp_canvas._viewport_timer.stop()
+        for worker in (self._active_worker, self._spatial_worker, self._video_worker):
+            if worker is not None and hasattr(worker, "cancel_event"):
+                worker.cancel_event.set()
+        self._identity_label_cache.clear()
+        self._video_ext_id_cache.clear()
+        self._repr_matrix_cache = None
+        clear_pose_cache()
         if self._central_widget is not None:
             with contextlib.suppress(TypeError, RuntimeError):
                 if hasattr(self._central_widget, "labels_modified"):
@@ -3013,14 +3154,15 @@ class BaleDialog(QtWidgets.QDialog):
         self._clear_custom_selection_state()
         self._scatter_view_limits = None
         self._sync_zoom_reset_button()
+        target_space = self._effective_space()
         self._report = recompute_embedding_only(
             self._report,
-            space=self._effective_space(),
+            space=target_space,
             subtype_scope=self._effective_subtype_scope(),
             feature_lens=self._effective_feature_lens(),
             target_behavior=self._effective_subtype_target_behavior(),
             compute_tsne=(self._proj_method == "tsne"),
-            compute_mds=True,
+            compute_mds=(target_space == "rf_proximity" or self._proj_method == "mds"),
             forced_k=self._effective_forced_k(),
         )
         self._repr_matrix_cache = None
@@ -3152,6 +3294,9 @@ class BaleDialog(QtWidgets.QDialog):
             target_k = self._effective_forced_k()
             emb = self._report.embedding
             need_tsne = self._proj_method == "tsne" and emb.coords_tsne_2d is None
+            need_mds = (
+                target_space == "rf_proximity" or self._proj_method == "mds"
+            ) and emb.coords_mds_2d is None
             if (
                 target_space != self._report.space
                 or target_scope != emb.subtype_scope
@@ -3159,6 +3304,7 @@ class BaleDialog(QtWidgets.QDialog):
                 or target_beh != emb.target_behavior
                 or target_k != emb.forced_k
                 or need_tsne
+                or need_mds
             ):
                 self._report = recompute_embedding_only(
                     self._report,
@@ -3167,7 +3313,7 @@ class BaleDialog(QtWidgets.QDialog):
                     feature_lens=target_lens,
                     target_behavior=target_beh,
                     compute_tsne=self._proj_method == "tsne",
-                    compute_mds=True,
+                    compute_mds=(target_space == "rf_proximity" or self._proj_method == "mds"),
                     forced_k=target_k,
                 )
                 self._repr_matrix_cache = None
@@ -3197,6 +3343,8 @@ class BaleDialog(QtWidgets.QDialog):
     def _request_spatial_computation(self) -> None:
         if self._report is None or self._is_closing:
             return
+        if self._spatial_worker is not None and hasattr(self._spatial_worker, "cancel_event"):
+            self._spatial_worker.cancel_event.set()
         self._spatial_request_id += 1
         req_id = self._spatial_request_id
         self.status_summary_label.setText("Mapping bout arena locations…")
@@ -3245,19 +3393,19 @@ class BaleDialog(QtWidgets.QDialog):
                 self._request_spatial_computation()
             self._redraw_scatter_and_inspector()
             return
-        if (
-            self._report is not None
-            and method == "tsne"
-            and self._report.embedding.coords_tsne_2d is None
+        if self._report is not None and (
+            (method == "tsne" and self._report.embedding.coords_tsne_2d is None)
+            or (method == "mds" and self._report.embedding.coords_mds_2d is None)
         ):
+            target_space = self._effective_space()
             self._report = recompute_embedding_only(
                 self._report,
-                space=self._effective_space(),
+                space=target_space,
                 subtype_scope=self._effective_subtype_scope(),
                 feature_lens=self._effective_feature_lens(),
                 target_behavior=self._effective_subtype_target_behavior(),
-                compute_tsne=True,
-                compute_mds=True,
+                compute_tsne=(method == "tsne"),
+                compute_mds=(target_space == "rf_proximity" or method == "mds"),
                 forced_k=self._effective_forced_k(),
             )
             self._sync_subtypes_bar_from_report()
@@ -3279,7 +3427,7 @@ class BaleDialog(QtWidgets.QDialog):
                     feature_lens=self._effective_feature_lens(),
                     target_behavior=self._effective_subtype_target_behavior(),
                     compute_tsne=self._proj_method == "tsne",
-                    compute_mds=True,
+                    compute_mds=(target_space == "rf_proximity" or self._proj_method == "mds"),
                     forced_k=self._effective_forced_k(),
                 )
                 self._repr_matrix_cache = None
@@ -3425,14 +3573,15 @@ class BaleDialog(QtWidgets.QDialog):
                 self.subtypes_scope_combo.setCurrentIndex(idx_all)
                 self.subtypes_scope_combo.blockSignals(False)
             if self._report is not None:
+                target_space = self._effective_space()
                 self._report = recompute_embedding_only(
                     self._report,
-                    space=self._effective_space(),
+                    space=target_space,
                     subtype_scope="all_labeled",
                     feature_lens=self._effective_feature_lens(),
                     target_behavior=self._effective_subtype_target_behavior(),
                     compute_tsne=(self._proj_method == "tsne"),
-                    compute_mds=True,
+                    compute_mds=(target_space == "rf_proximity" or self._proj_method == "mds"),
                     forced_k=self._effective_forced_k(),
                 )
                 self._repr_matrix_cache = None
@@ -3542,6 +3691,7 @@ class BaleDialog(QtWidgets.QDialog):
             target_behavior=self._effective_subtype_target_behavior(),
             forced_k=self._effective_forced_k(),
             compute_tsne=(self._proj_method == "tsne"),
+            compute_mds=(space == "rf_proximity" or self._proj_method == "mds"),
             compute_spatial=(self._proj_method == "spatial"),
         )
         self._active_worker = worker
@@ -3567,6 +3717,9 @@ class BaleDialog(QtWidgets.QDialog):
         target_beh = self._effective_subtype_target_behavior()
         target_k = self._effective_forced_k()
         need_tsne = self._proj_method == "tsne" and report.embedding.coords_tsne_2d is None
+        need_mds = (
+            target_space == "rf_proximity" or self._proj_method == "mds"
+        ) and report.embedding.coords_mds_2d is None
         if (
             report.space != target_space
             or report.embedding.subtype_scope != target_scope
@@ -3574,6 +3727,7 @@ class BaleDialog(QtWidgets.QDialog):
             or report.embedding.target_behavior != target_beh
             or report.embedding.forced_k != target_k
             or need_tsne
+            or need_mds
         ):
             report = recompute_embedding_only(
                 report,
@@ -3582,7 +3736,7 @@ class BaleDialog(QtWidgets.QDialog):
                 feature_lens=target_lens,
                 target_behavior=target_beh,
                 compute_tsne=self._proj_method == "tsne",
-                compute_mds=True,
+                compute_mds=(target_space == "rf_proximity" or self._proj_method == "mds"),
                 forced_k=target_k,
             )
 
@@ -4468,6 +4622,26 @@ class BaleDialog(QtWidgets.QDialog):
         )
         self.table.setItem(row_idx, 6, it_ex)
 
+    def _on_bout_search_text_changed(self, text: str) -> None:
+        """Debounce live typing in `search_input` (120 ms); flush immediately when empty or programmatic."""
+        if not text or not self.search_input.hasFocus():
+            self._bout_search_timer.stop()
+            self._on_bout_search_applied()
+        else:
+            self._bout_search_timer.start()
+
+    def _on_bout_search_applied(self) -> None:
+        self._bout_search_timer.stop()
+        if self._report is None:
+            return
+        self._populate_table(redraw_scatter_on_change=False)
+        self._draw_scatter()
+
+    def _flush_bout_search_if_pending(self) -> None:
+        if self._bout_search_timer.isActive():
+            self._bout_search_timer.stop()
+            self._on_bout_search_applied()
+
     def _find_table_row_for_bout(self, b_idx: int) -> int | None:
         """Return the displayed table row currently showing `b_idx`, or `None`."""
         for r in range(self.table.rowCount()):
@@ -4477,14 +4651,17 @@ class BaleDialog(QtWidgets.QDialog):
         return None
 
     def _update_table_rows_in_place(self, changed_b_indices: list[int]) -> None:
-        """Refresh only the affected rows in `self.table` without tearing down all rows."""
+        """Refresh only the affected rows in `self.table` cleanly (`< 4 ms`, zero ResizeToContents thrash)."""
         if self._report is None or not changed_b_indices:
             return
         records = self._report.feature_matrix.records
         cmap = self._behavior_color_hex_map()
         target_set = set(changed_b_indices)
+        auto_cols = (0, 1, 3, 4, 6)
         self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
         try:
+            model = self.table.model()
             for r in range(self.table.rowCount()):
                 it = self.table.item(r, 0)
                 if it is None:
@@ -4492,7 +4669,12 @@ class BaleDialog(QtWidgets.QDialog):
                 bi = int(it.data(Qt.ItemDataRole.UserRole))
                 if bi in target_set:
                     self._populate_table_row(r, bi, records=records, cmap=cmap)
+                    for c_i in auto_cols:
+                        hint_w = self.table.sizeHintForIndex(model.index(r, c_i)).width() + 14
+                        if hint_w > self.table.columnWidth(c_i):
+                            self.table.setColumnWidth(c_i, hint_w)
         finally:
+            self.table.setUpdatesEnabled(True)
             self.table.blockSignals(False)
 
     def _on_table_header_clicked(self, col: int) -> None:
@@ -4588,7 +4770,6 @@ class BaleDialog(QtWidgets.QDialog):
 
             for c_i in auto_cols:
                 self.table.resizeColumnToContents(c_i)
-                hdr.setSectionResizeMode(c_i, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
 
             reselect_row = 0
             if prev_b_idx is not None and len(indices) > 0:
@@ -4780,7 +4961,8 @@ class BaleDialog(QtWidgets.QDialog):
         b_idx = int(id_item.data(Qt.ItemDataRole.UserRole))
         self._selected_bout_idx = b_idx
         self._scrubbed_frame = None
-        self._redraw_scatter_and_inspector()
+        self._update_bout_scatter_selection_ring()
+        self._update_inspector_card()
         skip_seek_for_click = (
             self._table_mouse_press_col == 6
             or self._table_mouse_press_btn == Qt.MouseButton.RightButton
@@ -4817,7 +4999,8 @@ class BaleDialog(QtWidgets.QDialog):
         self._pending_click_already_sought_row = None
         self._selected_bout_idx = b_idx
         self._scrubbed_frame = None
-        self._redraw_scatter_and_inspector()
+        self._update_bout_scatter_selection_ring()
+        self._update_inspector_card()
         if self.auto_seek_action.isChecked():
             rec = self._report.feature_matrix.records[b_idx]
             self._seek_bout_in_main_window(rec, b_idx=b_idx)
@@ -4947,6 +5130,28 @@ class BaleDialog(QtWidgets.QDialog):
             f"PC2 ({ev2 * 100:.1f}% var)",
         )
 
+    def _update_bout_scatter_selection_ring(self) -> None:
+        """Move the selected-bout highlight ring in O(1) without rebuilding the scatter plot."""
+        if (
+            self._bout_scatter_sel_artist is None
+            or self._bout_scatter_vis_coords is None
+            or not self._bout_scatter_vis_map
+        ):
+            self._draw_scatter()
+            return
+        b_idx = self._selected_bout_idx
+        loc = self._bout_scatter_vis_map.get(int(b_idx)) if b_idx is not None else None
+        if loc is not None and 0 <= loc < len(self._bout_scatter_vis_coords):
+            pt = self._bout_scatter_vis_coords[loc]
+            self._bout_scatter_sel_artist.set_offsets(
+                np.array([[float(pt[0]), float(pt[1])]], dtype=np.float64)
+            )
+            self._bout_scatter_sel_artist.set_visible(True)
+        else:
+            self._bout_scatter_sel_artist.set_offsets(np.empty((0, 2), dtype=np.float64))
+            self._bout_scatter_sel_artist.set_visible(False)
+        self.scatter_canvas.draw_idle()
+
     def _redraw_scatter_and_inspector(self) -> None:
         if self._mode == "videos":
             self._draw_video_scatter()
@@ -4963,6 +5168,9 @@ class BaleDialog(QtWidgets.QDialog):
             return
         if self._report is None:
             return
+        self._bout_scatter_sel_artist = None
+        self._bout_scatter_vis_coords = None
+        self._bout_scatter_vis_map = {}
         ax = self.scatter_ax
         ax.clear()
 
@@ -5084,6 +5292,8 @@ class BaleDialog(QtWidgets.QDialog):
 
         vis_arr = np.asarray(vis_indices, dtype=np.int32)
         coords = all_coords[vis_arr]
+        self._bout_scatter_vis_coords = coords
+        self._bout_scatter_vis_map = {int(gi): k for k, gi in enumerate(vis_indices)}
         diag = self._report.diagnostics
         emb = self._report.embedding
         color_by = self._effective_color_mode()
@@ -5348,12 +5558,15 @@ class BaleDialog(QtWidgets.QDialog):
                 label=f"Flagged ({len(flagged_loc)})",
             )
 
-        # Highlight currently selected bout
-        if self._selected_bout_idx is not None and self._selected_bout_idx in vis_indices:
-            sel_local = vis_indices.index(self._selected_bout_idx)
-            sel_pt = coords[sel_local]
-            sel_rec = records[self._selected_bout_idx]
-            ax.scatter(
+        # Highlight currently selected bout with a persistent O(1) artist for fast row stepping
+        sel_loc = (
+            self._bout_scatter_vis_map.get(int(self._selected_bout_idx))
+            if self._selected_bout_idx is not None
+            else None
+        )
+        if sel_loc is not None and 0 <= sel_loc < len(coords):
+            sel_pt = coords[sel_loc]
+            self._bout_scatter_sel_artist = ax.scatter(
                 [sel_pt[0]],
                 [sel_pt[1]],
                 facecolors="none",
@@ -5361,8 +5574,19 @@ class BaleDialog(QtWidgets.QDialog):
                 s=195,
                 linewidths=2.5,
                 zorder=10,
-                label=f"Selected #{sel_rec.bout_id}",
             )
+            self._bout_scatter_sel_artist.set_visible(True)
+        else:
+            self._bout_scatter_sel_artist = ax.scatter(
+                [],
+                [],
+                facecolors="none",
+                edgecolors="#0F172A",
+                s=195,
+                linewidths=2.5,
+                zorder=10,
+            )
+            self._bout_scatter_sel_artist.set_visible(False)
 
         # Keep full-cohort bounds anchored across class/search filtering (Arena inverted-Y or full-cloud PCA)
         if is_spatial:
@@ -6044,8 +6268,10 @@ class BaleDialog(QtWidgets.QDialog):
         self,
         xlim: tuple[float, float],
         ylim: tuple[float, float],
+        *,
+        fast_preview: bool = False,
     ) -> None:
-        """Update 2D scatter viewport in `< 10 ms` without rebuilding Matplotlib collections."""
+        """Update 2D scatter viewport cleanly without rebuilding Matplotlib collections."""
         if self._report is None and self._video_report is None:
             return
         if self._scatter_default_limits is None:
@@ -6074,7 +6300,10 @@ class BaleDialog(QtWidgets.QDialog):
         self.scatter_ax.set_xlim(new_xlim)
         self.scatter_ax.set_ylim(new_ylim)
         self._sync_zoom_reset_button()
-        self.scatter_canvas.draw_idle()
+        if fast_preview:
+            self.scatter_canvas.draw_viewport_preview()
+        else:
+            self.scatter_canvas.draw_idle()
 
     def _on_scatter_wheel_zoom(self, x_anchor: float, y_anchor: float, scale: float) -> None:
         if self._report is None and self._video_report is None:
@@ -6085,7 +6314,7 @@ class BaleDialog(QtWidgets.QDialog):
         nx1 = x_anchor + (x1 - x_anchor) * scale
         ny0 = y_anchor - (y_anchor - y0) * scale
         ny1 = y_anchor + (y1 - y_anchor) * scale
-        self._apply_scatter_zoom_limits((nx0, nx1), (ny0, ny1))
+        self._apply_scatter_zoom_limits((nx0, nx1), (ny0, ny1), fast_preview=True)
 
     def _zoom_scatter_by_step(self, scale: float) -> None:
         if self._report is None and self._video_report is None:
@@ -6128,7 +6357,7 @@ class BaleDialog(QtWidgets.QDialog):
     def _on_scatter_pan_dragged(self, x0: float, x1: float, y0: float, y1: float) -> None:
         if self._report is None and self._video_report is None:
             return
-        self._apply_scatter_zoom_limits((x0, x1), (y0, y1))
+        self._apply_scatter_zoom_limits((x0, x1), (y0, y1), fast_preview=True)
 
     def _reset_scatter_zoom(self) -> None:
         if self._scatter_view_limits is None:
@@ -6259,7 +6488,8 @@ class BaleDialog(QtWidgets.QDialog):
         self.table.clearSelection()
         self.table.setCurrentCell(-1, -1)
         self.table.blockSignals(False)
-        self._redraw_scatter_and_inspector()
+        self._update_bout_scatter_selection_ring()
+        self._update_inspector_card()
         if seek_and_mark and self.auto_seek_action.isChecked():
             self._seek_bout_in_main_window(
                 self._report.feature_matrix.records[b_idx],
@@ -6946,6 +7176,8 @@ class BaleDialog(QtWidgets.QDialog):
             "paired_pinned_ids": [],
         }
         self._ui_undo_history.append(ui_snap)
+        if len(self._ui_undo_history) > 200:
+            del self._ui_undo_history[:-200]
         self.undo_btn.setEnabled(True)
 
         self._unlabeled_bout_ids.discard(rec.bout_id)
@@ -6999,6 +7231,8 @@ class BaleDialog(QtWidgets.QDialog):
             "paired_pinned_ids": [],
         }
         self._ui_undo_history.append(ui_snap)
+        if len(self._ui_undo_history) > 200:
+            del self._ui_undo_history[:-200]
         self.undo_btn.setEnabled(True)
 
         self._unlabeled_bout_ids.add(rec.bout_id)
@@ -7060,6 +7294,8 @@ class BaleDialog(QtWidgets.QDialog):
             "paired_pinned_ids": [],
         }
         self._ui_undo_history.append(ui_snap)
+        if len(self._ui_undo_history) > 200:
+            del self._ui_undo_history[:-200]
         self.undo_btn.setEnabled(True)
 
         if was_rev:
@@ -7310,6 +7546,8 @@ class BaleDialog(QtWidgets.QDialog):
             "paired_pinned_ids": paired_pinned_ids,
         }
         self._ui_undo_history.append(ui_snap)
+        if len(self._ui_undo_history) > 200:
+            del self._ui_undo_history[:-200]
         self.undo_btn.setEnabled(True)
 
         # Clear stale trim/split diagnostic lines on the edited bout (restored on Undo)
@@ -7788,10 +8026,51 @@ class BaleDialog(QtWidgets.QDialog):
 
             self._selected_bout_idx = b_idx
             self._last_card_bout_idx = None
+            filter_switched = False
             if not ui_snap["was_reviewed"] and self._queue_filter == "reviewed":
                 self._set_queue_filter("needs_review", redraw=False)
-            self._populate_table(redraw_scatter_on_change=False)
-            self._draw_scatter()
+                filter_switched = True
+
+            paired_ids = set(ui_snap.get("paired_overlap_ids", []))
+            cur_rows: list[int] = []
+            for r in range(self.table.rowCount()):
+                it = self.table.item(r, 0)
+                if it is not None:
+                    cur_rows.append(int(it.data(Qt.ItemDataRole.UserRole)))
+            new_filtered = self._filtered_bout_indices() if not filter_switched else []
+            can_inplace = (
+                not filter_switched
+                and b_idx in new_filtered
+                and len(new_filtered) == len(cur_rows)
+                and (
+                    (new_filtered == cur_rows)
+                    if self._table_sort_col is None
+                    else (set(new_filtered) == set(cur_rows))
+                )
+            )
+            if can_inplace:
+                changed_undo = [b_idx]
+                if paired_ids:
+                    for c_i, c_rec in enumerate(self._report.feature_matrix.records):
+                        if c_rec.bout_id in paired_ids and c_i != b_idx:
+                            changed_undo.append(c_i)
+                self._update_queue_filter_counts()
+                self._refresh_class_filter_combos()
+                self._update_table_rows_in_place(changed_undo)
+                row_for_b = self._find_table_row_for_bout(b_idx)
+                if row_for_b is not None:
+                    prev_sup = self._suppress_auto_seek
+                    self._suppress_auto_seek = True
+                    try:
+                        self.table.selectRow(row_for_b)
+                    finally:
+                        self._suppress_auto_seek = prev_sup
+                self._update_inspector_card()
+                self._update_bout_scatter_selection_ring()
+                self._schedule_scatter_redraw()
+            else:
+                self._populate_table(redraw_scatter_on_change=False)
+                self._draw_scatter()
             if self.auto_seek_action.isChecked() and not self._is_main_window_on_bout_track(
                 rec_before
             ):
@@ -7889,6 +8168,8 @@ class BaleDialog(QtWidgets.QDialog):
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if active_search is self.video_search_input:
                     self._flush_video_search_if_pending()
+                elif active_search is self.search_input:
+                    self._flush_bout_search_if_pending()
                 active_search.clearFocus()
                 self._sync_selected_bout_to_main_window_if_enabled()
                 event.accept()
@@ -8143,6 +8424,8 @@ class BaleDialog(QtWidgets.QDialog):
             return
 
         if self._video_worker is not None:
+            if hasattr(self._video_worker, "cancel_event"):
+                self._video_worker.cancel_event.set()
             self._queued_video_refresh = True
             self.status_summary_label.setText(
                 "Queued video scan — updating as soon as current scan finishes…"

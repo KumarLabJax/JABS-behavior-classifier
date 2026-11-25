@@ -605,7 +605,10 @@ def test_real_cage_2169_21_04_animal_id_parity_if_available() -> None:
     if not proj_dir.is_dir() or not ann_path.is_file():
         pytest.skip("Local PBS jabs_project dataset not present")
 
-    doc = json.loads(ann_path.read_text())
+    try:
+        doc = json.loads(ann_path.read_text())
+    except PermissionError:
+        pytest.skip("Local PBS jabs_project dataset not readable in sandbox")
     expected_rearing = {
         (int(id_str), b["start"], b["end"], bool(b["present"]))
         for id_str, bdict in doc["unfragmented_labels"].items()
@@ -2379,3 +2382,129 @@ def test_spatial_cache_v5_min_keypoints_truncated_and_mp4_header(tmp_path: Path)
     assert sp.coords_xy[0, 1] == pytest.approx(310.0, abs=1e-4)
     assert not np.isfinite(sp.coords_xy[1]).any()
     assert not np.isfinite(sp.coords_xy[2]).any()
+
+
+def test_perf_sliced_pose_and_annotation_proxy_bypass_full_pose_load(tmp_path: Path) -> None:
+    """C1 regression: sliced H5 trajectory + annotation proxy skip `project.load_pose_est` and keep LRU<=4."""
+    import h5py
+
+    from jabs.bale.trajectory_and_export import (
+        _POSE_LRU_MAX,
+        clear_pose_cache,
+        load_annotation_pose_proxy,
+        load_bout_pose_trajectory,
+    )
+
+    assert _POSE_LRU_MAX == 4
+    clear_pose_cache()
+
+    proj_dir = tmp_path / "sliced_pose_proj"
+    cache_dir = proj_dir / "jabs" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    pose_path = proj_dir / "vid_a_pose_est_v8.h5"
+
+    n_frames, n_slots, n_kpts = 50, 2, 12
+    # Raw pose stores (y, x) coordinates; loader flips to (x, y)
+    pts_yx = np.zeros((n_frames, n_slots, n_kpts, 2), dtype=np.float32)
+    pts_yx[:, 0, :, 0] = 120.0  # y
+    pts_yx[:, 0, :, 1] = 340.0  # x
+    pts_yx[:, 1, :, 0] = 220.0  # y
+    pts_yx[:, 1, :, 1] = 440.0  # x
+    conf = np.full((n_frames, n_slots, n_kpts), 0.9, dtype=np.float32)
+    id_mask = np.zeros((n_frames, n_slots), dtype=np.int32)
+    embed_id = np.tile(np.array([[1, 2]], dtype=np.int32), (n_frames, 1))
+
+    with h5py.File(pose_path, "w") as hf:
+        grp = hf.create_group("poseest")
+        grp.create_dataset("points", data=pts_yx)
+        grp.create_dataset("confidence", data=conf)
+        grp.create_dataset("id_mask", data=id_mask)
+        grp.create_dataset("instance_embed_id", data=embed_id)
+        grp.create_dataset("instance_id_center", data=np.zeros((2, 2), dtype=np.float32))
+
+    # Avoid MagicMock `.assert_called` bypass so sliced H5 path is exercised directly
+    class _NoFullPoseProject:
+        def __init__(self, d: Path) -> None:
+            self.dir = d
+            self.video_manager = _VM(d)
+
+        def load_pose_est(self, _video_path: Path) -> None:
+            raise AssertionError("Full PoseEstimation load should not be called on raw v4-v8 H5")
+
+    class _VM:
+        def __init__(self, d: Path) -> None:
+            self._d = d
+
+        def get_cached_pose_path(self, _video: str) -> Path:
+            return self._d / "vid_a_pose_est_v8.h5"
+
+        def video_path(self, video: str) -> Path:
+            return self._d / video
+
+    proj = _NoFullPoseProject(proj_dir)
+    traj = load_bout_pose_trajectory(proj, "vid_a.mp4", identity=0, start_frame=10, end_frame=24)  # type: ignore[arg-type]
+    assert len(traj.frames) == 15
+    assert traj.nose_xy[:, 0].mean() == pytest.approx(340.0, abs=1e-4)
+    assert traj.nose_xy[:, 1].mean() == pytest.approx(120.0, abs=1e-4)
+    assert 1 in traj.partner_centroids_xy
+    assert traj.partner_centroids_xy[1][:, 0].mean() == pytest.approx(440.0, abs=1e-4)
+
+    proxy = load_annotation_pose_proxy(proj, "vid_a.mp4")  # type: ignore[arg-type]
+    assert proxy.num_frames == n_frames
+    assert bool(proxy.identity_mask(0)[15]) is True
+    assert proxy.identity_index_to_display(1) == "1"
+
+    clear_pose_cache()
+
+
+def test_perf_lazy_mds_byte_capped_cache_rf_prox_and_cancel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C5 + C7 + M3 + M6 regressions: lazy MDS, byte-capped track cache, sparse RF prox, cancel_event."""
+    import threading
+
+    import jabs.bale.bout_extractor as be
+    from jabs.bale.spatial_localization import extract_bout_spatial_locations
+    from jabs.bale.video_screener import summarize_project_videos
+
+    clear_bout_extractor_cache()
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+
+    # C5 + C7 + M3: compute_mds=False skips MDS, frame_features_by_bout cleared, rf_proximity valid
+    rep = run_bale(
+        project, "Grooming", include_predictions=False, space="classifier", compute_mds=False
+    )
+    assert rep.embedding.coords_mds_2d is None
+    assert len(rep.feature_matrix.frame_features_by_bout) == 0
+
+    rf_prox = rep.diagnostics.rf_proximity_matrix
+    assert rf_prox is not None
+    assert np.allclose(rf_prox, rf_prox.T, atol=1e-6)
+    assert np.allclose(np.diag(rf_prox), 1.0, atol=1e-6)
+    assert float(rf_prox.min()) >= -1e-6
+    assert float(rf_prox.max()) <= 1.0 + 1e-6
+
+    # Computing MDS once populates coords_mds_2d, and subsequent non-MDS switch preserves it
+    rep_mds = recompute_embedding_only(rep, space="classifier", compute_mds=True)
+    assert rep_mds.embedding.coords_mds_2d is not None
+    rep_keep = recompute_embedding_only(rep_mds, space="classifier", compute_mds=False)
+    assert rep_keep.embedding.coords_mds_2d is rep_mds.embedding.coords_mds_2d
+
+    # C7: Byte cap evicts old tracks when _MAX_TRACK_CACHE_BYTES is small, clear resets to 0
+    monkeypatch.setattr(be, "_MAX_TRACK_CACHE_BYTES", 50_000)
+    clear_bout_extractor_cache()
+    for i in range(4):
+        be.load_track_per_frame_array(project.dir, f"cage_0{i}.mp4", 0)
+        assert be._TRACK_CACHE_BYTES <= 50_000
+    clear_bout_extractor_cache()
+    assert be._TRACK_CACHE_BYTES == 0
+
+    # M6: Pre-set cancel_event aborts run_bale, spatial localization, and video screener cleanly
+    ev = threading.Event()
+    ev.set()
+    with pytest.raises(RuntimeError, match="cancelled"):
+        run_bale(project, "Grooming", include_predictions=False, cancel_event=ev)
+    with pytest.raises(RuntimeError, match="cancelled"):
+        extract_bout_spatial_locations(project, rep.feature_matrix.records, cancel_event=ev)
+    with pytest.raises(RuntimeError, match="cancelled"):
+        summarize_project_videos(project, "Grooming", cancel_event=ev)

@@ -26,6 +26,7 @@ import threading
 import time
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -658,6 +659,7 @@ def extract_bout_spatial_locations(
     *,
     include_reference_frame: bool = True,
     max_ref_dim: int = 640,
+    cancel_event: threading.Event | None = None,
 ) -> BoutSpatialResult:
     """Compute bout median 2D arena `(x, y)` coordinates and arena context for `records`."""
     t0 = time.perf_counter()
@@ -676,6 +678,29 @@ def extract_bout_spatial_locations(
     for idx, rec in enumerate(records):
         bouts_by_video[rec.video].append((idx, rec))
 
+    # Prefetch unique video path resolutions & MP4 container dimensions concurrently (pure I/O)
+    vid_paths_by_name: dict[str, Path] = {}
+    uncached_dim_paths: list[Path] = []
+    seen_uncached_resolved: set[str] = set()
+    for video_name in bouts_by_video:
+        vp = _resolve_video_path(project, video_name)
+        if vp is not None:
+            vid_paths_by_name[video_name] = vp
+            try:
+                vkey = _file_stat_key(vp)
+            except OSError:
+                continue
+            if _lru_get(_VIDEO_DIM_CACHE, vkey) is None and vkey[0] not in seen_uncached_resolved:
+                seen_uncached_resolved.add(vkey[0])
+                uncached_dim_paths.append(vp)
+
+    if len(uncached_dim_paths) >= 4:
+        max_workers = min(8, len(uncached_dim_paths))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for _ in pool.map(_get_video_dimensions, uncached_dim_paths):
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+
     ref_static_objects: dict[str, np.ndarray] = {}
     cm_per_pixel: float | None = None
     video_dims: dict[str, tuple[float, float]] = {}
@@ -683,6 +708,8 @@ def extract_bout_spatial_locations(
     aligned_ref_candidate: tuple[str, Path] | None = None
 
     for video_name, idx_recs in bouts_by_video.items():
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Spatial localization cancelled")
         s_min = min(int(r.start_frame) for _, r in idx_recs)
         e_max = max(int(r.end_frame) for _, r in idx_recs)
         vid_spatial = _load_video_spatial(project, video_name, s_min, e_max)
@@ -692,7 +719,7 @@ def extract_bout_spatial_locations(
         if cm_per_pixel is None and vid_spatial.cm_per_pixel is not None:
             cm_per_pixel = vid_spatial.cm_per_pixel
 
-        vid_path = _resolve_video_path(project, video_name)
+        vid_path = vid_paths_by_name.get(video_name)
         if vid_path is not None:
             if first_video_candidate is None:
                 first_video_candidate = (video_name, vid_path)

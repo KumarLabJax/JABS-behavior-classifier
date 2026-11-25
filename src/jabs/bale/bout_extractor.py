@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -61,13 +61,18 @@ _SEGMENTATION_PREFIXES: tuple[str, ...] = (
     "huddle_features",
 )
 
-# In-memory LRU-style cache of loaded per-track feature matrices:
+# In-memory LRU cache of loaded per-track feature matrices with strict byte budget:
 # key -> (X_track_float32, valid_mask_bool, col_names)
-_TRACK_ARRAY_CACHE: dict[
+_TRACK_ARRAY_CACHE: OrderedDict[
     tuple[str, int, bool, bool], tuple[np.ndarray, np.ndarray, list[str]]
-] = {}
+] = OrderedDict()
 _TRACK_CACHE_LOCK = threading.Lock()
 _MAX_CACHED_TRACKS = 512
+_MAX_TRACK_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB hard budget
+_TRACK_CACHE_BYTES = 0
+
+# O(1) per-Project video-name resolver cache (eliminates O(V^2) resolution scans)
+_VIDEO_NAME_INDEX_CACHE: dict[int, tuple[tuple[int, str, str], set[str], dict[str, str]]] = {}
 
 
 _KNOWN_VIDEO_EXTS: set[str] = {
@@ -101,10 +106,17 @@ def strip_known_video_suffix(name: str) -> str:
     return base
 
 
+def _entry_nbytes(entry: tuple[np.ndarray, np.ndarray, list[str]]) -> int:
+    return int(entry[0].nbytes + entry[1].nbytes)
+
+
 def clear_bout_extractor_cache() -> None:
-    """Clear the in-memory track feature array cache."""
+    """Clear the in-memory track feature array cache and video-name index."""
+    global _TRACK_CACHE_BYTES
     with _TRACK_CACHE_LOCK:
         _TRACK_ARRAY_CACHE.clear()
+        _TRACK_CACHE_BYTES = 0
+        _VIDEO_NAME_INDEX_CACHE.clear()
 
 
 def invalidate_track_cache(
@@ -113,9 +125,11 @@ def invalidate_track_cache(
     identity: int | None = None,
 ) -> None:
     """Invalidate cached track arrays for `(video, identity)` (or all if omitted)."""
+    global _TRACK_CACHE_BYTES
     with _TRACK_CACHE_LOCK:
         if video is None and identity is None:
             _TRACK_ARRAY_CACHE.clear()
+            _TRACK_CACHE_BYTES = 0
             return
         stem = strip_known_video_suffix(video) if video else None
         to_remove = [
@@ -129,7 +143,40 @@ def invalidate_track_cache(
             and (identity is None or k[1] == int(identity))
         ]
         for k in to_remove:
-            _TRACK_ARRAY_CACHE.pop(k, None)
+            removed = _TRACK_ARRAY_CACHE.pop(k, None)
+            if removed is not None:
+                _TRACK_CACHE_BYTES = max(0, _TRACK_CACHE_BYTES - _entry_nbytes(removed))
+
+
+def _get_video_name_lookup(project: Project) -> tuple[set[str], dict[str, str]]:
+    """Build or reuse an O(1) `(exact_names, stem_to_name)` index for `project.video_manager`."""
+    try:
+        vm = project.video_manager
+        raw_videos = getattr(vm, "videos", []) or []
+        n_vids = len(raw_videos)
+        first_v = str(raw_videos[0]) if n_vids > 0 else ""
+        last_v = str(raw_videos[-1]) if n_vids > 0 else ""
+    except Exception:
+        return set(), {}
+
+    sig = (n_vids, first_v, last_v)
+    vm_key = id(vm)
+    cached = _VIDEO_NAME_INDEX_CACHE.get(vm_key)
+    if cached is not None and cached[0] == sig:
+        return cached[1], cached[2]
+
+    exact_set: set[str] = set()
+    stem_map: dict[str, str] = {}
+    for v in raw_videos:
+        v_name = Path(str(v)).name
+        exact_set.add(v_name)
+        v_stem = strip_known_video_suffix(v_name)
+        stem_map.setdefault(v_stem, v_name)
+
+    if len(_VIDEO_NAME_INDEX_CACHE) >= 32:
+        _VIDEO_NAME_INDEX_CACHE.clear()
+    _VIDEO_NAME_INDEX_CACHE[vm_key] = (sig, exact_set, stem_map)
+    return exact_set, stem_map
 
 
 def resolve_project_video_name(
@@ -141,36 +188,34 @@ def resolve_project_video_name(
 ) -> str:
     """Resolve the exact video filename (e.g. `.mp4`, `.avi`, `.mov`) for `stem_or_name`."""
     eff_doc = doc if doc is not None else anno_doc
-    try:
-        raw_videos = getattr(project.video_manager, "videos", []) or []
-        video_names = [Path(str(v)).name for v in raw_videos]
-    except Exception:
-        video_names = []
+    exact_names, stem_map = _get_video_name_lookup(project)
 
     if eff_doc is not None:
         doc_file = eff_doc.get("file")
         if isinstance(doc_file, str) and doc_file.strip():
             doc_clean = doc_file.strip()
             doc_base = Path(doc_clean).name
-            for v_name in video_names:
-                if v_name in (doc_clean, doc_base):
-                    return v_name
+            if doc_clean in exact_names:
+                return doc_clean
+            if doc_base in exact_names:
+                return doc_base
             if Path(doc_base).suffix.lower() in _KNOWN_VIDEO_EXTS:
                 return doc_base
             doc_stem = strip_known_video_suffix(doc_base)
-            for v_name in video_names:
-                if strip_known_video_suffix(v_name) == doc_stem:
-                    return v_name
+            matched = stem_map.get(doc_stem)
+            if matched is not None:
+                return matched
 
     name = Path(stem_or_name).name
     target_stem = strip_known_video_suffix(name)
 
-    for v_name in video_names:
-        if v_name in (name, stem_or_name):
-            return v_name
-    for v_name in video_names:
-        if strip_known_video_suffix(v_name) == target_stem:
-            return v_name
+    if stem_or_name in exact_names:
+        return stem_or_name
+    if name in exact_names:
+        return name
+    matched = stem_map.get(target_stem)
+    if matched is not None:
+        return matched
 
     if Path(name).suffix.lower() in _KNOWN_VIDEO_EXTS:
         return name
@@ -239,6 +284,7 @@ def load_track_per_frame_array(
     Uses an in-memory cache keyed by `(parquet_path, mtime_ns, use_social, use_segmentation)`
     so repeated queries or single-video annotation edits incur zero redundant Parquet I/O.
     """
+    global _TRACK_CACHE_BYTES
     stem = strip_known_video_suffix(video_name)
     parquet_path = project_dir / "jabs" / "features" / stem / str(identity) / "per_frame.parquet"
 
@@ -247,8 +293,9 @@ def load_track_per_frame_array(
         cache_key = (str(parquet_path), mtime_ns, use_social, use_segmentation)
         with _TRACK_CACHE_LOCK:
             cached = _TRACK_ARRAY_CACHE.get(cache_key)
-        if cached is not None:
-            return cached
+            if cached is not None:
+                _TRACK_ARRAY_CACHE.move_to_end(cache_key)
+                return cached
 
         schema = pq.read_schema(parquet_path)
         all_cols = schema.names
@@ -281,12 +328,20 @@ def load_track_per_frame_array(
             X_track = np.zeros((n_rows, len(feat_cols)), dtype=np.float32)
 
         result = (X_track, valid_mask, feat_cols)
+        entry_bytes = _entry_nbytes(result)
         with _TRACK_CACHE_LOCK:
-            if len(_TRACK_ARRAY_CACHE) >= _MAX_CACHED_TRACKS:
-                # Drop oldest quarter of cache entries
-                for old_k in list(_TRACK_ARRAY_CACHE.keys())[: _MAX_CACHED_TRACKS // 4]:
-                    _TRACK_ARRAY_CACHE.pop(old_k, None)
-            _TRACK_ARRAY_CACHE[cache_key] = result
+            old_existing = _TRACK_ARRAY_CACHE.pop(cache_key, None)
+            if old_existing is not None:
+                _TRACK_CACHE_BYTES = max(0, _TRACK_CACHE_BYTES - _entry_nbytes(old_existing))
+            while _TRACK_ARRAY_CACHE and (
+                len(_TRACK_ARRAY_CACHE) >= _MAX_CACHED_TRACKS
+                or (_TRACK_CACHE_BYTES + entry_bytes) > _MAX_TRACK_CACHE_BYTES
+            ):
+                _, evicted = _TRACK_ARRAY_CACHE.popitem(last=False)
+                _TRACK_CACHE_BYTES = max(0, _TRACK_CACHE_BYTES - _entry_nbytes(evicted))
+            if entry_bytes <= _MAX_TRACK_CACHE_BYTES:
+                _TRACK_ARRAY_CACHE[cache_key] = result
+                _TRACK_CACHE_BYTES += entry_bytes
         return result
 
     # Legacy HDF5 fallback (`jabs/features/<stem>/features.h5`)

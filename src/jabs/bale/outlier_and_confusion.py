@@ -7,8 +7,10 @@ diagnostics for `jabs.bale`.
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
+import scipy.sparse as sp
 from scipy.ndimage import median_filter
 from scipy.spatial.distance import cdist, pdist, squareform
 from sklearn.decomposition import PCA
@@ -425,6 +427,7 @@ def compute_confusion_and_outliers(
 
             imp_accum = np.zeros(n_base, dtype=np.float64)
             valid_folds = 0
+            rf_jobs = min(4, os.cpu_count() or 1)
 
             for train_idx, test_idx in splits:
                 y_tr = y_sub[train_idx]
@@ -435,7 +438,7 @@ def compute_confusion_and_outliers(
                     max_depth=10,
                     min_samples_leaf=3,
                     class_weight="balanced",
-                    n_jobs=1,
+                    n_jobs=rf_jobs,
                     random_state=42 + valid_folds,
                 )
                 rf_frame.fit(X_sub[train_idx], y_tr)
@@ -493,6 +496,7 @@ def compute_confusion_and_outliers(
             [track_to_gid[records[i].track_key] for i in labeled_indices], dtype=np.int32
         )
 
+        rf_bout_jobs = min(4, os.cpu_count() or 1)
         if len(track_keys) >= 2:
             n_splits_bout = min(n_cv_splits, len(track_keys))
             try:
@@ -511,7 +515,7 @@ def compute_confusion_and_outliers(
                     max_depth=10,
                     min_samples_leaf=2,
                     class_weight="balanced",
-                    n_jobs=1,
+                    n_jobs=rf_bout_jobs,
                     random_state=142,
                 )
                 rf_bout_cv.fit(X_lab[b_tr], y_b_tr)
@@ -544,7 +548,7 @@ def compute_confusion_and_outliers(
             max_depth=10,
             min_samples_leaf=2,
             class_weight="balanced",
-            n_jobs=1,
+            n_jobs=rf_bout_jobs,
             random_state=42,
         )
         rf_bout.fit(X_lab, y_lab)
@@ -571,13 +575,22 @@ def compute_confusion_and_outliers(
         # Breiman Random Forest Leaf Co-Occurrence Proximity Matrix across all bouts (N x N)
         X_all_clean = np.nan_to_num(X_bout, nan=0.0, posinf=0.0, neginf=0.0)
         leaf_ids = rf_bout.apply(X_all_clean)  # shape: (N_bouts, n_trees)
-        # Fast vectorized tree-leaf matching
-        n_trees = float(leaf_ids.shape[1])
-        prox = np.zeros((n_bouts, n_bouts), dtype=np.float32)
-        for t_idx in range(leaf_ids.shape[1]):
-            col = leaf_ids[:, t_idx]
-            prox += (col[:, None] == col[None, :]).astype(np.float32)
-        rf_proximity = prox / n_trees
+        n_trees = int(leaf_ids.shape[1])
+        if n_bouts > 0 and n_trees > 0:
+            max_leaves = np.maximum(1, leaf_ids.max(axis=0).astype(np.int64) + 1)
+            col_offsets = np.zeros(n_trees, dtype=np.int64)
+            if n_trees > 1:
+                col_offsets[1:] = np.cumsum(max_leaves[:-1])
+            total_cols = int(col_offsets[-1] + max_leaves[-1])
+            cols = (leaf_ids.astype(np.int64, copy=False) + col_offsets[None, :]).ravel()
+            rows = np.repeat(np.arange(n_bouts, dtype=np.int32), n_trees)
+            vals = np.ones(n_bouts * n_trees, dtype=np.float32)
+            leaf_mat = sp.csr_matrix((vals, (rows, cols)), shape=(n_bouts, total_cols))
+            rf_proximity = (leaf_mat @ leaf_mat.T).toarray().astype(np.float32, copy=False)
+            rf_proximity *= np.float32(1.0 / float(n_trees))
+            np.fill_diagonal(rf_proximity, np.float32(1.0))
+        else:
+            rf_proximity = np.eye(n_bouts, dtype=np.float32)
 
         if pred_indices:
             rf_bout_classes = [int(c) for c in rf_bout.classes_]

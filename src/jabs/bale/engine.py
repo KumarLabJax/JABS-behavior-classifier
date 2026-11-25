@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -42,6 +43,7 @@ def run_bale(
     knn_k: int = 7,
     forced_k: int | None = None,
     compute_spatial: bool = False,
+    cancel_event: threading.Event | None = None,
 ) -> BaleReport:
     """Run the complete BALE - Bout & Label Explorer pipeline.
 
@@ -69,6 +71,7 @@ def run_bale(
         knn_k: Number of nearest labeled neighbors for disagreement scoring (`default=7`).
         forced_k: Optional fixed cluster count `k` for Ward.D2 sub-type clustering.
         compute_spatial: Whether to extract per-bout 2D arena coordinates (`report.spatial`).
+        cancel_event: Optional `threading.Event` checked between pipeline stages for cooperative cancellation.
 
     Returns:
         Populated `BaleReport` containing bout records, feature matrices, diagnostic scores,
@@ -144,9 +147,13 @@ def run_bale(
         n_cv_splits=n_cv_splits,
         knn_k=knn_k,
     )
+    # Free transient per-frame feature arrays (`48-95 MB`) right after OOF confusion scoring
+    feature_matrix.frame_features_by_bout.clear()
     timings_ms["diagnostics_ms"] = (time.perf_counter() - t_stage) * 1000.0
 
     # Stage 4: 2D embeddings (PCA, t-SNE, RF-Proximity PCoA) & Ward.D2 sub-type clustering
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("BALE analysis cancelled")
     t_stage = time.perf_counter()
     embedding = compute_clustering_and_embedding(
         feature_matrix,
@@ -163,8 +170,12 @@ def run_bale(
 
     spatial_res = None
     if compute_spatial:
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("BALE analysis cancelled")
         t_stage = time.perf_counter()
-        spatial_res = extract_bout_spatial_locations(project, feature_matrix.records)
+        spatial_res = extract_bout_spatial_locations(
+            project, feature_matrix.records, cancel_event=cancel_event
+        )
         timings_ms["spatial_ms"] = (time.perf_counter() - t_stage) * 1000.0
 
     # Stage 5: Cross-validation dual-class group audit (`Dual-Class CV rule`)
@@ -229,6 +240,25 @@ def recompute_embedding_only(
         compute_mds=compute_mds,
         forced_k=forced_k,
     )
+    n_recs = len(report.feature_matrix.records)
+    if (
+        not compute_mds
+        and new_emb.coords_mds_2d is None
+        and report.embedding.coords_mds_2d is not None
+        and len(report.embedding.coords_mds_2d) == n_recs
+    ):
+        new_emb.coords_mds_2d = report.embedding.coords_mds_2d
+    if (
+        not compute_tsne
+        and new_emb.coords_tsne_2d is None
+        and report.embedding.coords_tsne_2d is not None
+        and len(report.embedding.coords_tsne_2d) == n_recs
+        and new_space == report.space
+        and new_lens == report.embedding.feature_lens
+        and new_scope == report.embedding.subtype_scope
+        and target_behavior == report.embedding.target_behavior
+    ):
+        new_emb.coords_tsne_2d = report.embedding.coords_tsne_2d
     warm_ms = (time.perf_counter() - t0) * 1000.0
     new_timings = dict(report.timings_ms)
     new_timings["warm_recompute_ms"] = warm_ms

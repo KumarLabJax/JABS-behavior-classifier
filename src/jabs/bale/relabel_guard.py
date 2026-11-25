@@ -14,7 +14,7 @@ from jabs.bale.bout_extractor import (
     strip_known_video_suffix,
 )
 from jabs.bale.models import BoutRecord, CVGroupImpact
-from jabs.bale.trajectory_and_export import load_pose_cached
+from jabs.bale.trajectory_and_export import load_annotation_pose_proxy
 from jabs.classifier import Classifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
@@ -149,7 +149,7 @@ def _restore_snapshot_state(
 ) -> None:
     """Restore scoped `[span_s, span_e]` slices (or full blocks fallback) for `(video, identity)`."""
     vm = project.video_manager
-    pose = load_pose_cached(project, video)
+    pose = load_annotation_pose_proxy(project, video)
     try:
         video_labels = vm.load_video_labels(video, pose)
     except TypeError:
@@ -588,7 +588,7 @@ def apply_bout_edit(
     sm = project.settings_manager
     is_multiclass = sm.classifier_mode == ClassifierMode.MULTICLASS
     vm = project.video_manager
-    pose = pose_est if pose_est is not None else load_pose_cached(project, video)
+    pose = pose_est if pose_est is not None else load_annotation_pose_proxy(project, video)
     try:
         video_labels = vm.load_video_labels(video, pose)
     except TypeError:

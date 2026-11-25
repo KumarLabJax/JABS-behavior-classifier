@@ -252,11 +252,12 @@ def _select_ward_clusters_euclidean(
     k_min = max(2, k_range[0])
     k_max = min(k_range[1], n_seed - 1)
 
+    sil_sample = min(600, n_seed) if n_seed > 600 else None
     if forced_k is not None and n_seed >= 3:
         best_k = min(max(2, int(forced_k)), n_seed - 1)
         seed_labels = fcluster(Z_tree, t=best_k, criterion="maxclust").astype(np.int32)
         best_sil = (
-            float(silhouette_score(X_seed, seed_labels))
+            float(silhouette_score(X_seed, seed_labels, sample_size=sil_sample, random_state=42))
             if len(np.unique(seed_labels)) >= 2
             else 0.0
         )
@@ -270,7 +271,9 @@ def _select_ward_clusters_euclidean(
             lbls = fcluster(Z_tree, t=k_cand, criterion="maxclust").astype(np.int32)
             labels_by_k.append(lbls)
             if len(np.unique(lbls)) >= 2:
-                sils.append(float(silhouette_score(X_seed, lbls)))
+                sils.append(
+                    float(silhouette_score(X_seed, lbls, sample_size=sil_sample, random_state=42))
+                )
             else:
                 sils.append(-1.0)
             wcss = 0.0

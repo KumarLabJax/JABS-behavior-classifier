@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from itertools import pairwise
@@ -874,6 +875,7 @@ def summarize_project_videos(
     margin_low_max: float = 0.16,
     shoulder_pad_frames: int = 6,
     source: VideoMetricSource = "predictions",
+    cancel_event: threading.Event | None = None,
 ) -> VideoScreenerReport:
     """Compute whole-video behavior counts and 50k-style outlier metrics for every project video.
 
@@ -943,6 +945,8 @@ def summarize_project_videos(
     has_any_labels = False
 
     for video_name in all_videos_ordered:
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Video screener cancelled")
         rec = VideoSummaryRecord(
             video=video_name,
             cage=_extract_cage_id(video_name, compiled_cage_re),
