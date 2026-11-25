@@ -85,6 +85,15 @@ Use **4. Videos** to jump quickly across large projects by whole-video behavior 
 
 ---
 
+## Arena Spatial Map (`🗺 Arena [A]`)
+
+Click **`🗺 Arena [A]`** in the 2D map toolbar (or press **`A`**, or select **Options → 2D Map Projection → Arena (Spatial Position)**) in Modes 1–3 to switch the 2D scatter map directly into physical **top-down arena coordinates**:
+
+- **Spatial Localization:** Plots each bout at the animal's median body centroid `(x, y)` over a representative grayscale arena backdrop (when videos are present) alongside cage perimeter corners, interior zone border, food hopper, and lixit landmarks from the pose files.
+- **Spatial Box / Lasso Filtering & Triage:** Drag a rectangle or lasso around a specific arena region (for example, the food hopper, water shroud, wheel nub, or cage interior) to isolate and audit every bout that occurred there. Press **`A`** or click **`🗺 Arena [A]`** again to switch back to your feature projection (`PCA`, `MDS`, or `t-SNE`).
+
+---
+
 ## Right-Hand Single-Bout Inspector
 
 Selecting any bout opens its detailed diagnostic readout in the right-hand pane:
@@ -118,6 +127,7 @@ Selecting any bout opens its detailed diagnostic readout in the right-hand pane:
 | **`1`** | Primary action: Keep verified label (Mode 1) or Confirm Positive (Mode 2) |
 | **`2`** | Secondary action: Flip class (Mode 1) or Mark Not-Behavior / None (Mode 2) |
 | **`T`** | Apply suggested boundary trim (when flagged) |
+| **`A`** | Toggle **Arena Spatial Map** vs. feature projection (Modes 1–3) |
 | **`N`** | Select the 15 nearest similar bouts in feature space |
 | **`M`** | Expand or collapse the 2D bout map |
 | **`+`** / **`-`** / **`0`** | Zoom in, zoom out, or reset the 2D map view |

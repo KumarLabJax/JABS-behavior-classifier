@@ -2098,3 +2098,284 @@ def test_video_screener_nan_probs_unlabeled_source_labels_guard_and_edge_cases(
     assert mc_rep.records[0].pred_pos_frames == 20
     assert mc_rep.records[0].pred_low_conf_none_spans == 0
     assert mc_rep.records[0].pred_by_class[0]["Turn_Left"] == [(20, 39)]
+
+
+def test_extract_bout_spatial_localization_v4_h5_and_cache(tmp_path: Path) -> None:
+    """Verify fast HDF5 `(y, x)->(x, y)` spatial extraction, static landmarks, cache hit, and NaN safety."""
+    import h5py
+
+    from jabs.bale import clear_spatial_cache, extract_bout_spatial_locations
+    from jabs.bale.models import BoutRecord
+
+    clear_spatial_cache()
+    proj_dir = tmp_path / "spatial_proj"
+    cache_dir = proj_dir / "jabs" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Synthetic v8 HDF5 with raw (y, x) keypoints + dummy seg_data (must be skipped)
+    pose_path = proj_dir / "vid_a_pose_est_v8.h5"
+    n_frames, n_slots, n_kpts = 60, 2, 12
+    pts_yx = np.zeros((n_frames, n_slots, n_kpts, 2), dtype=np.float32)
+    conf = np.full((n_frames, n_slots, n_kpts), 0.9, dtype=np.float32)
+    id_mask = np.zeros((n_frames, n_slots), dtype=np.uint8)
+    embed_id = np.zeros((n_frames, n_slots), dtype=np.int32)
+
+    # Put identity 0 (embed_id=1) in slot 1 at (x=150, y=320) -> stored in raw H5 as (y=320, x=150)
+    embed_id[:, 1] = 1
+    pts_yx[:, 1, :, 0] = 320.0
+    pts_yx[:, 1, :, 1] = 150.0
+    # Put nose slightly offset (x=170, y=310) -> stored as (y=310, x=170)
+    pts_yx[:, 1, 0, 0] = 310.0
+    pts_yx[:, 1, 0, 1] = 170.0
+    # Frame window [40..59] for identity 0 is completely masked out (NaN bout)
+    id_mask[40:, 1] = 1
+
+    # Put identity 1 (embed_id=2) in slot 0 at (x=420, y=180)
+    embed_id[:, 0] = 2
+    pts_yx[:, 0, :, 0] = 180.0
+    pts_yx[:, 0, :, 1] = 420.0
+
+    with h5py.File(pose_path, "w") as hf:
+        grp = hf.create_group("poseest")
+        grp.attrs["version"] = np.array([8, 0, 0], dtype=np.int32)
+        grp.attrs["cm_per_pixel"] = 0.05
+        grp.create_dataset("points", data=pts_yx)
+        grp.create_dataset("confidence", data=conf)
+        grp.create_dataset("id_mask", data=id_mask)
+        grp.create_dataset("instance_embed_id", data=embed_id)
+        grp.create_dataset("instance_id_center", data=np.zeros((2, 2), dtype=np.float32))
+        so = hf.create_group("static_objects")
+        # corners are stored (x, y); lixit/food_hopper are stored (y, x) in raw HDF5
+        so.create_dataset(
+            "corners",
+            data=np.array([[100, 100], [500, 100], [100, 400], [500, 400]], dtype=np.float32),
+        )
+        so.create_dataset("lixit", data=np.array([[90, 260]], dtype=np.float32))  # y=90, x=260
+
+    project = MagicMock()
+    project.dir = proj_dir
+    project._paths.cache_dir = cache_dir
+    project.project_paths.cache_dir = cache_dir
+    project.video_manager.get_cached_pose_path.return_value = pose_path
+    project.video_manager.video_path.return_value = proj_dir / "vid_a.mp4"
+
+    records = [
+        BoutRecord(
+            bout_id=0,
+            source="labeled",
+            video="vid_a.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Grooming",
+            is_positive=True,
+            start_frame=5,
+            end_frame=20,
+            duration_frames=16,
+        ),
+        BoutRecord(
+            bout_id=1,
+            source="labeled",
+            video="vid_a.mp4",
+            identity=1,
+            behavior="Grooming",
+            class_name="Not-Grooming",
+            is_positive=False,
+            start_frame=10,
+            end_frame=30,
+            duration_frames=21,
+        ),
+        BoutRecord(
+            bout_id=2,
+            source="labeled",
+            video="vid_a.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Grooming",
+            is_positive=True,
+            start_frame=42,
+            end_frame=55,
+            duration_frames=14,
+        ),
+    ]
+
+    sp = extract_bout_spatial_locations(project, records)
+    assert sp.normalized is False
+    assert sp.coords_xy.shape == (3, 2)
+    assert list(sp.valid_mask) == [True, True, False]
+    # Median of (nose=170, 9 other body keypoints=150) => x = 152.0, y = 319.0
+    assert sp.coords_xy[0, 0] == pytest.approx(152.0, abs=1e-4)
+    assert sp.coords_xy[0, 1] == pytest.approx(319.0, abs=1e-4)
+    assert sp.nose_xy[0, 0] == pytest.approx(170.0, abs=1e-4)
+    assert sp.nose_xy[0, 1] == pytest.approx(310.0, abs=1e-4)
+    assert sp.coords_xy[1, 0] == pytest.approx(420.0, abs=1e-4)
+    assert sp.coords_xy[1, 1] == pytest.approx(180.0, abs=1e-4)
+    assert not np.isfinite(sp.coords_xy[2]).any()
+    assert sp.cm_per_pixel == pytest.approx(0.05)
+    assert "corners" in sp.static_objects
+    assert "lixit" in sp.static_objects
+    # Raw (y=90, x=260) flipped cleanly to (x=260, y=90)
+    assert sp.static_objects["lixit"][0, 0] == pytest.approx(260.0)
+    assert sp.static_objects["lixit"][0, 1] == pytest.approx(90.0)
+
+    # Second call hits warm LRU cache cleanly
+    sp_warm = extract_bout_spatial_locations(project, records)
+    assert np.allclose(sp_warm.coords_xy[:2], sp.coords_xy[:2])
+
+
+def test_spatial_mixed_resolution_normalization_and_export(tmp_path: Path) -> None:
+    """Verify mixed video resolutions normalize to [0, 1], populate DataFrame columns, and export PNG+SVG."""
+    import cv2
+
+    from jabs.bale import clear_spatial_cache
+
+    clear_spatial_cache()
+    project, proj_dir = _build_synthetic_explorer_project(tmp_path)
+
+    # Create two synthetic videos with different resolutions (800x800 and 1600x1200)
+    v0 = proj_dir / "cage_00.mp4"
+    v1 = proj_dir / "cage_01.mp4"
+    for path, w, h in ((v0, 800, 800), (v1, 1600, 1200)):
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(path), fourcc, 15.0, (w, h))
+        frame = np.full((h, w, 3), 128, dtype=np.uint8)
+        writer.write(frame)
+        writer.release()
+
+    def _mock_pose(vid_path: Path):
+        pose = MagicMock()
+        pose.identities = [0, 1, 2]
+        pose.num_frames = 600
+        pose.cm_per_pixel = None
+        pose.static_objects = {}
+        name = Path(vid_path).name
+        xy = (200.0, 400.0) if name == "cage_00.mp4" else (800.0, 600.0)
+        pts = np.tile(np.array(xy, dtype=np.float32), (600, 12, 1))
+        msk = np.ones((600, 12), dtype=bool)
+        pose.get_identity_poses.return_value = (pts, msk)
+        return pose
+
+    project.video_manager.videos = [v0, v1, *[proj_dir / f"cage_0{i}.mp4" for i in range(2, 6)]]
+    project.video_manager.video_path.side_effect = lambda v: proj_dir / Path(v).name
+    project.video_manager.get_cached_pose_path.side_effect = lambda v: (
+        proj_dir / f"{Path(v).stem}_missing.h5"
+    )
+    project.load_pose_est.side_effect = _mock_pose
+
+    rep = run_bale(project, "Grooming", compute_spatial=True)
+    assert rep.spatial is not None
+    assert rep.spatial.normalized is True
+    assert rep.spatial.frame_width == 1.0
+    assert rep.spatial.frame_height == 1.0
+    assert "spatial_ms" in rep.timings_ms
+
+    df = rep.to_dataframe()
+    assert "spatial_x" in df.columns
+    assert "spatial_y" in df.columns
+    row0 = df[df["video"] == "cage_00.mp4"].iloc[0]
+    row1 = df[df["video"] == "cage_01.mp4"].iloc[0]
+    assert row0["spatial_x"] == pytest.approx(200.0 / 800.0, abs=1e-4)
+    assert row0["spatial_y"] == pytest.approx(400.0 / 800.0, abs=1e-4)
+    assert row1["spatial_x"] == pytest.approx(800.0 / 1600.0, abs=1e-4)
+    assert row1["spatial_y"] == pytest.approx(600.0 / 1200.0, abs=1e-4)
+
+    out_png = tmp_path / "spatial_export.png"
+    png_p, svg_p = export_bale_summary_figure(rep, out_png, projection="spatial")
+    assert png_p.is_file() and png_p.stat().st_size > 5_000
+    assert svg_p.is_file() and "<text" in svg_p.read_text(encoding="utf-8")
+
+    # C1 regression: recomputing embedding (e.g. Mode 3 space switch) preserves cached spatial result
+    rep_unsupervised = recompute_embedding_only(rep, space="unsupervised")
+    assert rep_unsupervised.spatial is rep.spatial
+
+
+def test_spatial_cache_v5_min_keypoints_truncated_and_mp4_header(tmp_path: Path) -> None:
+    """Verify Tier-2 v5 cache, `min_valid_keypoints=3`, truncated H5 NaN safety, and MP4 header parser."""
+    import cv2
+    import h5py
+
+    from jabs.bale import clear_spatial_cache, extract_bout_spatial_locations
+    from jabs.bale.models import BoutRecord
+    from jabs.bale.spatial_localization import _read_mp4_dimensions
+
+    clear_spatial_cache()
+    proj_dir = tmp_path / "tier2_proj"
+    cache_dir = proj_dir / "jabs" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # M3 regression: ISO-BMFF header parser matches cv2.VideoCapture dimensions
+    mp4_path = proj_dir / "vid_b.mp4"
+    writer = cv2.VideoWriter(str(mp4_path), cv2.VideoWriter_fourcc(*"mp4v"), 15.0, (800, 600))
+    writer.write(np.full((600, 800, 3), 64, dtype=np.uint8))
+    writer.release()
+    assert _read_mp4_dimensions(mp4_path) == (800.0, 600.0)
+
+    # C2 + M5 + M7 regression: Tier-2 v5 *_cache.h5 (no raw H5), <=2 valid keypoints -> NaN, truncated frames -> NaN
+    raw_pose_missing = proj_dir / "vid_b_pose_est_v8.h5"
+    cache_h5_path = cache_dir / "vid_b_pose_est_v8_cache.h5"
+    n_id, n_frames, n_kpts = 1, 40, 12
+    pts_xy = np.full((n_id, n_frames, n_kpts, 2), np.array([240.0, 310.0], dtype=np.float32))
+    pt_mask = np.ones((n_id, n_frames, n_kpts), dtype=bool)
+    # Frames 20..39 only have 2 valid keypoints (< _MIN_VALID_KEYPOINTS=3) -> must become NaN
+    pt_mask[:, 20:40, 2:] = False
+    ident_mask = np.ones((n_id, n_frames), dtype=bool)
+
+    with h5py.File(cache_h5_path, "w") as ch5:
+        ch5.attrs["cache_file_version"] = 5
+        grp = ch5.create_group("poseest")
+        grp.attrs["cm_per_pixel"] = 0.05
+        grp.create_dataset("points", data=pts_xy)
+        grp.create_dataset("point_mask", data=pt_mask)
+        grp.create_dataset("identity_mask", data=ident_mask)
+
+    project = MagicMock()
+    project.dir = proj_dir
+    project._paths.cache_dir = cache_dir
+    project.project_paths.cache_dir = cache_dir
+    project.video_manager.get_cached_pose_path.return_value = raw_pose_missing
+    project.video_manager.video_path.return_value = mp4_path
+
+    records = [
+        BoutRecord(
+            bout_id=0,
+            source="labeled",
+            video="vid_b.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Grooming",
+            is_positive=True,
+            start_frame=2,
+            end_frame=15,
+            duration_frames=14,
+        ),
+        BoutRecord(
+            bout_id=1,
+            source="labeled",
+            video="vid_b.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Not-Grooming",
+            is_positive=False,
+            start_frame=22,
+            end_frame=35,
+            duration_frames=14,
+        ),
+        BoutRecord(
+            bout_id=2,
+            source="labeled",
+            video="vid_b.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Grooming",
+            is_positive=True,
+            start_frame=100,
+            end_frame=120,
+            duration_frames=21,
+        ),
+    ]
+
+    sp = extract_bout_spatial_locations(project, records)
+    assert list(sp.valid_mask) == [True, False, False]
+    assert sp.coords_xy[0, 0] == pytest.approx(240.0, abs=1e-4)
+    assert sp.coords_xy[0, 1] == pytest.approx(310.0, abs=1e-4)
+    assert not np.isfinite(sp.coords_xy[1]).any()
+    assert not np.isfinite(sp.coords_xy[2]).any()

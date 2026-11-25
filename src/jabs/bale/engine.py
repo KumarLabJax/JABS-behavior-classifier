@@ -14,6 +14,7 @@ from .models import BaleReport, FeatureLens, RepresentationSpace, SubtypeScope
 from .outlier_and_confusion import compute_confusion_and_outliers
 from .prediction_extractor import collect_predicted_bout_records
 from .relabel_guard import count_dual_class_cv_groups
+from .spatial_localization import extract_bout_spatial_locations
 
 if TYPE_CHECKING:
     from jabs.project import Project
@@ -40,6 +41,7 @@ def run_bale(
     n_cv_splits: int = 5,
     knn_k: int = 7,
     forced_k: int | None = None,
+    compute_spatial: bool = False,
 ) -> BaleReport:
     """Run the complete BALE - Bout & Label Explorer pipeline.
 
@@ -66,6 +68,7 @@ def run_bale(
         n_cv_splits: Number of animal-track CV folds for the OOF probe (`default=5`).
         knn_k: Number of nearest labeled neighbors for disagreement scoring (`default=7`).
         forced_k: Optional fixed cluster count `k` for Ward.D2 sub-type clustering.
+        compute_spatial: Whether to extract per-bout 2D arena coordinates (`report.spatial`).
 
     Returns:
         Populated `BaleReport` containing bout records, feature matrices, diagnostic scores,
@@ -158,6 +161,12 @@ def run_bale(
     )
     timings_ms["embedding_ms"] = (time.perf_counter() - t_stage) * 1000.0
 
+    spatial_res = None
+    if compute_spatial:
+        t_stage = time.perf_counter()
+        spatial_res = extract_bout_spatial_locations(project, feature_matrix.records)
+        timings_ms["spatial_ms"] = (time.perf_counter() - t_stage) * 1000.0
+
     # Stage 5: Cross-validation dual-class group audit (`Dual-Class CV rule`)
     t_stage = time.perf_counter()
     cv_groups_count, jabs_met, dual_class_cv_met, cv_track_counts = count_dual_class_cv_groups(
@@ -180,6 +189,7 @@ def run_bale(
         timings_ms=timings_ms,
         cv_track_counts=cv_track_counts,
         include_all_multiclass=bool(is_multiclass and include_all_multiclass),
+        spatial=spatial_res,
     )
 
 
@@ -236,4 +246,5 @@ def recompute_embedding_only(
         timings_ms=new_timings,
         cv_track_counts=dict(report.cv_track_counts),
         include_all_multiclass=report.include_all_multiclass,
+        spatial=report.spatial,
     )

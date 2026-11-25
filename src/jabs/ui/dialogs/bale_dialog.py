@@ -31,9 +31,11 @@ from jabs.bale import (
     BaleReport,
     BaleUndoStack,
     BoutRecord,
+    BoutSpatialResult,
     EditAction,
     ExaminedBoutStore,
     FeatureLens,
+    ProjectionMethod,
     RepresentationSpace,
     SubtypeScope,
     VideoMetricSource,
@@ -42,8 +44,10 @@ from jabs.bale import (
     VideoSummaryRecord,
     apply_bout_edit,
     classify_video_outliers,
+    draw_arena_static_landmarks,
     evaluate_cv_group_impact,
     export_bale_summary_figure,
+    extract_bout_spatial_locations,
     filter_video_records,
     load_bout_pose_trajectory,
     recompute_embedding_only,
@@ -227,6 +231,7 @@ class _ExplorerComputeTask(QtCore.QRunnable):
         target_behavior: str | None = None,
         forced_k: int | None = None,
         compute_tsne: bool = False,
+        compute_spatial: bool = False,
     ) -> None:
         super().__init__()
         self.project = project
@@ -242,6 +247,7 @@ class _ExplorerComputeTask(QtCore.QRunnable):
         self.target_behavior = target_behavior
         self.forced_k = forced_k
         self.compute_tsne = compute_tsne
+        self.compute_spatial = compute_spatial
         self.signals = _BaleWorkerSignals()
 
     def run(self) -> None:
@@ -261,6 +267,7 @@ class _ExplorerComputeTask(QtCore.QRunnable):
                 forced_k=self.forced_k,
                 compute_tsne=self.compute_tsne,
                 compute_mds=True,
+                compute_spatial=self.compute_spatial,
             )
             with contextlib.suppress(RuntimeError):
                 self.signals.finished.emit(report)
@@ -268,6 +275,39 @@ class _ExplorerComputeTask(QtCore.QRunnable):
             logger.exception("BALE background task failed")
             with contextlib.suppress(RuntimeError):
                 self.signals.error.emit(str(exc))
+
+
+class _SpatialWorkerSignals(QtCore.QObject):
+    """Signals emitted by the lazy arena spatial-localization worker."""
+
+    finished = QtCore.Signal(int, object)  # req_id, BoutSpatialResult
+    error = QtCore.Signal(int, str)
+
+
+class _SpatialComputeTask(QtCore.QRunnable):
+    """Background worker computing arena coordinates off the Qt GUI thread."""
+
+    def __init__(
+        self,
+        req_id: int,
+        project: Project,
+        records: list[BoutRecord],
+    ) -> None:
+        super().__init__()
+        self.req_id = int(req_id)
+        self.project = project
+        self.records = list(records)
+        self.signals = _SpatialWorkerSignals()
+
+    def run(self) -> None:
+        try:
+            res = extract_bout_spatial_locations(self.project, self.records)
+            with contextlib.suppress(RuntimeError):
+                self.signals.finished.emit(self.req_id, res)
+        except Exception as exc:
+            logger.exception("BALE spatial localization failed")
+            with contextlib.suppress(RuntimeError):
+                self.signals.error.emit(self.req_id, str(exc))
 
 
 class _VideoScreenerTask(QtCore.QRunnable):
@@ -1121,7 +1161,9 @@ class BaleDialog(QtWidgets.QDialog):
         self._table_mouse_press_btn: Qt.MouseButton | None = None
 
         # Advanced overrides (tucked inside Options menu)
-        self._proj_method: Literal["pca", "mds", "tsne"] = "pca"
+        self._proj_method: ProjectionMethod = "pca"
+        self._last_feature_proj: Literal["pca", "mds", "tsne"] = "pca"
+        self._proj_menu_actions: dict[str, QtGui.QAction] = {}
         self._space_override: Literal["auto", "classifier", "unsupervised", "rf_proximity"] = (
             "auto"
         )
@@ -1132,6 +1174,8 @@ class BaleDialog(QtWidgets.QDialog):
 
         self._thread_pool = QtCore.QThreadPool.globalInstance()
         self._active_worker: _ExplorerComputeTask | None = None
+        self._spatial_worker: _SpatialComputeTask | None = None
+        self._spatial_request_id: int = 0
         self._queued_refresh: bool = False
         self._is_closing: bool = False
         self._suppress_auto_seek: bool = False
@@ -1534,8 +1578,28 @@ class BaleDialog(QtWidgets.QDialog):
         scatter_vbox.setContentsMargins(0, 0, 4, 0)
         scatter_vbox.setSpacing(3)
 
-        map_bar = _FlowLayout(h_spacing=4, v_spacing=3)
+        map_bar_widget = QtWidgets.QWidget()
+        map_bar_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Ignored,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+        )
+        map_bar = _FlowLayout(map_bar_widget, h_spacing=3, v_spacing=3)
         map_bar.setContentsMargins(2, 0, 2, 0)
+
+        self.arena_map_btn = QtWidgets.QPushButton("🗺 Arena [A]")
+        self.arena_map_btn.setCheckable(True)
+        self.arena_map_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.arena_map_btn.setStyleSheet(
+            "QPushButton { padding: 2px 6px; border: 1px solid #CBD5E1; border-radius: 4px; "
+            "background-color: #F8FAFC; color: #0F172A; font-weight: 600; font-size: 11.0px; }"
+            "QPushButton:checked { background-color: #CCFBF1; color: #0F766E; border-color: #5EEAD4; font-weight: 700; }"
+            "QPushButton:hover { background-color: #F1F5F9; }"
+        )
+        self.arena_map_btn.setToolTip(
+            "Toggle Arena Spatial Map showing where bouts happen inside the cage [A]"
+        )
+        self.arena_map_btn.clicked.connect(self._toggle_arena_map)
+        map_bar.addWidget(self.arena_map_btn)
 
         self.drag_mode_group = QtWidgets.QButtonGroup(self)
         self.drag_mode_group.setExclusive(True)
@@ -1619,7 +1683,7 @@ class BaleDialog(QtWidgets.QDialog):
         map_bar.addWidget(self.map_zoom_in_btn)
         map_bar.addWidget(self.map_reset_zoom_btn)
         map_bar.addWidget(self.expand_map_btn)
-        scatter_vbox.addLayout(map_bar)
+        scatter_vbox.addWidget(map_bar_widget)
 
         self.scatter_fig = Figure(figsize=(6.4, 4.2), dpi=100, facecolor="#FFFFFF")
         self.scatter_ax = self.scatter_fig.add_subplot(111)
@@ -1695,8 +1759,12 @@ class BaleDialog(QtWidgets.QDialog):
 
         # Card Row 3: Context-Aware Wrapping 1-Click Triage Action Bar (hidden in 4. Videos mode)
         self.bout_act_container = QtWidgets.QWidget()
+        self.bout_act_container.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+        )
         self.bout_act_container.setStyleSheet("background: transparent; border: none;")
-        act_row = _FlowLayout(self.bout_act_container, h_spacing=6, v_spacing=4)
+        act_row = _FlowLayout(self.bout_act_container, h_spacing=5, v_spacing=3)
         act_row.setContentsMargins(0, 0, 0, 0)
 
         self.mc_target_lbl = QtWidgets.QLabel("Assign:")
@@ -1909,6 +1977,7 @@ class BaleDialog(QtWidgets.QDialog):
             interactive_x_scrub=True,
             parent=card_panel,
         )
+        self.insp_canvas.setMinimumSize(160, 92)
         self.insp_canvas.x_value_clicked.connect(self._on_prob_curve_frame_clicked)
         self.insp_canvas.y_value_clicked.connect(self._on_cluster_heatmap_row_clicked)
         card_vbox.addWidget(self.insp_canvas, 1)
@@ -2276,16 +2345,19 @@ class BaleDialog(QtWidgets.QDialog):
         # 2D Projection submenu
         proj_menu = menu.addMenu("2D Map Projection")
         proj_grp = QtGui.QActionGroup(self)
+        self._proj_menu_actions.clear()
         for label, key in (
             ("PCA (Fast Linear)", "pca"),
             ("MDS (RF Proximity)", "mds"),
             ("t-SNE (Neighborhoods)", "tsne"),
+            ("Arena (Spatial Position)", "spatial"),
         ):
             act = proj_menu.addAction(label)
             act.setCheckable(True)
             act.setChecked(key == self._proj_method)
             act.triggered.connect(lambda _c=False, k=key: self._set_projection_method(k))
             proj_grp.addAction(act)
+            self._proj_menu_actions[key] = act
 
         # Feature Space submenu
         space_menu = menu.addMenu("Feature Geometry")
@@ -2891,6 +2963,8 @@ class BaleDialog(QtWidgets.QDialog):
         self._repr_matrix_cache = None
         self._sync_subtypes_bar_from_report()
         self._populate_table(auto_fallback_if_clean=True, redraw_scatter_on_change=False)
+        if self._proj_method == "spatial" and self._report.spatial is None:
+            self._request_spatial_computation()
         self._draw_scatter()
         self._update_inspector_card()
 
@@ -2957,6 +3031,7 @@ class BaleDialog(QtWidgets.QDialog):
         self.view_clusters_btn.setVisible(is_sub)
         self.view_prob_btn.setVisible(not is_sub)
         self.qf_halos_btn.setVisible(new_mode == "predict")
+        self.arena_map_btn.setVisible(not is_vid)
 
         if is_vid:
             self.insp_canvas._interactive_x_scrub = True
@@ -2974,7 +3049,7 @@ class BaleDialog(QtWidgets.QDialog):
         self.play_clip_btn.setStyleSheet(_PLAY_CLIP_PRIMARY_CSS)
         self._update_recalc_button_badge()
         self.shortcut_hint_label.setText(
-            "Keys: ↑/↓ Bout • Space Play/Pause • Z Beh • X No Label • C Not • V Examined • N Similar • M Expand • ⌘Z Undo"
+            "Keys: ↑/↓ Bout • Space Play/Pause • Z Beh • X No Label • C Not • V Examined • N Similar • A Arena • M Expand • ⌘Z Undo"
         )
 
         # Default queue filter & inspector view per bout mode
@@ -3028,10 +3103,76 @@ class BaleDialog(QtWidgets.QDialog):
             self._populate_table(auto_fallback_if_clean=True, redraw_scatter_on_change=False)
             self._draw_scatter()
 
-    def _set_projection_method(self, method: Literal["pca", "mds", "tsne"]) -> None:
+    def _toggle_arena_map(self, checked: bool | None = None) -> None:
+        if self._mode == "videos":
+            self.arena_map_btn.blockSignals(True)
+            self.arena_map_btn.setChecked(False)
+            self.arena_map_btn.blockSignals(False)
+            return
+        want_arena = (self._proj_method != "spatial") if checked is None else bool(checked)
+        self._set_projection_method("spatial" if want_arena else self._last_feature_proj)
+
+    def _sync_projection_controls(self) -> None:
+        is_arena = self._proj_method == "spatial"
+        self.arena_map_btn.blockSignals(True)
+        self.arena_map_btn.setChecked(is_arena)
+        self.arena_map_btn.blockSignals(False)
+        for key, act in self._proj_menu_actions.items():
+            act.blockSignals(True)
+            act.setChecked(key == self._proj_method)
+            act.blockSignals(False)
+
+    def _request_spatial_computation(self) -> None:
+        if self._report is None or self._is_closing:
+            return
+        self._spatial_request_id += 1
+        req_id = self._spatial_request_id
+        self.status_summary_label.setText("Mapping bout arena locations…")
+        worker = _SpatialComputeTask(req_id, self._project, self._report.feature_matrix.records)
+        self._spatial_worker = worker
+        worker.signals.finished.connect(self._on_spatial_finished)
+        worker.signals.error.connect(self._on_spatial_error)
+        self._thread_pool.start(worker)
+
+    def _on_spatial_finished(self, req_id: int, spatial_res: BoutSpatialResult) -> None:
+        if self._is_closing or req_id != self._spatial_request_id or self._report is None:
+            return
+        self._spatial_worker = None
+        if len(spatial_res.coords_xy) != len(self._report.feature_matrix.records):
+            return
+        self._report.spatial = spatial_res
+        self._report.timings_ms["spatial_ms"] = float(spatial_res.elapsed_ms)
+        if self._proj_method == "spatial" and self._mode != "videos":
+            self._scatter_view_limits = None
+            self._scatter_default_limits = None
+            self._redraw_scatter_and_inspector()
+            n_mapped = int(np.sum(spatial_res.valid_mask))
+            self.status_summary_label.setText(
+                f"Arena Spatial Map ready ({n_mapped}/{len(spatial_res.coords_xy)} bouts mapped in "
+                f"{spatial_res.elapsed_ms:.0f} ms)"
+            )
+
+    def _on_spatial_error(self, req_id: int, message: str) -> None:
+        if self._is_closing or req_id != self._spatial_request_id:
+            return
+        self._spatial_worker = None
+        self.status_summary_label.setText(f"Arena spatial mapping failed: {message}")
+        if self._proj_method == "spatial":
+            self._draw_scatter()
+
+    def _set_projection_method(self, method: ProjectionMethod) -> None:
+        if method in ("pca", "mds", "tsne"):
+            self._last_feature_proj = method
         self._proj_method = method
+        self._sync_projection_controls()
         self._scatter_view_limits = None
+        self._scatter_default_limits = None
         self._sync_zoom_reset_button()
+        if method == "spatial":
+            if self._report is not None and self._report.spatial is None:
+                self._request_spatial_computation()
+            self._redraw_scatter_and_inspector()
+            return
         if (
             self._report is not None
             and method == "tsne"
@@ -3199,6 +3340,7 @@ class BaleDialog(QtWidgets.QDialog):
             target_behavior=self._effective_subtype_target_behavior(),
             forced_k=self._effective_forced_k(),
             compute_tsne=(self._proj_method == "tsne"),
+            compute_spatial=(self._proj_method == "spatial"),
         )
         self._active_worker = worker
         worker.signals.finished.connect(
@@ -3323,6 +3465,8 @@ class BaleDialog(QtWidgets.QDialog):
             return
 
         self._populate_table(auto_fallback_if_clean=True, redraw_scatter_on_change=False)
+        if self._proj_method == "spatial" and self._report.spatial is None:
+            self._request_spatial_computation()
         self._draw_scatter()
 
         n_tot = len(self._mode_eligible_indices())
@@ -4512,6 +4656,10 @@ class BaleDialog(QtWidgets.QDialog):
     # ------------------------------------------------------------------
     def _current_2d_coords(self) -> tuple[np.ndarray, str, str]:
         assert self._report is not None
+        if self._proj_method == "spatial" and self._report.spatial is not None:
+            sp = self._report.spatial
+            unit_lbl = "normalized" if sp.normalized else "px"
+            return sp.coords_xy, f"Arena X ({unit_lbl})", f"Arena Y ({unit_lbl})"
         emb = self._report.embedding
         if self._proj_method == "tsne" and emb.coords_tsne_2d is not None:
             return emb.coords_tsne_2d, "t-SNE 1", "t-SNE 2"
@@ -4544,10 +4692,62 @@ class BaleDialog(QtWidgets.QDialog):
         ax.clear()
 
         records = self._report.feature_matrix.records
+        is_spatial = self._proj_method == "spatial"
+        if is_spatial and self._report.spatial is None:
+            ax.set_aspect("auto", adjustable="box")
+            ax.text(
+                0.5,
+                0.5,
+                "Mapping bout arena locations…",
+                ha="center",
+                va="center",
+                fontsize=11.5,
+                color="#475569",
+                transform=ax.transAxes,
+            )
+            self.scatter_canvas.set_pick_points(None)
+            self.scatter_canvas.mark_layout_dirty()
+            self.scatter_canvas.draw_idle()
+            return
+
+        if is_spatial:
+            sp = self._report.spatial
+            assert sp is not None
+            w_bound = float(sp.frame_width or 1.0)
+            h_bound = float(sp.frame_height or 1.0)
+            if sp.reference_frame_gray is not None and not sp.normalized:
+                ax.imshow(
+                    sp.reference_frame_gray,
+                    cmap="gray",
+                    vmin=0,
+                    vmax=255,
+                    alpha=0.52,
+                    extent=(0.0, w_bound, h_bound, 0.0),
+                    interpolation="bilinear",
+                    zorder=0,
+                )
+            draw_arena_static_landmarks(ax, sp.static_objects)
+        else:
+            ax.set_aspect("auto", adjustable="box")
+
         vis_indices = self._mode_eligible_indices()
         backdrop_indices = self._scatter_backdrop_indices()
+        all_coords, xlab, ylab = self._current_2d_coords()
+        if is_spatial:
+            vis_indices = [gi for gi in vis_indices if np.isfinite(all_coords[gi]).all()]
+            backdrop_indices = [gi for gi in backdrop_indices if np.isfinite(all_coords[gi]).all()]
+
         if not vis_indices:
-            if self._mode == "predict":
+            if is_spatial:
+                sp = self._report.spatial
+                assert sp is not None
+                w_bound = float(sp.frame_width or 1.0)
+                h_bound = float(sp.frame_height or 1.0)
+                ax.set_xlim(0.0, w_bound)
+                ax.set_ylim(h_bound, 0.0)
+                ax.set_aspect("equal", adjustable="box")
+                empty_msg = "No mappable arena pose coordinates for this view."
+            elif self._mode == "predict":
                 scope_lbl = self._active_scope_label()
                 empty_msg = (
                     f"No predicted {scope_lbl} bouts to review.\n"
@@ -4563,6 +4763,11 @@ class BaleDialog(QtWidgets.QDialog):
                 va="center",
                 fontsize=11.5,
                 color="#475569",
+                bbox=(
+                    {"boxstyle": "round,pad=0.3", "facecolor": "#FFFFFF", "alpha": 0.88}
+                    if is_spatial
+                    else None
+                ),
                 transform=ax.transAxes,
             )
             self.scatter_canvas.set_pick_points(None)
@@ -4570,7 +4775,6 @@ class BaleDialog(QtWidgets.QDialog):
             return
 
         vis_arr = np.asarray(vis_indices, dtype=np.int32)
-        all_coords, xlab, ylab = self._current_2d_coords()
         coords = all_coords[vis_arr]
         diag = self._report.diagnostics
         emb = self._report.embedding
@@ -4852,6 +5056,16 @@ class BaleDialog(QtWidgets.QDialog):
                 label=f"Selected #{sel_rec.bout_id}",
             )
 
+        # Enforce fixed arena bounds and top-down inverted Y before capturing zoom defaults
+        if is_spatial:
+            sp = self._report.spatial
+            assert sp is not None
+            w_bound = float(sp.frame_width or 1.0)
+            h_bound = float(sp.frame_height or 1.0)
+            ax.set_xlim(0.0, w_bound)
+            ax.set_ylim(h_bound, 0.0)
+            ax.set_aspect("equal", adjustable="box")
+
         # Capture full-view autoscale bounds, then re-apply persistent user zoom if active
         def_xlim = tuple(float(v) for v in ax.get_xlim())
         def_ylim = tuple(float(v) for v in ax.get_ylim())
@@ -4864,13 +5078,27 @@ class BaleDialog(QtWidgets.QDialog):
         zoom_tag = " [Zoomed]" if self._scatter_view_limits else ""
         pred_subtitle = "◆ Pred / ● Labeled" if backdrop_indices else "◆ Pred only"
         lens_lbl = self.subtypes_lens_combo.currentText()
-        mode_titles = {
-            "audit": f"2D Label Map{zoom_tag}",
-            "predict": f"2D Active-Learning Map ({pred_subtitle}){zoom_tag}",
-            "subtypes": f"2D Sub-Types ({emb.optimal_k} Clusters • {lens_lbl}){zoom_tag}",
-        }
+        if is_spatial:
+            sp = self._report.spatial
+            assert sp is not None
+            n_mapped = int(np.sum(sp.valid_mask))
+            mode_short = {
+                "audit": "Audit",
+                "predict": "Predictions",
+                "subtypes": f"{emb.optimal_k} Clusters",
+            }.get(self._mode, self._mode)
+            title_txt = (
+                f"Arena Spatial Map ({n_mapped}/{len(records)} mapped • {mode_short}){zoom_tag}"
+            )
+        else:
+            mode_titles = {
+                "audit": f"2D Label Map{zoom_tag}",
+                "predict": f"2D Active-Learning Map ({pred_subtitle}){zoom_tag}",
+                "subtypes": f"2D Sub-Types ({emb.optimal_k} Clusters • {lens_lbl}){zoom_tag}",
+            }
+            title_txt = mode_titles[self._mode]
         ax.set_title(
-            mode_titles[self._mode],
+            title_txt,
             fontsize=11.5,
             fontweight="bold",
             color="#0F172A",
@@ -4880,23 +5108,44 @@ class BaleDialog(QtWidgets.QDialog):
         ax.set_ylabel(ylab, fontsize=11.0, fontweight="bold", color="#1E293B")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        ax.grid(True, color="#E2E8F0", linewidth=0.8)
+        ax.grid(
+            True,
+            color="#CBD5E1" if is_spatial else "#E2E8F0",
+            alpha=0.55 if is_spatial else 1.0,
+            linewidth=0.8,
+        )
         ax.legend(
             loc="upper right",
-            fontsize=9.0,
+            fontsize=8.5 if is_spatial else 9.0,
             frameon=True,
             facecolor="#FFFFFF",
             framealpha=0.92,
             edgecolor="#CBD5E1",
         )
 
-        hover_tips = [
-            f"#{records[gi].bout_id} • {records[gi].class_name} ({records[gi].source})\n"
-            f"{_short_video_name(records[gi].video)} • {self._animal_display_text(records[gi].video, records[gi].identity)} • "
-            f"{records[gi].start_frame}\u2013{records[gi].end_frame}\n"
-            f"{self._describe_bout_issue(gi)[0]}"
-            for gi in vis_indices
-        ]
+        if is_spatial:
+            sp = self._report.spatial
+            assert sp is not None
+            hover_tips = [
+                f"#{records[gi].bout_id} • {records[gi].class_name} ({records[gi].source})\n"
+                f"{_short_video_name(records[gi].video)} • {self._animal_display_text(records[gi].video, records[gi].identity)} • "
+                f"{records[gi].start_frame}\u2013{records[gi].end_frame}\n"
+                f"Arena: ({all_coords[gi, 0]:.2f}, {all_coords[gi, 1]:.2f})"
+                if sp.normalized
+                else f"#{records[gi].bout_id} • {records[gi].class_name} ({records[gi].source})\n"
+                f"{_short_video_name(records[gi].video)} • {self._animal_display_text(records[gi].video, records[gi].identity)} • "
+                f"{records[gi].start_frame}\u2013{records[gi].end_frame}\n"
+                f"Arena: ({all_coords[gi, 0]:.0f}, {all_coords[gi, 1]:.0f}) px • {self._describe_bout_issue(gi)[0]}"
+                for gi in vis_indices
+            ]
+        else:
+            hover_tips = [
+                f"#{records[gi].bout_id} • {records[gi].class_name} ({records[gi].source})\n"
+                f"{_short_video_name(records[gi].video)} • {self._animal_display_text(records[gi].video, records[gi].identity)} • "
+                f"{records[gi].start_frame}\u2013{records[gi].end_frame}\n"
+                f"{self._describe_bout_issue(gi)[0]}"
+                for gi in vis_indices
+            ]
         self.scatter_canvas.set_pick_points(coords, vis_arr, hover_tips)
         self.scatter_canvas.mark_layout_dirty()
         self.scatter_canvas.draw_idle()
@@ -5475,6 +5724,7 @@ class BaleDialog(QtWidgets.QDialog):
         (def_x0, def_x1), (def_y0, def_y1) = self._scatter_default_limits
         def_w = max(1e-3, abs(def_x1 - def_x0))
         def_h = max(1e-3, abs(def_y1 - def_y0))
+        is_inverted_y = def_y0 > def_y1
 
         x0, x1 = sorted((float(xlim[0]), float(xlim[1])))
         y0, y1 = sorted((float(ylim[0]), float(ylim[1])))
@@ -5487,7 +5737,7 @@ class BaleDialog(QtWidgets.QDialog):
         cy = min(max(cy, min(def_y0, def_y1) - def_h), max(def_y0, def_y1) + def_h)
 
         new_xlim = (cx - 0.5 * w, cx + 0.5 * w)
-        new_ylim = (cy - 0.5 * h, cy + 0.5 * h)
+        new_ylim = (cy + 0.5 * h, cy - 0.5 * h) if is_inverted_y else (cy - 0.5 * h, cy + 0.5 * h)
         self._scatter_view_limits = (new_xlim, new_ylim)
         self.scatter_ax.set_xlim(new_xlim)
         self.scatter_ax.set_ylim(new_ylim)
@@ -5696,7 +5946,7 @@ class BaleDialog(QtWidgets.QDialog):
         if self._report is None or ((x1 - x0) < 1e-4 and (y1 - y0) < 1e-4):
             return
         coords, _, _ = self._current_2d_coords()
-        eligible = self._mode_eligible_indices()
+        eligible = [gi for gi in self._mode_eligible_indices() if np.isfinite(coords[gi]).all()]
         selected = [
             gi
             for gi in eligible
@@ -5714,7 +5964,7 @@ class BaleDialog(QtWidgets.QDialog):
         if poly_arr.ndim != 2 or len(poly_arr) < 3:
             return
         coords, _, _ = self._current_2d_coords()
-        eligible = self._mode_eligible_indices()
+        eligible = [gi for gi in self._mode_eligible_indices() if np.isfinite(coords[gi]).all()]
         if not eligible:
             return
         el_arr = np.asarray(eligible, dtype=np.int32)
@@ -7361,6 +7611,11 @@ class BaleDialog(QtWidgets.QDialog):
                 return True
             if key == Qt.Key.Key_M:
                 self._toggle_expand_map()
+                event.accept()
+                return True
+            if key == Qt.Key.Key_A:
+                if self._mode != "videos":
+                    self._toggle_arena_map()
                 event.accept()
                 return True
             if key == Qt.Key.Key_0:

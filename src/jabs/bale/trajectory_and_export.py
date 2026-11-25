@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -14,26 +15,35 @@ import numpy as np
 from jabs.bale.models import BaleReport
 from jabs.project import Project
 
-# Keep a thread-safe LRU cache of opened PoseEstimation objects so clicking or
-# editing multiple bouts in the same video is instantaneous (< 1 ms).
-_POSE_LRU_CACHE: dict[tuple[str, str], Any] = {}
+# Keep a thread-safe true LRU cache of opened PoseEstimation objects keyed by file stat
+# so clicking/editing bouts is instantaneous (< 1 ms) and retracked files invalidate cleanly.
+_POSE_LRU_CACHE: OrderedDict[tuple[str, str, int, int], Any] = OrderedDict()
 _POSE_CACHE_LOCK = threading.Lock()
 _POSE_LRU_MAX = 32
 
 
 def load_pose_cached(project: Project, video: str) -> Any:
-    """Return a cached `PoseEstimation` instance for `(project, video)` (`< 1 ms` warm)."""
-    cache_key = (str(Path(project.dir).resolve()), video)
+    """Return a stat-validated LRU-cached `PoseEstimation` for `(project, video)` (`< 1 ms` warm)."""
+    mtime_ns, size_bytes = 0, 0
+    try:
+        pose_path = Path(project.video_manager.get_cached_pose_path(video))
+        if pose_path.is_file():
+            st = pose_path.stat()
+            mtime_ns, size_bytes = int(st.st_mtime_ns), int(st.st_size)
+    except Exception:
+        pass
+    cache_key = (str(Path(project.dir).resolve()), video, mtime_ns, size_bytes)
     with _POSE_CACHE_LOCK:
         pose = _POSE_LRU_CACHE.get(cache_key)
-    if pose is not None:
-        return pose
+        if pose is not None:
+            _POSE_LRU_CACHE.move_to_end(cache_key)
+            return pose
     pose = project.load_pose_est(project.video_manager.video_path(video))
     with _POSE_CACHE_LOCK:
-        if len(_POSE_LRU_CACHE) >= _POSE_LRU_MAX:
-            oldest_key = next(iter(_POSE_LRU_CACHE))
-            _POSE_LRU_CACHE.pop(oldest_key, None)
         _POSE_LRU_CACHE[cache_key] = pose
+        _POSE_LRU_CACHE.move_to_end(cache_key)
+        while len(_POSE_LRU_CACHE) > _POSE_LRU_MAX:
+            _POSE_LRU_CACHE.popitem(last=False)
     return pose
 
 
@@ -187,6 +197,71 @@ def _format_feature_name(name: str, max_len: int = 28) -> str:
     return s
 
 
+def draw_arena_static_landmarks(
+    ax: Any,
+    static_objects: dict[str, np.ndarray] | None,
+) -> None:
+    """Draw cage corners, inner perimeter zone, food hopper, and lixit landmarks on `ax`."""
+    if not static_objects:
+        return
+
+    corners = static_objects.get("corners")
+    if corners is not None and len(corners) >= 3:
+        closed = np.vstack([corners, corners[:1]])
+        # Crisp white line over subtle slate shadow stays legible over dark grayscale arenas
+        ax.plot(closed[:, 0], closed[:, 1], color="#0F172A", linewidth=2.6, alpha=0.65, zorder=1)
+        ax.plot(
+            closed[:, 0],
+            closed[:, 1],
+            color="#FFFFFF",
+            linewidth=1.5,
+            alpha=0.92,
+            zorder=1.2,
+            label="Cage Perimeter",
+        )
+        centroid = np.mean(corners, axis=0)
+        inset = centroid + 0.88 * (corners - centroid)
+        inset_closed = np.vstack([inset, inset[:1]])
+        ax.plot(
+            inset_closed[:, 0],
+            inset_closed[:, 1],
+            color="#D97706",
+            linestyle="--",
+            linewidth=1.1,
+            alpha=0.80,
+            zorder=1.1,
+        )
+
+    hopper = static_objects.get("food_hopper")
+    if hopper is not None and len(hopper) > 0:
+        pts = np.vstack([hopper, hopper[:1]]) if len(hopper) >= 3 else hopper
+        ax.plot(
+            pts[:, 0],
+            pts[:, 1],
+            color="#D97706",
+            linewidth=1.8,
+            marker="s" if len(hopper) < 3 else None,
+            markersize=5.0,
+            alpha=0.9,
+            zorder=1.5,
+            label="Food Hopper",
+        )
+
+    lixit = static_objects.get("lixit")
+    if lixit is not None and len(lixit) > 0:
+        ax.scatter(
+            lixit[:, 0],
+            lixit[:, 1],
+            c="#0F766E",
+            marker="^",
+            s=65,
+            edgecolors="#FFFFFF",
+            linewidths=0.9,
+            zorder=2.5,
+            label="Lixit",
+        )
+
+
 def export_bale_summary_figure(
     report: BaleReport,
     out_png: Path | str,
@@ -248,9 +323,30 @@ def export_bale_summary_figure(
             color="#0F172A",
         )
 
-        # Panel A: 2D Representation Scatter
+        # Panel A: 2D Representation or Arena Spatial Scatter
         ax_a = axes[0, 0]
-        if projection == "tsne" and emb.coords_tsne_2d is not None:
+        is_spatial = projection == "spatial" and report.spatial is not None
+        if is_spatial:
+            sp = report.spatial
+            assert sp is not None
+            coords = sp.coords_xy
+            unit_lbl = "normalized" if sp.normalized else "px"
+            xlab, ylab = f"Arena X ({unit_lbl})", f"Arena Y ({unit_lbl})"
+            w_bound = sp.frame_width or 1.0
+            h_bound = sp.frame_height or 1.0
+            if sp.reference_frame_gray is not None and not sp.normalized:
+                ax_a.imshow(
+                    sp.reference_frame_gray,
+                    cmap="gray",
+                    vmin=0,
+                    vmax=255,
+                    alpha=0.52,
+                    extent=(0.0, w_bound, h_bound, 0.0),
+                    interpolation="bilinear",
+                    zorder=0,
+                )
+            draw_arena_static_landmarks(ax_a, sp.static_objects)
+        elif projection == "tsne" and emb.coords_tsne_2d is not None:
             coords = emb.coords_tsne_2d
             xlab, ylab = "t-SNE Dim 1", "t-SNE Dim 2"
         elif projection == "mds" and emb.coords_mds_2d is not None:
@@ -262,12 +358,17 @@ def export_bale_summary_figure(
             xlab = f"PC1 ({v1 * 100:.1f}% var)"
             ylab = f"PC2 ({v2 * 100:.1f}% var)"
 
+        finite_xy = (
+            (np.isfinite(coords[:, 0]) & np.isfinite(coords[:, 1]))
+            if len(coords) > 0
+            else np.zeros(0, dtype=bool)
+        )
         is_pos = np.array([r.is_positive for r in records], dtype=bool)
         is_pred = np.array([r.source == "predicted" for r in records], dtype=bool)
         is_suspect = diag.confusion_scores >= 0.70
 
-        lbl_pos = (~is_pred) & is_pos
-        lbl_neg = (~is_pred) & (~is_pos)
+        lbl_pos = finite_xy & (~is_pred) & is_pos
+        lbl_neg = finite_xy & (~is_pred) & (~is_pos)
         if np.any(lbl_pos):
             ax_a.scatter(
                 coords[lbl_pos, 0],
@@ -291,36 +392,55 @@ def export_bale_summary_figure(
                 linewidths=0.6,
                 label=f"Labeled Neg/Other (n={int(np.sum(lbl_neg))})",
             )
-        if np.any(is_pred):
+        pred_plot = finite_xy & is_pred
+        if np.any(pred_plot):
             ax_a.scatter(
-                coords[is_pred, 0],
-                coords[is_pred, 1],
+                coords[pred_plot, 0],
+                coords[pred_plot, 1],
                 facecolors="#DBEAFE",
                 edgecolors="#1E40AF",
                 s=52,
                 alpha=0.85,
                 marker="^",
                 linewidths=1.2,
-                label=f"Predicted (n={int(np.sum(is_pred))})",
+                label=f"Predicted (n={int(np.sum(pred_plot))})",
             )
-        if np.any(is_suspect):
+        suspect_plot = finite_xy & is_suspect
+        if np.any(suspect_plot):
             ax_a.scatter(
-                coords[is_suspect, 0],
-                coords[is_suspect, 1],
+                coords[suspect_plot, 0],
+                coords[suspect_plot, 1],
                 facecolors="none",
                 edgecolors="#B91C1C",
                 s=115,
                 linewidths=1.8,
-                label=f"Suspect / High Doubt (n={int(np.sum(is_suspect))})",
+                label=f"Suspect / High Doubt (n={int(np.sum(suspect_plot))})",
             )
 
-        space_title_map = {
-            "classifier": "Classifier-Weighted",
-            "unsupervised": "Unsupervised",
-            "rf_proximity": "RF-Proximity",
-        }
-        space_disp = space_title_map.get(report.space, str(report.space))
-        ax_a.set_title(f"A. 2D Representation Space ({space_disp})", loc="left", color="#0F172A")
+        if is_spatial:
+            sp = report.spatial
+            assert sp is not None
+            w_bound = sp.frame_width or 1.0
+            h_bound = sp.frame_height or 1.0
+            ax_a.set_xlim(0.0, w_bound)
+            ax_a.set_ylim(h_bound, 0.0)
+            ax_a.set_aspect("equal", adjustable="box")
+            n_mapped = int(np.sum(sp.valid_mask))
+            ax_a.set_title(
+                f"A. Arena Spatial Map ({n_mapped}/{len(records)} mapped)",
+                loc="left",
+                color="#0F172A",
+            )
+        else:
+            space_title_map = {
+                "classifier": "Classifier-Weighted",
+                "unsupervised": "Unsupervised",
+                "rf_proximity": "RF-Proximity",
+            }
+            space_disp = space_title_map.get(report.space, str(report.space))
+            ax_a.set_title(
+                f"A. 2D Representation Space ({space_disp})", loc="left", color="#0F172A"
+            )
         ax_a.set_xlabel(xlab, color="#1E293B")
         ax_a.set_ylabel(ylab, color="#1E293B")
         ax_a.spines["top"].set_visible(False)

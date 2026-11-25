@@ -2561,3 +2561,90 @@ def test_custom_bout_list_search_query_preserves_rank_order() -> None:
         assert bar.current_search_hit == hits[1]
     finally:
         bar.close()
+
+
+def test_arena_spatial_map_toggle_inverted_y_zoom_and_nan_selection(tmp_path: Path) -> None:
+    """Verify `🗺 Arena [A]` toggle, `A` shortcut, inverted-Y zoom preservation, and NaN-safe selection."""
+    from jabs.bale.models import BoutSpatialResult
+
+    _ensure_qapp()
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+    central_mock = MagicMock()
+    central_mock.behavior = "Grooming"
+
+    dlg = BaleDialog(project, central_widget=central_mock)
+    try:
+        rep = run_bale(project, "Grooming", include_predictions=False, space="classifier")
+        n_bouts = len(rep.feature_matrix.records)
+        coords_xy = np.tile(np.array([[220.0, 180.0]], dtype=np.float32), (n_bouts, 1))
+        coords_xy[-1] = np.nan  # Include an unmapped NaN bout cleanly
+        valid_mask = np.ones(n_bouts, dtype=bool)
+        valid_mask[-1] = False
+        rep.spatial = BoutSpatialResult(
+            coords_xy=coords_xy,
+            nose_xy=coords_xy.copy(),
+            valid_mask=valid_mask,
+            frame_width=800.0,
+            frame_height=600.0,
+            normalized=False,
+            reference_frame_gray=np.full((300, 400), 120, dtype=np.uint8),
+            static_objects={
+                "corners": np.array(
+                    [[100, 100], [700, 100], [700, 500], [100, 500]], dtype=np.float32
+                )
+            },
+            elapsed_ms=4.2,
+        )
+        dlg._on_analysis_finished(rep, included_preds=False)
+        dlg.show()
+        QtWidgets.QApplication.processEvents()
+
+        # Toggle Arena via `[A]` shortcut
+        assert dlg._proj_method == "pca"
+        assert not dlg.arena_map_btn.isChecked()
+        ev_a = QtGui.QKeyEvent(
+            QtCore.QEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier, "a"
+        )
+        QtWidgets.QApplication.sendEvent(dlg, ev_a)
+        assert dlg._proj_method == "spatial"
+        assert dlg.arena_map_btn.isChecked()
+        assert dlg._proj_menu_actions["spatial"].isChecked()
+
+        y0, y1 = dlg.scatter_ax.get_ylim()
+        assert y0 > y1, "Arena spatial map must keep top-down inverted Y axis"
+
+        # Box zoom AND wheel zoom must preserve inverted Y (never flip upside down)
+        dlg._on_scatter_zoom_box(150.0, 350.0, 100.0, 300.0)
+        zy0, zy1 = dlg.scatter_ax.get_ylim()
+        assert zy0 > zy1
+        dlg._on_scatter_wheel_zoom(250.0, 200.0, 0.8)
+        wy0, wy1 = dlg.scatter_ax.get_ylim()
+        assert wy0 > wy1
+
+        # NaN-safe box & lasso selection must not select the NaN bout
+        dlg._on_scatter_box_selected(100.0, 400.0, 100.0, 300.0, additive=False)
+        assert (n_bouts - 1) not in dlg._lasso_selected_indices
+        poly = np.array([[100.0, 100.0], [400.0, 100.0], [400.0, 300.0], [100.0, 300.0]])
+        dlg._on_scatter_lasso_selected(poly, additive=False)
+        assert (n_bouts - 1) not in dlg._lasso_selected_indices
+
+        # Switch to Mode 3 (`3. Sub-Types`, unsupervised embedding recompute) while Arena is active
+        # and confirm cached `spatial` survives recompute_embedding_only (C1 UI regression)
+        dlg.mode_subtypes_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(2)
+        QtWidgets.QApplication.processEvents()
+        assert dlg._report is not None
+        assert dlg._report.spatial is not None
+        assert dlg._proj_method == "spatial"
+
+        # Pressing A again returns to previous feature projection and resets aspect
+        QtWidgets.QApplication.sendEvent(dlg, ev_a)
+        assert dlg._proj_method == "pca"
+        assert not dlg.arena_map_btn.isChecked()
+
+        # Mode 4 (Videos) hides the Arena button
+        dlg.mode_videos_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(3)
+        assert not dlg.arena_map_btn.isVisible()
+    finally:
+        dlg.close()

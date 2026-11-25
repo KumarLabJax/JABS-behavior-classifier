@@ -26,6 +26,7 @@ from .models import (
     BoutFeatureMatrix,
     BoutRecord,
     BoutSource,
+    BoutSpatialResult,
     ClusterAndEmbeddingResult,
     ConfusionAndOutlierResult,
     CVGroupImpact,
@@ -50,8 +51,10 @@ from .relabel_guard import (
     simulate_track_count_delta,
     summarize_cv_track_counts,
 )
+from .spatial_localization import clear_spatial_cache, extract_bout_spatial_locations
 from .trajectory_and_export import (
     BoutPoseTrajectory,
+    draw_arena_static_landmarks,
     export_bale_summary_figure,
     load_bout_pose_trajectory,
     load_pose_cached,
@@ -76,6 +79,7 @@ __all__ = [
     "BoutPoseTrajectory",
     "BoutRecord",
     "BoutSource",
+    "BoutSpatialResult",
     "CVGroupImpact",
     "ClusterAndEmbeddingResult",
     "ConfusionAndOutlierResult",
@@ -93,6 +97,7 @@ __all__ = [
     "apply_bout_edit",
     "classify_video_outliers",
     "clear_bout_extractor_cache",
+    "clear_spatial_cache",
     "collect_labeled_bout_records",
     "collect_predicted_bout_records",
     "compute_clustering_and_embedding",
@@ -102,6 +107,7 @@ __all__ = [
     "evaluate_cv_group_impact",
     "export_bale_summary_figure",
     "extract_bout_feature_matrix",
+    "extract_bout_spatial_locations",
     "filter_video_records",
     "find_dual_class_pairing_candidate",
     "invalidate_track_cache",

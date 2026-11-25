@@ -10,7 +10,7 @@ import pandas as pd
 
 BoutSource = Literal["labeled", "predicted"]
 RepresentationSpace = Literal["classifier", "unsupervised", "rf_proximity"]
-ProjectionMethod = Literal["pca", "tsne", "mds"]
+ProjectionMethod = Literal["pca", "tsne", "mds", "spatial"]
 SubtypeScope = Literal["pos_only", "all_labeled"]
 FeatureLens = Literal["all", "intrinsic", "locomotion", "posture", "social", "classifier_weighted"]
 
@@ -130,6 +130,23 @@ class CVGroupImpact:
 
 
 @dataclass
+class BoutSpatialResult:
+    """2D arena coordinates (`(x, y)`) and optional background landmarks for bouts."""
+
+    coords_xy: np.ndarray  # shape: (N_bouts, 2), dtype=float32 (median body centroid)
+    nose_xy: np.ndarray  # shape: (N_bouts, 2), dtype=float32 (median nose position)
+    valid_mask: np.ndarray  # shape: (N_bouts,), dtype=bool
+    frame_width: float | None = None
+    frame_height: float | None = None
+    normalized: bool = False
+    reference_frame_gray: np.ndarray | None = None
+    reference_video: str | None = None
+    static_objects: dict[str, np.ndarray] = field(default_factory=dict)
+    cm_per_pixel: float | None = None
+    elapsed_ms: float = 0.0
+
+
+@dataclass
 class BaleReport:
     """Complete analysis output for `jabs.bale`."""
 
@@ -146,6 +163,7 @@ class BaleReport:
     timings_ms: dict[str, float] = field(default_factory=dict)
     cv_track_counts: dict[tuple[str, int], tuple[int, int]] = field(default_factory=dict)
     include_all_multiclass: bool = False
+    spatial: BoutSpatialResult | None = None
 
     def to_dataframe(self, exclude_bout_ids: set[int] | None = None) -> pd.DataFrame:
         """Convert all bout records, coordinates, and diagnostic scores to a DataFrame."""
@@ -193,51 +211,55 @@ class BaleReport:
                 else:
                     action = "Keep (Clean)"
 
-            rows.append(
-                {
-                    "bout_id": rec.bout_id,
-                    "source": rec.source,
-                    "video": rec.video,
-                    "identity": rec.identity,
-                    "behavior": rec.behavior,
-                    "class_name": rec.class_name,
-                    "is_positive": rec.is_positive,
-                    "start_frame": rec.start_frame,
-                    "end_frame": rec.end_frame,
-                    "duration_frames": rec.duration_frames,
-                    "is_label_halo": bool(rec.is_label_halo),
-                    "halo_side": rec.halo_side,
-                    "halo_distance_frames": rec.halo_distance_frames,
-                    "valid_pose_fraction": round(float(rec.valid_pose_fraction), 4),
-                    "confusion_score": round(float(diag.confusion_scores[idx]), 4),
-                    "confusion_or_doubt_score": round(float(diag.confusion_scores[idx]), 4),
-                    "oof_or_pred_prob": round(float(diag.oof_mean_probs[idx]), 4),
-                    "knn_disagreement": round(float(diag.knn_disagreement[idx]), 4),
-                    "transition_score": round(float(diag.transition_scores[idx]), 4),
-                    "postproc_fragility": round(float(rec.postproc_fragility), 4),
-                    "outlier_score": round(float(diag.outlier_scores[idx]), 4),
-                    "outlier_votes_5": int(diag.outlier_votes[idx]),
-                    "ood_score": round(float(diag.ood_scores[idx]), 4),
-                    "cluster_id": int(emb.cluster_labels[idx]),
-                    "pc1": round(float(emb.coords_pca_2d[idx, 0]), 4),
-                    "pc2": round(float(emb.coords_pca_2d[idx, 1]), 4),
-                    "tsne1": (
-                        round(float(emb.coords_tsne_2d[idx, 0]), 4)
-                        if emb.coords_tsne_2d is not None
-                        else float("nan")
-                    ),
-                    "tsne2": (
-                        round(float(emb.coords_tsne_2d[idx, 1]), 4)
-                        if emb.coords_tsne_2d is not None
-                        else float("nan")
-                    ),
-                    "suggested_trim_start": trim[0] if trim is not None else None,
-                    "suggested_trim_end": trim[1] if trim is not None else None,
-                    "suggested_split_frame": split_f,
-                    "top_divergent_features": top_feat_str,
-                    "recommended_action": action,
-                }
-            )
+            row_dict: dict[str, Any] = {
+                "bout_id": rec.bout_id,
+                "source": rec.source,
+                "video": rec.video,
+                "identity": rec.identity,
+                "behavior": rec.behavior,
+                "class_name": rec.class_name,
+                "is_positive": rec.is_positive,
+                "start_frame": rec.start_frame,
+                "end_frame": rec.end_frame,
+                "duration_frames": rec.duration_frames,
+                "is_label_halo": bool(rec.is_label_halo),
+                "halo_side": rec.halo_side,
+                "halo_distance_frames": rec.halo_distance_frames,
+                "valid_pose_fraction": round(float(rec.valid_pose_fraction), 4),
+                "confusion_score": round(float(diag.confusion_scores[idx]), 4),
+                "confusion_or_doubt_score": round(float(diag.confusion_scores[idx]), 4),
+                "oof_or_pred_prob": round(float(diag.oof_mean_probs[idx]), 4),
+                "knn_disagreement": round(float(diag.knn_disagreement[idx]), 4),
+                "transition_score": round(float(diag.transition_scores[idx]), 4),
+                "postproc_fragility": round(float(rec.postproc_fragility), 4),
+                "outlier_score": round(float(diag.outlier_scores[idx]), 4),
+                "outlier_votes_5": int(diag.outlier_votes[idx]),
+                "ood_score": round(float(diag.ood_scores[idx]), 4),
+                "cluster_id": int(emb.cluster_labels[idx]),
+                "pc1": round(float(emb.coords_pca_2d[idx, 0]), 4),
+                "pc2": round(float(emb.coords_pca_2d[idx, 1]), 4),
+                "tsne1": (
+                    round(float(emb.coords_tsne_2d[idx, 0]), 4)
+                    if emb.coords_tsne_2d is not None
+                    else float("nan")
+                ),
+                "tsne2": (
+                    round(float(emb.coords_tsne_2d[idx, 1]), 4)
+                    if emb.coords_tsne_2d is not None
+                    else float("nan")
+                ),
+                "suggested_trim_start": trim[0] if trim is not None else None,
+                "suggested_trim_end": trim[1] if trim is not None else None,
+                "suggested_split_frame": split_f,
+                "top_divergent_features": top_feat_str,
+                "recommended_action": action,
+            }
+            if self.spatial is not None and idx < len(self.spatial.coords_xy):
+                sx = float(self.spatial.coords_xy[idx, 0])
+                sy = float(self.spatial.coords_xy[idx, 1])
+                row_dict["spatial_x"] = round(sx, 4) if np.isfinite(sx) else float("nan")
+                row_dict["spatial_y"] = round(sy, 4) if np.isfinite(sy) else float("nan")
+            rows.append(row_dict)
         return pd.DataFrame(rows)
 
     def to_dict(self, top_n: int = 50) -> dict[str, Any]:
