@@ -30,6 +30,8 @@ JABS already stores interval annotations under `"annotations": [...]` in `jabs/a
 
 ![Candidate GUI Mockups for In-Track #Hashtag Comments and Controlled Vocabulary](imgs/hashtag_gui_options_mockup.png)
 
+> **Interactive Prototype:** Open [jabs-hashtag-gui-mockups.html](jabs-hashtag-gui-mockups.html) in any browser to test `#` hotkey entry, single-frame vs. span switching, controlled-vocabulary autocomplete (`#sha` / `#wds` → `#shake`), bottom `1s` ticks + whole-video ruler pins, clickable `#tag` live links, and live JSON schema preview.
+
 ### Key Interaction & Timeline Geometry Decisions
 
 1. **Zero Extra Timeline Tracks — Collision-Free `Manual` Markers:**
