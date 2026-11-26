@@ -290,7 +290,6 @@ def _build_real_disk_project(
                 ident,
                 project.feature_dir,
                 pose_est,
-                fps=30,
                 op_settings=defaults,
                 cache_format=CacheFormat.PARQUET,
             )
@@ -409,7 +408,6 @@ def _train_and_predict_project(
                 identity,
                 project.feature_dir,
                 pose_est,
-                fps=pose_est.fps,
                 op_settings=settings,
                 cache_format=project.cache_format,
             )

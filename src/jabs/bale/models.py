@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 BoutSource = Literal["labeled", "predicted"]
@@ -133,15 +134,15 @@ class CVGroupImpact:
 class BoutSpatialResult:
     """2D arena coordinates (`(x, y)`) and optional background landmarks for bouts."""
 
-    coords_xy: np.ndarray  # shape: (N_bouts, 2), dtype=float32 (median body centroid)
-    nose_xy: np.ndarray  # shape: (N_bouts, 2), dtype=float32 (median nose position)
-    valid_mask: np.ndarray  # shape: (N_bouts,), dtype=bool
+    coords_xy: npt.NDArray[np.float32]  # shape: (N_bouts, 2), median body centroid
+    nose_xy: npt.NDArray[np.float32]  # shape: (N_bouts, 2), median nose position
+    valid_mask: npt.NDArray[np.bool_]  # shape: (N_bouts,)
     frame_width: float | None = None
     frame_height: float | None = None
     normalized: bool = False
-    reference_frame_gray: np.ndarray | None = None
+    reference_frame_gray: npt.NDArray[np.uint8] | None = None
     reference_video: str | None = None
-    static_objects: dict[str, np.ndarray] = field(default_factory=dict)
+    static_objects: dict[str, npt.NDArray[np.float32]] = field(default_factory=dict)
     cm_per_pixel: float | None = None
     elapsed_ms: float = 0.0
 

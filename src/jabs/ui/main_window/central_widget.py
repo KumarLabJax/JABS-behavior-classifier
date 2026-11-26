@@ -2686,7 +2686,6 @@ class CentralWidget(QtWidgets.QWidget):
 
         # refresh video player to show updated annotation
         self._player_widget.update()
-        self.labels_modified.emit()
 
     def on_annotation_deleted(self, payload: dict) -> None:
         """Handle the event when an existing annotation is deleted.
@@ -2714,13 +2713,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         # refresh video player to show updated annotation
         self._player_widget.update()
-        self.labels_modified.emit()
 
     def _save_and_refresh_annotations(self) -> None:
         """Persist annotation changes and update UI widgets."""
         self._project.save_annotations(self._labels, self._pose_est)
         self._player_widget.update()
-        self.labels_modified.emit()
 
     # ========== BALE (Bout & Label Explorer) Navigation & Sync Helpers ==========
 

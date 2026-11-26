@@ -215,7 +215,7 @@ def _build_synthetic_explorer_project(tmp_path: Path) -> tuple[MagicMock, Path]:
     pose_mock.identity_mask.return_value = np.ones(n_frames, dtype=bool)
     project.load_pose_est.return_value = pose_mock
 
-    def _mock_load_video_labels(v_name: str) -> VideoLabels:
+    def _mock_load_video_labels(v_name: str, _pose: object = None) -> VideoLabels:
         stem = Path(v_name).stem
         doc = json.loads((anno_dir / f"{stem}.json").read_text())
         return VideoLabels.load(doc)
@@ -1357,7 +1357,7 @@ def test_prediction_synthesis_when_h5_missing_multiclass_exclusivity(tmp_path: P
         "window_size": 10,
     }
     proj.video_manager.videos = videos
-    proj.video_manager.load_video_labels.side_effect = lambda vn: VideoLabels.load(
+    proj.video_manager.load_video_labels.side_effect = lambda vn, _pose=None: VideoLabels.load(
         json.loads((anno_dir / f"{Path(vn).stem}.json").read_text())
     )
     proj.load_pose_est.return_value = pose_mock
@@ -2104,56 +2104,54 @@ def test_video_screener_nan_probs_unlabeled_source_labels_guard_and_edge_cases(
 
 
 def test_extract_bout_spatial_localization_v4_h5_and_cache(tmp_path: Path) -> None:
-    """Verify fast HDF5 `(y, x)->(x, y)` spatial extraction, static landmarks, cache hit, and NaN safety."""
+    """Verify unified `Pose` spatial extraction, static landmarks, warm LRU cache, and NaN safety."""
     import h5py
 
     from jabs.bale import clear_spatial_cache, extract_bout_spatial_locations
     from jabs.bale.models import BoutRecord
+    from jabs.pose_estimation import open_pose_file
 
     clear_spatial_cache()
     proj_dir = tmp_path / "spatial_proj"
     cache_dir = proj_dir / "jabs" / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Synthetic v8 HDF5 with raw (y, x) keypoints + dummy seg_data (must be skipped)
-    pose_path = proj_dir / "vid_a_pose_est_v8.h5"
-    n_frames, n_slots, n_kpts = 60, 2, 12
-    pts_yx = np.zeros((n_frames, n_slots, n_kpts, 2), dtype=np.float32)
-    conf = np.full((n_frames, n_slots, n_kpts), 0.9, dtype=np.float32)
-    id_mask = np.zeros((n_frames, n_slots), dtype=np.uint8)
-    embed_id = np.zeros((n_frames, n_slots), dtype=np.int32)
+    # Synthetic v3 HDF5 with raw (y, x) keypoints + static landmarks, opened via unified `open_pose_file`
+    pose_path = proj_dir / "vid_a_pose_est_v3.h5"
+    n_frames, n_mice, n_kpts = 60, 2, 12
+    pts_yx = np.zeros((n_frames, n_mice, n_kpts, 2), dtype=np.uint16)
+    conf = np.full((n_frames, n_mice, n_kpts), 0.9, dtype=np.float32)
+    icount = np.full((n_frames,), n_mice, dtype=np.uint8)
+    itrack = np.broadcast_to(np.arange(1, n_mice + 1, dtype=np.uint32), (n_frames, n_mice)).copy()
 
-    # Put identity 0 (embed_id=1) in slot 1 at (x=150, y=320) -> stored in raw H5 as (y=320, x=150)
-    embed_id[:, 1] = 1
-    pts_yx[:, 1, :, 0] = 320.0
-    pts_yx[:, 1, :, 1] = 150.0
-    # Put nose slightly offset (x=170, y=310) -> stored as (y=310, x=170)
-    pts_yx[:, 1, 0, 0] = 310.0
-    pts_yx[:, 1, 0, 1] = 170.0
-    # Frame window [40..59] for identity 0 is completely masked out (NaN bout)
-    id_mask[40:, 1] = 1
+    # Identity 0 at (x=150, y=320) -> stored in raw H5 as (y=320, x=150)
+    pts_yx[:, 0, :, 0] = 320
+    pts_yx[:, 0, :, 1] = 150
+    # Nose slightly offset (x=170, y=310) -> stored as (y=310, x=170)
+    pts_yx[:, 0, 0, 0] = 310
+    pts_yx[:, 0, 0, 1] = 170
+    # Frame window [40..59] for identity 0 has low confidence -> masked out (NaN bout)
+    conf[40:, 0, :] = 0.05
 
-    # Put identity 1 (embed_id=2) in slot 0 at (x=420, y=180)
-    embed_id[:, 0] = 2
-    pts_yx[:, 0, :, 0] = 180.0
-    pts_yx[:, 0, :, 1] = 420.0
+    # Identity 1 at (x=420, y=180)
+    pts_yx[:, 1, :, 0] = 180
+    pts_yx[:, 1, :, 1] = 420
 
     with h5py.File(pose_path, "w") as hf:
         grp = hf.create_group("poseest")
-        grp.attrs["version"] = np.array([8, 0, 0], dtype=np.int32)
+        grp.attrs["version"] = np.array([3, 0], dtype=np.uint16)
         grp.attrs["cm_per_pixel"] = 0.05
         grp.create_dataset("points", data=pts_yx)
         grp.create_dataset("confidence", data=conf)
-        grp.create_dataset("id_mask", data=id_mask)
-        grp.create_dataset("instance_embed_id", data=embed_id)
-        grp.create_dataset("instance_id_center", data=np.zeros((2, 2), dtype=np.float32))
+        grp.create_dataset("instance_count", data=icount)
+        grp.create_dataset("instance_track_id", data=itrack)
         so = hf.create_group("static_objects")
         # corners are stored (x, y); lixit/food_hopper are stored (y, x) in raw HDF5
         so.create_dataset(
             "corners",
             data=np.array([[100, 100], [500, 100], [100, 400], [500, 400]], dtype=np.float32),
         )
-        so.create_dataset("lixit", data=np.array([[90, 260]], dtype=np.float32))  # y=90, x=260
+        so.create_dataset("lixit", data=np.array([[90, 260]], dtype=np.uint16))  # y=90, x=260
 
     project = MagicMock()
     project.dir = proj_dir
@@ -2161,6 +2159,7 @@ def test_extract_bout_spatial_localization_v4_h5_and_cache(tmp_path: Path) -> No
     project.project_paths.cache_dir = cache_dir
     project.video_manager.get_cached_pose_path.return_value = pose_path
     project.video_manager.video_path.return_value = proj_dir / "vid_a.mp4"
+    project.load_pose_est.side_effect = lambda _vp: open_pose_file(pose_path, cache_dir=cache_dir)
 
     records = [
         BoutRecord(
@@ -2216,12 +2215,13 @@ def test_extract_bout_spatial_localization_v4_h5_and_cache(tmp_path: Path) -> No
     assert sp.cm_per_pixel == pytest.approx(0.05)
     assert "corners" in sp.static_objects
     assert "lixit" in sp.static_objects
-    # Raw (y=90, x=260) flipped cleanly to (x=260, y=90)
     assert sp.static_objects["lixit"][0, 0] == pytest.approx(260.0)
     assert sp.static_objects["lixit"][0, 1] == pytest.approx(90.0)
+    assert project.load_pose_est.call_count == 1
 
-    # Second call hits warm LRU cache cleanly
+    # Second call hits warm spatial LRU cache cleanly without reopening pose
     sp_warm = extract_bout_spatial_locations(project, records)
+    assert project.load_pose_est.call_count == 1
     assert np.allclose(sp_warm.coords_xy[:2], sp.coords_xy[:2])
 
 
@@ -2292,13 +2292,14 @@ def test_spatial_mixed_resolution_normalization_and_export(tmp_path: Path) -> No
 
 
 def test_spatial_cache_v5_min_keypoints_truncated_and_mp4_header(tmp_path: Path) -> None:
-    """Verify Tier-2 v5 cache, `min_valid_keypoints=3`, truncated H5 NaN safety, and MP4 header parser."""
+    """Verify unified `Pose` `min_valid_keypoints=3`, truncated frames NaN safety, and MP4 header parser."""
     import cv2
     import h5py
 
     from jabs.bale import clear_spatial_cache, extract_bout_spatial_locations
     from jabs.bale.models import BoutRecord
     from jabs.bale.spatial_localization import _read_mp4_dimensions
+    from jabs.pose_estimation import open_pose_file
 
     clear_spatial_cache()
     proj_dir = tmp_path / "tier2_proj"
@@ -2312,30 +2313,32 @@ def test_spatial_cache_v5_min_keypoints_truncated_and_mp4_header(tmp_path: Path)
     writer.release()
     assert _read_mp4_dimensions(mp4_path) == (800.0, 600.0)
 
-    # C2 + M5 + M7 regression: Tier-2 v5 *_cache.h5 (no raw H5), <=2 valid keypoints -> NaN, truncated frames -> NaN
-    raw_pose_missing = proj_dir / "vid_b_pose_est_v8.h5"
-    cache_h5_path = cache_dir / "vid_b_pose_est_v8_cache.h5"
+    # <=2 valid keypoints -> NaN, truncated frames -> NaN through unified `Pose`
+    pose_path = proj_dir / "vid_b_pose_est_v3.h5"
     n_id, n_frames, n_kpts = 1, 40, 12
-    pts_xy = np.full((n_id, n_frames, n_kpts, 2), np.array([240.0, 310.0], dtype=np.float32))
-    pt_mask = np.ones((n_id, n_frames, n_kpts), dtype=bool)
+    pts_yx = np.full((n_frames, n_id, n_kpts, 2), np.array([310, 240], dtype=np.uint16))
+    conf = np.full((n_frames, n_id, n_kpts), 0.95, dtype=np.float32)
     # Frames 20..39 only have 2 valid keypoints (< _MIN_VALID_KEYPOINTS=3) -> must become NaN
-    pt_mask[:, 20:40, 2:] = False
-    ident_mask = np.ones((n_id, n_frames), dtype=bool)
+    conf[20:40, :, 2:] = 0.05
+    icount = np.full((n_frames,), n_id, dtype=np.uint8)
+    itrack = np.ones((n_frames, n_id), dtype=np.uint32)
 
-    with h5py.File(cache_h5_path, "w") as ch5:
-        ch5.attrs["cache_file_version"] = 5
-        grp = ch5.create_group("poseest")
+    with h5py.File(pose_path, "w") as hf:
+        grp = hf.create_group("poseest")
+        grp.attrs["version"] = np.array([3, 0], dtype=np.uint16)
         grp.attrs["cm_per_pixel"] = 0.05
-        grp.create_dataset("points", data=pts_xy)
-        grp.create_dataset("point_mask", data=pt_mask)
-        grp.create_dataset("identity_mask", data=ident_mask)
+        grp.create_dataset("points", data=pts_yx)
+        grp.create_dataset("confidence", data=conf)
+        grp.create_dataset("instance_count", data=icount)
+        grp.create_dataset("instance_track_id", data=itrack)
 
     project = MagicMock()
     project.dir = proj_dir
     project._paths.cache_dir = cache_dir
     project.project_paths.cache_dir = cache_dir
-    project.video_manager.get_cached_pose_path.return_value = raw_pose_missing
+    project.video_manager.get_cached_pose_path.return_value = pose_path
     project.video_manager.video_path.return_value = mp4_path
+    project.load_pose_est.side_effect = lambda _vp: open_pose_file(pose_path, cache_dir=cache_dir)
 
     records = [
         BoutRecord(
@@ -2385,7 +2388,7 @@ def test_spatial_cache_v5_min_keypoints_truncated_and_mp4_header(tmp_path: Path)
 
 
 def test_perf_sliced_pose_and_annotation_proxy_bypass_full_pose_load(tmp_path: Path) -> None:
-    """C1 regression: sliced H5 trajectory + annotation proxy skip `project.load_pose_est` and keep LRU<=4."""
+    """Verify unified `load_pose_cached` + `_POSE_META_CACHE` keep `LRU<=4` and reuse loaded poses."""
     import h5py
 
     from jabs.bale.trajectory_and_export import (
@@ -2394,6 +2397,7 @@ def test_perf_sliced_pose_and_annotation_proxy_bypass_full_pose_load(tmp_path: P
         load_annotation_pose_proxy,
         load_bout_pose_trajectory,
     )
+    from jabs.pose_estimation import open_pose_file
 
     assert _POSE_LRU_MAX == 4
     clear_pose_cache()
@@ -2401,55 +2405,59 @@ def test_perf_sliced_pose_and_annotation_proxy_bypass_full_pose_load(tmp_path: P
     proj_dir = tmp_path / "sliced_pose_proj"
     cache_dir = proj_dir / "jabs" / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    pose_path = proj_dir / "vid_a_pose_est_v8.h5"
+    pose_path = proj_dir / "vid_a_pose_est_v3.h5"
 
-    n_frames, n_slots, n_kpts = 50, 2, 12
-    # Raw pose stores (y, x) coordinates; loader flips to (x, y)
-    pts_yx = np.zeros((n_frames, n_slots, n_kpts, 2), dtype=np.float32)
-    pts_yx[:, 0, :, 0] = 120.0  # y
-    pts_yx[:, 0, :, 1] = 340.0  # x
-    pts_yx[:, 1, :, 0] = 220.0  # y
-    pts_yx[:, 1, :, 1] = 440.0  # x
-    conf = np.full((n_frames, n_slots, n_kpts), 0.9, dtype=np.float32)
-    id_mask = np.zeros((n_frames, n_slots), dtype=np.int32)
-    embed_id = np.tile(np.array([[1, 2]], dtype=np.int32), (n_frames, 1))
+    n_frames, n_mice, n_kpts = 50, 2, 12
+    # Raw pose stores (y, x) coordinates; unified Pose exposes (x, y)
+    pts_yx = np.zeros((n_frames, n_mice, n_kpts, 2), dtype=np.uint16)
+    pts_yx[:, 0, :, 0] = 120  # y
+    pts_yx[:, 0, :, 1] = 340  # x
+    pts_yx[:, 1, :, 0] = 220  # y
+    pts_yx[:, 1, :, 1] = 440  # x
+    conf = np.full((n_frames, n_mice, n_kpts), 0.9, dtype=np.float32)
+    icount = np.full((n_frames,), n_mice, dtype=np.uint8)
+    itrack = np.broadcast_to(np.arange(1, n_mice + 1, dtype=np.uint32), (n_frames, n_mice)).copy()
 
     with h5py.File(pose_path, "w") as hf:
         grp = hf.create_group("poseest")
+        grp.attrs["version"] = np.array([3, 0], dtype=np.uint16)
         grp.create_dataset("points", data=pts_yx)
         grp.create_dataset("confidence", data=conf)
-        grp.create_dataset("id_mask", data=id_mask)
-        grp.create_dataset("instance_embed_id", data=embed_id)
-        grp.create_dataset("instance_id_center", data=np.zeros((2, 2), dtype=np.float32))
+        grp.create_dataset("instance_count", data=icount)
+        grp.create_dataset("instance_track_id", data=itrack)
 
-    # Avoid MagicMock `.assert_called` bypass so sliced H5 path is exercised directly
-    class _NoFullPoseProject:
+    class _CountingPoseProject:
         def __init__(self, d: Path) -> None:
             self.dir = d
             self.video_manager = _VM(d)
+            self.load_calls = 0
 
-        def load_pose_est(self, _video_path: Path) -> None:
-            raise AssertionError("Full PoseEstimation load should not be called on raw v4-v8 H5")
+        def load_pose_est(self, _video_path: Path):
+            self.load_calls += 1
+            return open_pose_file(pose_path, cache_dir=cache_dir)
 
     class _VM:
         def __init__(self, d: Path) -> None:
             self._d = d
 
         def get_cached_pose_path(self, _video: str) -> Path:
-            return self._d / "vid_a_pose_est_v8.h5"
+            return self._d / "vid_a_pose_est_v3.h5"
 
         def video_path(self, video: str) -> Path:
             return self._d / video
 
-    proj = _NoFullPoseProject(proj_dir)
+    proj = _CountingPoseProject(proj_dir)
     traj = load_bout_pose_trajectory(proj, "vid_a.mp4", identity=0, start_frame=10, end_frame=24)  # type: ignore[arg-type]
+    assert proj.load_calls == 1
     assert len(traj.frames) == 15
     assert traj.nose_xy[:, 0].mean() == pytest.approx(340.0, abs=1e-4)
     assert traj.nose_xy[:, 1].mean() == pytest.approx(120.0, abs=1e-4)
     assert 1 in traj.partner_centroids_xy
     assert traj.partner_centroids_xy[1][:, 0].mean() == pytest.approx(440.0, abs=1e-4)
 
+    # Warm hits reuse cached Pose / proxy without re-calling `load_pose_est`
     proxy = load_annotation_pose_proxy(proj, "vid_a.mp4")  # type: ignore[arg-type]
+    assert proj.load_calls == 1
     assert proxy.num_frames == n_frames
     assert bool(proxy.identity_mask(0)[15]) is True
     assert proxy.identity_index_to_display(1) == "1"
@@ -2602,7 +2610,7 @@ def test_pr608_review_hdf5_feature_cache_frame_valid_static_objects_and_invalida
     from jabs.project import VideoLabels
 
     project.video_manager.videos = [video_name]
-    project.video_manager.load_video_labels.side_effect = lambda _v: VideoLabels.load(
+    project.video_manager.load_video_labels.side_effect = lambda _v, _pose=None: VideoLabels.load(
         json.loads((anno_dir / f"{stem}.json").read_text())
     )
     project.settings_manager.is_video_excluded.return_value = False
@@ -2672,3 +2680,192 @@ def test_pr608_review_relabel_guard_pairing_uses_pose_proxy(tmp_path: Path) -> N
     assert pose_calls[0] is not None
     # Verify rep stays unused warning-free
     assert rep.behavior == "Grooming"
+
+
+def test_pr608_round2_core_bugs_and_warnings(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify PR #608 round-2 core fixes: MDS scope guard, spatial byte budget, unreadable dims warn, HDF5 warn."""
+    import logging
+
+    import cv2
+
+    import jabs.bale.bout_extractor as be
+    import jabs.bale.spatial_localization as sl
+    from jabs.bale import clear_spatial_cache, extract_bout_spatial_locations
+    from jabs.bale.models import BoutRecord
+    from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+    from jabs.feature_extraction.features import FEATURE_VERSION
+    from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
+
+    clear_bout_extractor_cache()
+    clear_spatial_cache()
+
+    # 1. Stale MDS must NOT be reused across subtype_scope / feature_lens / space / target_behavior changes
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+    rep_mds = run_bale(
+        project,
+        "Grooming",
+        include_predictions=False,
+        space="classifier",
+        subtype_scope="pos_only",
+        compute_mds=True,
+    )
+    assert rep_mds.embedding.coords_mds_2d is not None
+    rep_pca_changed_scope = recompute_embedding_only(
+        rep_mds,
+        space="classifier",
+        subtype_scope="all_labeled",
+        compute_mds=False,
+    )
+    assert rep_pca_changed_scope.embedding.coords_mds_2d is None
+    rep_pca_changed_lens = recompute_embedding_only(
+        rep_mds,
+        space="classifier",
+        subtype_scope="pos_only",
+        feature_lens="locomotion",
+        compute_mds=False,
+    )
+    assert rep_pca_changed_lens.embedding.coords_mds_2d is None
+    rep_pca_same = recompute_embedding_only(
+        rep_mds,
+        space="classifier",
+        subtype_scope="pos_only",
+        compute_mds=False,
+    )
+    assert rep_pca_same.embedding.coords_mds_2d is rep_mds.embedding.coords_mds_2d
+
+    # 2. Byte-budgeted `_SPATIAL_VIDEO_CACHE` evicts LRU entries once budget is exceeded
+    monkeypatch.setattr(sl, "_MAX_SPATIAL_CACHE_BYTES", 1024)
+    e1 = sl._CachedVideoSpatial(
+        s_offset=0,
+        n_frames_total=40,
+        body_xy=np.zeros((1, 40, 2), dtype=np.float32),
+        nose_xy=np.zeros((1, 40, 2), dtype=np.float32),
+    )
+    e2 = sl._CachedVideoSpatial(
+        s_offset=0,
+        n_frames_total=40,
+        body_xy=np.ones((1, 40, 2), dtype=np.float32),
+        nose_xy=np.ones((1, 40, 2), dtype=np.float32),
+    )
+    assert e1.nbytes == 640
+    sl._spatial_cache_put(("k1", 1, 1), e1)
+    sl._spatial_cache_put(("k2", 1, 1), e2)
+    assert len(sl._SPATIAL_VIDEO_CACHE) == 1
+    assert sl._SPATIAL_CACHE_BYTES == 640
+    assert sl._spatial_cache_get(("k1", 1, 1)) is None
+    assert sl._spatial_cache_get(("k2", 1, 1)) is e2
+    clear_spatial_cache()
+    assert sl._SPATIAL_CACHE_BYTES == 0
+
+    # 3. Normalized mode skips & warns on videos with unreadable dimensions
+    mix_dir = tmp_path / "mix_dims_proj"
+    mix_dir.mkdir(parents=True)
+    for name, w, h in (("v0.mp4", 800, 800), ("v1.mp4", 1600, 1200)):
+        writer = cv2.VideoWriter(
+            str(mix_dir / name), cv2.VideoWriter_fourcc(*"mp4v"), 15.0, (w, h)
+        )
+        writer.write(np.full((h, w, 3), 100, dtype=np.uint8))
+        writer.release()
+
+    def _pose_stub(_vp: Path):
+        p = MagicMock()
+        p.identities = [0]
+        p.num_frames = 30
+        p.cm_per_pixel = None
+        p.static_objects = {}
+        pts = np.tile(np.array([200.0, 300.0], dtype=np.float32), (30, 12, 1))
+        msk = np.ones((30, 12), dtype=bool)
+        p.get_identity_poses.return_value = (pts, msk)
+        return p
+
+    mix_proj = MagicMock()
+    mix_proj.dir = mix_dir
+    mix_proj.video_manager.video_path.side_effect = lambda v: mix_dir / Path(v).name
+    mix_proj.video_manager.get_cached_pose_path.side_effect = lambda v: mix_dir / f"{v}.missing.h5"
+    mix_proj.load_pose_est.side_effect = _pose_stub
+
+    mix_recs = [
+        BoutRecord(
+            bout_id=0,
+            source="labeled",
+            video="v0.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Grooming",
+            is_positive=True,
+            start_frame=1,
+            end_frame=10,
+            duration_frames=10,
+        ),
+        BoutRecord(
+            bout_id=1,
+            source="labeled",
+            video="v1.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Grooming",
+            is_positive=True,
+            start_frame=1,
+            end_frame=10,
+            duration_frames=10,
+        ),
+        BoutRecord(
+            bout_id=2,
+            source="labeled",
+            video="v_unreadable.mp4",
+            identity=0,
+            behavior="Grooming",
+            class_name="Grooming",
+            is_positive=True,
+            start_frame=1,
+            end_frame=10,
+            duration_frames=10,
+        ),
+    ]
+    with caplog.at_level(logging.WARNING):
+        sp_mix = extract_bout_spatial_locations(mix_proj, mix_recs, include_reference_frame=False)
+    assert sp_mix.normalized is True
+    assert list(sp_mix.valid_mask) == [True, True, False]
+    assert not np.isfinite(sp_mix.coords_xy[2]).any()
+    assert any("unreadable video dimensions" in r.message for r in caplog.records)
+
+    # 4. HDF5FeatureCacheReader failure logs a warning before falling back to direct HDF5 read
+    h5_proj_dir = tmp_path / "h5_warn_proj"
+    feat_dir = h5_proj_dir / "jabs" / "features"
+    id_dir = feat_dir / "vid_warn" / "0"
+    HDF5FeatureCacheWriter().write_per_frame(
+        id_dir,
+        FeatureCacheMetadata(
+            feature_version=FEATURE_VERSION,
+            identity=0,
+            num_frames=20,
+            pose_hash="h1",
+            distance_scale_factor=None,
+            avg_wall_length=None,
+            cached_window_sizes=frozenset(),
+        ),
+        PerFrameCacheData(
+            frame_valid=np.ones(20, dtype=np.uint8),
+            features={"nose_speed": np.ones(20, dtype=np.float32)},
+        ),
+    )
+    monkeypatch.setattr(
+        HDF5FeatureCacheReader,
+        "read_per_frame",
+        lambda *_a, **_kw: (_ for _ in ()).throw(ValueError("simulated cache mismatch")),
+    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        loaded = be.load_track_per_frame_array(
+            h5_proj_dir,
+            "vid_warn.mp4",
+            0,
+            use_social=False,
+            use_segmentation=False,
+            feature_dir=feat_dir,
+        )
+    assert loaded is not None
+    assert any("HDF5FeatureCacheReader failed" in r.message for r in caplog.records)
+    clear_bout_extractor_cache()

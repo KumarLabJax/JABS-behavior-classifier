@@ -241,11 +241,18 @@ def recompute_embedding_only(
         forced_k=forced_k,
     )
     n_recs = len(report.feature_matrix.records)
+    embedding_context_unchanged = (
+        new_space == report.space
+        and new_lens == report.embedding.feature_lens
+        and new_scope == report.embedding.subtype_scope
+        and target_behavior == report.embedding.target_behavior
+    )
     if (
         not compute_mds
         and new_emb.coords_mds_2d is None
         and report.embedding.coords_mds_2d is not None
         and len(report.embedding.coords_mds_2d) == n_recs
+        and embedding_context_unchanged
     ):
         new_emb.coords_mds_2d = report.embedding.coords_mds_2d
     if (
@@ -253,10 +260,7 @@ def recompute_embedding_only(
         and new_emb.coords_tsne_2d is None
         and report.embedding.coords_tsne_2d is not None
         and len(report.embedding.coords_tsne_2d) == n_recs
-        and new_space == report.space
-        and new_lens == report.embedding.feature_lens
-        and new_scope == report.embedding.subtype_scope
-        and target_behavior == report.embedding.target_behavior
+        and embedding_context_unchanged
     ):
         new_emb.coords_tsne_2d = report.embedding.coords_tsne_2d
     warm_ms = (time.perf_counter() - t0) * 1000.0

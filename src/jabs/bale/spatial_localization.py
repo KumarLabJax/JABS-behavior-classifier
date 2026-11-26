@@ -4,18 +4,13 @@ Computes per-bout median body centroid and nose coordinates (`(x, y)` in pixels,
 or normalized `[0, 1]` when mixing video resolutions) alongside optional arena
 reference frame imagery and static landmarks (`corners`, `food_hopper`, `lixit`).
 
-Design prioritizes sub-second latency on large (100-465 video) projects:
-1. Bounded LRU caches keyed by `(resolved_path, mtime_ns, size)` of the exact
-   backing file loaded avoid stale entries across retracked pose files.
+Design prioritizes sub-second latency and bounded memory on large (100-465 video) projects:
+1. Bounded byte-budgeted LRU caches keyed by `(resolved_path, mtime_ns, size)` of the
+   exact backing pose file loaded avoid stale entries and cap RAM at 128 MB.
 2. Fast ISO-BMFF container header parsing reads MP4/MOV `(width, height)` in
    `< 0.3 ms` per video (falling back to `cv2.VideoCapture` only when needed).
-3. Sliced three-tier pose reader:
-   - Tier 1 (Fastest) slices `[s_min:e_max+1, :, :10, :]` from uncompressed
-     raw `v4-v8` HDF5 files (`points`, `confidence`, `id_mask`, `instance_embed_id`),
-     completely skipping heavy `seg_data` masks.
-   - Tier 2 falls back to JABS `*_cache.h5` (`cache_file_version in (4, 5)`).
-   - Tier 3 falls back to `load_pose_cached(project, video)` for `v2`/`v3` or
-     custom/mocked `Project` implementations.
+3. Unified pose loading via `load_pose_cached(project, video)` (`Project.load_pose_est`
+   / `PoseLike`), avoiding duplicate format-specific parsers or legacy cache globs.
 """
 
 from __future__ import annotations
@@ -32,10 +27,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import cv2
-import h5py
 import numpy as np
+import numpy.typing as npt
 
-from .bout_extractor import strip_known_video_suffix
+from jabs.pose_estimation import find_pose_file
+
 from .models import BoutRecord, BoutSpatialResult
 from .trajectory_and_export import load_pose_cached
 
@@ -47,10 +43,9 @@ logger = logging.getLogger(__name__)
 _MINIMUM_CONFIDENCE = 0.3
 _MIN_VALID_KEYPOINTS = 3
 _MAX_SPATIAL_VIDEO_CACHE = 256
+_MAX_SPATIAL_CACHE_BYTES = 128 * 1024 * 1024  # 128 MB hard budget
 _MAX_REF_FRAME_CACHE = 8
 _MAX_VIDEO_DIM_CACHE = 512
-_ACCEPTED_CACHE_VERSIONS = (4, 5)
-_OBJECTS_STORED_YX = ("lixit", "food_hopper")
 _MP4_CONTAINER_SUFFIXES = {".mp4", ".mov", ".m4v"}
 
 
@@ -60,29 +55,39 @@ class _CachedVideoSpatial:
 
     s_offset: int
     n_frames_total: int
-    body_xy: np.ndarray  # shape: (N_id, T_slice, 2), dtype=float32
-    nose_xy: np.ndarray  # shape: (N_id, T_slice, 2), dtype=float32
+    body_xy: npt.NDArray[np.float32]  # shape: (N_id, T_slice, 2)
+    nose_xy: npt.NDArray[np.float32]  # shape: (N_id, T_slice, 2)
     cm_per_pixel: float | None = None
-    static_objects: dict[str, np.ndarray] = field(default_factory=dict)
+    static_objects: dict[str, npt.NDArray[np.float32]] = field(default_factory=dict)
+
+    @property
+    def nbytes(self) -> int:
+        """Total heap footprint in bytes of cached arrays for LRU budget accounting."""
+        so_bytes = sum(int(arr.nbytes) for arr in self.static_objects.values())
+        return int(self.body_xy.nbytes + self.nose_xy.nbytes + so_bytes)
 
 
 _SPATIAL_LOCK = threading.Lock()
 _SPATIAL_VIDEO_CACHE: OrderedDict[tuple[str, int, int], _CachedVideoSpatial] = OrderedDict()
-_REF_FRAME_CACHE: OrderedDict[tuple[str, int, int, int], tuple[np.ndarray, int, int]] = (
-    OrderedDict()
-)
+_SPATIAL_CACHE_BYTES = 0
+_REF_FRAME_CACHE: OrderedDict[
+    tuple[str, int, int, int], tuple[npt.NDArray[np.uint8], int, int]
+] = OrderedDict()
 _VIDEO_DIM_CACHE: OrderedDict[tuple[str, int, int], tuple[float, float]] = OrderedDict()
 
 
 def clear_spatial_cache() -> None:
     """Clear all in-memory spatial pose, dimension, and reference-frame caches."""
+    global _SPATIAL_CACHE_BYTES
     with _SPATIAL_LOCK:
         _SPATIAL_VIDEO_CACHE.clear()
+        _SPATIAL_CACHE_BYTES = 0
         _REF_FRAME_CACHE.clear()
         _VIDEO_DIM_CACHE.clear()
 
 
 def _lru_get(cache: OrderedDict[Any, Any], key: Any) -> Any:
+    """Fetch `key` from `cache` under `_SPATIAL_LOCK` and mark most-recently used."""
     with _SPATIAL_LOCK:
         val = cache.get(key)
         if val is not None:
@@ -91,6 +96,7 @@ def _lru_get(cache: OrderedDict[Any, Any], key: Any) -> Any:
 
 
 def _lru_put(cache: OrderedDict[Any, Any], key: Any, val: Any, max_size: int) -> None:
+    """Insert `(key, val)` into `cache` under `_SPATIAL_LOCK`, evicting past `max_size`."""
     with _SPATIAL_LOCK:
         cache[key] = val
         cache.move_to_end(key)
@@ -98,27 +104,44 @@ def _lru_put(cache: OrderedDict[Any, Any], key: Any, val: Any, max_size: int) ->
             cache.popitem(last=False)
 
 
+def _spatial_cache_get(key: tuple[str, int, int]) -> _CachedVideoSpatial | None:
+    """Fetch cached spatial coordinates for `key` under `_SPATIAL_LOCK` and mark MRU."""
+    with _SPATIAL_LOCK:
+        val = _SPATIAL_VIDEO_CACHE.get(key)
+        if val is not None:
+            _SPATIAL_VIDEO_CACHE.move_to_end(key)
+        return val
+
+
+def _spatial_cache_put(key: tuple[str, int, int], val: _CachedVideoSpatial) -> None:
+    """Store `val` in `_SPATIAL_VIDEO_CACHE`, enforcing both byte and entry-count budgets."""
+    global _SPATIAL_CACHE_BYTES
+    entry_bytes = val.nbytes
+    if entry_bytes > _MAX_SPATIAL_CACHE_BYTES:
+        return
+    with _SPATIAL_LOCK:
+        old = _SPATIAL_VIDEO_CACHE.pop(key, None)
+        if old is not None:
+            _SPATIAL_CACHE_BYTES = max(0, _SPATIAL_CACHE_BYTES - old.nbytes)
+        _SPATIAL_VIDEO_CACHE[key] = val
+        _SPATIAL_CACHE_BYTES += entry_bytes
+        _SPATIAL_VIDEO_CACHE.move_to_end(key)
+        while (
+            len(_SPATIAL_VIDEO_CACHE) > _MAX_SPATIAL_VIDEO_CACHE
+            or _SPATIAL_CACHE_BYTES > _MAX_SPATIAL_CACHE_BYTES
+        ):
+            _, evicted = _SPATIAL_VIDEO_CACHE.popitem(last=False)
+            _SPATIAL_CACHE_BYTES = max(0, _SPATIAL_CACHE_BYTES - evicted.nbytes)
+
+
 def _file_stat_key(path: Path) -> tuple[str, int, int]:
+    """Build a `(resolved_path, mtime_ns, size_bytes)` stat key for `path`."""
     st = path.stat()
     return (str(path.resolve()), int(st.st_mtime_ns), int(st.st_size))
 
 
-def _resolve_cache_dir(project: Any) -> Path | None:
-    for attr in ("_paths", "project_paths"):
-        holder = getattr(project, attr, None)
-        if holder is not None:
-            cdir = getattr(holder, "cache_dir", None)
-            if isinstance(cdir, Path):
-                return cdir
-    proj_dir = getattr(project, "dir", None)
-    if isinstance(proj_dir, Path):
-        cand = proj_dir / "jabs" / "cache"
-        if cand.is_dir():
-            return cand
-    return None
-
-
 def _resolve_pose_path(project: Any, video_name: str) -> Path | None:
+    """Resolve the active pose file path (unified `*_pose.h5` or legacy) for `video_name`."""
     vm = getattr(project, "video_manager", None)
     if vm is not None and hasattr(vm, "get_cached_pose_path"):
         try:
@@ -127,16 +150,17 @@ def _resolve_pose_path(project: Any, video_name: str) -> Path | None:
                 return p
         except Exception:
             pass
+    vid_path = _resolve_video_path(project, video_name)
+    if vid_path is not None:
+        return find_pose_file(vid_path)
     proj_dir = getattr(project, "dir", None)
     if isinstance(proj_dir, Path):
-        stem = strip_known_video_suffix(video_name)
-        for match in sorted(proj_dir.glob(f"{stem}_pose_est_v*.h5")):
-            if match.is_file():
-                return match
+        return find_pose_file(proj_dir / Path(video_name).name)
     return None
 
 
 def _resolve_video_path(project: Any, video_name: str) -> Path | None:
+    """Resolve the video file path for `video_name` inside `project`."""
     vm = getattr(project, "video_manager", None)
     if vm is not None and hasattr(vm, "video_path"):
         try:
@@ -153,7 +177,7 @@ def _resolve_video_path(project: Any, video_name: str) -> Path | None:
     return None
 
 
-def _sort_corners_clockwise(pts: np.ndarray) -> np.ndarray:
+def _sort_corners_clockwise(pts: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
     """Sort 2D polygon vertices monotonically around their centroid."""
     arr = np.asarray(pts, dtype=np.float32).reshape(-1, 2)
     if len(arr) <= 2:
@@ -163,19 +187,15 @@ def _sort_corners_clockwise(pts: np.ndarray) -> np.ndarray:
     return arr[np.argsort(angles)]
 
 
-def _normalize_static_objects_dict(
-    raw: dict[str, Any], *, raw_hdf5_yx: bool
-) -> dict[str, np.ndarray]:
-    """Convert raw static objects dictionary into clean `(M, 2)` float32 `(x, y)` arrays."""
-    out: dict[str, np.ndarray] = {}
+def _normalize_static_objects_dict(raw: dict[str, Any]) -> dict[str, npt.NDArray[np.float32]]:
+    """Convert `(x, y)` `PoseLike.static_objects` dictionary into clean `(M, 2)` float32 arrays."""
+    out: dict[str, npt.NDArray[np.float32]] = {}
     for name, val in raw.items():
         if val is None:
             continue
         arr = np.asarray(val, dtype=np.float32)
         if arr.size < 2:
             continue
-        if raw_hdf5_yx and name in _OBJECTS_STORED_YX:
-            arr = np.flip(arr, axis=-1)
         arr_2d = np.ascontiguousarray(arr.reshape(-1, 2), dtype=np.float32)
         valid = np.isfinite(arr_2d[:, 0]) & np.isfinite(arr_2d[:, 1])
         if not np.any(valid):
@@ -187,24 +207,11 @@ def _normalize_static_objects_dict(
     return out
 
 
-def _read_static_objects_from_h5(hf: h5py.File) -> dict[str, np.ndarray]:
-    if "static_objects" not in hf:
-        return {}
-    raw: dict[str, Any] = {}
-    grp = hf["static_objects"]
-    for key in grp:
-        try:
-            raw[str(key)] = grp[key][:]
-        except Exception:
-            continue
-    return _normalize_static_objects_dict(raw, raw_hdf5_yx=True)
-
-
 def _compute_body_and_nose_from_identity_arrays(
-    pts_xy: np.ndarray,
-    kp_valid: np.ndarray,
-    ident_mask: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+    pts_xy: npt.NDArray[np.float32],
+    kp_valid: npt.NDArray[np.bool_],
+    ident_mask: npt.NDArray[np.bool_] | None = None,
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
     """Compute vectorized `(N_id, T, 2)` body centroid and nose `(x, y)` arrays cleanly."""
     n_id, n_frames, n_kpts, _ = pts_xy.shape
     if n_id == 0 or n_frames == 0 or n_kpts == 0:
@@ -238,175 +245,15 @@ def _compute_body_and_nose_from_identity_arrays(
     return body_xy, nose_xy
 
 
-def _try_load_from_raw_v4_h5(
-    pose_path: Path,
-    s_req: int,
-    e_req: int,
-) -> _CachedVideoSpatial | None:
-    """Slice only `[s:e+1, :, :10, :]` from raw `v4-v8` H5, skipping `seg_data`."""
-    try:
-        with h5py.File(pose_path, "r") as hf:
-            if "poseest" not in hf:
-                return None
-            grp = hf["poseest"]
-            required = ("points", "confidence", "id_mask", "instance_embed_id")
-            if not all(k in grp for k in required):
-                return None
-            pts_ds = grp["points"]
-            if pts_ds.ndim != 4 or pts_ds.shape[-1] != 2:
-                return None
-            n_frames_total = int(pts_ds.shape[0])
-            n_slots = int(pts_ds.shape[1])
-            n_kpts = int(pts_ds.shape[2])
-            cm_raw = grp.attrs.get("cm_per_pixel", None)
-            cm_val = float(cm_raw) if cm_raw is not None else None
-            static_objs = _read_static_objects_from_h5(hf)
-
-            if n_frames_total <= 0 or n_kpts <= 0 or s_req >= n_frames_total or e_req < 0:
-                empty = np.full((0, 0, 2), np.nan, dtype=np.float32)
-                return _CachedVideoSpatial(
-                    s_offset=0,
-                    n_frames_total=n_frames_total,
-                    body_xy=empty,
-                    nose_xy=empty.copy(),
-                    cm_per_pixel=cm_val,
-                    static_objects=static_objs,
-                )
-
-            s0 = max(0, int(s_req))
-            e0 = min(n_frames_total - 1, int(e_req))
-            k_body = min(10, n_kpts)
-            pts_raw = np.asarray(pts_ds[s0 : e0 + 1, :, :k_body, :], dtype=np.float32)
-            conf = np.asarray(grp["confidence"][s0 : e0 + 1, :, :k_body], dtype=np.float32)
-            id_mask = np.asarray(grp["id_mask"][s0 : e0 + 1, :])
-            embed_id = np.asarray(grp["instance_embed_id"][s0 : e0 + 1, :])
-
-            valid_slot = (id_mask == 0) & (embed_id >= 1)
-            max_id = int(embed_id[valid_slot].max()) if np.any(valid_slot) else 0
-            if "instance_id_center" in grp:
-                n_id = max(max_id, int(grp["instance_id_center"].shape[0]))
-            else:
-                n_id = max_id
-    except Exception:
-        return None
-
-    n_slice = pts_raw.shape[0]
-    if n_id == 0 or n_slice == 0:
-        empty = np.full((n_id, n_slice, 2), np.nan, dtype=np.float32)
-        return _CachedVideoSpatial(
-            s_offset=s0,
-            n_frames_total=n_frames_total,
-            body_xy=empty,
-            nose_xy=empty.copy(),
-            cm_per_pixel=cm_val,
-            static_objects=static_objs,
-        )
-
-    # Flip (y, x) -> (x, y) over required body/nose keypoints
-    pts_xy = np.flip(pts_raw, axis=-1)
-    finite_pts = np.isfinite(pts_xy[:, :, :, 0]) & np.isfinite(pts_xy[:, :, :, 1])
-    kp_valid = (conf > _MINIMUM_CONFIDENCE) & finite_pts & valid_slot[:, :, None]
-
-    counts = kp_valid.sum(axis=2)  # (T_slice, M)
-    safe_pts = np.where(kp_valid[:, :, :, None], pts_xy, 0.0)
-    slot_sums = safe_pts.sum(axis=2, dtype=np.float32)  # (T_slice, M, 2)
-    slot_body = np.full((n_slice, n_slots, 2), np.nan, dtype=np.float32)
-    min_req = min(_MIN_VALID_KEYPOINTS, k_body)
-    good_slot = valid_slot & (counts >= min_req)
-    if np.any(good_slot):
-        slot_body[good_slot] = slot_sums[good_slot] / counts[good_slot, None].astype(np.float32)
-
-    slot_nose = np.where(
-        kp_valid[:, :, 0:1] & (counts[:, :, None] >= min_req),
-        pts_xy[:, :, 0, :],
-        np.nan,
-    ).astype(np.float32, copy=False)
-
-    body_xy = np.full((n_id, n_slice, 2), np.nan, dtype=np.float32)
-    nose_xy = np.full((n_id, n_slice, 2), np.nan, dtype=np.float32)
-    f_idx, m_idx = np.nonzero(valid_slot)
-    if f_idx.size > 0:
-        id_idx = embed_id[f_idx, m_idx].astype(np.int64) - 1
-        body_xy[id_idx, f_idx] = slot_body[f_idx, m_idx]
-        nose_xy[id_idx, f_idx] = slot_nose[f_idx, m_idx]
-
-    return _CachedVideoSpatial(
-        s_offset=s0,
-        n_frames_total=n_frames_total,
-        body_xy=body_xy,
-        nose_xy=nose_xy,
-        cm_per_pixel=cm_val,
-        static_objects=static_objs,
-    )
-
-
-def _try_load_from_pose_cache_h5(
-    cache_path: Path,
-    raw_pose_path: Path | None,
-    s_req: int,
-    e_req: int,
-) -> _CachedVideoSpatial | None:
-    if not cache_path.is_file():
-        return None
-    try:
-        with h5py.File(cache_path, "r") as ch5:
-            ver = ch5.attrs.get("cache_file_version")
-            if ver not in _ACCEPTED_CACHE_VERSIONS:
-                return None
-            if "poseest" not in ch5:
-                return None
-            grp = ch5["poseest"]
-            cm_raw = grp.attrs.get("cm_per_pixel", None)
-            cm_val = float(cm_raw) if cm_raw is not None else None
-            if "points" not in grp or "point_mask" not in grp:
-                return None
-            pts_ds = grp["points"]
-            if pts_ds.ndim != 4 or pts_ds.shape[-1] != 2:
-                return None
-            n_frames_total = int(pts_ds.shape[1])
-            n_kpts = int(pts_ds.shape[2])
-            static_objs = _read_static_objects_from_h5(ch5)
-
-            if n_frames_total <= 0 or n_kpts <= 0 or s_req >= n_frames_total or e_req < 0:
-                empty = np.full((int(pts_ds.shape[0]), 0, 2), np.nan, dtype=np.float32)
-                return _CachedVideoSpatial(
-                    s_offset=0,
-                    n_frames_total=n_frames_total,
-                    body_xy=empty,
-                    nose_xy=empty.copy(),
-                    cm_per_pixel=cm_val,
-                    static_objects=static_objs,
-                )
-
-            s0 = max(0, int(s_req))
-            e0 = min(n_frames_total - 1, int(e_req))
-            k_body = min(10, n_kpts)
-            pts_xy = np.asarray(pts_ds[:, s0 : e0 + 1, :k_body, :], dtype=np.float32)
-            pt_mask = np.asarray(grp["point_mask"][:, s0 : e0 + 1, :k_body]) > 0
-            ident_mask = (
-                np.asarray(grp["identity_mask"][:, s0 : e0 + 1]) > 0
-                if "identity_mask" in grp
-                else None
-            )
-    except Exception:
-        return None
-
-    if not static_objs and raw_pose_path is not None and raw_pose_path.is_file():
-        try:
-            with h5py.File(raw_pose_path, "r") as rhf:
-                static_objs = _read_static_objects_from_h5(rhf)
-        except Exception:
-            pass
-
-    body_xy, nose_xy = _compute_body_and_nose_from_identity_arrays(pts_xy, pt_mask, ident_mask)
-    return _CachedVideoSpatial(
-        s_offset=s0,
-        n_frames_total=n_frames_total,
-        body_xy=body_xy,
-        nose_xy=nose_xy,
-        cm_per_pixel=cm_val,
-        static_objects=static_objs,
-    )
+def _cache_hit_covers(entry: _CachedVideoSpatial | None, s_req: int, e_req: int) -> bool:
+    """Return True if cached slice `entry` covers requested frame span `[s_req, e_req]`."""
+    if entry is None:
+        return False
+    if entry.n_frames_total <= 0 or s_req >= entry.n_frames_total or e_req < 0:
+        return True
+    s_need = max(0, s_req)
+    e_need = min(entry.n_frames_total - 1, e_req)
+    return entry.s_offset <= s_need and e_need < (entry.s_offset + entry.body_xy.shape[1])
 
 
 def _load_video_spatial(
@@ -415,109 +262,104 @@ def _load_video_spatial(
     s_req: int,
     e_req: int,
 ) -> _CachedVideoSpatial | None:
+    """Load `(body_xy, nose_xy)` over `[s_req, e_req]` via unified `PoseLike` API + byte-capped LRU."""
     pose_path = _resolve_pose_path(project, video_name)
-    cache_dir = _resolve_cache_dir(project)
-    cache_h5_path: Path | None = None
-    if cache_dir is not None:
-        if pose_path is not None:
-            cand = cache_dir / pose_path.name.replace(".h5", "_cache.h5")
-            if cand.is_file():
-                cache_h5_path = cand
-        if cache_h5_path is None:
-            stem = strip_known_video_suffix(video_name)
-            matches = sorted(cache_dir.glob(f"{stem}_pose_est_*_cache.h5"))
-            if matches and matches[0].is_file():
-                cache_h5_path = matches[0]
-
-    def _cache_hit_covers(entry: _CachedVideoSpatial | None) -> bool:
-        if entry is None:
-            return False
-        if entry.n_frames_total <= 0 or s_req >= entry.n_frames_total or e_req < 0:
-            return True
-        s_need = max(0, s_req)
-        e_need = min(entry.n_frames_total - 1, e_req)
-        return entry.s_offset <= s_need and e_need < (entry.s_offset + entry.body_xy.shape[1])
-
-    # Check Tier 1 (raw uncompressed v4-v8 H5) key first, then Tier 2 (*_cache.h5)
-    raw_key = (
+    pose_key = (
         _file_stat_key(pose_path) if (pose_path is not None and pose_path.is_file()) else None
     )
-    if raw_key is not None:
-        hit = _lru_get(_SPATIAL_VIDEO_CACHE, raw_key)
-        if _cache_hit_covers(hit):
-            return hit
+    prev_hit: _CachedVideoSpatial | None = None
+    if pose_key is not None:
+        prev_hit = _spatial_cache_get(pose_key)
+        if _cache_hit_covers(prev_hit, s_req, e_req):
+            return prev_hit
 
-    cache_key = (
-        _file_stat_key(cache_h5_path)
-        if (cache_h5_path is not None and cache_h5_path.is_file())
-        else None
-    )
-    if cache_key is not None:
-        hit = _lru_get(_SPATIAL_VIDEO_CACHE, cache_key)
-        if _cache_hit_covers(hit):
-            return hit
-
-    # Tier 1: Direct sliced uncompressed v4-v8 H5 read (2.5x-7.5x faster than gzipped *_cache.h5)
-    if pose_path is not None and pose_path.is_file():
-        loaded = _try_load_from_raw_v4_h5(pose_path, s_req, e_req)
-        if loaded is not None:
-            if raw_key is not None:
-                _lru_put(_SPATIAL_VIDEO_CACHE, raw_key, loaded, _MAX_SPATIAL_VIDEO_CACHE)
-            return loaded
-
-    # Tier 2: JABS *_cache.h5 fallback (v4 or v5)
-    if cache_h5_path is not None and cache_h5_path.is_file():
-        loaded = _try_load_from_pose_cache_h5(cache_h5_path, pose_path, s_req, e_req)
-        if loaded is not None:
-            if cache_key is not None:
-                _lru_put(_SPATIAL_VIDEO_CACHE, cache_key, loaded, _MAX_SPATIAL_VIDEO_CACHE)
-            return loaded
-
-    # Tier 3: Universal fallback (v2/v3 HDF5, future pose formats, or mock projects)
     try:
         pose = load_pose_cached(project, video_name)
     except Exception:
         return None
+
     identities = sorted(int(i) for i in getattr(pose, "identities", []) or [])
     n_frames = int(getattr(pose, "num_frames", 0) or 0)
-    n_id = (max(identities) + 1) if identities else 0
-    body_xy = np.full((n_id, n_frames, 2), np.nan, dtype=np.float32)
-    nose_xy = np.full((n_id, n_frames, 2), np.nan, dtype=np.float32)
+    raw_so = getattr(pose, "static_objects", {}) or {}
+    cm_raw = getattr(pose, "cm_per_pixel", None)
+    cm_val = float(cm_raw) if cm_raw is not None else None
+    static_objs = _normalize_static_objects_dict(raw_so)
+
+    if n_frames <= 0 or not identities:
+        empty = np.full((0, 0, 2), np.nan, dtype=np.float32)
+        return _CachedVideoSpatial(
+            s_offset=0,
+            n_frames_total=max(0, n_frames),
+            body_xy=empty,
+            nose_xy=empty.copy(),
+            cm_per_pixel=cm_val,
+            static_objects=static_objs,
+        )
+
+    if s_req >= n_frames or e_req < 0:
+        n_id = max(identities) + 1
+        empty = np.full((n_id, 0, 2), np.nan, dtype=np.float32)
+        return _CachedVideoSpatial(
+            s_offset=0,
+            n_frames_total=n_frames,
+            body_xy=empty,
+            nose_xy=empty.copy(),
+            cm_per_pixel=cm_val,
+            static_objects=static_objs,
+        )
+
+    s0 = max(0, min(int(s_req), n_frames - 1))
+    e0 = max(s0, min(int(e_req), n_frames - 1))
+    if (
+        prev_hit is not None
+        and prev_hit.n_frames_total == n_frames
+        and prev_hit.body_xy.shape[1] > 0
+    ):
+        s0 = min(s0, prev_hit.s_offset)
+        e0 = max(e0, prev_hit.s_offset + prev_hit.body_xy.shape[1] - 1)
+    n_slice = e0 - s0 + 1
+    n_id = max(identities) + 1
+    body_xy = np.full((n_id, n_slice, 2), np.nan, dtype=np.float32)
+    nose_xy = np.full((n_id, n_slice, 2), np.nan, dtype=np.float32)
+    id_mask_fn = getattr(pose, "identity_mask", None)
+
     for ident in identities:
         try:
             pts_i, mask_i = pose.get_identity_poses(ident)
-            pts_arr = np.asarray(pts_i, dtype=np.float32)
-            msk_arr = np.asarray(mask_i) > 0
-            if pts_arr.ndim == 3 and pts_arr.shape[0] > 0:
-                b_arr, n_arr = _compute_body_and_nose_from_identity_arrays(
-                    pts_arr[None, ...], msk_arr[None, ...]
-                )
-                t_lim = min(n_frames, b_arr.shape[1]) if n_frames > 0 else b_arr.shape[1]
-                if n_frames == 0:
-                    body_xy = np.full((n_id, t_lim, 2), np.nan, dtype=np.float32)
-                    nose_xy = np.full((n_id, t_lim, 2), np.nan, dtype=np.float32)
-                    n_frames = t_lim
-                body_xy[ident, :t_lim] = b_arr[0, :t_lim]
-                nose_xy[ident, :t_lim] = n_arr[0, :t_lim]
+            pts_slice = np.asarray(pts_i[s0 : e0 + 1], dtype=np.float32)
+            msk_slice = np.asarray(mask_i[s0 : e0 + 1], dtype=bool)
+            if pts_slice.ndim != 3 or pts_slice.shape[0] <= 0:
+                continue
+            im_slice: npt.NDArray[np.bool_] | None = None
+            if callable(id_mask_fn):
+                raw_im = id_mask_fn(ident)
+                if isinstance(raw_im, np.ndarray) and raw_im.ndim >= 1:
+                    im_slice = np.asarray(raw_im[s0 : e0 + 1], dtype=bool)
+            b_arr, n_arr = _compute_body_and_nose_from_identity_arrays(
+                pts_slice[None, ...],
+                msk_slice[None, ...],
+                ident_mask=im_slice[None, ...] if im_slice is not None else None,
+            )
+            t_copy = min(n_slice, b_arr.shape[1])
+            body_xy[ident, :t_copy] = b_arr[0, :t_copy]
+            nose_xy[ident, :t_copy] = n_arr[0, :t_copy]
         except Exception:
             continue
-    raw_so = getattr(pose, "static_objects", {}) or {}
-    cm_raw = getattr(pose, "cm_per_pixel", None)
+
     loaded = _CachedVideoSpatial(
-        s_offset=0,
+        s_offset=s0,
         n_frames_total=n_frames,
         body_xy=body_xy,
         nose_xy=nose_xy,
-        cm_per_pixel=float(cm_raw) if cm_raw is not None else None,
-        static_objects=_normalize_static_objects_dict(raw_so, raw_hdf5_yx=False),
+        cm_per_pixel=cm_val,
+        static_objects=static_objs,
     )
-    t3_key = raw_key
-    if t3_key is None:
+    if pose_key is None:
         pose_attr = getattr(pose, "pose_file", None)
         if isinstance(pose_attr, Path) and pose_attr.is_file():
-            t3_key = _file_stat_key(pose_attr)
-    if t3_key is not None:
-        _lru_put(_SPATIAL_VIDEO_CACHE, t3_key, loaded, _MAX_SPATIAL_VIDEO_CACHE)
+            pose_key = _file_stat_key(pose_attr)
+    if pose_key is not None:
+        _spatial_cache_put(pose_key, loaded)
     return loaded
 
 
@@ -585,6 +427,7 @@ def _read_mp4_dimensions(video_path: Path) -> tuple[float, float] | None:
 
 
 def _get_video_dimensions(video_path: Path) -> tuple[float, float] | None:
+    """Return `(width, height)` in pixels for `video_path` via fast header scan or OpenCV."""
     if not video_path.is_file():
         return None
     key = _file_stat_key(video_path)
@@ -614,7 +457,8 @@ def _load_reference_frame_gray(
     video_path: Path,
     *,
     max_dim: int = 640,
-) -> tuple[np.ndarray, float, float] | None:
+) -> tuple[npt.NDArray[np.uint8], float, float] | None:
+    """Read and downscale the first frame of `video_path` in grayscale for the Arena backdrop."""
     if not video_path.is_file():
         return None
     st = video_path.stat()
@@ -701,7 +545,7 @@ def extract_bout_spatial_locations(
                 if cancel_event is not None and cancel_event.is_set():
                     break
 
-    ref_static_objects: dict[str, np.ndarray] = {}
+    ref_static_objects: dict[str, npt.NDArray[np.float32]] = {}
     cm_per_pixel: float | None = None
     video_dims: dict[str, tuple[float, float]] = {}
     first_video_candidate: tuple[str, Path] | None = None
@@ -770,7 +614,7 @@ def extract_bout_spatial_locations(
     normalized = len(unique_dims) > 1
     frame_width: float | None = None
     frame_height: float | None = None
-    ref_gray: np.ndarray | None = None
+    ref_gray: npt.NDArray[np.uint8] | None = None
     ref_video: str | None = None
     ref_dims: tuple[float, float] | None = None
 
@@ -790,13 +634,18 @@ def extract_bout_spatial_locations(
 
     if normalized:
         for video_name, idx_recs in bouts_by_video.items():
-            dims = video_dims.get(video_name) or ref_dims
-            if dims is None:
+            b_idxs = np.asarray([b_i for b_i, _ in idx_recs], dtype=np.int32)
+            dims = video_dims.get(video_name)
+            if dims is None or dims[0] <= 0.0 or dims[1] <= 0.0:
+                coords_xy[b_idxs] = np.nan
+                nose_xy[b_idxs] = np.nan
+                logger.warning(
+                    "Skipping %d bout(s) from %s in normalized arena view: unreadable video dimensions",
+                    len(b_idxs),
+                    video_name,
+                )
                 continue
             w_v, h_v = dims
-            if w_v <= 0.0 or h_v <= 0.0:
-                continue
-            b_idxs = np.asarray([b_i for b_i, _ in idx_recs], dtype=np.int32)
             coords_xy[b_idxs, 0] /= float(w_v)
             coords_xy[b_idxs, 1] /= float(h_v)
             nose_xy[b_idxs, 0] /= float(w_v)
@@ -809,7 +658,7 @@ def extract_bout_spatial_locations(
         frame_width, frame_height = float(ref_dims[0]), float(ref_dims[1])
     else:
         # Pose-only fallback: derive bounds cleanly from valid points & static landmarks
-        pts_list: list[np.ndarray] = []
+        pts_list: list[npt.NDArray[np.float32]] = []
         valid_c = np.isfinite(coords_xy[:, 0]) & np.isfinite(coords_xy[:, 1])
         if np.any(valid_c):
             pts_list.append(coords_xy[valid_c])

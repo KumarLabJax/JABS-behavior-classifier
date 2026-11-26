@@ -150,10 +150,7 @@ def _restore_snapshot_state(
     """Restore scoped `[span_s, span_e]` slices (or full blocks fallback) for `(video, identity)`."""
     vm = project.video_manager
     pose = load_annotation_pose_proxy(project, video)
-    try:
-        video_labels = vm.load_video_labels(video, pose)
-    except TypeError:
-        video_labels = vm.load_video_labels(video)
+    video_labels = vm.load_video_labels(video, pose)
     if video_labels is None:
         video_labels = VideoLabels(video, pose.num_frames)
 
@@ -337,10 +334,7 @@ def find_dual_class_pairing_candidate(
         forbidden[s0:e0] = True
 
     pose = load_annotation_pose_proxy(project, video)
-    try:
-        video_labels = project.video_manager.load_video_labels(video, pose)
-    except TypeError:
-        video_labels = project.video_manager.load_video_labels(video)
+    video_labels = project.video_manager.load_video_labels(video, pose)
     if video_labels is not None:
         for _, tl in video_labels.iter_behavior_labels(str(identity)):
             arr = tl.get_labels()
@@ -593,10 +587,7 @@ def apply_bout_edit(
     is_multiclass = sm.classifier_mode == ClassifierMode.MULTICLASS
     vm = project.video_manager
     pose = pose_est if pose_est is not None else load_annotation_pose_proxy(project, video)
-    try:
-        video_labels = vm.load_video_labels(video, pose)
-    except TypeError:
-        video_labels = vm.load_video_labels(video)
+    video_labels = vm.load_video_labels(video, pose)
     if video_labels is None:
         video_labels = VideoLabels(video, pose.num_frames)
 

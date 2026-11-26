@@ -52,10 +52,10 @@ _INTERNAL_META_PREFIXES: tuple[str, ...] = (
     "point_mask",
 )
 
-_SOCIAL_PREFIXES: tuple[str, ...] = tuple(SocialFeatureGroup._features.keys())
+_SOCIAL_PREFIXES: tuple[str, ...] = tuple(SocialFeatureGroup.module_names())
 
 _SEGMENTATION_PREFIXES: tuple[str, ...] = tuple(
-    dict.fromkeys([*SegmentationFeatureGroup._features.keys(), HuddleFeatures.name()])
+    dict.fromkeys([*SegmentationFeatureGroup.module_names(), HuddleFeatures.name()])
 )
 
 # In-memory LRU cache of loaded per-track feature matrices with strict byte budget:
@@ -433,6 +433,11 @@ def load_track_per_frame_array(
                 raw_features = pf_data.features
                 valid_mask = np.asarray(pf_data.frame_valid, dtype=np.uint8) > 0
             except Exception:
+                logger.warning(
+                    "HDF5FeatureCacheReader failed for %s; falling back to direct HDF5 read",
+                    identity_dir,
+                    exc_info=True,
+                )
                 raw_features = None
                 valid_mask = None
 

@@ -58,6 +58,7 @@ from jabs.bale import (
     summarize_cv_track_counts,
     summarize_project_videos,
 )
+from jabs.bale.spatial_localization import clear_spatial_cache
 from jabs.bale.trajectory_and_export import clear_pose_cache
 from jabs.behavior_search import SearchHit
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
@@ -218,6 +219,7 @@ class _VideoScreenerSignals(QtCore.QObject):
     """Signals emitted by the background Mode 4 video screener worker."""
 
     finished = QtCore.Signal(object, object, int)  # VideoScreenerReport, key, req_id
+    cancelled = QtCore.Signal(int)  # req_id
     error = QtCore.Signal(str, int)  # err_msg, req_id
 
 
@@ -300,6 +302,7 @@ class _SpatialWorkerSignals(QtCore.QObject):
     """Signals emitted by the lazy arena spatial-localization worker."""
 
     finished = QtCore.Signal(int, object)  # req_id, BoutSpatialResult
+    cancelled = QtCore.Signal(int)  # req_id
     error = QtCore.Signal(int, str)
 
 
@@ -321,17 +324,23 @@ class _SpatialComputeTask(QtCore.QRunnable):
 
     def run(self) -> None:
         if self.cancel_event.is_set():
+            with contextlib.suppress(RuntimeError):
+                self.signals.cancelled.emit(self.req_id)
             return
         try:
             res = extract_bout_spatial_locations(
                 self.project, self.records, cancel_event=self.cancel_event
             )
             if self.cancel_event.is_set():
+                with contextlib.suppress(RuntimeError):
+                    self.signals.cancelled.emit(self.req_id)
                 return
             with contextlib.suppress(RuntimeError):
                 self.signals.finished.emit(self.req_id, res)
         except Exception as exc:
             if self.cancel_event.is_set():
+                with contextlib.suppress(RuntimeError):
+                    self.signals.cancelled.emit(self.req_id)
                 return
             logger.exception("BALE spatial localization failed")
             with contextlib.suppress(RuntimeError):
@@ -365,6 +374,8 @@ class _VideoScreenerTask(QtCore.QRunnable):
 
     def run(self) -> None:
         if self.cancel_event.is_set():
+            with contextlib.suppress(RuntimeError):
+                self.signals.cancelled.emit(self.req_id)
             return
         try:
             report = summarize_project_videos(
@@ -376,11 +387,15 @@ class _VideoScreenerTask(QtCore.QRunnable):
                 cancel_event=self.cancel_event,
             )
             if self.cancel_event.is_set():
+                with contextlib.suppress(RuntimeError):
+                    self.signals.cancelled.emit(self.req_id)
                 return
             with contextlib.suppress(RuntimeError):
                 self.signals.finished.emit(report, self.key, self.req_id)
         except Exception as exc:
             if self.cancel_event.is_set():
+                with contextlib.suppress(RuntimeError):
+                    self.signals.cancelled.emit(self.req_id)
                 return
             logger.exception("BALE video screener task failed")
             with contextlib.suppress(RuntimeError):
@@ -2721,6 +2736,7 @@ class BaleDialog(QtWidgets.QDialog):
         self._video_ext_id_cache.clear()
         self._repr_matrix_cache = None
         clear_pose_cache()
+        clear_spatial_cache()
         if self._central_widget is not None:
             with contextlib.suppress(TypeError, RuntimeError):
                 if hasattr(self._central_widget, "labels_modified"):
@@ -3393,8 +3409,18 @@ class BaleDialog(QtWidgets.QDialog):
         worker = _SpatialComputeTask(req_id, self._project, self._report.feature_matrix.records)
         self._spatial_worker = worker
         worker.signals.finished.connect(self._on_spatial_finished)
+        worker.signals.cancelled.connect(self._on_spatial_cancelled)
         worker.signals.error.connect(self._on_spatial_error)
         self._thread_pool.start(worker)
+
+    def _on_spatial_cancelled(self, req_id: int) -> None:
+        if self._is_closing or req_id != self._spatial_request_id:
+            return
+        if (
+            self._spatial_worker is not None
+            and getattr(self._spatial_worker, "req_id", None) == req_id
+        ):
+            self._spatial_worker = None
 
     def _on_spatial_finished(self, req_id: int, spatial_res: BoutSpatialResult) -> None:
         if self._is_closing or req_id != self._spatial_request_id or self._report is None:
@@ -3591,16 +3617,19 @@ class BaleDialog(QtWidgets.QDialog):
         key = str(filt_key or "all")
         if self._report is not None and key.startswith("class:"):
             cls_name = key.split(":", 1)[1]
-            include_all_mc = bool(
-                getattr(self._report, "include_all_multiclass", False)
-                or self.behavior_combo.currentData() == "__ALL_MC__"
-            )
-            if not include_all_mc:
-                beh = self._selected_single_behavior() or self._report.behavior
-                if cls_name == beh:
-                    key = "pos"
-                elif cls_name in (f"Not-{beh}", MULTICLASS_NONE_BEHAVIOR):
-                    key = "neg"
+            if cls_name == MULTICLASS_NONE_BEHAVIOR:
+                key = "neg"
+            else:
+                include_all_mc = bool(
+                    getattr(self._report, "include_all_multiclass", False)
+                    or self.behavior_combo.currentData() == "__ALL_MC__"
+                )
+                if not include_all_mc:
+                    beh = self._selected_single_behavior() or self._report.behavior
+                    if cls_name == beh:
+                        key = "pos"
+                    elif cls_name == f"Not-{beh}":
+                        key = "neg"
 
         scope_changed = False
         if (
@@ -3674,6 +3703,10 @@ class BaleDialog(QtWidgets.QDialog):
         self._init_refresh_timer.stop()
         if self._is_closing:
             return
+        if self._spatial_worker is not None and hasattr(self._spatial_worker, "cancel_event"):
+            self._spatial_worker.cancel_event.set()
+        self._spatial_worker = None
+        self._spatial_request_id += 1
         self._video_report_key = None
         if self._mode == "videos":
             self._analysis_needed_on_bout_mode = True
@@ -8531,8 +8564,24 @@ class BaleDialog(QtWidgets.QDialog):
         self._video_worker = worker
         self._update_recalc_button_badge()
         worker.signals.finished.connect(self._on_video_summary_finished)
+        worker.signals.cancelled.connect(self._on_video_summary_cancelled)
         worker.signals.error.connect(self._on_video_summary_error)
         self._thread_pool.start(worker)
+
+    def _on_video_summary_cancelled(self, req_id: int) -> None:
+        """Clear a cancelled video screener worker and immediately run any queued scan."""
+        if self._is_closing:
+            return
+        if (
+            self._video_worker is not None
+            and getattr(self._video_worker, "req_id", None) == req_id
+        ):
+            self._video_worker = None
+        queued = self._queued_video_refresh
+        self._queued_video_refresh = False
+        self._update_recalc_button_badge()
+        if queued and self._mode == "videos":
+            self.refresh_video_summary(force=True)
 
     def _on_video_summary_finished(
         self,

@@ -5,8 +5,10 @@ from __future__ import annotations
 import ast
 import json
 import sys
+import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -2961,7 +2963,7 @@ def test_pr608_review_lazy_import_menu_lifecycle_worker_slots_and_timeline_sync(
         cw_stub, {"start": 10, "end": 20, "tag": "t2", "identity_index": 0}
     )
     CentralWidget._save_and_refresh_annotations(cw_stub)
-    assert emitted_count == 3
+    assert emitted_count == 0
 
 
 def test_arena_view_real_mouse_clicks_and_full_gui_connectivity(
@@ -3321,5 +3323,94 @@ def test_arena_view_real_mouse_clicks_and_full_gui_connectivity(
         assert central_mock.load_custom_search_queue.call_count == 1
     finally:
         dlg.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.processEvents()
+
+
+def test_pr608_round2_ui_video_queue_cancel_spatial_race_all_mc_none_and_close_cache(
+    tmp_path: Path,
+) -> None:
+    """Verify PR #608 round-2 UI fixes: queued video cancel, stale spatial race, All-MC None filter, and close cache."""
+    import jabs.bale.spatial_localization as sl
+    from jabs.bale.models import BoutSpatialResult
+
+    _ensure_qapp()
+    proj, report, cw = _build_mc_ui_test_harness(tmp_path, all_multiclass=True)
+    dlg = BaleDialog(proj, central_widget=cw)
+    dlg._init_refresh_timer.stop()
+    try:
+        dlg._on_analysis_finished(report, included_preds=True)
+
+        # 1. All-Classes multiclass "Filter Class: None" maps to `neg` instead of resetting to `all`
+        dlg._set_class_filter("class:None")
+        assert dlg._class_filter == "neg"
+        assert dlg.class_filter_combo.currentData() == "neg"
+        dlg._set_class_filter("all")
+
+        # 2. `refresh_analysis()` cancels in-flight `_spatial_worker` & bumps `_spatial_request_id`
+        old_req_id = dlg._spatial_request_id
+        stale_worker = SimpleNamespace(req_id=old_req_id, cancel_event=threading.Event())
+        dlg._spatial_worker = stale_worker  # type: ignore[assignment]
+        dlg.refresh_analysis()
+        assert stale_worker.cancel_event.is_set() is True
+        assert dlg._spatial_worker is None
+        assert dlg._spatial_request_id == old_req_id + 1
+        # Wait for the new analysis worker started by refresh_analysis() to finish cleanly
+        for _ in range(100):
+            QtWidgets.QApplication.processEvents()
+            if dlg._active_worker is None:
+                break
+            time.sleep(0.02)
+
+        n_b = len(dlg._report.feature_matrix.records)
+        stale_res = BoutSpatialResult(
+            coords_xy=np.zeros((n_b, 2), dtype=np.float32),
+            nose_xy=np.zeros((n_b, 2), dtype=np.float32),
+            valid_mask=np.ones(n_b, dtype=bool),
+        )
+        dlg._on_spatial_finished(old_req_id, stale_res)
+        assert dlg._report.spatial is None
+
+        # 3. Cancelled `_VideoScreenerTask` drains `_queued_video_refresh` instead of getting stuck
+        dlg.mode_videos_btn.setChecked(True)
+        dlg._mode = "videos"
+        dlg._video_report = None
+        dlg._video_request_id = 10
+        dummy_vworker = SimpleNamespace(req_id=10, cancel_event=threading.Event())
+        dlg._video_worker = dummy_vworker  # type: ignore[assignment]
+        dlg.refresh_video_summary(force=True)
+        assert dummy_vworker.cancel_event.is_set() is True
+        assert dlg._queued_video_refresh is True
+        # Emit cancellation for req_id=10 -> must clear worker and immediately launch req_id=11
+        dlg._on_video_summary_cancelled(10)
+        assert dlg._queued_video_refresh is False
+        assert dlg._video_request_id == 11
+        for _ in range(100):
+            QtWidgets.QApplication.processEvents()
+            if dlg._video_worker is None and dlg._video_report is not None:
+                break
+            time.sleep(0.02)
+        assert dlg._video_worker is None
+        assert dlg._video_report is not None
+
+        # 4. Seed spatial cache and verify `closeEvent` invokes `clear_spatial_cache()`
+        sl._spatial_cache_put(
+            ("dummy_pose.h5", 1, 2),
+            sl._CachedVideoSpatial(
+                s_offset=0,
+                n_frames_total=10,
+                body_xy=np.zeros((1, 10, 2), dtype=np.float32),
+                nose_xy=np.zeros((1, 10, 2), dtype=np.float32),
+            ),
+        )
+        assert len(sl._SPATIAL_VIDEO_CACHE) > 0
+        dlg.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.processEvents()
+        assert len(sl._SPATIAL_VIDEO_CACHE) == 0
+        assert sl._SPATIAL_CACHE_BYTES == 0
+    finally:
+        if not dlg._is_closing:
+            dlg.close()
         QtCore.QThreadPool.globalInstance().waitForDone(5_000)
         QtWidgets.QApplication.processEvents()

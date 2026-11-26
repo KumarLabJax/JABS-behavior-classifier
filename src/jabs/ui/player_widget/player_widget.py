@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from intervaltree import IntervalTree
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.core.pose_protocol import PoseLike
@@ -226,7 +227,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """set the overlay annotations in the frame widget"""
         self._frame_widget.overlay_annotations_enabled = enabled
 
-    def set_timeline_annotations(self, annotations) -> None:
+    def set_timeline_annotations(self, annotations: IntervalTree | None) -> None:
         """Update the timeline annotations overlay reference without reloading the video."""
         self._frame_widget.annotations = annotations
 
