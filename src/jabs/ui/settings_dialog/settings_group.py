@@ -175,6 +175,36 @@ class SettingsGroup(QGroupBox):
         """
         return None
 
+    def _propagate_size_change(self) -> None:
+        """Resize this group and the dialog page after its content changed size.
+
+        A collapsible section inside a settings group changes height without the
+        enclosing layouts noticing, so the group, the page widget holding the
+        groups, and the dialog's page width all have to be recomputed by hand.
+        Every collapsible section in a settings group needs the same propagation,
+        so it lives here rather than being repeated per section.
+
+        This is the only place that reaches for the dialog's page-width sync, so
+        subclasses do not need to know the enclosing dialog's interface.
+        """
+        self.adjustSize()
+
+        # Find and adjust the page widget
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        parent.adjustSize()
+        parent_layout = parent.layout()
+        if parent_layout is not None:
+            parent_layout.activate()
+        parent.adjustSize()
+
+        # Sync page width if we can find the dialog
+        # Defer this slightly to ensure scrollbar has appeared/disappeared before syncing width
+        dialog = self._find_parent_dialog()
+        if dialog is not None and hasattr(dialog, "_sync_page_width"):
+            QTimer.singleShot(0, dialog._sync_page_width)
+
     def _on_help_section_resized(self) -> None:
         """Handle help section size changes to trigger parent layout updates.
 
@@ -189,24 +219,8 @@ class SettingsGroup(QGroupBox):
         if help_content is not None:
             help_content.adjustSize()
 
-        # Adjust sizes up the hierarchy
         self._help_section.adjustSize()
-        self.adjustSize()
-
-        # Find and adjust the page widget
-        parent = self.parentWidget()
-        if parent is not None:
-            parent.adjustSize()
-            parent_layout = parent.layout()
-            if parent_layout is not None:
-                parent_layout.activate()
-            parent.adjustSize()
-
-            # Sync page width if we can find the dialog
-            # Defer this slightly to ensure scrollbar has appeared/disappeared before syncing width
-            dialog = self._find_parent_dialog()
-            if dialog is not None and hasattr(dialog, "_sync_page_width"):
-                QTimer.singleShot(0, dialog._sync_page_width)
+        self._propagate_size_change()
 
     def _find_parent_dialog(self):
         """Find the parent BaseSettingsDialog if one exists."""

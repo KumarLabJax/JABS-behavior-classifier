@@ -217,18 +217,7 @@ class CrossValidationSettingsGroup(SettingsGroup):
         """Grow/shrink the group (and the dialog page) when the preview is toggled."""
         self._preview_detail.adjustSize()
         self._preview_section.adjustSize()
-        self.adjustSize()
-        parent = self.parentWidget()
-        if parent is not None:
-            parent.adjustSize()
-            parent_layout = parent.layout()
-            if parent_layout is not None:
-                parent_layout.activate()
-            parent.adjustSize()
-            dialog = self._find_parent_dialog()
-            if dialog is not None and hasattr(dialog, "_sync_page_width"):
-                # Defer so the scrollbar settles before the width is synced.
-                QTimer.singleShot(0, dialog._sync_page_width)
+        self._propagate_size_change()
 
     def _create_documentation(self) -> QLabel:
         """Create help documentation for cross-validation settings."""

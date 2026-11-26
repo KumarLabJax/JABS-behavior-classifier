@@ -353,3 +353,49 @@ def test_postprocessing_dialog_loads_saved_flag() -> None:
     )
     assert stitching["enabled"] is True
     assert stitching["parameters"]["max_stitch_gap"] == 7
+
+
+def test_help_section_resize_routes_through_shared_propagation() -> None:
+    """A help-section resize relayouts the group through the shared helper."""
+    group = ClassifierModeSettingsGroup()
+    group._propagate_size_change = MagicMock()
+
+    group._on_help_section_resized()
+
+    group._propagate_size_change.assert_called_once_with()
+
+
+def test_preview_relayout_routes_through_shared_propagation() -> None:
+    """Toggling the grouping preview relayouts through the same shared helper."""
+    group = CrossValidationSettingsGroup(videos=_PREVIEW_VIDEOS)
+    group._propagate_size_change = MagicMock()
+
+    group._relayout_preview()
+
+    group._propagate_size_change.assert_called_once_with()
+
+
+def test_propagate_size_change_defers_dialog_page_width_sync(qapp) -> None:
+    """Relayout defers the dialog's page-width sync until the event loop runs."""
+    dialog = PostprocessingSettingsDialog(_FakePostprocessingSettingsManager(), behavior="Walk")
+    sync = MagicMock()
+    dialog._sync_page_width = sync
+
+    dialog._evaluation_group._propagate_size_change()
+
+    # the sync is scheduled on a zero-delay timer, not run inline, so the
+    # scrollbar has settled before the width is recomputed
+    assert sync.call_count == 0
+    qapp.processEvents()
+    assert sync.call_count == 1
+
+
+def test_propagate_size_change_without_parent_stops_at_the_group() -> None:
+    """A group with no parent widget resizes itself and looks no further."""
+    group = ClassifierModeSettingsGroup()
+    assert group.parentWidget() is None
+    group._find_parent_dialog = MagicMock()
+
+    group._propagate_size_change()
+
+    group._find_parent_dialog.assert_not_called()
