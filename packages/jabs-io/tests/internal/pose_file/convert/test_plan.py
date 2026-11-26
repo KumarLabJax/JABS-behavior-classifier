@@ -449,7 +449,7 @@ def test_sample_v6_plans() -> None:
 
 
 def test_masked_instances_sharing_a_tracklet_are_still_refused(tmp_path: Path) -> None:
-    """Only a valid instance's tracklet is kept over a masked one's; two masked ones are refused."""
+    """A valid instance's tracklet wins over a masked one's; two masked ones are refused."""
 
     def two_masked(h5: h5py.File) -> None:
         """Give spare instances 3 and 4 pose data and one tracklet id, both masked."""

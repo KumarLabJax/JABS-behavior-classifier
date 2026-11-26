@@ -827,7 +827,8 @@ def test_masked_duplicate_loses_its_tracklet(tmp_path: Path) -> None:
     assert (tail >= layout.identity).all()
 
     out = tmp_path / "out.h5"
-    convert_legacy(src, out, created=CREATED)
+    report = convert_legacy(src, out, created=CREATED)
+    assert report.tracklets_cleared == len(frames)
     with h5py.File(out, "r") as h5:
         tracklets = h5["jabs/pose/tracklet_id"][...]
         occupied = h5["jabs/pose/slot_occupied"][...]
@@ -842,6 +843,45 @@ def test_masked_duplicate_loses_its_tracklet(tmp_path: Path) -> None:
         "legacy_index": [3, 3, 3],
         "tracklet": [gen.clean_track_id(0)] * 3,
     }
+    assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
+
+
+def test_masked_duplicate_keeps_a_tracklet_its_valid_holder_cannot_write(
+    tmp_path: Path,
+) -> None:
+    """When the valid holder is unoccupied, it writes no tracklet, so the masked one keeps it."""
+
+    def unoccupied_holder(h5: h5py.File) -> None:
+        """Make the masked duplicate, then take every confidence from the valid holder."""
+        _masked_duplicate(h5)
+        for frame in _CLEARED_FRAMES:
+            h5["poseest/confidence"][frame, 0] = 0
+
+    gen = generator()
+    src = tmp_path / "unoccupied-holder.h5"
+    gen.write_legacy(
+        src,
+        frames=120,
+        instances=4,
+        identities=3,
+        version=gen.V8,
+        seg=False,
+        edits=unoccupied_holder,
+    )
+    layout = inspect_legacy(src)
+    with h5py.File(src, "r") as h5:
+        plan = plan_placement(h5, layout)
+    frames = list(_CLEARED_FRAMES)
+    assert len(plan.tracklets_cleared) == 0
+    assert plan.tracklet_id is not None
+    tail, owner = plan.slot_of[frames, 3], plan.slot_of[frames, 0]
+    assert (plan.tracklet_id[frames, owner] == 0).all()
+    assert (plan.tracklet_id[frames, tail] > 0).all()
+
+    out = tmp_path / "out.h5"
+    report = convert_legacy(src, out, created=CREATED)
+    assert report.tracklets_cleared == 0
+    assert "tracklets_cleared" not in _history(out)[0]["extra"]
     assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
 
 

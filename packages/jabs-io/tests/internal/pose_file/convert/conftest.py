@@ -60,7 +60,7 @@ def generator() -> ModuleType:
 def widen_segmentation(
     extra: int, contour_frame: int | None = None
 ) -> Callable[[h5py.File], None]:
-    """Return an edit giving the segmentation datasets ``extra`` more instance rows than ``points``.
+    """Return an edit giving the segmentation datasets ``extra`` more rows than ``points``.
 
     Real v6 files have this layout: the segmentation model writes its own
     detection axis, one row wider than the pose's, and the spare rows hold no

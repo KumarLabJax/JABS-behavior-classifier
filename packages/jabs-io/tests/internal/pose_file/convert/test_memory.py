@@ -348,3 +348,38 @@ def test_one_huge_compressible_chunk_is_refused(tmp_path: Path) -> None:
     assert "estimated" in message
     assert f"({cap} bytes)" in message
     assert peak < _SMALL_PEAK
+
+
+_SPARE_CONTOURS = 16
+
+
+def _segmentation(width: int) -> Callable[[h5py.Group], None]:
+    """Return an edit declaring unwritten segmentation datasets ``width`` instances wide."""
+
+    def edit(pose: h5py.Group) -> None:
+        """Declare the four segmentation datasets, in tiny chunks."""
+        frames = pose["points"].shape[0]
+        declared = {
+            "seg_data": ((frames, width, _SPARE_CONTOURS, 1, 2), np.int16),
+            "seg_external_flag": ((frames, width, _SPARE_CONTOURS), np.bool_),
+            "longterm_seg_id": ((frames, width), np.uint32),
+            "instance_seg_id": ((frames, width), np.uint32),
+        }
+        for name, (shape, dtype) in declared.items():
+            chunks = (1, 1, *shape[2:])
+            pose.create_dataset(name, shape=shape, dtype=dtype, chunks=chunks)
+
+    return edit
+
+
+def test_the_estimate_counts_the_spare_segmentation_rows(tmp_path: Path) -> None:
+    """Inspection reads the rows past the pose's, so a wide seg_data cannot pass the cap."""
+    narrow, wide = tmp_path / "narrow.h5", tmp_path / "wide.h5"
+    spare = 20_000
+    _declare(narrow, frames=900, edits=_segmentation(5))
+    _declare(wide, frames=900, edits=_segmentation(4 + spare))
+
+    inspecting = 900 * spare * (_SPARE_CONTOURS * (np.dtype(np.int16).itemsize + 1) + 1)
+    assert _estimate(narrow) < inspecting <= _estimate(wide)
+    with pytest.raises(LegacyConversionError, match="memory"):
+        inspect_legacy(wide, max_memory=inspecting // 2)

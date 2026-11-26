@@ -94,7 +94,7 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     its own copy of both offsets, ``GS * (8C + 8)``. The per-frame term is
     the larger of the two phases, times ``F``.
 
-    To that it adds the larger of two block terms. Writing: the largest
+    To that it adds the largest of three block terms. Writing: the largest
     frame block's working set across the frame datasets, which for one with
     ``v`` values per instance and item size ``s`` is
     ``N * v * (2s + 12) + 9 * S * v`` bytes a frame (the block as read and
@@ -102,7 +102,13 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     then the 4-byte output block and the ragged alternate's mask and rows),
     times ``min(block_frames, F)``. Checking: four of the deep check's blocks
     of dense contours, each ``DEEP_CHECK_BLOCK_BYTES`` or the whole baseline
-    if smaller. And it adds, at their item size plus a 4-byte cast, the
+    if smaller. Inspecting: the spare segmentation rows, ``W - N`` of them
+    when ``seg_data``'s instance axis ``W`` is wider than ``points``', whose
+    contours' first point ``inspect_legacy`` reads, ``(W - N) * (C * (s + 1)
+    + 1)`` bytes a frame (the block as read, the comparison and its
+    reduction), times ``min(block_frames, F)``. The other terms count ``N``
+    instances only, so without this a wide, mostly unwritten ``seg_data``
+    would pass the cap. And it adds, at their item size plus a 4-byte cast, the
     datasets read whole: the static and dynamic objects,
     ``instance_id_center`` and ``external_identity_mapping``.
 
@@ -176,7 +182,13 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
             read.extend(_group_datasets(group))
     chunk = max((_chunk_bytes(dataset) for dataset in read), default=0)
 
-    return frames * per_frame + max(writing, checking_block) + whole + chunk
+    inspecting = 0
+    if seg is not None and seg.ndim == 5 and seg.shape[1] > instances:
+        spare = int(seg.shape[1]) - instances
+        per_block_frame = spare * (contours * (seg.dtype.itemsize + 1) + 1)
+        inspecting = min(block_frames, frames) * per_block_frame
+
+    return frames * per_frame + max(writing, checking_block, inspecting) + whole + chunk
 
 
 def require_memory(path: Path, estimate: int, max_memory: int) -> None:

@@ -25,7 +25,9 @@ The segmentation datasets (``seg_data``, ``seg_external_flag``,
 ``instance_seg_id``, ``longterm_seg_id``) share their own instance axis, which
 real v6 files make one row wider than ``points``'. Row ``i`` is pose instance
 ``i``'s; a spare row past the last pose instance is accepted when it holds no
-contour, and is never converted.
+contour, and is never converted. Checking that reads the spare rows, which
+decompresses the whole of ``seg_data``, so a metadata scan can skip it
+(``check_spare_rows=False``); the conversion never does.
 
 Inspection reads shapes and attributes only, except ``instance_embed_id`` and
 ``id_mask``, which it reads in frame blocks when the identity count has to
@@ -182,7 +184,11 @@ class LegacyLayout:
 
 
 def inspect_legacy(
-    path: Path, *, max_memory: int | None = None, strict: bool = True
+    path: Path,
+    *,
+    max_memory: int | None = None,
+    strict: bool = True,
+    check_spare_rows: bool = True,
 ) -> LegacyLayout:
     """Identify a legacy ``pose_est_v2``..``v8`` file by its contents.
 
@@ -203,6 +209,13 @@ def inspect_legacy(
         strict: Refuse every item outside the catalog or malformed. False
             waives the refusals the module docstring lists: the item is left
             behind and recorded in ``waived``, and a WARNING is logged.
+        check_spare_rows: Read the ``seg_data`` rows past the pose's
+            instances and refuse (or, lenient, leave behind) any contour on
+            them. Every legacy chunk spans the whole instance axis, so this
+            decompresses all of ``seg_data``. False skips it, for a metadata
+            scan; the layout then does not list the spare rows in
+            ``dropped`` or ``waived``, and a file the conversion refuses for
+            them is not refused here.
 
     Returns:
         Its layout.
@@ -260,7 +273,7 @@ def inspect_legacy(
         version = _version(pose)
 
         seg = pose.get("seg_data")
-        if seg is not None and seg.shape[1] > instances:
+        if check_spare_rows and seg is not None and seg.shape[1] > instances:
             _check_spare_rows(path, seg, int(frames), int(instances), waiver)
         bbox = pose.get("bbox")
         bbox_generated = bbox is not None and bool(bbox.attrs.get("bboxes_generated", False))
@@ -521,6 +534,8 @@ def _check_segmentation_shapes(path: Path, pose: h5py.Group, frames: int, instan
 
     They share their own instance axis, which may be wider than ``points``'
     but not narrower: a pose instance past it would have no segmentation row.
+    ``seg_data`` must have at least one point a contour, since a contour's
+    first point says whether it exists.
     """
     expected: dict[str, tuple[int | None, ...]] = {
         "seg_data": (frames, None, None, None, 2),
@@ -533,6 +548,11 @@ def _check_segmentation_shapes(path: Path, pose: h5py.Group, frames: int, instan
         shape = pose[name].shape
         if not _matches(shape, expected[name]) or shape[1] < instances:
             _refuse_shapes(path, name, shape, "poseest/points", pose["points"].shape)
+    if "seg_data" in pose and pose["seg_data"].shape[3] == 0:
+        raise LegacyConversionError(
+            f"{path}: poseest/seg_data has shape {pose['seg_data'].shape}, with no points "
+            "per contour"
+        )
     if not present:
         return
     reference = present[0]

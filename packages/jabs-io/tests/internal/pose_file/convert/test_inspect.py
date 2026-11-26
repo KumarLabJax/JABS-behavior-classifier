@@ -539,3 +539,28 @@ def test_segmentation_datasets_must_agree_on_their_width(tmp_path: Path) -> None
 
     with pytest.raises(LegacyConversionError, match="poseest/longterm_seg_id"):
         inspect_legacy(_write(tmp_path / "mismatched.h5", mismatched, seg=True), strict=False)
+
+
+def test_a_scan_can_skip_the_spare_segmentation_rows(tmp_path: Path) -> None:
+    """``check_spare_rows=False`` reads no contours, so it neither refuses nor waives them."""
+    path = _write(tmp_path / "wide.h5", widen_segmentation(1, contour_frame=2), seg=True)
+    for strict in (True, False):
+        layout = inspect_legacy(path, strict=strict, check_spare_rows=False)
+        assert layout.has_segmentation
+        assert layout.waived == ()
+
+
+def test_segmentation_with_no_points_is_refused(tmp_path: Path) -> None:
+    """A contour's first point says whether it exists, so a point axis of 0 is refused."""
+
+    def no_points(h5: h5py.File) -> None:
+        """Widen the segmentation, then give seg_data no points per contour."""
+        widen_segmentation(1)(h5)
+        shape = h5["poseest/seg_data"].shape
+        del h5["poseest/seg_data"]
+        h5["poseest"].create_dataset("seg_data", shape=(*shape[:3], 0, 2), dtype=np.int16)
+
+    path = _write(tmp_path / "no-points.h5", no_points, seg=True)
+    for strict in (True, False):
+        with pytest.raises(LegacyConversionError, match="no points per contour"):
+            inspect_legacy(path, strict=strict)
