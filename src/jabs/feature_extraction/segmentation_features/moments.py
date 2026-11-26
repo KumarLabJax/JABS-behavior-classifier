@@ -1,3 +1,6 @@
+"""Heading-aligned (egocentric) segmentation image moment features."""
+
+import logging
 import typing
 
 import numpy as np
@@ -9,6 +12,8 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
     from .moment_cache import MomentInfo
+
+logger = logging.getLogger(__name__)
 
 
 def rotate_central_moments(

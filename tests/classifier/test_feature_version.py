@@ -248,5 +248,5 @@ def test_project_load_classifier_raises_for_a_stale_classifier(tmp_path: Path) -
 
 
 def test_feature_version_is_21() -> None:
-    """Features use heading-aligned rotation-invariant segmentation moments from version 21 on."""
+    """Version 21 aligns segmentation moments to animal bearing and fixes dimensionless nu scaling."""
     assert FEATURE_VERSION == 21
