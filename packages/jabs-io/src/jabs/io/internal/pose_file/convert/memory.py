@@ -1,11 +1,11 @@
 """Refuse a legacy file whose declared shapes would exhaust memory, before allocating.
 
 The plan holds arrays sized frames x slots x contours, and pass 2 reads blocks
-of at least 900 frames whatever ``block_bytes`` asks, all from the shapes the
-file declares. A file of a few kilobytes can declare billions of frames, or a
-contour axis no real file has, in chunked storage it never wrote. So the
-converter estimates its peak memory from the shapes alone and refuses a file
-above the caller's cap, naming both.
+of at least one chunk row of the dense contours whatever ``block_bytes`` asks,
+all from the shapes the file declares. A file of a few kilobytes can declare
+billions of frames, or a contour axis no real file has, in chunked storage it
+never wrote. So the converter estimates its peak memory from the shapes alone
+and refuses a file above the caller's cap, naming both.
 
 The estimate is a bound for the shapes real files have, not a measurement: it
 uses the slot count's upper bound (every identity plus every legacy instance),
@@ -25,11 +25,16 @@ its metadata, before inspection or the scale reads any attribute's value.
 import logging
 import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import h5py
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
-from jabs.io.internal.pose_file.validate import DEEP_CHECK_BLOCK_BYTES
+from jabs.io.internal.pose_file.validate import deep_check_block_frames
+from jabs.io.internal.pose_file.writer import chunk_shape
+
+if TYPE_CHECKING:
+    from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +54,7 @@ STORAGE_RATIO = 2000
 MAX_ATTRIBUTE_BYTES = 16 * 2**20
 
 # The poseest datasets read in frame blocks, by pass 1, pass 2 or inspection.
-_FRAME_DATASETS = (
+FRAME_DATASETS = (
     "points",
     "confidence",
     "id_mask",
@@ -66,8 +71,112 @@ _FRAME_DATASETS = (
 # measured, 4 allowed.
 _DEEP_CHECK_COPIES = 4
 
+# The frames ``inspect_legacy`` reads at a time when it checks the
+# ``seg_data`` rows past the pose's instances.
+SPARE_ROW_BLOCK_FRAMES = 900
+
 # The poseest datasets read whole.
 _WHOLE_DATASETS = ("instance_id_center", "external_identity_mapping")
+
+
+# The most bytes of a legacy dataset's chunk cache. A block shorter than a
+# legacy dataset's chunks would decompress each chunk once per block that
+# touches it, so the dataset is opened with a cache holding one chunk row
+# (every chunk over the chunks' frames) when that row is at most this. A larger
+# row keeps HDF5's default 1 MiB cache: slower, never unbounded.
+LEGACY_CACHE_MAX_BYTES = 2 * 2**30
+
+
+def legacy_cache_bytes(dataset: h5py.Dataset, block_frames: int) -> int:
+    """Return the chunk cache a legacy frame dataset is read with, in blocks; 0 for the default.
+
+    Args:
+        dataset: A legacy dataset read along its first axis.
+        block_frames: The frames read at a time.
+
+    Returns:
+        One chunk row's decompressed bytes when blocks split its chunks and
+        the row is at most ``LEGACY_CACHE_MAX_BYTES``; otherwise 0, as when
+        one block holds every frame and nothing is read twice.
+    """
+    chunks = dataset.chunks
+    if (
+        chunks is None
+        or dataset.shape is None
+        or block_frames % chunks[0] == 0
+        or block_frames >= dataset.shape[0]
+    ):
+        return 0
+    across = math.prod(-(-n // c) for n, c in zip(dataset.shape[1:], chunks[1:], strict=True))
+    row = across * math.prod(chunks) * dataset.dtype.itemsize
+    return row if row <= LEGACY_CACHE_MAX_BYTES else 0
+
+
+def open_cached(group: h5py.Group, name: str, block_frames: int) -> h5py.Dataset:
+    """Open a legacy frame dataset with the chunk cache ``legacy_cache_bytes`` gives it.
+
+    HDF5 shares one open dataset, and its cache, among every handle to it, so
+    a caller holds the returned handle while it reads the dataset in blocks;
+    other handles opened meanwhile, like ``group[name]``, use the same cache.
+
+    Args:
+        group: The group holding the dataset.
+        name: Its name in the group.
+        block_frames: The frames read at a time.
+
+    Returns:
+        The dataset.
+    """
+    dataset = group[name]
+    nbytes = legacy_cache_bytes(dataset, block_frames)
+    if not nbytes:
+        return dataset
+    chunks = nbytes // (math.prod(dataset.chunks) * dataset.dtype.itemsize)
+    access = h5py.h5p.create(h5py.h5p.DATASET_ACCESS)
+    # One slot a chunk at least: a chunk row is a run of consecutive chunk
+    # indices, so a table at least that long has no collisions within it.
+    access.set_chunk_cache(2 * chunks + 1, nbytes, 0.75)
+    del dataset
+    return h5py.Dataset(h5py.h5d.open(group.id, name.encode(), dapl=access))
+
+
+# The converted dense contours' axes, which decide their chunk shape.
+_CONTOUR_AXES = ("frame", "slot", "contour", "point", "coord")
+
+
+def contour_rows(frames: int, contour_axis: int, point_axis: int) -> int:
+    """Return the frames in one chunk of the converted dense contours; 1 without contours.
+
+    The writer chunks contours along frames and the point axis only
+    (``writer.chunk_shape``), so this depends on the point axis and not on
+    the slot count, which is unknown until the plan is made.
+
+    Args:
+        frames: The frame count.
+        contour_axis: The padded contour extent; 0 without segmentation.
+        point_axis: The padded point extent; 0 without segmentation.
+
+    Returns:
+        The chunk's frame extent: the smallest block the converter reads.
+    """
+    if min(frames, contour_axis, point_axis) <= 0:
+        return 1
+    return chunk_shape(_CONTOUR_AXES, (frames, 1, contour_axis, point_axis, 2), 4)[0]
+
+
+def contour_chunk_frames(layout: "LegacyLayout") -> int:
+    """Return :func:`contour_rows` for an inspected legacy file.
+
+    Args:
+        layout: What ``inspect_legacy`` found in the file.
+
+    Returns:
+        The frames in one chunk of its converted dense contours; 1 without
+        segmentation.
+    """
+    if not layout.has_segmentation:
+        return 1
+    return contour_rows(layout.frames, layout.contour_axis, layout.point_axis)
 
 
 def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
@@ -101,16 +210,18 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     one copy in its own dtype, a 4-byte cast, the scatter's gather and masks;
     then the 4-byte output block and the ragged alternate's mask and rows),
     times ``min(block_frames, F)``. Checking: four of the deep check's blocks
-    of dense contours, each ``DEEP_CHECK_BLOCK_BYTES`` or the whole baseline
-    if smaller. Inspecting: the spare segmentation rows, ``W - N`` of them
-    when ``seg_data``'s instance axis ``W`` is wider than ``points``', whose
-    contours' first point ``inspect_legacy`` reads, ``(W - N) * (C * (s + 1)
-    + 1)`` bytes a frame (the block as read, the comparison and its
-    reduction), times ``min(block_frames, F)``. The other terms count ``N``
-    instances only, so without this a wide, mostly unwritten ``seg_data``
-    would pass the cap. And it adds, at their item size plus a 4-byte cast, the
-    datasets read whole: the static and dynamic objects,
-    ``instance_id_center`` and ``external_identity_mapping``.
+    of dense contours (``validate.deep_check_block_frames``: 64 MiB, widened
+    to whole chunk rows of the contours as the writer chunks them), or the
+    whole baseline if smaller. Inspecting: the spare segmentation rows,
+    ``W - N`` of them when ``seg_data``'s instance axis ``W`` is wider than
+    ``points``', whose contours' first point ``inspect_legacy`` reads,
+    ``(W - N) * (C * (s + 1) + 1)`` bytes a frame (the block as read, the
+    comparison and its reduction), times ``min(SPARE_ROW_BLOCK_FRAMES, F)``
+    whatever ``block_frames`` is, since that check sizes its own blocks. The
+    other terms count ``N`` instances only, so without this a wide, mostly
+    unwritten ``seg_data`` would pass the cap. And it adds, at their item
+    size plus a 4-byte cast, the datasets read whole: the static and dynamic
+    objects, ``instance_id_center`` and ``external_identity_mapping``.
 
     A file whose ``points`` has no instance axis (``pose_est_v2``) has
     ``N = 1``, and every axis after the frame counts toward ``v``.
@@ -123,6 +234,9 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     One chunk is counted: the reads are sequential, and a chunk larger than
     the dataset's chunk cache (h5py's default, 1 MiB) is not kept after its
     read, so two large chunks are never decompressed at once.
+
+    And it adds every frame dataset's chunk cache (``legacy_cache_bytes``):
+    one chunk row where blocks are shorter than the dataset's chunks.
 
     Args:
         h5: The open legacy file; only shapes and dtypes are read.
@@ -158,7 +272,7 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     per_frame = max(planning, checking)
 
     block = 0
-    for name in _FRAME_DATASETS:
+    for name in FRAME_DATASETS:
         dataset = pose.get(name)
         if not isinstance(dataset, h5py.Dataset) or dataset.ndim < value_axis:
             continue
@@ -168,27 +282,41 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     writing = min(block_frames, frames) * block
 
     checking_block = 0
-    if seg is not None and seg.ndim == 5:
-        # The output contours, int32, for every frame.
-        dense = frames * slots * math.prod(seg.shape[2:]) * 4
-        checking_block = _DEEP_CHECK_COPIES * min(DEEP_CHECK_BLOCK_BYTES, dense)
+    if seg is not None and seg.ndim == 5 and frames > 0:
+        # The output contours, int32, for every frame, read in the deep
+        # check's blocks of the chunks the writer gives them.
+        shape = (frames, slots, *seg.shape[2:])
+        dense = math.prod(shape) * 4
+        rows = contour_rows(frames, int(seg.shape[2]), int(seg.shape[3]))
+        chunks = (rows, 1, 1, int(seg.shape[3]), 1)
+        frame_bytes = math.prod(shape[1:]) * 4
+        block = deep_check_block_frames(shape, 4, chunks) * frame_bytes
+        checking_block = _DEEP_CHECK_COPIES * min(block, dense)
 
     whole = sum(_whole_bytes(pose.get(name)) for name in _WHOLE_DATASETS)
-    read = [pose.get(name) for name in (*_FRAME_DATASETS, *_WHOLE_DATASETS)]
+    read = [pose.get(name) for name in (*FRAME_DATASETS, *_WHOLE_DATASETS)]
     for root in ("static_objects", "dynamic_objects"):
         group = h5.get(root)
         if isinstance(group, h5py.Group):
             whole += _group_bytes(group)
             read.extend(_group_datasets(group))
     chunk = max((_chunk_bytes(dataset) for dataset in read), default=0)
+    # The chunk caches of the frame datasets read in blocks: the plan and
+    # pass 2 each hold every one they read for the whole pass.
+    cache = sum(
+        legacy_cache_bytes(dataset, block_frames)
+        for dataset in read[: len(FRAME_DATASETS)]
+        if isinstance(dataset, h5py.Dataset)
+    )
 
     inspecting = 0
     if seg is not None and seg.ndim == 5 and seg.shape[1] > instances:
         spare = int(seg.shape[1]) - instances
         per_block_frame = spare * (contours * (seg.dtype.itemsize + 1) + 1)
-        inspecting = min(block_frames, frames) * per_block_frame
+        inspecting = min(SPARE_ROW_BLOCK_FRAMES, frames) * per_block_frame
 
-    return frames * per_frame + max(writing, checking_block, inspecting) + whole + chunk
+    writing_or_checking = max(writing, checking_block, inspecting)
+    return frames * per_frame + writing_or_checking + whole + chunk + cache
 
 
 def require_memory(path: Path, estimate: int, max_memory: int) -> None:

@@ -30,6 +30,7 @@ import numpy.typing as npt
 from jabs.io.internal.pose_file.alternates import Alternate, RaggedIndex
 from jabs.io.internal.pose_file.blocks import BlockSource
 from jabs.io.internal.pose_file.convert.inspect import LegacyLayout
+from jabs.io.internal.pose_file.convert.memory import contour_chunk_frames
 from jabs.io.internal.pose_file.convert.plan import PlacementPlan
 from jabs.io.internal.pose_file.convert.sources import (
     _memory_source,
@@ -62,17 +63,19 @@ def segmentation_components(
         path: The legacy file. Each block source opens it when read.
         layout: What ``inspect_legacy`` found in it.
         plan: Where ``plan_placement`` put each legacy instance and contour.
-        block_frames: Frames per block; a multiple of 900.
+        block_frames: Frames per block; a multiple of the dense contours' chunk
+            rows (``memory.contour_chunk_frames``), or every frame.
 
     Returns:
         The components; empty when the file has no segmentation.
 
     Raises:
-        ValueError: If ``block_frames`` is not a positive multiple of 900.
+        ValueError: If ``block_frames`` is not positive, or would split the
+            dense contours' chunks.
     """
     if not layout.has_segmentation:
         return []
-    check_block_frames(block_frames)
+    check_block_frames(block_frames, contour_chunk_frames(layout), layout.frames)
     count, length = plan.contour_count, plan.contour_length
     group_offsets, instance_offsets = plan.group_offsets, plan.instance_offsets
     if count is None or length is None or group_offsets is None or instance_offsets is None:

@@ -305,14 +305,14 @@ def test_round_trip_keeps_embedding_and_foreign_layouts(tmp_path):
 
 
 def test_foreign_without_request_keeps_default_policy(tmp_path):
-    """A foreign component with no request gets the 300-frame gzip-1 policy."""
+    """A foreign component with no request gets the writer's default chunked gzip policy."""
     path = tmp_path / "foreign.h5"
     _write_clean(_single(_foreign(frames=600), 600), path)
     assert _entry(path, _FOREIGN)["layout"] == {
         "storage": "chunked",
-        "chunks": [300, 2],
+        "chunks": [600, 2],
         "compression": "gzip",
-        "compression_opts": 1,
+        "compression_opts": 4,
     }
 
 

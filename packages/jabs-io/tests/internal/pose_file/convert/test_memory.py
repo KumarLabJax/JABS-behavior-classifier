@@ -1,5 +1,6 @@
 """The converter refuses a file whose declared shapes would exhaust memory, before allocating."""
 
+import dataclasses
 import shutil
 import tracemalloc
 from collections.abc import Callable
@@ -18,7 +19,10 @@ from jabs.io.internal.pose_file.convert.convert import DEFAULT_MAX_MEMORY, block
 from jabs.io.internal.pose_file.convert.memory import (
     STORAGE_RATIO,
     STORAGE_RATIO_FLOOR,
+    contour_chunk_frames,
     estimate_memory,
+    legacy_cache_bytes,
+    open_cached,
 )
 
 from .conftest import generator, legacy
@@ -92,7 +96,7 @@ def test_huge_frames_are_refused_before_allocating(
 
 
 def test_a_huge_contour_axis_is_refused_by_its_block(tmp_path: Path) -> None:
-    """A few frames whose one 900-frame block would be enormous are refused."""
+    """A few frames whose smallest block would be enormous are refused."""
 
     def contours(pose: h5py.Group) -> None:
         frames, instances = pose["points"].shape[:2]
@@ -278,6 +282,48 @@ def test_a_four_day_v6_recording_fits_the_default_cap(tmp_path: Path) -> None:
     assert estimate < DEFAULT_MAX_MEMORY
 
 
+def test_a_real_wide_segmentation_fits_the_default_cap(tmp_path: Path) -> None:
+    """The widest real file seen, 79 contours of 5,923 points, estimates under 16 GiB.
+
+    Its shapes and legacy chunks are a real 1800-frame v8 file's, the largest
+    of 7,729. With 900-frame blocks the estimate was 98 GiB at inspection and
+    133 GiB in full, and the file was refused.
+    """
+    frames, instances, identities = 1800, 5, 5
+
+    def wide(pose: h5py.Group) -> None:
+        pose.create_dataset(
+            "seg_data",
+            shape=(frames, instances, 79, 5923, 2),
+            dtype=np.int16,
+            chunks=(113, 1, 5, 371, 1),
+            compression="gzip",
+        )
+        pose.create_dataset(
+            "seg_external_flag", shape=(frames, instances, 79), dtype=np.bool_, chunks=True
+        )
+        pose.create_dataset("instance_id_center", data=np.zeros((identities, 16)))
+
+    src = tmp_path / "wide.h5"
+    _declare(src, frames=frames, instances=instances, edits=wide)
+    seen = inspect_legacy(legacy("v8-edge-cases.h5"))
+    layout = dataclasses.replace(
+        seen,
+        frames=frames,
+        instances=instances,
+        identity=identities,
+        contour_axis=79,
+        point_axis=5923,
+    )
+    with h5py.File(src, "r") as h5:
+        floor = estimate_memory(h5, identity=identities, block_frames=contour_chunk_frames(layout))
+        full = estimate_memory(
+            h5, identity=identities, block_frames=block_frames_for(layout, 64 * 2**20)
+        )
+
+    assert floor == full < DEFAULT_MAX_MEMORY
+
+
 # _declare's largest chunk: 900 frames of 4 instances' float32 points.
 _POINTS_CHUNK = 900 * 4 * 12 * 2 * 4
 # A chunk longer than the 900 frames declared, which a resizable dataset may have.
@@ -312,6 +358,8 @@ def test_the_estimate_counts_the_largest_chunk(tmp_path: Path) -> None:
     _declare(small, frames=900)
     _declare(big, frames=900, edits=_one_big_chunk)
 
+    # One block holds all 900 frames, so nothing is read twice and the
+    # points get no chunk cache: the big chunk counts once.
     assert _estimate(big) - _estimate(small) == _BIG_CHUNK - _POINTS_CHUNK
 
 
@@ -350,6 +398,82 @@ def test_one_huge_compressible_chunk_is_refused(tmp_path: Path) -> None:
     assert peak < _SMALL_PEAK
 
 
+def _wide_legacy(path: Path, chunk_frames: int = 113) -> None:
+    """Declare legacy contours with a real wide file's shape and chunks, unwritten."""
+
+    def wide(pose: h5py.Group) -> None:
+        pose.create_dataset(
+            "seg_data",
+            shape=(1800, 5, 79, 5923, 2),
+            dtype=np.int16,
+            chunks=(chunk_frames, 1, 5, 371, 1),
+            compression="gzip",
+        )
+
+    _declare(path, frames=1800, instances=5, edits=wide)
+
+
+# One legacy chunk row of _wide_legacy's seg_data: every chunk over 113 frames.
+_WIDE_CHUNK_ROW = (5 * 16 * 16 * 2) * (113 * 5 * 371) * 2
+
+
+def test_a_block_shorter_than_the_legacy_chunks_caches_one_chunk_row(tmp_path: Path) -> None:
+    """Read in blocks shorter than its chunks, a legacy chunk row is cached, not re-read per block.
+
+    Without it each 11-frame block decompressed every 113-frame chunk it
+    touched again: 3.4 times the reading of a real wide file.
+    """
+    src = tmp_path / "wide.h5"
+    _wide_legacy(src)
+    with h5py.File(src, "r") as h5:
+        pose = h5["poseest"]
+        assert legacy_cache_bytes(pose["seg_data"], 11) == _WIDE_CHUNK_ROW
+        # Whole chunk rows per block re-read nothing, and contiguous data has no chunks.
+        assert legacy_cache_bytes(pose["seg_data"], 226) == 0
+        # One block of every frame reads each chunk once.
+        assert legacy_cache_bytes(pose["seg_data"], 1800) == 0
+        assert legacy_cache_bytes(pose["seg_data"], 2000) == 0
+        seg = open_cached(pose, "seg_data", 11)
+        nslots, nbytes, _ = seg.id.get_access_plist().get_chunk_cache()
+        assert nbytes == _WIDE_CHUNK_ROW
+        assert nslots >= 5 * 16 * 16 * 2
+
+
+def test_a_legacy_chunk_row_too_large_to_cache_is_not_cached(tmp_path: Path) -> None:
+    """A chunk row above the cap is read with HDF5's default cache: slower, never unbounded."""
+
+    def huge(pose: h5py.Group) -> None:
+        pose.create_dataset(
+            "seg_data",
+            shape=(900, 4, 100, 1_000_000, 2),
+            dtype=np.int32,
+            chunks=(900, 1, 1, 1000, 2),
+            compression="gzip",
+        )
+
+    src = tmp_path / "huge.h5"
+    _declare(src, frames=900, edits=huge)
+    with h5py.File(src, "r") as h5:
+        assert legacy_cache_bytes(h5["poseest/seg_data"], 1) == 0
+
+
+def test_the_estimate_counts_the_legacy_chunk_cache(tmp_path: Path) -> None:
+    """The cache is native memory tracemalloc cannot see, so the estimate adds it.
+
+    Legacy chunks of 11 frames are whole per 11-frame block and need no
+    cache; of 113 frames they need one chunk row. Nothing else differs: the
+    largest chunk read is the points' either way.
+    """
+    aligned, split = tmp_path / "aligned.h5", tmp_path / "split.h5"
+    _wide_legacy(aligned, chunk_frames=11)
+    _wide_legacy(split)
+    estimates = {}
+    for path in (aligned, split):
+        with h5py.File(path, "r") as h5:
+            estimates[path] = estimate_memory(h5, identity=5, block_frames=11)
+    assert estimates[split] - estimates[aligned] == _WIDE_CHUNK_ROW
+
+
 _SPARE_CONTOURS = 16
 
 
@@ -381,5 +505,9 @@ def test_the_estimate_counts_the_spare_segmentation_rows(tmp_path: Path) -> None
 
     inspecting = 900 * spare * (_SPARE_CONTOURS * (np.dtype(np.int16).itemsize + 1) + 1)
     assert _estimate(narrow) < inspecting <= _estimate(wide)
+    # The check reads its own blocks, so a smaller conversion block, as
+    # inspect_legacy passes, does not shrink the term.
+    with h5py.File(wide, "r") as h5:
+        assert estimate_memory(h5, identity=4, block_frames=1) >= inspecting
     with pytest.raises(LegacyConversionError, match="memory"):
         inspect_legacy(wide, max_memory=inspecting // 2)

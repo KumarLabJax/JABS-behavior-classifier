@@ -9,8 +9,10 @@ from jabs.core.utils import signed_angle_degrees
 from jabs.core.utils.pose_util import identity_centroids
 from jabs.feature_extraction.feature_base_class import Feature
 
+from .distance_info import LandmarkDistanceInfo, LandmarkFeatureValues
 
-class LixitDistanceInfo:
+
+class LixitDistanceInfo(LandmarkDistanceInfo):
     """compute and cache distances and bearings to lixit objects for reuse by multiple features.
 
     because we have two feature groups that both need to know which lixit is the closest, we compute that
@@ -23,18 +25,16 @@ class LixitDistanceInfo:
     with the MouseLixitAngle feature to avoid recomputing it.
     """
 
-    def __init__(self, poses: PoseLike, pixel_scale: float):
+    def __init__(self, poses: PoseLike, pixel_scale: float) -> None:
+        super().__init__(poses, pixel_scale)
+
         # Distances include all keypoints
         self._keypoint_indices = list(KeypointIndex)
 
-        self._poses = poses
-        self._pixel_scale = pixel_scale
         self._closest_lixit_idx = {}
-        self._cached_distances = {}
-        self._cached_bearings = {}
         self._cached_centroids = {}
 
-    def cache_features(self, identity: int):
+    def cache_features(self, identity: int) -> None:
         """Computes and caches distances and bearings to the closest lixit for a given identity.
 
         Args:
@@ -111,32 +111,6 @@ class LixitDistanceInfo:
             self._cached_bearings[identity]["bearing to lixit"] = signed_angle_degrees(
                 nose_points, base_neck_points, closest_lixit_vec
             )
-
-    def get_distances(self, identity: int) -> dict:
-        """get lixit distance feature for a given identity
-
-        Args:
-            identity: integer identity to get distances for
-
-        Returns:
-            dict containing keyed distances
-        """
-        if identity not in self._cached_distances:
-            self.cache_features(identity)
-        return self._cached_distances[identity]
-
-    def get_bearings(self, identity: int) -> dict:
-        """get lixit bearing features for a given identity
-
-        Args:
-            identity: integer identity to get bearings for
-
-        Returns:
-            dict containing keyed bearings
-        """
-        if identity not in self._cached_bearings:
-            self.cache_features(identity)
-        return self._cached_bearings[identity]
 
     def get_closest_lixit(self, identity: int) -> np.ndarray:
         """get the closest lixit index
@@ -230,7 +204,7 @@ class DistanceToLixit(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> dict:
+    def per_frame(self, identity: int) -> LandmarkFeatureValues:
         """get the per frame distance to nearest lixit
 
         Args:
@@ -261,7 +235,7 @@ class BearingToLixit(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+    def per_frame(self, identity: int) -> LandmarkFeatureValues:
         """get the per frame bearing to the nearest lixit values
 
         Args:

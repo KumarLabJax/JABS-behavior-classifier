@@ -20,6 +20,7 @@ import numpy.typing as npt
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.inspect import BLOCK_FRAMES, LegacyLayout
+from jabs.io.internal.pose_file.convert.memory import open_cached
 
 logger = logging.getLogger(__name__)
 
@@ -244,9 +245,17 @@ def plan_placement(
     contours = layout.contour_axis
     _check_extents(layout)
 
-    seg = pose["seg_data"] if layout.has_segmentation else None
-    track = pose["instance_track_id"] if layout.has_tracklets else None
-    longterm = pose.get("longterm_seg_id")
+    # Held for the whole pass, so each dataset's chunk cache outlives a
+    # block's read: a block can be one chunk row of the converted contours,
+    # far shorter than the legacy chunks.
+    id_mask = open_cached(pose, "id_mask", block_frames)
+    embed_ids = open_cached(pose, "instance_embed_id", block_frames)
+    confidence = open_cached(pose, "confidence", block_frames)
+    seg = open_cached(pose, "seg_data", block_frames) if layout.has_segmentation else None
+    track = open_cached(pose, "instance_track_id", block_frames) if layout.has_tracklets else None
+    longterm = (
+        open_cached(pose, "longterm_seg_id", block_frames) if "longterm_seg_id" in pose else None
+    )
 
     slot_of = np.full((frames, instances), -1, dtype=np.int16)
     # Per legacy instance until the slot count is known, then scattered.
@@ -261,11 +270,11 @@ def plan_placement(
 
     for start in range(0, frames, block_frames):
         stop = min(start + block_frames, frames)
-        valid = pose["id_mask"][start:stop] == 0
+        valid = id_mask[start:stop] == 0
         # Signed, so e - 1 cannot wrap at e == 0.
-        embed = pose["instance_embed_id"][start:stop].astype(np.int64)
+        embed = embed_ids[start:stop].astype(np.int64)
         # slot_occupied, as pass 2 writes it: any confidence above 0.
-        occupied = (pose["confidence"][start:stop] > 0).any(axis=-1)
+        occupied = (confidence[start:stop] > 0).any(axis=-1)
         anything = occupied.copy()
         if seg is not None:
             anything |= _pack_contours(
@@ -384,7 +393,9 @@ def _track_plan(h5: h5py.File, layout: LegacyLayout, block_frames: int) -> Place
     pose = h5["poseest"]
     frames, instances, slots = layout.frames, layout.instances, layout.track_slots
     _check_extents(layout)
-    track_ids = pose["instance_track_id"]
+    # Held for the whole pass, as in plan_placement.
+    track_ids = open_cached(pose, "instance_track_id", block_frames)
+    confidence = open_cached(pose, "confidence", block_frames)
 
     slot_of = np.full((frames, instances), -1, dtype=np.int16)
     tracklet_id = np.zeros((frames, slots), dtype=np.uint32)
@@ -412,7 +423,7 @@ def _track_plan(h5: h5py.File, layout: LegacyLayout, block_frames: int) -> Place
                         slot_of_track[track_id] = heapq.heappop(free)
             block[f, : count[f]] = [slot_of_track[t] for t in current]
             previous = current
-        occupied = (pose["confidence"][start:stop] > 0).any(axis=-1) & counted
+        occupied = (confidence[start:stop] > 0).any(axis=-1) & counted
         frame, instance = np.nonzero(occupied)
         tracklet_id[start + frame, block[frame, instance]] = (
             track[frame, instance] + TRACKLET_ID_OFFSET

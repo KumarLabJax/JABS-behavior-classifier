@@ -46,8 +46,10 @@ import numpy as np
 
 from jabs.io.internal.pose_file.convert.errors import LegacyConversionError
 from jabs.io.internal.pose_file.convert.memory import (
+    SPARE_ROW_BLOCK_FRAMES,
     check_attributes,
     check_storage,
+    contour_rows,
     estimate_memory,
     require_memory,
 )
@@ -58,8 +60,9 @@ logger = logging.getLogger(__name__)
 
 KEYPOINTS = 12
 
-# The least common multiple of the writer's 300-frame chunk and legacy
-# seg_data's 450-frame chunk.
+# The frames read at a time by the passes that keep only a few values a frame:
+# the identity scan here, and the plan when no block size is given. The
+# converter sizes its own blocks (``block_frames_for``).
 BLOCK_FRAMES = 900
 
 _POSEEST = frozenset(
@@ -203,7 +206,7 @@ def inspect_legacy(
         path: The legacy HDF5 file.
         max_memory: A cap on the conversion's estimated peak memory, in
             bytes, checked against a lower bound (the identities
-            ``instance_id_center`` declares, 900-frame blocks) before any data
+            ``instance_id_center`` declares, the smallest block) before any data
             is read; ``convert_legacy`` checks the full estimate once the
             identity count is known. None checks no memory bound.
         strict: Refuse every item outside the catalog or malformed. False
@@ -266,8 +269,16 @@ def inspect_legacy(
         if max_memory is not None:
             centers = pose.get("instance_id_center")
             floor = int(centers.shape[0]) if centers is not None else int(not instance_axis)
+            # The smallest block the converter reads: one chunk row of the
+            # dense contours, or one frame.
+            seg = pose.get("seg_data")
+            rows = (
+                contour_rows(int(seg.shape[0]), int(seg.shape[2]), int(seg.shape[3]))
+                if isinstance(seg, h5py.Dataset) and seg.ndim == 5
+                else 1
+            )
             require_memory(
-                path, estimate_memory(h5, identity=floor, block_frames=BLOCK_FRAMES), max_memory
+                path, estimate_memory(h5, identity=floor, block_frames=rows), max_memory
             )
         check_storage(path, h5)
         version = _version(pose)
@@ -577,8 +588,8 @@ def _check_spare_rows(
     first point's x is not -1, as the planner reads it. Only that point is
     read, a frame block at a time.
     """
-    for start in range(0, frames, BLOCK_FRAMES):
-        stop = min(start + BLOCK_FRAMES, frames)
+    for start in range(0, frames, SPARE_ROW_BLOCK_FRAMES):
+        stop = min(start + SPARE_ROW_BLOCK_FRAMES, frames)
         frame, row = np.nonzero((seg[start:stop, instances:, :, 0, 0] != -1).any(axis=-1))
         if frame.size:
             waiver.waive(

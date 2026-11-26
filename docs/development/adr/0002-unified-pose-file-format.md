@@ -1261,6 +1261,13 @@ storage gives the single-range property, which is why it is the recommendation f
 components whenever the frame count is known when the file is written, as it is for a completed
 inference run.
 
+> **Note (2026-11, segmentation storage):** `ceil(w / c) + 1` assumes each chunk spans the
+> trailing axes. The writer now chunks a compressed component as frames of one item run
+> (`writer.chunk_shape`): dense contours are chunked `(k, 1, 1, point, 1)`, one along slot,
+> contour and coord. A frame window over them touches about `(ceil(w / k) + 1) × S × C × 2`
+> chunks for `S` slots and `C` contours. This does not touch the byte-range read described
+> above, which only reads the contiguous, uncompressed keypoint-scale data.
+
 A component's `layout` field records `storage`, `chunks`, `compression` and `compression_opts`, so a
 reader can tell which case it is in before deciding how to read. That field is advisory metadata
 about the HDF5 layout, and `validate()` warns when it disagrees with the file.

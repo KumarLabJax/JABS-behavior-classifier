@@ -10,8 +10,10 @@ from jabs.core.pose_skeleton import KeypointIndex
 from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.feature_base_class import Feature
 
+from .distance_info import LandmarkDistanceInfo, LandmarkFeatureValues
 
-class CornerDistanceInfo:
+
+class CornerDistanceInfo(LandmarkDistanceInfo):
     """cached distance to corner
 
     because we have two features that both need to know which corner is the
@@ -23,12 +25,9 @@ class CornerDistanceInfo:
     class.
     """
 
-    def __init__(self, poses: PoseLike, pixel_scale: float):
-        self._poses = poses
-        self._pixel_scale = pixel_scale
+    def __init__(self, poses: PoseLike, pixel_scale: float) -> None:
+        super().__init__(poses, pixel_scale)
         self._closest_corner_idx = {}
-        self._cached_distances = {}
-        self._cached_bearings = {}
         self._all_wall_distances = {}
 
         # None until cache_features() runs; it is then set to the arena's average
@@ -36,7 +35,7 @@ class CornerDistanceInfo:
         # get_avg_wall_length() relies on this None to know it must still compute.
         self._avg_wall_length: float | None = None
 
-    def cache_features(self, identity: int):
+    def cache_features(self, identity: int) -> None:
         """cache corner distances and bearings for a given identity
 
         Args:
@@ -149,32 +148,6 @@ class CornerDistanceInfo:
         correction_scale = wall_dist_cv2 / np.min(wall_dist, axis=1)
         return np.abs(wall_dist * correction_scale[:, np.newaxis]), wall_dist_cv2
 
-    def get_distances(self, identity: int) -> dict:
-        """get corner distance features for a given identity
-
-        Args:
-            identity: integer identity to get distances for
-
-        Returns:
-            dict containing keyed distances
-        """
-        if identity not in self._cached_distances:
-            self.cache_features(identity)
-        return self._cached_distances[identity]
-
-    def get_bearings(self, identity: int) -> dict:
-        """get corner bearing features for a given identity
-
-        Args:
-            identity: integer identity to get bearings for
-
-        Returns:
-            dict containing keyed bearings
-        """
-        if identity not in self._cached_bearings:
-            self.cache_features(identity)
-        return self._cached_bearings[identity]
-
     def get_closest_corner(self, identity: int) -> np.ndarray:
         """get the closest corner index
 
@@ -256,7 +229,7 @@ class DistanceToCorner(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> dict:
+    def per_frame(self, identity: int) -> LandmarkFeatureValues:
         """get the per frame distance to the nearest corner values
 
         Args:
@@ -287,7 +260,7 @@ class BearingToCorner(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> dict:
+    def per_frame(self, identity: int) -> LandmarkFeatureValues:
         """get the per frame bearing to the nearest corner values
 
         Args:
