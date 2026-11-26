@@ -48,7 +48,7 @@ from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project, VideoLabels
 
 try:
-    from PySide6 import QtCore, QtWidgets
+    from PySide6 import QtCore, QtGui, QtWidgets
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
@@ -655,6 +655,82 @@ def test_two_window_gui_end_to_end_multiclass_sync_triage_and_isolation(
         assert central._player_widget.current_frame == 30
         assert central._selection_start == 30
         assert central._selection_end == 52
+
+        # ---- A2. Real Mouse Clicks on Arena Spatial Map -> Full MainWindow / Player Sync ----
+        dlg.arena_map_btn.click()
+        _wait_until(
+            qapp,
+            lambda: (
+                dlg._proj_method == "spatial"
+                and dlg._report is not None
+                and dlg._report.spatial is not None
+                and dlg._spatial_worker is None
+            ),
+            timeout_ms=20_000,
+            desc="Arena spatial localization in E2E MainWindow session",
+        )
+        assert int(np.sum(dlg._report.spatial.valid_mask)) >= 2
+        assert dlg.scatter_canvas._pick_coords is not None
+        assert dlg.scatter_canvas._pick_global_indices is not None
+        dlg.scatter_canvas._render_now()
+        qapp.processEvents()
+
+        # Simulate stale right-click on table viewport before clicking Arena dots
+        ev_tbl_r = QtGui.QMouseEvent(
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QPointF(16.0, 10.0),
+            QtCore.QPointF(16.0, 10.0),
+            Qt.MouseButton.RightButton,
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QtWidgets.QApplication.sendEvent(dlg.table.viewport(), ev_tbl_r)
+
+        def _click_arena_bout_e2e(target_gi: int) -> None:
+            pick_g = list(dlg.scatter_canvas._pick_global_indices.tolist())  # type: ignore[union-attr]
+            local_k = pick_g.index(target_gi)
+            pt_data = dlg.scatter_canvas._pick_coords[local_k]  # type: ignore[index]
+            px, py = dlg.scatter_ax.transData.transform(pt_data)
+            dpr = max(1.0, float(dlg.scatter_canvas.devicePixelRatioF()))
+            qt_pos = QtCore.QPointF(
+                float(px) / dpr, float(dlg.scatter_canvas.height()) - float(py) / dpr
+            )
+            ev_p = QtGui.QMouseEvent(
+                QtCore.QEvent.Type.MouseButtonPress,
+                qt_pos,
+                qt_pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            ev_r = QtGui.QMouseEvent(
+                QtCore.QEvent.Type.MouseButtonRelease,
+                qt_pos,
+                qt_pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            dlg.scatter_canvas.mousePressEvent(ev_p)
+            dlg.scatter_canvas.mouseReleaseEvent(ev_r)
+
+        for target_bi in (b_chim, b_mis):
+            rec_exp = records[target_bi]
+            _click_arena_bout_e2e(target_bi)
+            QTest.qWait(80)
+            qapp.processEvents()
+            assert dlg._selected_bout_idx == target_bi
+            assert central.loaded_video is not None and central.loaded_video.name == rec_exp.video
+            assert central._controls.current_identity_index == rec_exp.identity
+            assert central._player_widget._active_identity == rec_exp.identity
+            assert central._player_widget.current_frame == rec_exp.start_frame
+            assert central._selection_start == rec_exp.start_frame
+            assert central._selection_end == rec_exp.end_frame
+
+        # Toggle Arena back off before remaining E2E flow
+        dlg.arena_map_btn.click()
+        assert dlg._proj_method == "pca"
+        qapp.processEvents()
 
         # Switch across videos & animals rapidly (must never trigger OSError: video stream is closed)
         _select_bout_in_dialog(dlg, b_chim)

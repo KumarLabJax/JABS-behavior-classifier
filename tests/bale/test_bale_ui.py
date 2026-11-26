@@ -2962,3 +2962,364 @@ def test_pr608_review_lazy_import_menu_lifecycle_worker_slots_and_timeline_sync(
     )
     CentralWidget._save_and_refresh_annotations(cw_stub)
     assert emitted_count == 3
+
+
+def test_arena_view_real_mouse_clicks_and_full_gui_connectivity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify real mouse clicks on Arena [A] & all BALE->JABS GUI sync entry points never disconnect."""
+    from jabs.bale.models import BoutSpatialResult
+    from jabs.ui.dialogs.message_dialog import MessageDialog
+
+    _ensure_qapp()
+    project, proj_dir = _build_synthetic_explorer_project(tmp_path)
+    (proj_dir / "jabs" / "predictions" / "cage_00.h5").write_bytes(b"stub")
+    preds_raw = np.zeros(600, dtype=np.int32)
+    preds_post = np.zeros(600, dtype=np.int32)
+    probs = np.full(600, 0.05, dtype=np.float32)
+    preds_raw[490:536] = 1
+    preds_post[490:536] = 1
+    probs[490:536] = 0.56
+    project.prediction_manager.load_predictions.side_effect = lambda vid, _beh: (
+        ({0: preds_raw}, {0: probs}, {0: preds_post}) if vid == "cage_00.mp4" else ({}, {}, {})
+    )
+    monkeypatch.setattr(MessageDialog, "confirm", staticmethod(lambda *_a, **_kw: True))
+    monkeypatch.setattr(MessageDialog, "information", staticmethod(lambda *_a, **_kw: None))
+    monkeypatch.setattr(MessageDialog, "warning", staticmethod(lambda *_a, **_kw: None))
+
+    rep = run_bale(project, "Grooming", include_predictions=True, space="classifier")
+    records = rep.feature_matrix.records
+    n_bouts = len(records)
+    assert n_bouts >= 6
+
+    # Build deterministic spread coordinates across a 2048x1536 arena, including a wall/perimeter bout
+    # and a trailing unmapped NaN bout.
+    coords_xy = np.column_stack(
+        [
+            np.linspace(180.0, 1880.0, n_bouts, dtype=np.float32),
+            np.linspace(220.0, 1340.0, n_bouts, dtype=np.float32),
+        ]
+    )
+    labeled_idxs = [i for i, r in enumerate(records) if r.source == "labeled"]
+    pred_idxs = [i for i, r in enumerate(records) if r.source == "predicted"]
+    assert len(labeled_idxs) >= 4
+    assert len(pred_idxs) >= 1
+
+    # Put one labeled bout right at the right/top arena perimeter wall (`2047.5, 2.0`),
+    # and keep the last bout unmapped NaN if it's not needed below.
+    perim_gi = labeled_idxs[2]
+    coords_xy[perim_gi] = np.array([2047.5, 2.0], dtype=np.float32)
+    valid_mask = np.ones(n_bouts, dtype=bool)
+    rep.spatial = BoutSpatialResult(
+        coords_xy=coords_xy,
+        nose_xy=coords_xy.copy(),
+        valid_mask=valid_mask,
+        frame_width=2048.0,
+        frame_height=1536.0,
+        normalized=False,
+        reference_frame_gray=np.full((480, 640), 120, dtype=np.uint8),
+        static_objects={},
+        elapsed_ms=2.5,
+    )
+
+    central_mock = MagicMock()
+    central_mock.behavior = "Grooming"
+    central_mock.loaded_video = None
+    central_mock.seek_to_bout = MagicMock()
+    central_mock.play_bout_clip = MagicMock()
+    central_mock.seek_to_frame_only = MagicMock()
+    central_mock.load_custom_search_queue = MagicMock()
+    central_mock.sync_external_video_labels = MagicMock()
+
+    def _click_canvas_at_data(
+        canvas: QtWidgets.QWidget,
+        data_xy: tuple[float, float] | np.ndarray,
+        *,
+        dx_px: float = 0.0,
+        dy_px: float = 0.0,
+    ) -> None:
+        px, py = canvas.ax.transData.transform(data_xy)  # type: ignore[attr-defined]
+        dpr = max(1.0, float(canvas.devicePixelRatioF()))
+        qt_pos = QtCore.QPointF(
+            float(px) / dpr + dx_px,
+            (float(canvas.height()) - float(py) / dpr) + dy_px,
+        )
+        ev_p = QtGui.QMouseEvent(
+            QtCore.QEvent.Type.MouseButtonPress,
+            qt_pos,
+            qt_pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        ev_r = QtGui.QMouseEvent(
+            QtCore.QEvent.Type.MouseButtonRelease,
+            qt_pos,
+            qt_pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        canvas.mousePressEvent(ev_p)
+        canvas.mouseReleaseEvent(ev_r)
+
+    dlg = BaleDialog(project, central_widget=central_mock)
+    try:
+        dlg.resize(1200, 760)
+        dlg.show()
+        dlg._on_analysis_finished(rep, included_preds=True)
+        QtWidgets.QApplication.processEvents()
+
+        # Switch to Needs Review or All so we have both in-table and out-of-table labeled bouts
+        assert dlg.table.rowCount() >= 2
+        row0_gi = int(dlg.table.item(0, 0).data(Qt.ItemDataRole.UserRole))
+        row1_gi = int(dlg.table.item(1, 0).data(Qt.ItemDataRole.UserRole))
+        table_bis = {
+            int(dlg.table.item(r, 0).data(Qt.ItemDataRole.UserRole))
+            for r in range(dlg.table.rowCount())
+        }
+        out_of_table_labeled = [i for i in labeled_idxs if i not in table_bis]
+        if not out_of_table_labeled:
+            dlg.qf_needs_btn.click()
+            QtWidgets.QApplication.processEvents()
+            table_bis = {
+                int(dlg.table.item(r, 0).data(Qt.ItemDataRole.UserRole))
+                for r in range(dlg.table.rowCount())
+            }
+            out_of_table_labeled = [i for i in labeled_idxs if i not in table_bis]
+
+        # 1. Switch to Arena [A] via button click and flush initial Agg render
+        dlg.arena_map_btn.click()
+        assert dlg._proj_method == "spatial"
+        assert dlg.arena_map_btn.isChecked()
+        dlg.scatter_canvas._render_now()
+        QtWidgets.QApplication.processEvents()
+
+        # Click an in-table bout different from current selection via real mouse press+release
+        target_gi = row1_gi if dlg._selected_bout_idx == row0_gi else row0_gi
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, coords_xy[target_gi])
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_bout_idx == target_gi
+        assert central_mock.seek_to_bout.call_count == 1
+        rec_t = records[target_gi]
+        assert central_mock.seek_to_bout.call_args.args[:4] == (
+            rec_t.video,
+            rec_t.identity,
+            rec_t.start_frame,
+            rec_t.end_frame,
+        )
+        assert central_mock.seek_to_bout.call_args.kwargs.get("select_span") is True
+
+        # 2. Re-clicking the already-selected bout on Arena still seeks JABS GUI
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, coords_xy[target_gi])
+        QtWidgets.QApplication.processEvents()
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # 3. Clicking an out-of-table bout (clean bout while Needs Review tab is active) seeks GUI
+        if out_of_table_labeled:
+            out_gi = out_of_table_labeled[0]
+            central_mock.seek_to_bout.reset_mock()
+            _click_canvas_at_data(dlg.scatter_canvas, coords_xy[out_gi])
+            QtWidgets.QApplication.processEvents()
+            assert dlg._selected_bout_idx == out_gi
+            assert central_mock.seek_to_bout.call_count == 1
+            assert central_mock.seek_to_bout.call_args.args[:3] == (
+                records[out_gi].video,
+                records[out_gi].identity,
+                records[out_gi].start_frame,
+            )
+
+        # 4. Perimeter/wall bout clicked 3 px past ax.bbox edge (within 14 px pick tolerance) still seeks GUI
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, coords_xy[perim_gi], dx_px=3.0, dy_px=-3.0)
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_bout_idx == perim_gi
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # 5. Regression: stale RightButton press (no release, as when QMenu.exec() steals it)
+        # and stale Col 6 press on table.viewport() must NEVER block subsequent Arena/table/arrow seeks!
+        ev_tbl_right = QtGui.QMouseEvent(
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QPointF(20.0, 10.0),
+            QtCore.QPointF(20.0, 10.0),
+            Qt.MouseButton.RightButton,
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QtWidgets.QApplication.sendEvent(dlg.table.viewport(), ev_tbl_right)
+        assert dlg._table_mouse_press_btn == Qt.MouseButton.RightButton
+
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, coords_xy[row0_gi])
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_bout_idx == row0_gi
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # Also test stale Col 6 press -> Arena click & arrow step
+        col6_x = float(max(0, dlg.table.columnViewportPosition(6)) + 5)
+        ev_tbl_col6 = QtGui.QMouseEvent(
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QPointF(col6_x, 10.0),
+            QtCore.QPointF(col6_x, 10.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QtWidgets.QApplication.sendEvent(dlg.table.viewport(), ev_tbl_col6)
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, coords_xy[row1_gi])
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_bout_idx == row1_gi
+        assert central_mock.seek_to_bout.call_count == 1
+
+        QtWidgets.QApplication.sendEvent(dlg.table.viewport(), ev_tbl_right)
+        central_mock.seek_to_bout.reset_mock()
+        dlg._step_table_row(1)
+        QtWidgets.QApplication.processEvents()
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # 6. Zoomed-in Arena BEFORE 60 ms _viewport_timer settles + Retina DPR=2.0 still seeks GUI accurately
+        orig_dpr_fn = dlg.scatter_canvas.devicePixelRatioF
+        try:
+            dlg.scatter_canvas.devicePixelRatioF = lambda: 2.0  # type: ignore[method-assign]
+            dlg.scatter_canvas.mark_layout_dirty()
+            dlg.scatter_canvas._render_now()
+            z_gi = perim_gi if perim_gi != row1_gi else row0_gi
+            zx, zy = float(coords_xy[z_gi, 0]), float(coords_xy[z_gi, 1])
+            dlg._on_scatter_wheel_zoom(zx, zy, 0.45)
+            # Notice _viewport_timer is still active (fast preview before 60 ms Agg settle)
+            assert dlg.scatter_canvas._viewport_timer.isActive()
+            central_mock.seek_to_bout.reset_mock()
+            _click_canvas_at_data(dlg.scatter_canvas, coords_xy[z_gi])
+            QtWidgets.QApplication.processEvents()
+            assert dlg._selected_bout_idx == z_gi
+            assert central_mock.seek_to_bout.call_count == 1
+        finally:
+            dlg.scatter_canvas.devicePixelRatioF = orig_dpr_fn  # type: ignore[method-assign]
+            dlg._reset_scatter_zoom()
+            dlg.scatter_canvas._render_now()
+
+        # 7. Mode 2 (Review Predictions) + Arena real mouse click seeks JABS GUI
+        dlg.mode_predict_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(1)
+        QtWidgets.QApplication.processEvents()
+        dlg.scatter_canvas._render_now()
+        p_gi = pred_idxs[0]
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, coords_xy[p_gi])
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_bout_idx == p_gi
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # 8. Mode 3 (Sub-Types) + Arena real mouse click seeks JABS GUI
+        dlg.mode_subtypes_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(2)
+        QtWidgets.QApplication.processEvents()
+        dlg.scatter_canvas._render_now()
+        pos_labeled = [i for i in labeled_idxs if records[i].is_positive]
+        s_gi = pos_labeled[0]
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, coords_xy[s_gi])
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_bout_idx == s_gi
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # 9. Toggle back to PCA and verify PCA scatter real mouse click + remaining Mode 1-3 GUI links
+        dlg.mode_audit_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(0)
+        QtWidgets.QApplication.processEvents()
+        dlg.arena_map_btn.click()
+        assert dlg._proj_method == "pca"
+        dlg.scatter_canvas._render_now()
+        pca_coords = rep.embedding.coords_pca_2d
+        pca_target = row0_gi if dlg._selected_bout_idx != row0_gi else row1_gi
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, pca_coords[pca_target])
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_bout_idx == pca_target
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # Spacebar / Play Clip -> play_bout_clip; Prob scrub -> seek_to_frame_only;
+        # Send Queue -> load_custom_search_queue; Label flip + Undo -> sync_external_video_labels.
+        central_mock.play_bout_clip.reset_mock()
+        dlg.keyPressEvent(
+            QtGui.QKeyEvent(
+                QtCore.QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " "
+            )
+        )
+        assert central_mock.play_bout_clip.call_count == 1
+
+        dlg._set_inspector_view("prob")
+        dlg.insp_canvas._render_now()
+        rec_cur = records[dlg._selected_bout_idx]
+        central_mock.seek_to_frame_only.reset_mock()
+        _click_canvas_at_data(
+            dlg.insp_canvas, (0.5 * (rec_cur.start_frame + rec_cur.end_frame), 0.5)
+        )
+        assert central_mock.seek_to_frame_only.call_count == 1
+
+        central_mock.load_custom_search_queue.reset_mock()
+        dlg.send_queue_btn.click()
+        assert central_mock.load_custom_search_queue.call_count == 1
+
+        central_mock.sync_external_video_labels.reset_mock()
+        dlg._on_secondary_action_2_clicked()
+        assert central_mock.sync_external_video_labels.call_count >= 1
+        dlg._on_undo_clicked()
+
+        # 10. Mode 4 (Videos) connectivity: stale right-click + real scatter click + buttons + scrub + send
+        dlg.mode_videos_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(3)
+        for _ in range(80):
+            QtWidgets.QApplication.processEvents()
+            if dlg._video_report is not None and dlg._video_worker is None:
+                break
+            time.sleep(0.02)
+        assert dlg._video_report is not None and dlg.video_table.rowCount() >= 2
+        dlg.scatter_canvas._render_now()
+
+        ev_vtbl_right = QtGui.QMouseEvent(
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QPointF(20.0, 10.0),
+            QtCore.QPointF(20.0, 10.0),
+            Qt.MouseButton.RightButton,
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QtWidgets.QApplication.sendEvent(dlg.video_table.viewport(), ev_vtbl_right)
+        assert dlg._video_table_mouse_press_btn == Qt.MouseButton.RightButton
+
+        assert dlg._video_scatter_coords is not None
+        assert len(dlg._video_scatter_names) >= 2
+        vid_target_idx = 1 if dlg._selected_video_name == dlg._video_scatter_names[0] else 0
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, dlg._video_scatter_coords[vid_target_idx])
+        QtWidgets.QApplication.processEvents()
+        assert dlg._selected_video_name == dlg._video_scatter_names[vid_target_idx]
+        assert central_mock.seek_to_bout.call_count == 1
+
+        # Re-click already-selected video dot still seeks JABS GUI
+        central_mock.seek_to_bout.reset_mock()
+        _click_canvas_at_data(dlg.scatter_canvas, dlg._video_scatter_coords[vid_target_idx])
+        QtWidgets.QApplication.processEvents()
+        assert central_mock.seek_to_bout.call_count == 1
+
+        central_mock.play_bout_clip.reset_mock()
+        dlg.play_clip_btn.click()
+        assert central_mock.play_bout_clip.call_count == 1
+
+        central_mock.seek_to_frame_only.reset_mock()
+        dlg.insp_canvas._render_now()
+        _click_canvas_at_data(dlg.insp_canvas, (90.0, 0.0))
+        assert central_mock.seek_to_frame_only.call_count == 1
+
+        central_mock.load_custom_search_queue.reset_mock()
+        dlg.send_videos_btn.click()
+        assert central_mock.load_custom_search_queue.call_count == 1
+    finally:
+        dlg.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.processEvents()

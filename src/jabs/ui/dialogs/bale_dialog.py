@@ -980,25 +980,38 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
         if pt is not None:
             self.y_value_clicked.emit(pt[1])
 
-    def _nearest_visible_point(self, pos: QtCore.QPointF) -> int | None:
+    def _nearest_visible_point(
+        self, pos: QtCore.QPointF, *, flush_pending: bool = False
+    ) -> int | None:
         if (
             self._pick_coords is None
             or self._pick_global_indices is None
             or len(self._pick_coords) == 0
         ):
             return None
+        if self._render_pending or (
+            flush_pending and (self._viewport_timer.isActive() or self._resize_timer.isActive())
+        ):
+            self._render_now()
         dpr = max(1.0, float(self.devicePixelRatioF()))
         x_mpl = pos.x() * dpr
         y_mpl = (float(self.height()) - pos.y()) * dpr
-        if not self.ax.bbox.contains(x_mpl, y_mpl):
+        pick_tol = 14.0 * dpr
+        bbox = self.ax.bbox
+        if not (
+            float(bbox.x0) - pick_tol <= x_mpl <= float(bbox.x1) + pick_tol
+            and float(bbox.y0) - pick_tol <= y_mpl <= float(bbox.y1) + pick_tol
+        ):
             return None
         x0, x1 = sorted(float(v) for v in self.ax.get_xlim())
         y0, y1 = sorted(float(v) for v in self.ax.get_ylim())
+        dx_pad = 0.02 * max(1e-6, x1 - x0)
+        dy_pad = 0.02 * max(1e-6, y1 - y0)
         in_view = (
-            (self._pick_coords[:, 0] >= x0)
-            & (self._pick_coords[:, 0] <= x1)
-            & (self._pick_coords[:, 1] >= y0)
-            & (self._pick_coords[:, 1] <= y1)
+            (self._pick_coords[:, 0] >= x0 - dx_pad)
+            & (self._pick_coords[:, 0] <= x1 + dx_pad)
+            & (self._pick_coords[:, 1] >= y0 - dy_pad)
+            & (self._pick_coords[:, 1] <= y1 + dy_pad)
         )
         in_idx = np.flatnonzero(in_view)
         if in_idx.size == 0:
@@ -1009,7 +1022,7 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
             return None
         dists = np.hypot(pts_px[:, 0] - x_mpl, pts_px[:, 1] - y_mpl)
         best_sub = int(np.argmin(dists))
-        if float(dists[best_sub]) <= 12.0 * dpr:
+        if float(dists[best_sub]) <= pick_tol:
             return int(in_idx[best_sub])
         return None
 
@@ -1062,7 +1075,7 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
         if (
             self._interactive_scatter
             and event.button() == Qt.MouseButton.LeftButton
-            and self._nearest_visible_point(event.position()) is None
+            and self._nearest_visible_point(event.position(), flush_pending=True) is None
         ):
             self._press_pos = None
             self._drag_pos = None
@@ -1154,7 +1167,7 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
             self._pan_press_pos = None
             self._pan_drag_exceeded = False
             if was_right and not exceeded:
-                local_idx = self._nearest_visible_point(end_pos)
+                local_idx = self._nearest_visible_point(end_pos, flush_pending=True)
                 hit_gi = (
                     int(self._pick_global_indices[local_idx])
                     if (local_idx is not None and self._pick_global_indices is not None)
@@ -1184,10 +1197,16 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
                 dpr = max(1.0, float(self.devicePixelRatioF()))
                 h_log = float(self.height())
                 if dx < 6.0 and dy < 6.0:
-                    local_idx = self._nearest_visible_point(end_pos)
+                    local_idx = self._nearest_visible_point(end_pos, flush_pending=True)
                     if local_idx is not None and self._pick_global_indices is not None:
                         self.point_clicked.emit(int(self._pick_global_indices[local_idx]))
                 elif self._drag_mode == "lasso" and len(lasso_pts) >= 3:
+                    if (
+                        self._render_pending
+                        or self._viewport_timer.isActive()
+                        or self._resize_timer.isActive()
+                    ):
+                        self._render_now()
                     try:
                         inv = self.ax.transData.inverted()
                         mpl_pts = np.array(
@@ -1199,6 +1218,12 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
                     except Exception:
                         logger.debug("Could not invert scatter axes transform for lasso select")
                 else:
+                    if (
+                        self._render_pending
+                        or self._viewport_timer.isActive()
+                        or self._resize_timer.isActive()
+                    ):
+                        self._render_now()
                     x0_mpl = min(p0.x(), end_pos.x()) * dpr
                     x1_mpl = max(p0.x(), end_pos.x()) * dpr
                     y0_mpl = (h_log - max(p0.y(), end_pos.y())) * dpr
@@ -1288,6 +1313,8 @@ class BaleDialog(QtWidgets.QDialog):
         self._ignoring_self_seek_signal: bool = False
         self._table_mouse_press_col: int | None = None
         self._table_mouse_press_btn: Qt.MouseButton | None = None
+        self._bout_seek_epoch: int = 0
+        self._video_seek_epoch: int = 0
 
         # Advanced overrides (tucked inside Options menu)
         self._proj_method: ProjectionMethod = "pca"
@@ -5028,6 +5055,7 @@ class BaleDialog(QtWidgets.QDialog):
     ) -> None:
         if self._central_widget is None or self._report is None:
             return
+        self._bout_seek_epoch += 1
         beh_target = self._bout_display_behavior(rec)
         self._ignoring_self_seek_signal = True
         try:
@@ -6470,17 +6498,20 @@ class BaleDialog(QtWidgets.QDialog):
 
     def _on_scatter_point_clicked(self, b_idx: int, *, seek_and_mark: bool = True) -> None:
         if self._mode == "videos":
+            self._clear_video_table_mouse_press_state()
             if 0 <= b_idx < len(self._video_scatter_names):
                 self._select_video_by_name(
                     self._video_scatter_names[b_idx], seek_in_jabs=seek_and_mark
                 )
             return
+        self._clear_table_mouse_press_state()
         if self._report is None or not (0 <= b_idx < len(self._report.feature_matrix.records)):
             return
         if self._mode == "predict" and b_idx not in set(self._mode_eligible_indices()):
             return
         self._selected_bout_idx = b_idx
         self._scrubbed_frame = None
+        seek_epoch_before = self._bout_seek_epoch
         for r in range(self.table.rowCount()):
             item = self.table.item(r, 0)
             if item is not None and int(item.data(Qt.ItemDataRole.UserRole)) == b_idx:
@@ -6488,13 +6519,30 @@ class BaleDialog(QtWidgets.QDialog):
                 if not seek_and_mark:
                     self._suppress_auto_seek = True
                 try:
-                    if self.table.currentRow() == r and self.table.selectedItems():
+                    selected_rows = {it.row() for it in self.table.selectedItems()}
+                    if selected_rows == {r}:
+                        if self.table.currentRow() != r:
+                            self.table.blockSignals(True)
+                            try:
+                                self.table.setCurrentCell(r, 0)
+                            finally:
+                                self.table.blockSignals(False)
                         self._on_table_selection_changed()
                     else:
                         self.table.selectRow(r)
                 finally:
                     self._suppress_auto_seek = prev_sup
                 self._pending_click_already_sought_row = None
+                if (
+                    seek_and_mark
+                    and self.auto_seek_action.isChecked()
+                    and not self._suppress_auto_seek
+                    and self._bout_seek_epoch == seek_epoch_before
+                ):
+                    self._seek_bout_in_main_window(
+                        self._report.feature_matrix.records[b_idx],
+                        b_idx=b_idx,
+                    )
                 return
         # Clicked an eligible point outside the active queue filter (e.g. clean bout in Audit mode)
         self.table.blockSignals(True)
@@ -6937,6 +6985,7 @@ class BaleDialog(QtWidgets.QDialog):
             self._show_bout_context_menu(global_pos, self._selected_bout_idx)
 
     def _on_table_context_menu(self, local_pos: QtCore.QPoint) -> None:
+        self._clear_table_mouse_press_state()
         if self._report is None:
             return
         row = self.table.rowAt(local_pos.y())
@@ -8096,6 +8145,8 @@ class BaleDialog(QtWidgets.QDialog):
             self.refresh_analysis()
 
     def _step_table_row(self, delta: int) -> None:
+        self._clear_table_mouse_press_state()
+        self._clear_video_table_mouse_press_state()
         active_tbl = self.video_table if self._mode == "videos" else self.table
         n = active_tbl.rowCount()
         if n <= 0:
@@ -8125,6 +8176,14 @@ class BaleDialog(QtWidgets.QDialog):
                     self._table_mouse_press_btn = event.button()
                 elif event.type() == QtCore.QEvent.Type.MouseButtonRelease:
                     QtCore.QTimer.singleShot(0, self._clear_table_mouse_press_state)
+                elif event.type() in (
+                    QtCore.QEvent.Type.Leave,
+                    QtCore.QEvent.Type.FocusOut,
+                ) and not (
+                    QtWidgets.QApplication.mouseButtons()
+                    & (Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton)
+                ):
+                    self._clear_table_mouse_press_state()
                 return False
         if vtbl is not None:
             try:
@@ -8138,6 +8197,14 @@ class BaleDialog(QtWidgets.QDialog):
                     self._video_table_mouse_press_btn = event.button()
                 elif event.type() == QtCore.QEvent.Type.MouseButtonRelease:
                     QtCore.QTimer.singleShot(0, self._clear_video_table_mouse_press_state)
+                elif event.type() in (
+                    QtCore.QEvent.Type.Leave,
+                    QtCore.QEvent.Type.FocusOut,
+                ) and not (
+                    QtWidgets.QApplication.mouseButtons()
+                    & (Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton)
+                ):
+                    self._clear_video_table_mouse_press_state()
                 return False
         if (
             (source is tbl or (vtbl is not None and source is vtbl))
@@ -9118,22 +9185,40 @@ class BaleDialog(QtWidgets.QDialog):
                 self._seek_video_in_main_window(rec, frame_zero=False)
 
     def _select_video_by_name(self, video_name: str, *, seek_in_jabs: bool = True) -> None:
+        self._clear_video_table_mouse_press_state()
         if not video_name or self._video_report is None:
             return
         self._selected_video_name = video_name
         self._video_scrubbed_frame = None
+        seek_epoch_before = self._video_seek_epoch
         row = self._find_video_table_row(video_name)
         if row is not None:
             prev_sup = self._suppress_auto_seek
             if not seek_in_jabs:
                 self._suppress_auto_seek = True
             try:
-                if self.video_table.currentRow() == row and self.video_table.selectedItems():
+                selected_rows = {it.row() for it in self.video_table.selectedItems()}
+                if selected_rows == {row}:
+                    if self.video_table.currentRow() != row:
+                        self.video_table.blockSignals(True)
+                        try:
+                            self.video_table.setCurrentCell(row, 0)
+                        finally:
+                            self.video_table.blockSignals(False)
                     self._on_video_table_selection_changed()
                 else:
                     self.video_table.selectRow(row)
             finally:
                 self._suppress_auto_seek = prev_sup
+            if (
+                seek_in_jabs
+                and self.auto_seek_action.isChecked()
+                and not self._suppress_auto_seek
+                and self._video_seek_epoch == seek_epoch_before
+            ):
+                rec = self._get_video_record(video_name)
+                if rec is not None:
+                    self._seek_video_in_main_window(rec, frame_zero=False)
             return
         self._update_video_scatter_selection_ring()
         self._update_video_inspector_card()
@@ -9767,6 +9852,7 @@ class BaleDialog(QtWidgets.QDialog):
     ) -> None:
         if self._central_widget is None:
             return
+        self._video_seek_epoch += 1
         focal = rec.focal_event_for(self._video_preset, self._video_source)
         beh_target = self._selected_single_behavior() or (
             self._video_report.behavior if self._video_report is not None else ""
@@ -9889,6 +9975,7 @@ class BaleDialog(QtWidgets.QDialog):
             self._apply_video_name_cohort_in_bout_mode(video_name)
 
     def _on_video_table_context_menu(self, local_pos: QtCore.QPoint) -> None:
+        self._clear_video_table_mouse_press_state()
         if self._video_report is None:
             return
         row = self.video_table.rowAt(local_pos.y())
