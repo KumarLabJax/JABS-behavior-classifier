@@ -39,20 +39,21 @@ def _shift_raw_moments(moments: dict[str, float], x0: float, y0: float) -> dict[
 
 
 class MomentInfo:
-    """this info is needed to compute a number of different image moment features.
+    """Cached per-frame OpenCV image moments and contours for a single identity.
 
-    It can be done once for a given identity, and then an instance of this object can be passed into all the
-    features that need it. Image moments provided here are adjusted for pixel scaling.
+    Computed once per identity and shared across segmentation feature modules. Raw
+    (``m*``) and central (``mu*``) moments are scaled by ``pixel_scale**(p + q + 2)`` to
+    convert pixel units to cm, while normalized central moments (``nu*``) are
+    dimensionless (``get_pixel_power`` returns ``0``) and are left unscaled.
 
-    get_moment(frame, key) retrieves the calculated image moment
-
-    Segmentation is read one window at a time (``iter_segmentation``); only the
+    ``get_moment(frame, key)`` and ``get_moment_array(key)`` retrieve cached moment
+    values. Segmentation is read one window at a time (``iter_segmentation``); only the
     valid contours of each frame are kept.
 
     Args:
-        poses (PoseLike): Pose data with segmentation for one video.
-        identity (int): Identity to compute moments for.
-        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        poses: Pose data with segmentation for one video.
+        identity: Identity to compute moments for.
+        pixel_scale: Scale factor to convert pixel distances to cm.
     """
 
     def __init__(self, poses: PoseLike, identity: int, pixel_scale: float):
@@ -109,16 +110,23 @@ class MomentInfo:
         dtype = np.result_type(1.0 * factors[0])
         return np.array(factors, dtype=dtype)
 
-    def get_pixel_power(self, key):
-        """get the degree that pixels influence this image moment
+    def get_pixel_power(self, key: str) -> int:
+        """Return the pixel-scale exponent for converting an OpenCV moment key to cm units.
+
+        Raw (``m*``) and central (``mu*``) moments scale as ``length**(p + q + 2)``.
+        Normalized central moments (``nu_{p,q} = mu_{p,q} / m00**(1 + (p + q) / 2)``) are
+        dimensionless, so their pixel-scale exponent is ``0``; leaving them unscaled keeps
+        both ``nu*`` and ``HuMoments`` invariant to ``cm_per_pixel`` across rigs.
 
         Args:
-            key: key of the image moment
+            key: OpenCV image moment key (e.g., ``"m00"``, ``"mu20"``, ``"nu20"``).
 
         Returns:
-            power that should be used for converting from pixels to cm
-            space
+            Integer exponent applied to ``pixel_scale`` for converting ``key`` from
+            pixel space to cm space.
         """
+        if key.startswith("nu"):
+            return 0
         # Only works for image moments 0-9 on either dimension
         # opencv only does the first 3 moments (0-2)
         return int(key[-1]) + int(key[-2]) + 2
