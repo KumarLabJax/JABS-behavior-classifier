@@ -104,6 +104,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._feature_cache_scan_pending = False
         self._progress_dialog = None
         self._user_guide_window = None
+        self._bale_dialog = None
         self._previous_identity_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
 
         # Use the pre-created process pool (created before Qt to avoid fork+threads issues)
@@ -251,6 +252,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.show()
 
         # Clear the current project reference (no need to shut down executor - it's shared)
+        if self._bale_dialog is not None:
+            self._bale_dialog.close()
+            self._bale_dialog.deleteLater()
+            self._bale_dialog = None
         self._project = None
 
         session_tracking_enabled = bool(
@@ -411,6 +416,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._menu_refs.clear_cache.setEnabled(True)
         self._menu_refs.clear_feature_cache.setEnabled(True)
         self._menu_refs.behavior_search.setEnabled(True)
+        self._menu_refs.bale.setEnabled(True)
         self._menu_refs.postprocessing_settings.setEnabled(True)
 
         # update the recent project menu
@@ -675,6 +681,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if not event.isAccepted():
             logger.debug("[MainWindow] closeEvent declined; leaving background work running")
             return
+
+        # Close companion BALE window if open
+        if self._bale_dialog is not None:
+            self._bale_dialog.close()
+            self._bale_dialog.deleteLater()
+            self._bale_dialog = None
 
         # drop any queued rescan first so the finished thread does not start one
         self._feature_cache_scan_pending = False

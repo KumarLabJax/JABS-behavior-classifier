@@ -4,6 +4,7 @@ from PySide6 import QtCore, QtWidgets
 
 from jabs.behavior_search import (
     BehaviorSearchQuery,
+    CustomBoutListSearchQuery,
     LabelBehaviorSearchQuery,
     PredictionBehaviorSearchQuery,
     PredictionSearchKind,
@@ -94,10 +95,16 @@ class SearchBarWidget(QtWidgets.QWidget):
 
     def update_project(self, project: Project | None):
         """Update the current project."""
+        project_changed = project is not self._project
         self._project = project
         self.video_frame_position_changed(None, -1)
         if self._search_query is not None:
-            self.update_search(self._search_query)
+            if (project_changed or project is None) and isinstance(
+                self._search_query, CustomBoutListSearchQuery
+            ):
+                self.update_search(None)
+            else:
+                self.update_search(self._search_query)
 
     def video_frame_position_changed(self, video_name: str | None, frame_position: int):
         """Update the current video name and frame position.
@@ -135,6 +142,8 @@ class SearchBarWidget(QtWidgets.QWidget):
             self.text_label.setText(_describe_query(search_query))
             self._search_results = search_behaviors(self._project, search_query)
             logger.debug("search returned %d hits", len(self._search_results))
+            if isinstance(search_query, CustomBoutListSearchQuery) and self._search_results:
+                self._current_result_index = 0
 
         self._update_result_count_label()
         self.search_results_changed.emit(self._search_results)
@@ -209,6 +218,14 @@ class SearchBarWidget(QtWidgets.QWidget):
             self.current_search_hit_changed.emit(self.current_search_hit)
 
     def _on_prev_clicked(self):
+        if (
+            isinstance(self._search_query, CustomBoutListSearchQuery)
+            and self._search_query.preserve_rank_order
+        ):
+            self._seek_to_search_result(
+                self._current_result_index - 1 if self._current_result_index is not None else 0
+            )
+            return
         if self._search_hit_intersects_current_frame(self.current_search_hit):
             # If the current search hit intersects with the current frame, we can
             # just decrement the index without checking the current video/frame position.
@@ -243,6 +260,14 @@ class SearchBarWidget(QtWidgets.QWidget):
                     self._seek_to_search_result(index)
 
     def _on_next_clicked(self):
+        if (
+            isinstance(self._search_query, CustomBoutListSearchQuery)
+            and self._search_query.preserve_rank_order
+        ):
+            self._seek_to_search_result(
+                self._current_result_index + 1 if self._current_result_index is not None else 0
+            )
+            return
         if self._search_hit_intersects_current_frame(self.current_search_hit):
             # If the current search hit intersects with the current frame, we can
             # just increment the index without checking the current video/frame position.
@@ -373,6 +398,8 @@ def _describe_query(query: BehaviorSearchQuery) -> str:
                 parts.append(f"having at most {max_frames} contiguous frames")
 
             return " ".join(parts)
+        case CustomBoutListSearchQuery(description=desc):
+            return desc
         case _:
             return "No Search"
 

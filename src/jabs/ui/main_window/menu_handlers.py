@@ -692,6 +692,52 @@ class MenuHandlers:
             search_query = search_dialog.behavior_search_query
             self.window._central_widget.update_behavior_search_query(search_query)
 
+    def open_bale_dialog(self) -> None:
+        """Open BALE (Bout & Label Explorer) in a non-modal companion window."""
+        if self.window._project is None:
+            return
+        from ..dialogs.bale_dialog import BaleDialog
+
+        existing = getattr(self.window, "_bale_dialog", None)
+        if existing is not None:
+            try:
+                same_proj = existing._project is self.window._project
+                is_closing = bool(getattr(existing, "_is_closing", False))
+            except RuntimeError:
+                existing = None
+                self.window._bale_dialog = None
+                same_proj = False
+                is_closing = False
+            if existing is not None and same_proj and not is_closing:
+                existing.show()
+                if existing.isMinimized():
+                    existing.showNormal()
+                existing.raise_()
+                existing.activateWindow()
+                return
+            if existing is not None and is_closing:
+                self.window._bale_dialog = None
+            elif existing is not None:
+                existing.close()
+                existing.deleteLater()
+                self.window._bale_dialog = None
+
+        dialog = BaleDialog(
+            self.window._project,
+            central_widget=self.window._central_widget,
+            parent=None,
+        )
+
+        def _clear_bale_dialog_ref(_obj: object = None, dlg: object = dialog) -> None:
+            if getattr(self.window, "_bale_dialog", None) is dlg:
+                self.window._bale_dialog = None
+
+        dialog.destroyed.connect(_clear_bale_dialog_ref)
+        self.window._bale_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
     def on_timeline_view_mode_changed(self) -> None:
         """Handle timeline view mode change (Labels, Predictions, or Both)."""
         if self.window._menu_refs.timeline_labels_preds.isChecked():
@@ -893,6 +939,20 @@ class MenuHandlers:
                 lambda: self.activate_window(self.window._user_guide_window)
             )
             self.window._menu_refs.window_menu.addAction(guide_action)
+
+        # Add BALE (Bout & Label Explorer) window if open
+        bale_win = getattr(self.window, "_bale_dialog", None)
+        if bale_win is not None and not getattr(bale_win, "_is_closing", False):
+            try:
+                bale_visible = bale_win.isVisible()
+            except RuntimeError:
+                bale_visible = False
+            if bale_visible:
+                bale_action = QAction(bale_win.windowTitle(), self.window)
+                bale_action.setCheckable(True)
+                bale_action.setChecked(bale_win.isActiveWindow())
+                bale_action.triggered.connect(lambda checked, w=bale_win: self.activate_window(w))
+                self.window._menu_refs.window_menu.addAction(bale_action)
 
         # Add any open dialogs from the central widget
         for title, dialog in self.window._central_widget.get_open_dialogs():
