@@ -6,7 +6,7 @@
 
 - **Behavior Selection:** Select current behavior to label
 - **Add New Behavior Button:** Add new behavior label to project
-- **Identity Selection:** Select subject mouse to label (subject can also be selected by clicking on mouse in the video)
+- **Identity Selection:** Select subject mouse to label (subject can also be selected by pressing `0`-`9`, clicking on the mouse in the video, clicking an animal's ethogram track or header in All Animals timeline mode, or clicking the `Animal:` bar below the timeline)
 - **Classifier Controls:** Configure and train classifier. Use trained classifier to infer classes for unlabeled frames. See "Classifier Controls" section for more details.
 - **Label Summary:** Counts of labeled frames and bouts for the subject identity in the current video and across the whole project.
 - **Label "Behavior" Button:** Label current selection of frames as showing behavior. This button is labeled with the current behavior name.
@@ -86,7 +86,7 @@ The training report is also saved as a Markdown file in the `jabs/training_logs`
 - **Predicted Class (global view):** Displays a zoomed out view of the predicted classes for the entire video.
 - **Sliding Window Indicator:** highlights the section of the global views that correspond to the frames displayed in the "sliding window" views.
 
-By default, the Timeline shows manual labels and predicted behaviors for the current subject animal. The Timeline can be toggled to show all subjects by selecting View->Timeline->All Animals in the menu bar. The Timeline can also be configured to show only manual labels or only predicted labels. If "All Animals" is selected, the Timeline will show which set of labels and predictions belong to the subject animal by drawing a colored border around them. By default, the timeline shows raw predictions. It can also be configured to show post-processed predictions by selecting View->Timeline->Post-Processed Predictions in the menu bar.
+By default, the Timeline shows manual labels and predicted behaviors for the current subject animal. The Timeline can be toggled to show all subjects by selecting View->Timeline->All Animals in the menu bar. In "All Animals" mode, clicking anywhere on an animal's ethogram track or track header (or clicking the `Animal:` strip beneath the timeline, or pressing `0`-`9`) switches the active subject. The Timeline can also be configured to show only manual labels or only predicted labels. If "All Animals" is selected, the Timeline will show which set of labels and predictions belong to the subject animal by drawing a colored border around them. By default, the timeline shows raw predictions. It can also be configured to show post-processed predictions by selecting View->Timeline->Post-Processed Predictions in the menu bar.
 
 ### Timeline Menu
 

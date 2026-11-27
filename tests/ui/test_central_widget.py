@@ -1005,3 +1005,61 @@ def test_set_project_closes_the_previous_projects_pose():
     CentralWidget.set_project(stub, MagicMock())
 
     pose.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("key_name", "expected_idx"),
+    [("Key_0", 0), ("Key_1", 1), ("Key_2", 2)],
+)
+def test_key_press_digit_selects_identity_within_range(key_name: str, expected_idx: int) -> None:
+    """Unmodified digit keys 0..9 select the matching positional animal identity."""
+    from PySide6.QtCore import Qt
+
+    controls = MagicMock()
+    stub = SimpleNamespace(
+        _controls=controls,
+        _pose_est=SimpleNamespace(num_identities=3),
+        _select_identity_by_index=lambda idx: CentralWidget._select_identity_by_index(stub, idx),
+    )
+    event = SimpleNamespace(
+        key=lambda: getattr(Qt.Key, key_name),
+        modifiers=lambda: Qt.KeyboardModifier.NoModifier,
+    )
+
+    CentralWidget.keyPressEvent(stub, event)
+
+    controls.set_identity_index.assert_called_once_with(expected_idx)
+
+
+def test_key_press_digit_ignores_out_of_range_modifiers_and_missing_pose() -> None:
+    """Out-of-range digits, modifier+digit shortcuts, and missing poses do not switch animal."""
+    from PySide6.QtCore import Qt
+
+    controls = MagicMock()
+    stub = SimpleNamespace(
+        _controls=controls,
+        _pose_est=SimpleNamespace(num_identities=3),
+        _select_identity_by_index=lambda idx: CentralWidget._select_identity_by_index(stub, idx),
+    )
+
+    out_of_range = SimpleNamespace(
+        key=lambda: Qt.Key.Key_5,
+        modifiers=lambda: Qt.KeyboardModifier.NoModifier,
+    )
+    CentralWidget.keyPressEvent(stub, out_of_range)
+    controls.set_identity_index.assert_not_called()
+
+    ctrl_digit = SimpleNamespace(
+        key=lambda: Qt.Key.Key_1,
+        modifiers=lambda: Qt.KeyboardModifier.ControlModifier,
+    )
+    CentralWidget.keyPressEvent(stub, ctrl_digit)
+    controls.set_identity_index.assert_not_called()
+
+    stub._pose_est = None
+    in_range_no_pose = SimpleNamespace(
+        key=lambda: Qt.Key.Key_0,
+        modifiers=lambda: Qt.KeyboardModifier.NoModifier,
+    )
+    CentralWidget.keyPressEvent(stub, in_range_no_pose)
+    controls.set_identity_index.assert_not_called()
