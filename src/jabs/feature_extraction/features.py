@@ -466,6 +466,29 @@ class IdentityFeatures:
             assert len(first) == self._num_frames
         return self._unflatten_window(flat)
 
+    def _labeled_frame_mask(self, labels: np.ndarray) -> npt.NDArray[np.bool_]:
+        """Return the mask selecting the frames a feature request should keep.
+
+        A frame counts only when the user labeled it *and* this identity exists in
+        it. Every ``get_*`` method on this class that takes ``labels`` narrows its
+        arrays with this one mask, so the rows they return line up with each other
+        and with the labels the caller passed in. Defining it once is what keeps
+        them from drifting apart: a classifier trained on per-frame rows is scored
+        on window rows selected the same way, and a mismatch there would silently
+        pair each row with the wrong frame's label rather than fail.
+
+        Args:
+            labels: Per-frame label array of
+                :class:`~jabs.project.track_labels.TrackLabels.Label` values, one
+                element per frame of the video.
+
+        Returns:
+            Boolean array of length ``num_frames``, True on the frames to keep.
+        """
+        return (labels != jabs.project.track_labels.TrackLabels.Label.NONE) & (
+            self._identity_mask != 0
+        )
+
     def get_window_features(
         self, window_size: int, labels: np.ndarray | None = None, force: bool = False
     ) -> WindowFeatureMap:
@@ -531,13 +554,11 @@ class IdentityFeatures:
 
         else:
             # return only features for labeled frames where the identity exists
+            labeled = self._labeled_frame_mask(labels)
             final_features = {
                 feature_module_name: {
                     window_module_name: {
-                        feature_name: feature_vector[
-                            (labels != jabs.project.track_labels.TrackLabels.Label.NONE)
-                            & (self._identity_mask != 0)
-                        ]
+                        feature_name: feature_vector[labeled]
                         for feature_name, feature_vector in window_module.items()
                     }
                     for window_module_name, window_module in feature_module.items()
@@ -598,12 +619,10 @@ class IdentityFeatures:
 
         else:
             # return only features for labeled frames where the identity exists
+            labeled = self._labeled_frame_mask(labels)
             features = {
                 feature_module_name: {
-                    feature_name: feature_vector[
-                        (labels != jabs.project.track_labels.TrackLabels.Label.NONE)
-                        & (self._identity_mask != 0)
-                    ]
+                    feature_name: feature_vector[labeled]
                     for feature_name, feature_vector in feature_module.items()
                 }
                 for feature_module_name, feature_module in self._per_frame.items()
@@ -630,10 +649,8 @@ class IdentityFeatures:
         """
         if self._per_frame_flat is not None:
             if labels is not None:
-                mask = (labels != jabs.project.track_labels.TrackLabels.Label.NONE) & (
-                    self._identity_mask != 0
-                )
-                flat: FlatFeatureMap = {k: v[mask] for k, v in self._per_frame_flat.items()}
+                labeled = self._labeled_frame_mask(labels)
+                flat: FlatFeatureMap = {k: v[labeled] for k, v in self._per_frame_flat.items()}
             else:
                 flat = self._per_frame_flat
 
