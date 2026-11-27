@@ -39,20 +39,21 @@ def _shift_raw_moments(moments: dict[str, float], x0: float, y0: float) -> dict[
 
 
 class MomentInfo:
-    """this info is needed to compute a number of different image moment features.
+    """Cached per-frame OpenCV image moments and contours for a single identity.
 
-    It can be done once for a given identity, and then an instance of this object can be passed into all the
-    features that need it. Image moments provided here are adjusted for pixel scaling.
+    Computed once per identity and shared across segmentation feature modules. Raw
+    (``m*``) and central (``mu*``) moments are scaled by ``pixel_scale**(p + q + 2)`` to
+    convert pixel units to cm, while normalized central moments (``nu*``) are
+    dimensionless (``get_pixel_power`` returns ``0``) and are left unscaled.
 
-    get_moment(frame, key) retrieves the calculated image moment
-
-    Segmentation is read one window at a time (``iter_segmentation``); only the
+    ``get_moment(frame, key)`` and ``get_moment_array(key)`` retrieve cached moment
+    values. Segmentation is read one window at a time (``iter_segmentation``); only the
     valid contours of each frame are kept.
 
     Args:
-        poses (PoseLike): Pose data with segmentation for one video.
-        identity (int): Identity to compute moments for.
-        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        poses: Pose data with segmentation for one video.
+        identity: Identity to compute moments for.
+        pixel_scale: Scale factor to convert pixel distances to cm.
     """
 
     def __init__(self, poses: PoseLike, identity: int, pixel_scale: float):

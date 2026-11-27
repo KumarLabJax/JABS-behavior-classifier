@@ -60,8 +60,17 @@ def computed(seg_data: dict[str, Any]) -> dict[str, npt.NDArray[np.float32]]:
     return compute_features(seg_data["pose_est_v6"])
 
 
+def _rtol(key: str) -> float:
+    """Relative tolerance for one golden feature."""
+    if "/segmentation/hu_moments/" in key and key.endswith(("/hu5", "/hu7")):
+        return 1e-3
+    return 1e-5
+
+
 def _atol(key: str, unified: bool) -> float:
     """Absolute tolerance for one golden feature."""
+    if "/segmentation/hu_moments/" in key:
+        return 0.0
     if unified and "/closest_fov_angles/" in key:
         return _FLOAT32_ANGLE_ATOL
     return 1e-6
@@ -126,7 +135,7 @@ def test_features_match_golden(
             continue
         target = expected_hu.get(key, ref)
         if not np.allclose(
-            computed[key], target, rtol=1e-5, atol=_atol(key, unified), equal_nan=True
+            computed[key], target, rtol=_rtol(key), atol=_atol(key, unified), equal_nan=True
         ):
             mismatched.append(key)
     assert not mismatched, mismatched
@@ -166,7 +175,7 @@ def test_moment_cache_matches_legacy_goldens(seg_data: dict[str, Any]) -> None:
                 cache.get_moment_array(nu_name)[::FRAME_STRIDE],
                 expected_nu,
                 rtol=1e-5,
-                atol=1e-6,
+                atol=0.0,
                 equal_nan=True,
                 err_msg=f"{identity}/{nu_name}",
             )
@@ -223,7 +232,7 @@ def test_rotated_moments_preserve_golden_invariants_and_nan_mask(
             c_nu["nu20"][valid] + c_nu["nu02"][valid],
             g_nu["nu20"][valid] + g_nu["nu02"][valid],
             rtol=1e-5,
-            atol=1e-6,
+            atol=0.0,
         )
 
         # All 7 Hu moments recomputed from rotated float32 nu* must match unscaled golden Hu
@@ -233,11 +242,10 @@ def test_rotated_moments_preserve_golden_invariants_and_nan_mask(
         for i in range(1, 8):
             key = f"hu{i}"
             rtol = 1e-3 if i in (5, 7) else 1e-4
-            atol = 1e-9 if i in (5, 7) else 1e-10
             np.testing.assert_allclose(
                 hu_from_rotated[key][valid],
                 hu_from_golden[key][valid],
                 rtol=rtol,
-                atol=atol,
+                atol=0.0,
                 err_msg=f"{identity}/{key}",
             )

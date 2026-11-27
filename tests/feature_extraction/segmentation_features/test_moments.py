@@ -395,7 +395,7 @@ def test_moments_per_frame_nu_is_invariant_to_pixel_scale() -> None:
                 float(ref[f"mu{pq}"][0]) * scale ** (p + q + 2), rel=1e-5, abs=1e-9
             )
             assert float(cur[f"nu{pq}"][0]) == pytest.approx(
-                float(ref[f"nu{pq}"][0]), rel=1e-5, abs=1e-9
+                float(ref[f"nu{pq}"][0]), rel=1e-5, abs=0.0
             )
 
 
@@ -446,7 +446,8 @@ def test_moments_per_frame_matches_direct_pixel_rotation_on_real_pose_data(
             continue
         expected = _direct_pixel_rotated_moments(contours, float(bearings[frame]), pixel_scale)
         for key, exp_val in expected.items():
-            assert float(values[key][frame]) == pytest.approx(exp_val, rel=1e-4, abs=1e-6), (
+            abs_tol = 0.0 if key.startswith("nu") else 1e-6
+            assert float(values[key][frame]) == pytest.approx(exp_val, rel=1e-4, abs=abs_tol), (
                 f"frame {frame} {key}"
             )
         checked += 1
