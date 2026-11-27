@@ -266,7 +266,41 @@ def test_is_playing_or_pending_covers_the_delay_before_range_playback(qapp) -> N
 
 def test_is_playing_or_pending_is_true_while_playing(qapp) -> None:
     """Ordinary playback counts as playing."""
-    widget, _ = _widget_with_mock_thread()
-    widget._playing = True
+    widget, thread = _widget_with_mock_thread()
 
+    widget.toggle_play()
+
+    thread.start.assert_called_once()
     assert widget.is_playing_or_pending
+
+
+def test_toggle_play_during_range_delay_cancels_the_range(qapp) -> None:
+    """Play/pause before a pending range starts cancels it rather than starting twice."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+
+    widget.toggle_play()
+
+    assert not widget.is_playing_or_pending
+    thread.start.assert_not_called()
+
+
+def test_seek_during_range_delay_is_ignored(qapp) -> None:
+    """Seeking while a range is about to start would move playback off the range start."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+
+    widget.seek_to_frame(500)
+    qapp.processEvents()
+
+    assert [c.args[0] for c in thread.seek.call_args_list] == [10]
+
+
+def test_play_range_during_range_delay_is_ignored(qapp) -> None:
+    """A second range request while one is pending doesn't replace it."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+
+    widget.play_range(100, 200)
+
+    assert [c.args[0] for c in thread.seek.call_args_list] == [10]
