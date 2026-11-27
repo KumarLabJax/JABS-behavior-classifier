@@ -179,6 +179,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # timeline widgets
         self._jabs_timeline = BehaviorTimelineWidget(self)
+        self._jabs_timeline.identity_selected.connect(self._select_identity_by_index)
 
         # video player
         self._player_widget = PlayerWidget(self)
@@ -656,8 +657,36 @@ class CentralWidget(QtWidgets.QWidget):
                     self._start_selection(False)
             case QtCore.Qt.Key.Key_Question:
                 self._player_widget.show_closest()
+            case (
+                QtCore.Qt.Key.Key_0
+                | QtCore.Qt.Key.Key_1
+                | QtCore.Qt.Key.Key_2
+                | QtCore.Qt.Key.Key_3
+                | QtCore.Qt.Key.Key_4
+                | QtCore.Qt.Key.Key_5
+                | QtCore.Qt.Key.Key_6
+                | QtCore.Qt.Key.Key_7
+                | QtCore.Qt.Key.Key_8
+                | QtCore.Qt.Key.Key_9
+            ):
+                if not (
+                    event.modifiers()
+                    & (
+                        Qt.KeyboardModifier.ControlModifier
+                        | Qt.KeyboardModifier.AltModifier
+                        | Qt.KeyboardModifier.MetaModifier
+                    )
+                ):
+                    self._select_identity_by_index(int(key) - int(QtCore.Qt.Key.Key_0))
             case _:
                 pass
+
+    def _select_identity_by_index(self, index: int) -> None:
+        """Select the animal identity at positional index (0-based)."""
+        if self._pose_est is None:
+            return
+        if 0 <= index < self._pose_est.num_identities:
+            self._controls.set_identity_index(index)
 
     def show_track(self, show: bool) -> None:
         """set the show track property of the player widget"""

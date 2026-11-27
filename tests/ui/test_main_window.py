@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, call
 import pytest
 
 try:
+    from PySide6.QtCore import Qt
+
     import jabs.ui.main_window.main_window as main_window_module
     from jabs.ui.main_window.main_window import MainWindow
 
@@ -437,3 +439,52 @@ def test_conversion_progress_updates_the_loading_dialog():
 def test_conversion_progress_without_a_dialog_is_ignored():
     """A late progress signal after the dialog closed does nothing."""
     MainWindow._pose_conversion_progress(SimpleNamespace(_progress_dialog=None), 1, 1)
+
+
+@pytest.mark.parametrize("digit", range(10))
+def test_key_press_forwards_unmodified_digit_keys_to_central_widget(digit: int) -> None:
+    """Unmodified digit keys 0..9 are forwarded to CentralWidget.keyPressEvent."""
+    central = MagicMock()
+    stub = SimpleNamespace(centralWidget=lambda: central)
+    event = SimpleNamespace(
+        key=lambda: getattr(Qt.Key, f"Key_{digit}"),
+        modifiers=lambda: Qt.KeyboardModifier.NoModifier,
+    )
+
+    MainWindow.keyPressEvent(stub, event)
+
+    central.keyPressEvent.assert_called_once_with(event)
+
+
+@pytest.mark.parametrize(
+    "modifier",
+    ["ControlModifier", "AltModifier", "MetaModifier"],
+)
+def test_key_press_does_not_forward_modified_digit_keys(monkeypatch, modifier: str) -> None:
+    """Digit keys paired with Ctrl/Alt/Meta pass to QMainWindow rather than switching animal."""
+
+    class _MainWindowStub(MainWindow):
+        def __init__(self, central: MagicMock) -> None:
+            main_window_module.QtWidgets.QMainWindow.__init__(self)
+            self._central = central
+            self._feature_cache_scan_thread = None
+
+        def centralWidget(self) -> MagicMock:
+            return self._central
+
+    qapp = main_window_module.QtWidgets.QApplication
+    if qapp.instance() is None:
+        qapp([])
+    central = MagicMock()
+    stub = _MainWindowStub(central)
+    super_key_press = MagicMock()
+    monkeypatch.setattr(main_window_module.QtWidgets.QMainWindow, "keyPressEvent", super_key_press)
+    event = SimpleNamespace(
+        key=lambda: Qt.Key.Key_1,
+        modifiers=lambda: getattr(Qt.KeyboardModifier, modifier),
+    )
+
+    MainWindow.keyPressEvent(stub, event)
+
+    central.keyPressEvent.assert_not_called()
+    super_key_press.assert_called_once_with(event)
