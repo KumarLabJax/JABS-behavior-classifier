@@ -247,6 +247,6 @@ def test_project_load_classifier_raises_for_a_stale_classifier(tmp_path: Path) -
         project.load_classifier(MultiClassClassifier(["Walk", "Run"]))
 
 
-def test_feature_version_is_20() -> None:
-    """Features follow the unified pose file's semantics from version 20 on (spec section 2)."""
-    assert FEATURE_VERSION == 20
+def test_feature_version_is_21() -> None:
+    """Version 21 aligns segmentation moments to animal bearing and fixes dimensionless nu scaling."""
+    assert FEATURE_VERSION == 21

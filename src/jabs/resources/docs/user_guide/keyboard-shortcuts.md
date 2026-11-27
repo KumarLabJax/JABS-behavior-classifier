@@ -35,10 +35,11 @@
 
 | Action                            | Shortcut          |
 |-----------------------------------|-------------------|
+| Select subject by index (0-9)     | 0 - 9             |
 | Switch to next / previous subject | Shift+↑ / Shift+↓ |
 | Toggle track overlay              | t                 |
 | Toggle pose overlay               | p                 |
 | Toggle landmark overlay           | l                 |
 | Toggle Minimalist Identity Labels | Ctrl+I / ⌘I       |
 
-> **Note:** Next/previous subject order follows the "Identity Selection" dropdown ordering.
+> **Note:** Subject order (`0 - 9` and next/previous subject) follows the "Identity Selection" dropdown ordering. You can also switch subjects by clicking the mouse in the video, clicking an animal's ethogram track (in All Animals timeline mode), clicking its track header, or clicking the `Animal:` bar below the timeline.

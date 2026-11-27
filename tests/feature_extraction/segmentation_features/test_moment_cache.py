@@ -118,3 +118,52 @@ def test_moment_scaling_matches_original_scalar_arithmetic(
         np.testing.assert_array_equal(info._moments[frame], expected)
         checked += 1
     assert checked > 0
+
+
+def test_get_pixel_power_zero_for_normalized_moments(seg_data: dict) -> None:
+    """Normalized central moments (nu*) are dimensionless and have pixel power 0."""
+    info = MomentInfo(seg_data["pose_est_v6"], 1, 1.0)
+    for key in cv2.moments(np.empty(0)):
+        if key.startswith("nu"):
+            assert info.get_pixel_power(key) == 0, key
+        else:
+            expected_power = int(key[-1]) + int(key[-2]) + 2
+            assert info.get_pixel_power(key) == expected_power, key
+
+
+def test_normalized_moments_are_invariant_to_pixel_scale(seg_data: dict) -> None:
+    """MomentInfo keeps dimensionless nu* identical across pixel scales while scaling m*/mu*."""
+    pose = seg_data["pose_est_v6"]
+    info_unit = MomentInfo(pose, 1, 1.0)
+    for scale in (0.05, 0.02):
+        info_scaled = MomentInfo(pose, 1, scale)
+        for key in ("nu20", "nu11", "nu02", "nu30", "nu21", "nu12", "nu03"):
+            np.testing.assert_allclose(
+                info_scaled.get_moment_array(key),
+                info_unit.get_moment_array(key),
+                rtol=1e-6,
+                atol=1e-12,
+                equal_nan=True,
+                err_msg=f"{key} changed with pixel_scale={scale}",
+            )
+        np.testing.assert_allclose(
+            info_scaled.get_moment_array("m00"),
+            info_unit.get_moment_array("m00") * (scale**2),
+            rtol=1e-5,
+            atol=1e-9,
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            info_scaled.get_moment_array("mu20"),
+            info_unit.get_moment_array("mu20") * (scale**4),
+            rtol=1e-5,
+            atol=1e-9,
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            info_scaled.get_moment_array("mu30"),
+            info_unit.get_moment_array("mu30") * (scale**5),
+            rtol=1e-5,
+            atol=1e-9,
+            equal_nan=True,
+        )

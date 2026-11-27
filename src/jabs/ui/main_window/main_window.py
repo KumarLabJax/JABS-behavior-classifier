@@ -40,6 +40,26 @@ _FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS = 2000
 # How long to wait after forcing a scan thread that ignored the cooperative stop.
 _FEATURE_CACHE_SCAN_TERMINATE_WAIT_MS = 1000
 
+_IDENTITY_KEYS: frozenset[Qt.Key] = frozenset(
+    {
+        Qt.Key.Key_0,
+        Qt.Key.Key_1,
+        Qt.Key.Key_2,
+        Qt.Key.Key_3,
+        Qt.Key.Key_4,
+        Qt.Key.Key_5,
+        Qt.Key.Key_6,
+        Qt.Key.Key_7,
+        Qt.Key.Key_8,
+        Qt.Key.Key_9,
+    }
+)
+_IDENTITY_KEY_DISALLOWED_MODIFIERS: Qt.KeyboardModifier = (
+    Qt.KeyboardModifier.ControlModifier
+    | Qt.KeyboardModifier.AltModifier
+    | Qt.KeyboardModifier.MetaModifier
+)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window for the JABS UI.
@@ -174,6 +194,10 @@ class MainWindow(QtWidgets.QMainWindow):
             Qt.Key.Key_Question,
             Qt.Key.Key_Shift,
         ]:
+            self.centralWidget().keyPressEvent(event)
+            return
+
+        if key in _IDENTITY_KEYS and not (event.modifiers() & _IDENTITY_KEY_DISALLOWED_MODIFIERS):
             self.centralWidget().keyPressEvent(event)
             return
 

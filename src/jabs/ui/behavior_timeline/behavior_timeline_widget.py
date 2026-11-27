@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from enum import IntEnum
 
 import numpy as np
 import numpy.typing as npt
-from PySide6.QtCore import Slot
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QObject, Qt, Signal, Slot
+from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -79,6 +81,84 @@ class _BehaviorLegendWidget(QWidget):
         layout.addStretch()
 
 
+class _IdentitySelectorWidget(QWidget):
+    """Horizontal strip underneath the ethogram for selecting the active animal (`[0, 1, 2, ...]`).
+
+    Displays a clickable monochrome pill button for each identity in the pose
+    file so users can switch animals with a single click or via number keys
+    ``0, 1, 2, 3, ...`` without introducing colored squares that could be
+    confused with behavior class swatches.
+    """
+
+    identity_selected = Signal(int)
+
+    def __init__(
+        self,
+        identity_display_names: list[str],
+        active_identity: int | None = 0,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._display_names: list[str] = list(identity_display_names)
+        self._active_identity: int | None = active_identity
+        self._buttons: dict[int, QPushButton] = {}
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(6)
+
+        title_label = QLabel("Animal:")
+        title_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(title_label)
+
+        for idx, _display_name in enumerate(self._display_names):
+            btn = QPushButton()
+            btn.setFlat(True)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(
+                lambda checked=False, ident_idx=idx: self.identity_selected.emit(ident_idx)
+            )
+            self._buttons[idx] = btn
+            layout.addWidget(btn)
+
+        layout.addStretch()
+        self.set_active_identity(active_identity)
+
+    @staticmethod
+    def _format_animal_label(idx: int, display_name: str) -> str:
+        """Return a readable animal label matching JABS identity indexing."""
+        if display_name == str(idx):
+            return f"Animal {display_name}"
+        return display_name
+
+    def set_active_identity(self, active_identity: int | None) -> None:
+        """Update which animal button is highlighted as active (monochrome pill)."""
+        self._active_identity = active_identity
+        for idx, display_name in enumerate(self._display_names):
+            is_active = idx == active_identity
+            btn = self._buttons.get(idx)
+            if btn is not None:
+                hotkey = str(idx) if idx < 10 else None
+                key_suffix = f" [{hotkey}]" if hotkey is not None else ""
+                prefix = "* " if is_active else ""
+                label_text = self._format_animal_label(idx, display_name)
+                btn.setText(f"{prefix}{label_text}{key_suffix}")
+                btn.setToolTip(
+                    f"Click or press [{hotkey}] to select {label_text}"
+                    if hotkey is not None
+                    else f"Click to select {label_text}"
+                )
+                if is_active:
+                    btn.setStyleSheet(
+                        "QPushButton { padding: 1px 6px; border: 1.5px solid #888888; "
+                        "border-radius: 3px; font-weight: bold; }"
+                    )
+                else:
+                    btn.setStyleSheet("QPushButton { padding: 1px 6px; font-weight: normal; }")
+
+
 class BehaviorTimelineWidget(QWidget):
     """A widget that manages and displays multiple LabelTrackWidgets, one for each identity.
 
@@ -112,6 +192,8 @@ class BehaviorTimelineWidget(QWidget):
         ALL = 0
         ACTIVE = 1
 
+    identity_selected = Signal(int)
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -130,6 +212,8 @@ class BehaviorTimelineWidget(QWidget):
         self._prediction_overview_widgets: list[list[PredictionTrackWidget]] = []
         self._per_class_separators: list[QFrame | None] = []
         self._identity_frames: list[QFrame] = []
+        self._widget_to_identity_index: dict[QObject, int] = {}
+        self._identity_selector_widget: _IdentitySelectorWidget | None = None
         self._frame_labels = FrameRulerWidget(self)
         self._pose: PoseLike | None = None
 
@@ -353,6 +437,7 @@ class BehaviorTimelineWidget(QWidget):
         classifier mode changes.
         """
         # Remove old widgets and frames
+        self._clear_identity_click_targets()
         for frame in self._identity_frames:
             self._layout.removeWidget(frame)
             frame.setParent(None)
@@ -362,12 +447,18 @@ class BehaviorTimelineWidget(QWidget):
             self._legend_widget.setParent(None)
             self._legend_widget.deleteLater()
             self._legend_widget = None
+        if self._identity_selector_widget is not None:
+            self._layout.removeWidget(self._identity_selector_widget)
+            self._identity_selector_widget.setParent(None)
+            self._identity_selector_widget.deleteLater()
+            self._identity_selector_widget = None
         self._layout.removeWidget(self._frame_labels)
         self._label_overview_widgets = []
         self._combined_prediction_widgets = []
         self._prediction_overview_widgets = []
         self._per_class_separators = []
         self._identity_frames = []
+        identity_display_names: list[str] = []
 
         # Build the legend widget in multi-class mode
         if self._classifier_mode == ClassifierMode.MULTICLASS and self._behavior_names:
@@ -382,6 +473,7 @@ class BehaviorTimelineWidget(QWidget):
                 identity_display_name = self._pose.identity_index_to_display(identity_index)
             else:
                 identity_display_name = str(identity_index)
+            identity_display_names.append(identity_display_name)
 
             frame = QFrame(self)
             frame.setFrameShape(QFrame.Shape.NoFrame)
@@ -426,7 +518,30 @@ class BehaviorTimelineWidget(QWidget):
                 pw.setVisible(False)
                 prediction_widgets = [pw]
 
-            vbox.addWidget(QLabel(f"{identity_display_name}:"))
+            header_row = QHBoxLayout()
+            header_row.setContentsMargins(0, 0, 0, 0)
+            header_label = _IdentitySelectorWidget._format_animal_label(
+                identity_index, identity_display_name
+            )
+            header_btn = QPushButton(
+                f"{header_label} [{identity_index}]:"
+                if identity_index < 10
+                else f"{header_label}:"
+            )
+            header_btn.setFlat(True)
+            header_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            header_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            header_btn.setStyleSheet(
+                "QPushButton { text-align: left; padding: 0px 2px; font-weight: bold; }"
+            )
+            header_btn.clicked.connect(
+                lambda checked=False, ident_idx=identity_index: self.identity_selected.emit(
+                    ident_idx
+                )
+            )
+            header_row.addWidget(header_btn)
+            header_row.addStretch()
+            vbox.addLayout(header_row)
             vbox.addWidget(label_widget)
             if combined_pw is not None:
                 vbox.addWidget(combined_pw)
@@ -446,15 +561,24 @@ class BehaviorTimelineWidget(QWidget):
             self._prediction_overview_widgets.append(prediction_widgets)
             self._per_class_separators.append(separator)
             self._identity_frames.append(frame)
+            self._register_identity_click_targets(frame, identity_index)
             self._layout.addWidget(frame)
 
-        self._update_frame_border()
         if self._num_identities > 0:
             self._active_identity_index = 0
         else:
             self._active_identity_index = None
+        self._update_frame_border()
 
         self._layout.addWidget(self._frame_labels)
+        if identity_display_names:
+            self._identity_selector_widget = _IdentitySelectorWidget(
+                identity_display_names,
+                active_identity=self._active_identity_index,
+                parent=self,
+            )
+            self._identity_selector_widget.identity_selected.connect(self.identity_selected)
+            self._layout.addWidget(self._identity_selector_widget)
         self._update_widget_visibility()
 
     def _set_active_frame_border(self, active_index: int | None = None) -> None:
@@ -508,7 +632,7 @@ class BehaviorTimelineWidget(QWidget):
         return self._active_identity_index
 
     @active_identity_index.setter
-    def active_identity_index(self, value: int) -> None:
+    def active_identity_index(self, value: int | None) -> None:
         """Set the index of the currently active identity.
 
         In addition to setting the active identity index, this method also handles the case where
@@ -521,13 +645,21 @@ class BehaviorTimelineWidget(QWidget):
             selection_frame = self._selection_starting_frame
 
             # Clear selection on old active widget if selection is active
-            if old_index is not None and selection_frame is not None:
+            if (
+                old_index is not None
+                and selection_frame is not None
+                and 0 <= old_index < len(self._label_overview_widgets)
+            ):
                 self._label_overview_widgets[old_index].clear_selection()
 
             self._active_identity_index = value
 
             # Transfer selection to new active widget if selection is active
-            if selection_frame is not None and self._active_identity_index is not None:
+            if (
+                selection_frame is not None
+                and self._active_identity_index is not None
+                and 0 <= self._active_identity_index < len(self._label_overview_widgets)
+            ):
                 self._label_overview_widgets[self._active_identity_index].start_selection(
                     selection_frame,
                     self._selection_ending_frame,
@@ -536,8 +668,49 @@ class BehaviorTimelineWidget(QWidget):
             # Set active state or frame border depending on display mode
             if self._identity_mode == self.IdentityMode.ALL:
                 self._set_active_frame_border()
+            if self._identity_selector_widget is not None:
+                self._identity_selector_widget.set_active_identity(self._active_identity_index)
 
             self._update_widget_visibility()
+
+    def _clear_identity_click_targets(self) -> None:
+        """Remove installed click event filters before rebuilding identity frames."""
+        for widget in self._widget_to_identity_index:
+            with suppress(RuntimeError):
+                widget.removeEventFilter(self)
+        self._widget_to_identity_index = {}
+
+    def _register_identity_click_targets(
+        self,
+        root_widget: QWidget,
+        identity_index: int,
+    ) -> None:
+        """Install left-click event filter on an identity frame to catch row & track clicks.
+
+        Child label and prediction track widgets do not consume mouse presses, so Qt
+        propagates their clicks once to ``root_widget``; filtering only ``root_widget``
+        prevents duplicate ``identity_selected`` emissions per click.
+        """
+        self._widget_to_identity_index[root_widget] = identity_index
+        root_widget.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Emit ``identity_selected`` when left-clicking anywhere on an animal row in ALL mode.
+
+        Ignored while a label selection is in progress so a click on another
+        animal's row does not transfer the active selection to that animal.
+        """
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and isinstance(event, QMouseEvent)
+            and event.button() == Qt.MouseButton.LeftButton
+            and self._identity_mode == self.IdentityMode.ALL
+            and self._selection_starting_frame is None
+        ):
+            ident_idx = self._widget_to_identity_index.get(watched)
+            if ident_idx is not None:
+                self.identity_selected.emit(ident_idx)
+        return super().eventFilter(watched, event)
 
     def _update_frame_border(self):
         """Update the frame border for the active identity."""
@@ -602,10 +775,14 @@ class BehaviorTimelineWidget(QWidget):
                 for pw in self._prediction_overview_widgets[idx]:
                     pw.compact = False
 
-        # Add FrameRulerWidget last
+        # Add FrameRulerWidget and clickable animal selector underneath the ethogram
         self._layout.addWidget(self._frame_labels)
         self._frame_labels.show()
         self._frame_labels.set_reference_bar(self._first_visible_detail_bar())
+        if self._identity_selector_widget is not None:
+            self._identity_selector_widget.set_active_identity(self._active_identity_index)
+            self._layout.addWidget(self._identity_selector_widget)
+            self._identity_selector_widget.show()
         self._update_frame_border()
 
     def _first_visible_detail_bar(self) -> QWidget | None:
