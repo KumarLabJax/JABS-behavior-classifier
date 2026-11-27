@@ -15,6 +15,10 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# The (p, q) orders of the rotated mu*/nu* moments, in rotate_central_moments' argument order.
+_ROTATED_ORDERS: typing.Final[tuple[str, ...]] = ("20", "11", "02", "30", "21", "12", "03")
+_ROTATED_PREFIXES: typing.Final[tuple[str, ...]] = ("mu", "nu")
+
 
 def rotate_central_moments(
     mu20: npt.NDArray[np.floating],
@@ -116,20 +120,7 @@ class Moments(Feature):
     # and arena orientations (e.g. DAX2 bottom-hopper vs. DAX3 right-hopper layouts).
     _moments_to_use: typing.ClassVar[list[str]] = [
         "m00",
-        "mu20",
-        "mu11",
-        "mu02",
-        "mu30",
-        "mu21",
-        "mu12",
-        "mu03",
-        "nu20",
-        "nu11",
-        "nu02",
-        "nu30",
-        "nu21",
-        "nu12",
-        "nu03",
+        *(f"{prefix}{pq}" for prefix in _ROTATED_PREFIXES for pq in _ROTATED_ORDERS),
     ]
 
     def __init__(self, poses: PoseLike, pixel_scale: float, moment_cache: "MomentInfo"):
@@ -151,44 +142,12 @@ class Moments(Feature):
         Returns:
             Dictionary mapping moment names to float32 per-frame arrays of shape ``(F,)``.
         """
-        m00 = self._moment_cache.get_moment_array("m00").astype(np.float32, copy=True)
+        values = {"m00": self._moment_cache.get_moment_array("m00").astype(np.float32, copy=True)}
         bearings = self._poses.compute_all_bearings(identity)
-
-        mu20, mu11, mu02, mu30, mu21, mu12, mu03 = rotate_central_moments(
-            self._moment_cache.get_moment_array("mu20"),
-            self._moment_cache.get_moment_array("mu11"),
-            self._moment_cache.get_moment_array("mu02"),
-            self._moment_cache.get_moment_array("mu30"),
-            self._moment_cache.get_moment_array("mu21"),
-            self._moment_cache.get_moment_array("mu12"),
-            self._moment_cache.get_moment_array("mu03"),
-            bearings,
-        )
-        nu20, nu11, nu02, nu30, nu21, nu12, nu03 = rotate_central_moments(
-            self._moment_cache.get_moment_array("nu20"),
-            self._moment_cache.get_moment_array("nu11"),
-            self._moment_cache.get_moment_array("nu02"),
-            self._moment_cache.get_moment_array("nu30"),
-            self._moment_cache.get_moment_array("nu21"),
-            self._moment_cache.get_moment_array("nu12"),
-            self._moment_cache.get_moment_array("nu03"),
-            bearings,
-        )
-
-        return {
-            "m00": m00,
-            "mu20": mu20,
-            "mu11": mu11,
-            "mu02": mu02,
-            "mu30": mu30,
-            "mu21": mu21,
-            "mu12": mu12,
-            "mu03": mu03,
-            "nu20": nu20,
-            "nu11": nu11,
-            "nu02": nu02,
-            "nu30": nu30,
-            "nu21": nu21,
-            "nu12": nu12,
-            "nu03": nu03,
-        }
+        for prefix in _ROTATED_PREFIXES:
+            keys = [f"{prefix}{pq}" for pq in _ROTATED_ORDERS]
+            rotated = rotate_central_moments(
+                *(self._moment_cache.get_moment_array(key) for key in keys), bearings
+            )
+            values.update(zip(keys, rotated, strict=True))
+        return values

@@ -208,6 +208,7 @@ def test_moments_per_frame(seg_data: dict[str, Any]) -> None:
     moment_values = moments_feature.per_frame(1)
     assert len(moment_values["m00"]) == seg_data["pose_est_v6"].num_frames
     assert set(moment_values.keys()) == {"m00", *_ROTATED_MOMENT_KEYS}
+    assert list(moment_values) == moments_feature._moments_to_use
     for arr in moment_values.values():
         assert arr.dtype == np.float32
 
