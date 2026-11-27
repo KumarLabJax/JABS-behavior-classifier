@@ -241,3 +241,32 @@ def test_step_to_frame_seeks_once(qapp) -> None:
     qapp.processEvents()
 
     thread.seek.assert_called_once_with(42)
+
+
+def test_is_playing_or_pending_is_false_when_idle(qapp) -> None:
+    """A player with a loaded video that isn't playing reports nothing in progress."""
+    widget, _ = _widget_with_mock_thread()
+
+    assert not widget.is_playing_or_pending
+
+
+def test_is_playing_or_pending_covers_the_delay_before_range_playback(qapp) -> None:
+    """play_range starts the thread after a delay; callers must still see playback as active."""
+    widget, thread = _widget_with_mock_thread()
+
+    widget.play_range(10, 20)
+
+    thread.start.assert_not_called()
+    assert widget.is_playing_or_pending
+
+    widget.stop()
+
+    assert not widget.is_playing_or_pending
+
+
+def test_is_playing_or_pending_is_true_while_playing(qapp) -> None:
+    """Ordinary playback counts as playing."""
+    widget, _ = _widget_with_mock_thread()
+    widget._playing = True
+
+    assert widget.is_playing_or_pending

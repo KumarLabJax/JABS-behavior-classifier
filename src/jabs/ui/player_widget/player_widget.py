@@ -422,6 +422,17 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_range_timer.start()
 
     @property
+    def is_playing_or_pending(self) -> bool:
+        """Return True if playback is running or a range playback is about to start.
+
+        `play_range` seeks first and starts the player thread after a short delay, so
+        `_playing` alone misses the window between the call and the actual start.
+        """
+        return (
+            self._playing or self._play_range_timer.isActive() or self._playback_range is not None
+        )
+
+    @property
     def current_frame(self) -> int:
         """return the current frame"""
         return self._position_slider.value()

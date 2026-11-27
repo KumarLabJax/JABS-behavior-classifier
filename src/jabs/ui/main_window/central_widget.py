@@ -2745,11 +2745,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
-        if (
-            self._player_widget._playing
-            or self._player_widget._play_range_timer.isActive()
-            or self._player_widget._playback_range is not None
-        ):
+        if self._player_widget.is_playing_or_pending:
             self._player_widget.stop()
 
         video_basename = Path(video_name).name
@@ -2855,11 +2851,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
-        if (
-            self._player_widget._playing
-            or self._player_widget._play_range_timer.isActive()
-            or self._player_widget._playback_range is not None
-        ):
+        if self._player_widget.is_playing_or_pending:
             self._player_widget.stop()
             return
 
@@ -2887,11 +2879,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         if self._player_widget._video_stream is None:
             return
-        if (
-            self._player_widget._playing
-            or self._player_widget._play_range_timer.isActive()
-            or self._player_widget._playback_range is not None
-        ):
+        if self._player_widget.is_playing_or_pending:
             self._player_widget.stop()
         num_frames = self._player_widget.num_frames
         if num_frames <= 0:

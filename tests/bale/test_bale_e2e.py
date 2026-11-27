@@ -762,14 +762,10 @@ def test_two_window_gui_end_to_end_multiclass_sync_triage_and_isolation(
         # Toggle bout clip playback on & off cleanly
         dlg._on_play_clip_clicked()
         qapp.processEvents()
-        assert (
-            central._player_widget._playing or central._player_widget._play_range_timer.isActive()
-        )
+        assert central._player_widget.is_playing_or_pending
         dlg._on_play_clip_clicked()
         qapp.processEvents()
-        assert not (
-            central._player_widget._playing or central._player_widget._play_range_timer.isActive()
-        )
+        assert not central._player_widget.is_playing_or_pending
 
         # One-way isolation: mutating JABS GUI never mutates Explorer selection/mode/behavior
         sel_before = dlg._selected_bout_idx
