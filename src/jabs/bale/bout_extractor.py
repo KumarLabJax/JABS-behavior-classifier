@@ -10,18 +10,25 @@ and `valid_pose_fraction` using vectorized C-level `np.sort` order statistics.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import h5py
 import numpy as np
 import pyarrow.parquet as pq
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierMode
+from jabs.core.enums.cv_grouping import compile_grouping_regex, filename_group_key
+from jabs.core.exceptions import (
+    DistanceScaleException,
+    FeatureVersionException,
+    PoseHashException,
+)
 from jabs.core.utils.utilities import pose_file_stem
+from jabs.feature_extraction import FEATURE_VERSION
 from jabs.feature_extraction.landmark_features.landmark_group import LandmarkFeatureGroup
 from jabs.feature_extraction.segmentation_features.segment_group import SegmentationFeatureGroup
 from jabs.feature_extraction.social_features.huddle_features import HuddleFeatures
@@ -29,6 +36,7 @@ from jabs.feature_extraction.social_features.social_group import SocialFeatureGr
 from jabs.io.annotations import read_document
 from jabs.io.feature_cache import detect_cache_format, inspect_identity_cache
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader
+from jabs.io.feature_cache.parquet import ParquetFeatureCacheReader
 
 from .models import BoutFeatureMatrix, BoutRecord
 
@@ -58,10 +66,13 @@ _SEGMENTATION_PREFIXES: tuple[str, ...] = tuple(
     dict.fromkeys([*SegmentationFeatureGroup.module_names(), HuddleFeatures.name()])
 )
 
+_DEFAULT_CAGE_RE = re.compile(r"(cage[_-]?\d+)", re.IGNORECASE)
+
 # In-memory LRU cache of loaded per-track feature matrices with strict byte budget:
-# key -> (cache_file_path, identity, mtime_ns, use_social, use_segmentation, disabled_landmarks)
+# key -> (cache_file_path, identity, mtime_ns, use_social, use_segmentation,
+#         disabled_landmarks, feat_ver, pose_hash, scale, converter_rev)
 _TRACK_ARRAY_CACHE: OrderedDict[
-    tuple[str, int, int, bool, bool, tuple[str, ...]],
+    tuple[Any, ...],
     tuple[np.ndarray, np.ndarray, list[str]],
 ] = OrderedDict()
 _TRACK_CACHE_LOCK = threading.Lock()
@@ -102,6 +113,42 @@ def strip_known_video_suffix(name: str) -> str:
     if suf.lower() in _KNOWN_SIDE_EXTS:
         return base[: -len(suf)]
     return base
+
+
+def extract_video_group_id(
+    video_name: str,
+    cv_grouping_regex: str | re.Pattern[str] | None = None,
+    *,
+    fallback_to_stem: bool = False,
+) -> str:
+    """Extract normalized cage/group identifier for `video_name` using `filename_group_key`."""
+    pattern: re.Pattern[str] | None = None
+    if isinstance(cv_grouping_regex, re.Pattern):
+        pattern = cv_grouping_regex
+    elif isinstance(cv_grouping_regex, str) and cv_grouping_regex.strip():
+        try:
+            pattern = compile_grouping_regex(cv_grouping_regex)
+        except ValueError:
+            logger.warning(
+                "Invalid cv_grouping_regex %r; falling back to default cage regex",
+                cv_grouping_regex,
+            )
+            pattern = None
+
+    if pattern is not None:
+        return filename_group_key(video_name, pattern)
+
+    m = _DEFAULT_CAGE_RE.search(video_name)
+    if m:
+        return m.group(1).lower().replace("-", "_")
+
+    if fallback_to_stem:
+        stem = Path(video_name).stem
+        parts = [p for p in stem.split(".") if p]
+        if len(parts) >= 2:
+            return ".".join(parts[:2])
+        return stem or "unknown"
+    return ""
 
 
 def _entry_nbytes(entry: tuple[np.ndarray, np.ndarray, list[str]]) -> int:
@@ -294,7 +341,7 @@ def _select_active_feature_columns(
 
 
 def _cache_get_track_array(
-    cache_key: tuple[str, int, int, bool, bool, tuple[str, ...]],
+    cache_key: tuple[Any, ...],
 ) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
     with _TRACK_CACHE_LOCK:
         cached = _TRACK_ARRAY_CACHE.get(cache_key)
@@ -304,7 +351,7 @@ def _cache_get_track_array(
 
 
 def _cache_put_track_array(
-    cache_key: tuple[str, int, int, bool, bool, tuple[str, ...]],
+    cache_key: tuple[Any, ...],
     result: tuple[np.ndarray, np.ndarray, list[str]],
 ) -> None:
     global _TRACK_CACHE_BYTES
@@ -324,6 +371,38 @@ def _cache_put_track_array(
             _TRACK_CACHE_BYTES += entry_bytes
 
 
+def expected_cache_params_for_video(
+    project: Project,
+    video_name: str,
+    beh_settings: dict[str, Any] | None = None,
+) -> tuple[str | None, float | None, int | None, bool]:
+    """Resolve `(pose_hash, distance_scale_factor, converter_revision, has_pose)` for `video_name`."""
+    try:
+        from jabs.bale.trajectory_and_export import load_pose_cached
+
+        pose = load_pose_cached(project, video_name)
+    except Exception:
+        logger.debug(
+            "Pose file unavailable while resolving expected cache metadata for %s",
+            video_name,
+            exc_info=True,
+        )
+        return None, None, None, False
+
+    raw_hash = getattr(pose, "hash", None)
+    if not isinstance(raw_hash, str) or not raw_hash:
+        return None, None, None, False
+
+    cm_units = bool((beh_settings or {}).get("cm_units", False))
+    raw_cm = getattr(pose, "cm_per_pixel", None) if cm_units else None
+    exp_scale = (
+        float(raw_cm) if isinstance(raw_cm, int | float) and not isinstance(raw_cm, bool) else None
+    )
+    raw_rev = getattr(pose, "converter_revision", None)
+    exp_rev = int(raw_rev) if isinstance(raw_rev, int) and not isinstance(raw_rev, bool) else None
+    return raw_hash, exp_scale, exp_rev, True
+
+
 def load_track_per_frame_array(
     project_dir: Path,
     video_name: str,
@@ -333,12 +412,17 @@ def load_track_per_frame_array(
     use_segmentation: bool = True,
     disabled_landmark_prefixes: tuple[str, ...] = (),
     feature_dir: Path | None = None,
+    expected_feature_version: int = FEATURE_VERSION,
+    expected_pose_hash: str | None = None,
+    expected_distance_scale_factor: float | None = None,
+    expected_converter_revision: int | None = None,
+    validate_pose_params: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
     """Load `(X_track, valid_mask, feature_names)` for one `(video, identity)` track.
 
-    Uses `detect_cache_format` + Parquet / `HDF5FeatureCacheReader` under
-    `<feature_dir>/<stem>/<identity>/`, backed by a byte-budgeted LRU cache keyed by
-    `(cache_path, identity, mtime_ns, use_social, use_segmentation, disabled_landmark_prefixes)`.
+    Validates cache metadata via `ParquetFeatureCacheReader` / `HDF5FeatureCacheReader`
+    against `expected_feature_version` (`FEATURE_VERSION`) and pose parameters; stale,
+    corrupt, or unvalidated caches are treated as missing (`None`).
     """
     eff_feature_dir = (
         Path(feature_dir) if feature_dir is not None else (project_dir / "jabs" / "features")
@@ -352,9 +436,58 @@ def load_track_per_frame_array(
     parquet_path = identity_dir / "per_frame.parquet"
     h5_path = identity_dir / "features.h5"
 
-    if fmt == CacheFormat.PARQUET or (fmt is None and parquet_path.is_file()):
+    if fmt is None:
+        return None
+
+    info = inspect_identity_cache(identity_dir)
+    if info is None:
+        logger.warning(
+            "Missing or unreadable feature cache metadata for %s; skipping unvalidated cache",
+            identity_dir,
+        )
+        return None
+
+    eff_pose_hash = (
+        expected_pose_hash
+        if (validate_pose_params or expected_pose_hash is not None)
+        else info.pose_hash
+    )
+    eff_scale = (
+        expected_distance_scale_factor
+        if (validate_pose_params or expected_distance_scale_factor is not None)
+        else info.distance_scale_factor
+    )
+    eff_conv_rev = (
+        expected_converter_revision
+        if (validate_pose_params or expected_converter_revision is not None)
+        else getattr(info, "converter_revision", None)
+    )
+
+    if fmt == CacheFormat.PARQUET:
         if not parquet_path.is_file():
             return None
+        try:
+            reader = ParquetFeatureCacheReader(
+                expected_feature_version=int(expected_feature_version),
+                expected_pose_hash=str(eff_pose_hash or ""),
+                expected_distance_scale_factor=eff_scale,
+                expected_converter_revision=eff_conv_rev,
+            )
+            reader.read_metadata(identity_dir)
+        except (
+            FeatureVersionException,
+            PoseHashException,
+            DistanceScaleException,
+            OSError,
+            ValueError,
+        ):
+            logger.warning(
+                "Parquet feature cache validation failed for %s; treating as missing cache",
+                identity_dir,
+                exc_info=True,
+            )
+            return None
+
         mtime_ns = parquet_path.stat().st_mtime_ns
         cache_key = (
             str(parquet_path),
@@ -363,6 +496,10 @@ def load_track_per_frame_array(
             use_social,
             use_segmentation,
             disabled_landmark_prefixes,
+            int(expected_feature_version),
+            eff_pose_hash,
+            eff_scale,
+            eff_conv_rev,
         )
         cached = _cache_get_track_array(cache_key)
         if cached is not None:
@@ -403,7 +540,7 @@ def load_track_per_frame_array(
         _cache_put_track_array(cache_key, result)
         return result
 
-    if fmt == CacheFormat.HDF5 or h5_path.is_file():
+    if fmt == CacheFormat.HDF5:
         if not h5_path.is_file():
             return None
         mtime_ns = h5_path.stat().st_mtime_ns
@@ -414,41 +551,38 @@ def load_track_per_frame_array(
             use_social,
             use_segmentation,
             disabled_landmark_prefixes,
+            int(expected_feature_version),
+            eff_pose_hash,
+            eff_scale,
+            eff_conv_rev,
         )
         cached = _cache_get_track_array(cache_key)
         if cached is not None:
             return cached
 
-        info = inspect_identity_cache(identity_dir)
-        raw_features: dict[str, np.ndarray] | None = None
-        valid_mask: np.ndarray | None = None
-        if info is not None and info.cache_format == CacheFormat.HDF5:
-            try:
-                reader = HDF5FeatureCacheReader(
-                    expected_feature_version=info.feature_version,
-                    expected_pose_hash=info.pose_hash,
-                    expected_distance_scale_factor=info.distance_scale_factor,
-                )
-                pf_data = reader.read_per_frame(identity_dir)
-                raw_features = pf_data.features
-                valid_mask = np.asarray(pf_data.frame_valid, dtype=np.uint8) > 0
-            except Exception:
-                logger.warning(
-                    "HDF5FeatureCacheReader failed for %s; falling back to direct HDF5 read",
-                    identity_dir,
-                    exc_info=True,
-                )
-                raw_features = None
-                valid_mask = None
-
-        if raw_features is None:
-            with h5py.File(h5_path, "r") as h5f:
-                if "features" not in h5f or "per_frame" not in h5f["features"]:
-                    return None
-                pf_grp = h5f["features"]["per_frame"]
-                raw_features = {k: pf_grp[k][:] for k in pf_grp}
-                if "frame_valid" in h5f:
-                    valid_mask = np.asarray(h5f["frame_valid"][:], dtype=np.uint8) > 0
+        try:
+            reader = HDF5FeatureCacheReader(
+                expected_feature_version=int(expected_feature_version),
+                expected_pose_hash=str(eff_pose_hash or ""),
+                expected_distance_scale_factor=eff_scale,
+                expected_converter_revision=eff_conv_rev,
+            )
+            pf_data = reader.read_per_frame(identity_dir)
+            raw_features = pf_data.features
+            valid_mask = np.asarray(pf_data.frame_valid, dtype=np.uint8) > 0
+        except (
+            FeatureVersionException,
+            PoseHashException,
+            DistanceScaleException,
+            OSError,
+            ValueError,
+        ):
+            logger.warning(
+                "HDF5FeatureCacheReader validation failed for %s; treating as missing cache",
+                identity_dir,
+                exc_info=True,
+            )
+            return None
 
         all_cols = sorted(raw_features.keys())
         feat_cols = _select_active_feature_columns(
@@ -461,8 +595,6 @@ def load_track_per_frame_array(
             return None
         first_arr = np.asarray(raw_features[feat_cols[0]])
         n_rows = int(first_arr.shape[0])
-        if valid_mask is None:
-            valid_mask = np.ones(n_rows, dtype=bool)
         X_track = np.empty((n_rows, len(feat_cols)), dtype=np.float32)
         for j, col_name in enumerate(feat_cols):
             arr = np.asarray(raw_features[col_name], dtype=np.float32).reshape(n_rows, -1)[:, 0]
@@ -687,7 +819,13 @@ def extract_bout_feature_matrix(
     # PyArrow's `pq.read_table(..., use_threads=True)` already parallelizes column decoding in C++
     # without spawning Python threads that collide with PySide6 Shiboken's lazy import hook.
 
+    video_cache_params: dict[str, tuple[str | None, float | None, int | None, bool]] = {}
     for (video_name, identity), rec_indices in by_track.items():
+        if video_name not in video_cache_params:
+            video_cache_params[video_name] = expected_cache_params_for_video(
+                project, video_name, beh_settings
+            )
+        exp_pose_hash, exp_scale, exp_conv_rev, has_pose = video_cache_params[video_name]
         loaded = load_track_per_frame_array(
             project_dir,
             video_name,
@@ -696,6 +834,11 @@ def extract_bout_feature_matrix(
             use_segmentation=use_segmentation,
             disabled_landmark_prefixes=disabled_landmarks,
             feature_dir=feature_dir,
+            expected_feature_version=FEATURE_VERSION,
+            expected_pose_hash=exp_pose_hash,
+            expected_distance_scale_factor=exp_scale,
+            expected_converter_revision=exp_conv_rev,
+            validate_pose_params=has_pose,
         )
         if loaded is None:
             continue

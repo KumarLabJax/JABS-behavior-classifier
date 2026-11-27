@@ -7,6 +7,7 @@ marked across recalculates, behavior switches, and JABS restarts.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -70,7 +71,8 @@ class ExaminedBoutStore:
         self._project_dir = Path(project_dir)
         self._path = self._project_dir / "jabs" / "session" / DEFAULT_FILENAME
         self._entries: dict[str, dict[str, Any]] = {}
-        self._by_track_bucket: dict[tuple[str, int, str, str], list[str]] = {}
+        self._by_track_bucket: dict[tuple[str, int, str, str], dict[str, None]] = {}
+        self._key_to_bucket: dict[str, tuple[str, int, str, str]] = {}
         self.load()
 
     @property
@@ -78,19 +80,48 @@ class ExaminedBoutStore:
         """Return the path to the persistent examined bout ledger JSON file."""
         return self._path
 
+    @staticmethod
+    def _entry_bucket(ent: dict[str, Any]) -> tuple[str, int, str, str]:
+        return (
+            _normalize_video(str(ent.get("video", ""))),
+            int(ent.get("identity", 0)),
+            str(ent.get("behavior", "")),
+            str(ent.get("origin_source", "labeled")),
+        )
+
+    def _index_add(self, key: str, ent: dict[str, Any]) -> None:
+        old_bucket = self._key_to_bucket.pop(key, None)
+        if old_bucket is not None:
+            old_map = self._by_track_bucket.get(old_bucket)
+            if old_map is not None:
+                old_map.pop(key, None)
+                if not old_map:
+                    self._by_track_bucket.pop(old_bucket, None)
+        bucket = self._entry_bucket(ent)
+        self._by_track_bucket.setdefault(bucket, {})[key] = None
+        self._key_to_bucket[key] = bucket
+
+    def _index_remove(self, key: str) -> None:
+        bucket = self._key_to_bucket.pop(key, None)
+        if bucket is None:
+            return
+        bucket_map = self._by_track_bucket.get(bucket)
+        if bucket_map is not None:
+            bucket_map.pop(key, None)
+            if not bucket_map:
+                self._by_track_bucket.pop(bucket, None)
+
     def _rebuild_index(self) -> None:
-        buckets: dict[tuple[str, int, str, str], list[str]] = {}
+        buckets: dict[tuple[str, int, str, str], dict[str, None]] = {}
+        key_to_bucket: dict[str, tuple[str, int, str, str]] = {}
         for key, ent in self._entries.items():
             if not isinstance(ent, dict):
                 continue
-            bucket = (
-                _normalize_video(str(ent.get("video", ""))),
-                int(ent.get("identity", 0)),
-                str(ent.get("behavior", "")),
-                str(ent.get("origin_source", "labeled")),
-            )
-            buckets.setdefault(bucket, []).append(key)
+            bucket = self._entry_bucket(ent)
+            buckets.setdefault(bucket, {})[key] = None
+            key_to_bucket[key] = bucket
         self._by_track_bucket = buckets
+        self._key_to_bucket = key_to_bucket
 
     def load(self) -> None:
         """Load persisted examined flags from disk (with legacy filename fallback)."""
@@ -113,33 +144,41 @@ class ExaminedBoutStore:
                 self._entries = {}
         self._rebuild_index()
 
-    def save(self) -> None:
+    def save(self) -> bool:
         """Persist examined flags atomically to `<project>/jabs/session/bale_reviewed.json`."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            {
-                "schema_version": SCHEMA_VERSION,
-                "entries": self._entries,
-            },
-            indent=2,
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        fd, tmp_name = tempfile.mkstemp(
-            prefix=".bale_reviewed.",
-            suffix=".tmp",
-            dir=str(self._path.parent),
-        )
-        tmp_path = Path(tmp_name)
+        tmp_path: Path | None = None
         try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(
+                {
+                    "schema_version": SCHEMA_VERSION,
+                    "entries": self._entries,
+                },
+                indent=2,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=".bale_reviewed.",
+                suffix=".tmp",
+                dir=str(self._path.parent),
+            )
+            tmp_path = Path(tmp_name)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(payload)
                 fh.flush()
             os.replace(tmp_path, self._path)
-        except Exception:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
-            raise
+            return True
+        except OSError:
+            logger.warning(
+                "Could not save examined bout ledger %s",
+                self._path,
+                exc_info=True,
+            )
+            if tmp_path is not None:
+                with contextlib.suppress(OSError):
+                    tmp_path.unlink(missing_ok=True)
+            return False
 
     def find_match_key(self, rec: BoutRecord) -> str | None:
         """Find exact key match, or overlap match for shifted predicted bouts."""
@@ -193,7 +232,7 @@ class ExaminedBoutStore:
             "updated_at": datetime.now().isoformat(timespec="seconds"),
         }
         self._entries[key] = entry
-        self._rebuild_index()
+        self._index_add(key, entry)
         if persist:
             self.save()
         return dict(entry)
@@ -208,8 +247,23 @@ class ExaminedBoutStore:
         """Batch-mark multiple bouts with a single atomic disk write."""
         if not records:
             return 0
+        now_iso = datetime.now().isoformat(timespec="seconds")
         for rec in records:
-            self.mark(rec, action=action, note=note, persist=False)
+            key = make_bout_signature_key(rec)
+            entry = {
+                "key": key,
+                "video": _normalize_video(rec.video),
+                "identity": int(rec.identity),
+                "behavior": _canonical_behavior(rec),
+                "origin_source": _canonical_origin_source(rec),
+                "start_frame": int(rec.start_frame),
+                "end_frame": int(rec.end_frame),
+                "action": str(action),
+                "note": str(note),
+                "updated_at": now_iso,
+            }
+            self._entries[key] = entry
+        self._rebuild_index()
         self.save()
         return len(records)
 
@@ -219,7 +273,7 @@ class ExaminedBoutStore:
         if key is None:
             return None
         removed = self._entries.pop(key, None)
-        self._rebuild_index()
+        self._index_remove(key)
         if persist:
             self.save()
         return dict(removed) if removed is not None else None
@@ -228,8 +282,10 @@ class ExaminedBoutStore:
         """Restore a previously snapshotted entry (used by Undo)."""
         if not entry or not entry.get("key"):
             return
-        self._entries[str(entry["key"])] = dict(entry)
-        self._rebuild_index()
+        key = str(entry["key"])
+        ent_copy = dict(entry)
+        self._entries[key] = ent_copy
+        self._index_add(key, ent_copy)
         if persist:
             self.save()
 

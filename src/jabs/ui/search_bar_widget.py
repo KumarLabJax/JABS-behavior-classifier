@@ -95,10 +95,16 @@ class SearchBarWidget(QtWidgets.QWidget):
 
     def update_project(self, project: Project | None):
         """Update the current project."""
+        project_changed = project is not self._project
         self._project = project
         self.video_frame_position_changed(None, -1)
         if self._search_query is not None:
-            self.update_search(self._search_query)
+            if (project_changed or project is None) and isinstance(
+                self._search_query, CustomBoutListSearchQuery
+            ):
+                self.update_search(None)
+            else:
+                self.update_search(self._search_query)
 
     def video_frame_position_changed(self, video_name: str | None, frame_position: int):
         """Update the current video name and frame position.

@@ -519,7 +519,11 @@ def _synthesize_unlabeled_predictions_from_tracks(
     """
     from sklearn.ensemble import ExtraTreesClassifier
 
-    from .bout_extractor import collect_labeled_bout_records, load_track_per_frame_array
+    from .bout_extractor import (
+        collect_labeled_bout_records,
+        expected_cache_params_for_video,
+        load_track_per_frame_array,
+    )
 
     project_dir = Path(project.project_paths.project_dir)
     behavior_names = list(project.settings_manager.behavior_names)
@@ -547,13 +551,21 @@ def _synthesize_unlabeled_predictions_from_tracks(
     y_train_list: list[str] = []
     loaded_tracks: dict[tuple[str, int], np.ndarray] = {}
 
+    video_cache_params: dict[str, tuple[str | None, float | None, int | None, bool]] = {}
     for (vid, ident), b_list in list(by_track.items())[:40]:
+        if vid not in video_cache_params:
+            video_cache_params[vid] = expected_cache_params_for_video(project, vid, beh_settings)
+        exp_pose_hash, exp_scale, exp_conv_rev, has_pose = video_cache_params[vid]
         loaded = load_track_per_frame_array(
             project_dir,
             vid,
             ident,
             use_social=use_social,
             use_segmentation=use_segmentation,
+            expected_pose_hash=exp_pose_hash,
+            expected_distance_scale_factor=exp_scale,
+            expected_converter_revision=exp_conv_rev,
+            validate_pose_params=has_pose,
         )
         if loaded is None:
             continue

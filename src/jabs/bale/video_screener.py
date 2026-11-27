@@ -27,7 +27,11 @@ from jabs.core.enums import ClassifierMode
 from jabs.io.annotations import read_document
 from jabs.project.track_labels import TrackLabels
 
-from .bout_extractor import _KNOWN_VIDEO_EXTS, strip_known_video_suffix
+from .bout_extractor import (
+    extract_video_group_id,
+    resolve_project_video_name,
+    strip_known_video_suffix,
+)
 from .prediction_extractor import _contiguous_true_runs, _lookup_identity_arr
 
 if TYPE_CHECKING:
@@ -277,76 +281,11 @@ class VideoScreenerReport:
         return pd.DataFrame(rows)
 
 
-def _extract_cage_id(video_name: str, compiled_regex: re.Pattern[str] | None) -> str:
-    if compiled_regex is not None:
-        m = compiled_regex.search(video_name)
-        if m:
-            return m.group(1) if m.lastindex else m.group(0)
-    m2 = _DEFAULT_CAGE_RE.search(video_name)
-    if m2:
-        return m2.group(1)
-    return ""
-
-
-class _VideoNameResolver:
-    """O(1) canonical project video-name resolver (replaces O(N^2) linear scans)."""
-
-    def __init__(self, project: Project) -> None:
-        self._exact: dict[str, str] = {}
-        self._by_stem: dict[str, str] = {}
-        try:
-            raw_videos = getattr(project.video_manager, "videos", []) or []
-            for raw_v in raw_videos:
-                v_name = Path(str(raw_v)).name
-                if not v_name:
-                    continue
-                self._exact.setdefault(v_name, v_name)
-                stem = strip_known_video_suffix(v_name)
-                if stem:
-                    self._by_stem.setdefault(stem, v_name)
-        except Exception:
-            pass
-
-    def resolve(
-        self,
-        stem_or_name: str,
-        doc: dict[str, object] | None = None,
-    ) -> str:
-        """Resolve exact canonical project filename for `stem_or_name` in O(1)."""
-        if doc is not None:
-            doc_file = doc.get("file")
-            if isinstance(doc_file, str) and doc_file.strip():
-                doc_clean = doc_file.strip()
-                if doc_clean in self._exact:
-                    return self._exact[doc_clean]
-                doc_base = Path(doc_clean).name
-                if doc_base in self._exact:
-                    return self._exact[doc_base]
-                if Path(doc_base).suffix.lower() in _KNOWN_VIDEO_EXTS:
-                    return doc_base
-                doc_stem = strip_known_video_suffix(doc_base)
-                if doc_stem in self._by_stem:
-                    return self._by_stem[doc_stem]
-
-        if stem_or_name in self._exact:
-            return self._exact[stem_or_name]
-        name = Path(stem_or_name).name
-        if name in self._exact:
-            return self._exact[name]
-        target_stem = strip_known_video_suffix(name)
-        if target_stem in self._by_stem:
-            return self._by_stem[target_stem]
-        if Path(name).suffix.lower() in _KNOWN_VIDEO_EXTS:
-            return name
-        return f"{target_stem}.mp4"
-
-
 def _load_video_annotation_details(
     project: Project,
     behavior: str | None,
     is_multiclass: bool,
     include_all_multiclass: bool,
-    resolver: _VideoNameResolver | None = None,
 ) -> dict[str, dict[int, dict[str, Any]]]:
     """Return per-video, per-identity human label spans and frame counts.
 
@@ -362,7 +301,6 @@ def _load_video_annotation_details(
     sm = project.settings_manager
     behavior_names = list(sm.behavior_names)
     eff_beh = behavior or (behavior_names[0] if behavior_names else "")
-    name_resolver = resolver if resolver is not None else _VideoNameResolver(project)
 
     details: dict[str, dict[int, dict[str, Any]]] = {}
 
@@ -422,13 +360,13 @@ def _load_video_annotation_details(
     if anno_dir.is_dir():
         for anno_path in sorted(anno_dir.glob("*.json")):
             # Fast-skip excluded videos before parsing JSON on disk
-            cand_name = name_resolver.resolve(anno_path.name)
+            cand_name = resolve_project_video_name(project, anno_path.name)
             if sm.is_video_excluded(cand_name):
                 continue
             doc = read_document(anno_path)
             if not doc:
                 continue
-            video_name = name_resolver.resolve(anno_path.name, doc)
+            video_name = resolve_project_video_name(project, anno_path.name, doc=doc)
             if sm.is_video_excluded(video_name):
                 continue
             seen_json_videos.add(video_name)
@@ -892,16 +830,10 @@ def summarize_project_videos(
     eff_all_mc = bool(is_multiclass and (include_all_multiclass or behavior is None))
 
     # Optional project cage-grouping regex for clean cage tagging
-    compiled_cage_re: re.Pattern[str] | None = None
-    try:
-        raw_re = getattr(sm, "cv_grouping_regex", "") or ""
-        if raw_re:
-            compiled_cage_re = re.compile(str(raw_re))
-    except re.error:
-        compiled_cage_re = None
+    raw_cage_re = getattr(sm, "cv_grouping_regex", "") or ""
+    cage_regex_str = str(raw_cage_re) if raw_cage_re else None
 
     # 1. Build O(1) video-name index once & gather all non-excluded project videos
-    name_resolver = _VideoNameResolver(project)
     all_videos_ordered: list[str] = []
     seen_stems: set[str] = set()
 
@@ -925,7 +857,6 @@ def summarize_project_videos(
         active_behavior if not eff_all_mc else None,
         is_multiclass,
         eff_all_mc,
-        resolver=name_resolver,
     )
     for v_name in sorted(anno_details.keys()):
         _add_video(v_name)
@@ -934,7 +865,7 @@ def summarize_project_videos(
     pred_stems_present: set[str] = set()
     if pred_dir.is_dir():
         for p_h5 in sorted(pred_dir.glob("*.h5")):
-            v_name = name_resolver.resolve(p_h5.name)
+            v_name = resolve_project_video_name(project, p_h5.name)
             _add_video(v_name)
             pred_stems_present.add(strip_known_video_suffix(v_name))
 
@@ -949,7 +880,7 @@ def summarize_project_videos(
             raise RuntimeError("Video screener cancelled")
         rec = VideoSummaryRecord(
             video=video_name,
-            cage=_extract_cage_id(video_name, compiled_cage_re),
+            cage=extract_video_group_id(video_name, cage_regex_str),
         )
         vid_stem = strip_known_video_suffix(video_name)
         vid_anno = anno_details.get(video_name, {})

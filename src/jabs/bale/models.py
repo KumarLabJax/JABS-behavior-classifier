@@ -165,6 +165,7 @@ class BaleReport:
     cv_track_counts: dict[tuple[str, int], tuple[int, int]] = field(default_factory=dict)
     include_all_multiclass: bool = False
     spatial: BoutSpatialResult | None = None
+    cv_grouping_regex: str | None = None
 
     def to_dataframe(self, exclude_bout_ids: set[int] | None = None) -> pd.DataFrame:
         """Convert all bout records, coordinates, and diagnostic scores to a DataFrame."""

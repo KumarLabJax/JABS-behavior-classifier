@@ -857,7 +857,6 @@ def _build_mc_ui_test_harness(tmp_path: Path, *, all_multiclass: bool = False):
     from unittest.mock import MagicMock
 
     import numpy as np
-    import pandas as pd
 
     from jabs.bale.bout_extractor import strip_known_video_suffix
     from jabs.bale.models import (
@@ -878,11 +877,27 @@ def _build_mc_ui_test_harness(tmp_path: Path, *, all_multiclass: bool = False):
     stem = strip_known_video_suffix(vid)
     feat_dir = proj_dir / "jabs" / "features" / stem / "0"
     feat_dir.mkdir(parents=True, exist_ok=True)
+    from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+    from jabs.feature_extraction import FEATURE_VERSION
+    from jabs.io.feature_cache.parquet import ParquetFeatureCacheWriter
+
     n_frames = 220
-    pd.DataFrame(
-        np.zeros((n_frames, 4), dtype=np.float32),
-        columns=["f0", "f1", "f2", "f3"],
-    ).to_parquet(feat_dir / "per_frame.parquet", index=False)
+    ParquetFeatureCacheWriter().write_per_frame(
+        feat_dir,
+        FeatureCacheMetadata(
+            feature_version=FEATURE_VERSION,
+            identity=0,
+            num_frames=n_frames,
+            pose_hash="mc_ui_hash",
+            distance_scale_factor=None,
+            avg_wall_length=None,
+            cached_window_sizes=frozenset(),
+        ),
+        PerFrameCacheData(
+            frame_valid=np.ones(n_frames, dtype=np.uint8),
+            features={f"f{k}": np.zeros(n_frames, dtype=np.float32) for k in range(4)},
+        ),
+    )
 
     anno_doc = {
         "file": vid,
@@ -3828,3 +3843,68 @@ def test_bale_close_and_reopen_same_project_creates_fresh_dialog_without_warning
     assert disconnect_warnings == [], (
         f"Unexpected signal disconnect warnings: {disconnect_warnings}"
     )
+
+
+def test_pr608_round3_search_bar_reset_and_no_seek_typeerror_retry(
+    tmp_path: Path,
+) -> None:
+    """PR #608 Round 3 (#4721974828, #4721974852): clear custom BALE search queue on project change; do not retry seek_to_bout on internal TypeError."""
+    from jabs.bale import VideoSummaryRecord
+    from jabs.bale.models import BoutRecord
+    from jabs.behavior_search import CustomBoutListSearchQuery, SearchHit
+    from jabs.ui.search_bar_widget import SearchBarWidget
+
+    _ensure_qapp()
+    proj1, _ = _build_synthetic_explorer_project(tmp_path / "p1")
+    proj2, _ = _build_synthetic_explorer_project(tmp_path / "p2")
+
+    bar = SearchBarWidget()
+    bar.update_project(proj1)
+    q = CustomBoutListSearchQuery(
+        hits=(
+            SearchHit(
+                file="cage_00.mp4",
+                identity="0",
+                behavior="Grooming",
+                start_frame=10,
+                end_frame=30,
+            ),
+        ),
+        description="BALE queue",
+        preserve_rank_order=True,
+    )
+    bar.update_search(q)
+    assert bar.behavior_search_query is q
+    assert len(bar.search_results) == 1
+
+    # Switching projects clears CustomBoutListSearchQuery so stale project hits never remain
+    bar.update_project(proj2)
+    assert bar.behavior_search_query is None
+    assert bar.search_results == []
+    assert not bar.isVisible()
+    bar.close()
+
+    # seek_to_bout TypeError must propagate without retrying a second seek
+    central_mock = MagicMock()
+    central_mock.behavior = "Grooming"
+    central_mock.seek_to_bout.side_effect = TypeError("internal seek error")
+
+    dlg = BaleDialog(proj1, central_widget=central_mock)
+    try:
+        rep = run_bale(proj1, "Grooming", include_predictions=False, space="classifier")
+        dlg._on_analysis_finished(rep, included_preds=False)
+        rec = BoutRecord(0, "labeled", "cage_00.mp4", 0, "Grooming", "Grooming", True, 50, 90, 41)
+        with pytest.raises(TypeError, match="internal seek error"):
+            dlg._seek_bout_in_main_window(rec, b_idx=0, mark_viewed=False)
+        assert central_mock.seek_to_bout.call_count == 1
+
+        central_mock.seek_to_bout.reset_mock()
+        vrec = VideoSummaryRecord(video="cage_00.mp4", cage="cage_00")
+        with pytest.raises(TypeError, match="internal seek error"):
+            dlg._seek_video_in_main_window(vrec, frame_zero=True)
+        assert central_mock.seek_to_bout.call_count == 1
+    finally:
+        dlg.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        QtWidgets.QApplication.processEvents()

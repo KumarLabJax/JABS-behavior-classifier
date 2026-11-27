@@ -871,21 +871,72 @@ def test_two_window_gui_end_to_end_multiclass_sync_triage_and_isolation(
             {"start": 30, "end": 56, "present": True}
         ]
 
-        # Dual-Class CV rule boundary guard: 16 -> 15 (silent) then 15 -> 14 (triggers confirm with "Dual-Class CV rule")
+        # MultiClass JABS CV rule boundary guard:
+        # Flipping Turn_Left -> None on tracks that still have None + Turn_Right keeps 16 valid LOGO groups.
         confirm_calls.clear()
         _select_bout_in_dialog(dlg, b_cv_drop_1)
-        dlg._on_secondary_action_2_clicked()  # Switch Turn_Left -> None on 1st track (16 -> 15)
+        dlg._on_secondary_action_2_clicked()
+        _select_bout_in_dialog(dlg, b_cv_drop_2)
+        dlg._on_secondary_action_2_clicked()
+        assert dlg._report.cv_groups_count == 16
+        assert len(confirm_calls) == 0
+
+        # Switching to Turn_Right and flipping those tracks' remaining Turn_Right -> None leaves
+        # only 1 class ("None") on each track -> drops valid LOGO groups 16 -> 15 (silent) then 15 -> 14 (confirm guard)
+        idx_tr = dlg.behavior_combo.findData("Turn_Right")
+        assert idx_tr >= 0
+        dlg.behavior_combo.setCurrentIndex(idx_tr)
+        _wait_until(
+            qapp,
+            lambda: (
+                dlg._report is not None
+                and dlg._report.behavior == "Turn_Right"
+                and dlg._active_worker is None
+            ),
+            desc="switch behavior to Turn_Right for CV drop test",
+        )
+        tr_records = dlg._report.feature_matrix.records
+        b_tr_drop_1 = next(
+            i
+            for i, r in enumerate(tr_records)
+            if r.source == "labeled"
+            and r.video == VIDEOS_MULTICLASS[2]
+            and r.identity == 2
+            and r.is_positive
+        )
+        b_tr_drop_2 = next(
+            i
+            for i, r in enumerate(tr_records)
+            if r.source == "labeled"
+            and r.video == VIDEOS_MULTICLASS[2]
+            and r.identity == 3
+            and r.is_positive
+        )
+        confirm_calls.clear()
+        _select_bout_in_dialog(dlg, b_tr_drop_1)
+        dlg._on_secondary_action_2_clicked()  # Switch Turn_Right -> None on 1st track (16 -> 15)
         assert dlg._report.cv_groups_count == 15
         assert len(confirm_calls) == 0
 
-        _select_bout_in_dialog(dlg, b_cv_drop_2)
-        dlg._on_secondary_action_2_clicked()  # Switch Turn_Left -> None on 2nd track (15 -> 14 < 15)
+        _select_bout_in_dialog(dlg, b_tr_drop_2)
+        dlg._on_secondary_action_2_clicked()  # Switch Turn_Right -> None on 2nd track (15 -> 14 < 15)
         assert dlg._report.cv_groups_count == 14
         assert any("Dual-Class CV rule" in msg for msg in confirm_calls)
 
         dlg._on_undo_clicked()
         dlg._on_undo_clicked()
         assert dlg._report.cv_groups_count == 16
+
+        dlg.behavior_combo.setCurrentIndex(idx_tl)
+        _wait_until(
+            qapp,
+            lambda: (
+                dlg._report is not None
+                and dlg._report.behavior == "Turn_Left"
+                and dlg._active_worker is None
+            ),
+            desc="restore behavior to Turn_Left",
+        )
 
         # ---- C. 2. Review Predictions Isolation & Send to JABS Search Queue ----
         dlg.mode_predict_btn.setChecked(True)

@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 from scipy.spatial.distance import mahalanobis
 from sklearn.decomposition import PCA
@@ -28,6 +26,46 @@ from jabs.bale import (
 )
 from jabs.behavior_search import CustomBoutListSearchQuery, SearchHit, search_behaviors
 from jabs.core.enums import ClassifierMode
+
+
+def _write_synthetic_parquet_cache(
+    identity_dir: Path,
+    df: pd.DataFrame,
+    *,
+    identity: int = 0,
+    feature_version: int | None = None,
+    pose_hash: str = "synth_pose_hash",
+    distance_scale_factor: float | None = None,
+) -> None:
+    """Write `per_frame.parquet` + matching `metadata.json` via `ParquetFeatureCacheWriter`."""
+    from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+    from jabs.feature_extraction import FEATURE_VERSION
+    from jabs.io.feature_cache.parquet import ParquetFeatureCacheWriter
+
+    n_rows = len(df)
+    if "_jabs_frame_valid" in df.columns:
+        valid_arr = np.asarray(df["_jabs_frame_valid"], dtype=np.uint8)
+    else:
+        valid_arr = np.ones(n_rows, dtype=np.uint8)
+    feats = {
+        str(col): np.asarray(df[col], dtype=np.float32)
+        for col in df.columns
+        if col != "_jabs_frame_valid"
+    }
+    meta = FeatureCacheMetadata(
+        feature_version=int(FEATURE_VERSION if feature_version is None else feature_version),
+        identity=int(identity),
+        num_frames=n_rows,
+        pose_hash=pose_hash,
+        distance_scale_factor=distance_scale_factor,
+        avg_wall_length=None,
+        cached_window_sizes=frozenset(),
+    )
+    ParquetFeatureCacheWriter().write_per_frame(
+        identity_dir,
+        meta,
+        PerFrameCacheData(frame_valid=valid_arr, features=feats),
+    )
 
 
 def test_fast_bout_quantiles_accuracy() -> None:
@@ -166,10 +204,11 @@ def _build_synthetic_explorer_project(tmp_path: Path) -> tuple[MagicMock, Path]:
 
             df_dict = {col: X_base[:, j] for j, col in enumerate(feat_cols)}
             df_dict["_jabs_frame_valid"] = np.ones(n_frames, dtype=np.uint8)
-            table = pa.Table.from_pandas(pd.DataFrame(df_dict), preserve_index=False)
-            out_pq = feat_dir / stem / str(identity) / "per_frame.parquet"
-            out_pq.parent.mkdir(parents=True, exist_ok=True)
-            pq.write_table(table, out_pq)
+            _write_synthetic_parquet_cache(
+                feat_dir / stem / str(identity),
+                pd.DataFrame(df_dict),
+                identity=identity,
+            )
 
             unfrag_labels[str(identity)] = {"Grooming": blocks}
             pos_f = sum(int(b["end"]) - int(b["start"]) + 1 for b in blocks if b["present"])
@@ -539,7 +578,7 @@ def test_multi_animal_and_non_contiguous_identity_parity(tmp_path: Path) -> None
                 for c in feat_cols
             }
         )
-        df.to_parquet(p_dir / "per_frame.parquet")
+        _write_synthetic_parquet_cache(p_dir, df, identity=aid)
 
     # Annotate ONLY animals '1' and '2' (omit '0' completely)
     bouts_id1 = [
@@ -678,7 +717,7 @@ def _make_mc_prediction_project(tmp_path: Path):
         mat[10:25, 0] += 2.5
         mat[120:135, 0] -= 2.5
         df = pd.DataFrame(mat, columns=[f"feat_{k}" for k in range(6)])
-        df.to_parquet(feat_dir / "per_frame.parquet", index=False)
+        _write_synthetic_parquet_cache(feat_dir, df, identity=0)
 
         anno_doc = {
             "file": vid,
@@ -1317,10 +1356,10 @@ def test_prediction_synthesis_when_h5_missing_multiclass_exclusivity(tmp_path: P
 
             df_dict = {col: X[:, j] for j, col in enumerate(feat_cols)}
             df_dict["_jabs_frame_valid"] = np.ones(n_frames, dtype=np.uint8)
-            out_pq = feat_dir / stem / str(ident) / "per_frame.parquet"
-            out_pq.parent.mkdir(parents=True, exist_ok=True)
-            pq.write_table(
-                pa.Table.from_pandas(pd.DataFrame(df_dict), preserve_index=False), out_pq
+            _write_synthetic_parquet_cache(
+                feat_dir / stem / str(ident),
+                pd.DataFrame(df_dict),
+                identity=ident,
             )
 
             unfrag[str(ident)] = {
@@ -2831,7 +2870,7 @@ def test_pr608_round2_core_bugs_and_warnings(
     assert not np.isfinite(sp_mix.coords_xy[2]).any()
     assert any("unreadable video dimensions" in r.message for r in caplog.records)
 
-    # 4. HDF5FeatureCacheReader failure logs a warning before falling back to direct HDF5 read
+    # 4. HDF5FeatureCacheReader failure logs a warning and treats cache as missing (`None`)
     h5_proj_dir = tmp_path / "h5_warn_proj"
     feat_dir = h5_proj_dir / "jabs" / "features"
     id_dir = feat_dir / "vid_warn" / "0"
@@ -2866,6 +2905,339 @@ def test_pr608_round2_core_bugs_and_warnings(
             use_segmentation=False,
             feature_dir=feat_dir,
         )
-    assert loaded is not None
-    assert any("HDF5FeatureCacheReader failed" in r.message for r in caplog.records)
+    assert loaded is None
+    assert any("HDF5FeatureCacheReader validation failed" in r.message for r in caplog.records)
+    clear_bout_extractor_cache()
+
+
+def test_pr608_round3_jabs_threshold_cache_validation_store_session_group_and_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """PR #608 Round 3: CV threshold parity, Parquet/HDF5 cache validation, incremental ExaminedBoutStore, session_tracker, shared grouping, logging."""
+    import logging
+
+    import jabs.bale.bout_extractor as be
+    from jabs.bale import (
+        BoutRecord,
+        ExaminedBoutStore,
+        compute_clustering_and_embedding,
+        count_dual_class_cv_groups,
+        summarize_cv_track_counts,
+        summarize_project_videos,
+    )
+    from jabs.bale.models import BoutFeatureMatrix, ConfusionAndOutlierResult
+    from jabs.core.enums import CrossValidationGroupingStrategy
+    from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+    from jabs.feature_extraction import FEATURE_VERSION
+    from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheWriter
+
+    clear_bout_extractor_cache()
+
+    # 1. Threshold parity (#4721974836): 12+12 frames fails (0 groups), 20+20 passes (2 groups);
+    #    VIDEO & FILENAME_PATTERN match Classifier.count_label_threshold / label_threshold_met
+    small_counts = {("v1.mp4", 0): (12, 12), ("v2.mp4", 0): (12, 12)}
+    assert summarize_cv_track_counts(small_counts) == (0, False, False)
+
+    exact_counts = {("v1.mp4", 0): (20, 20), ("v2.mp4", 0): (20, 20)}
+    assert summarize_cv_track_counts(exact_counts) == (2, True, False)
+
+    # Disjoint on one track (20 pos on id=0, 20 neg on id=1) fails INDIVIDUAL (0) but meets VIDEO (2)
+    split_counts = {
+        ("cage_1_a.mp4", 0): (20, 0),
+        ("cage_1_a.mp4", 1): (0, 20),
+        ("cage_2_a.mp4", 0): (20, 0),
+        ("cage_2_a.mp4", 1): (0, 20),
+    }
+    assert summarize_cv_track_counts(
+        split_counts, cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL
+    ) == (0, False, False)
+    assert summarize_cv_track_counts(
+        split_counts, cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO
+    ) == (2, True, False)
+
+    # Multi-class count_dual_class_cv_groups delegates to MultiClassClassifier with FILENAME_PATTERN
+    mc_proj = MagicMock()
+    mc_proj.settings_manager.classifier_mode = ClassifierMode.MULTICLASS
+    mc_proj.settings_manager.behavior_names = ["Turn_Left", "Turn_Right"]
+    mc_proj.settings_manager.cv_grouping_strategy = (
+        CrossValidationGroupingStrategy.FILENAME_PATTERN
+    )
+    mc_proj.settings_manager.cv_grouping_regex = r"(cage_\d+)"
+    mc_proj.settings_manager.is_video_excluded.return_value = False
+    mc_proj.video_manager.videos = ["cage_101_a.mp4", "cage_202_a.mp4"]
+    mc_counts = {
+        "None": {
+            "cage_101_a.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "cage_202_a.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+        },
+        "Turn_Left": {
+            "cage_101_a.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "cage_202_a.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+        },
+        "Turn_Right": {
+            "cage_101_a.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "cage_202_a.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+        },
+    }
+    mc_proj.counts.side_effect = lambda beh: mc_counts[beh]
+    g_cnt, j_met, _adr_met, _ = count_dual_class_cv_groups(mc_proj, "Turn_Left")
+    assert g_cnt == 2 and j_met is True
+
+    # 2. Parquet & HDF5 feature cache validation (#4721974846):
+    #    stale FEATURE_VERSION, pose_hash mismatch, distance_scale_factor mismatch -> None
+    val_dir = tmp_path / "val_cache_proj"
+    f_dir = val_dir / "jabs" / "features"
+    pq_dir = f_dir / "pq_vid" / "0"
+    _write_synthetic_parquet_cache(
+        pq_dir,
+        pd.DataFrame({"nose_speed": np.ones(20, dtype=np.float32)}),
+        identity=0,
+        feature_version=FEATURE_VERSION - 1,
+        pose_hash="old_hash",
+    )
+    with caplog.at_level(logging.WARNING):
+        assert (
+            be.load_track_per_frame_array(
+                val_dir,
+                "pq_vid.mp4",
+                0,
+                use_social=False,
+                use_segmentation=False,
+                feature_dir=f_dir,
+            )
+            is None
+        )
+
+    _write_synthetic_parquet_cache(
+        pq_dir,
+        pd.DataFrame({"nose_speed": np.ones(20, dtype=np.float32)}),
+        identity=0,
+        feature_version=FEATURE_VERSION,
+        pose_hash="hash_A",
+        distance_scale_factor=0.25,
+    )
+    assert (
+        be.load_track_per_frame_array(
+            val_dir,
+            "pq_vid.mp4",
+            0,
+            use_social=False,
+            use_segmentation=False,
+            feature_dir=f_dir,
+            expected_pose_hash="hash_B",
+            validate_pose_params=True,
+        )
+        is None
+    )
+    assert (
+        be.load_track_per_frame_array(
+            val_dir,
+            "pq_vid.mp4",
+            0,
+            use_social=False,
+            use_segmentation=False,
+            feature_dir=f_dir,
+            expected_pose_hash="hash_A",
+            expected_distance_scale_factor=None,
+            validate_pose_params=True,
+        )
+        is None
+    )
+    assert (
+        be.load_track_per_frame_array(
+            val_dir,
+            "pq_vid.mp4",
+            0,
+            use_social=False,
+            use_segmentation=False,
+            feature_dir=f_dir,
+            expected_pose_hash="hash_A",
+            expected_distance_scale_factor=0.25,
+            validate_pose_params=True,
+        )
+        is not None
+    )
+
+    # HDF5 version mismatch returns None cleanly
+    h5_dir = f_dir / "h5_stale" / "0"
+    HDF5FeatureCacheWriter().write_per_frame(
+        h5_dir,
+        FeatureCacheMetadata(
+            feature_version=FEATURE_VERSION - 1,
+            identity=0,
+            num_frames=20,
+            pose_hash="h_stale",
+            distance_scale_factor=None,
+            avg_wall_length=None,
+            cached_window_sizes=frozenset(),
+        ),
+        PerFrameCacheData(
+            frame_valid=np.ones(20, dtype=np.uint8),
+            features={"nose_speed": np.ones(20, dtype=np.float32)},
+        ),
+    )
+    assert (
+        be.load_track_per_frame_array(
+            val_dir,
+            "h5_stale.mp4",
+            0,
+            use_social=False,
+            use_segmentation=False,
+            feature_dir=f_dir,
+        )
+        is None
+    )
+
+    # 3. ExaminedBoutStore incremental index + OSError guard (#4721974859)
+    store_proj = tmp_path / "store_proj"
+    store = ExaminedBoutStore(store_proj)
+    r1 = BoutRecord(0, "labeled", "v1.mp4", 0, "Grooming", "Grooming", True, 10, 30, 21)
+    r2 = BoutRecord(1, "predicted", "v1.mp4", 0, "Grooming", "Grooming", True, 50, 75, 26)
+    r3 = BoutRecord(2, "predicted", "v1.mp4", 0, "Grooming", "Grooming", True, 90, 115, 26)
+    monkeypatch.setattr(
+        store,
+        "_rebuild_index",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("_rebuild_index should not run in mark/mark_many")
+        ),
+    )
+    store.mark(r1, persist=False)
+    assert store.find_match(r1) is not None
+    store.mark(r2, persist=False)
+    assert store.find_match(r2) is not None
+    store.unmark(r1, persist=False)
+    assert store.find_match(r1) is None
+
+    monkeypatch.undo()
+    rebuild_calls = 0
+    orig_rebuild = store._rebuild_index
+
+    def _counting_rebuild() -> None:
+        nonlocal rebuild_calls
+        rebuild_calls += 1
+        orig_rebuild()
+
+    monkeypatch.setattr(store, "_rebuild_index", _counting_rebuild)
+    store.mark_many([r1, r2, r3])
+    assert rebuild_calls == 1
+    assert store.find_match(r3) is not None
+
+    monkeypatch.setattr(be, "extract_video_group_id", be.extract_video_group_id)
+    monkeypatch.setattr("os.replace", lambda *_a: (_ for _ in ()).throw(PermissionError("ro")))
+    with caplog.at_level(logging.WARNING):
+        ok_save = store.save()
+    assert ok_save is False
+    monkeypatch.undo()
+
+    # 4. session_tracker calls & no cache invalidation on edit/undo (#4721974863, #4721974869)
+    edit_proj, _ = _build_synthetic_explorer_project(tmp_path / "edit_session_proj")
+    # Pre-warm track cache for cage_00, id=0 and confirm apply_bout_edit + undo don't evict it
+    warmed = be.load_track_per_frame_array(edit_proj.dir, "cage_00.mp4", 0)
+    assert warmed is not None
+    cache_len_before = len(be._TRACK_ARRAY_CACHE)
+    undo_stack = BaleUndoStack()
+    apply_bout_edit(
+        edit_proj,
+        "Grooming",
+        video="cage_00.mp4",
+        identity=0,
+        action="flip",
+        start_frame=320,
+        end_frame=360,
+        current_is_positive=True,
+        target_is_positive=False,
+        undo_stack=undo_stack,
+    )
+    assert len(be._TRACK_ARRAY_CACHE) == cache_len_before
+    edit_proj.session_tracker.label_created.assert_called_with(
+        Path("cage_00.mp4"), 0, "Grooming", False, 320, 360
+    )
+    edit_proj.session_tracker.label_created.reset_mock()
+    undo_stack.undo(edit_proj)
+    assert len(be._TRACK_ARRAY_CACHE) == cache_len_before
+    edit_proj.session_tracker.label_created.assert_called_with(
+        Path("cage_00.mp4"), 0, "Grooming", True, 320, 360
+    )
+
+    # 5. Shared grouping helper across video_screener and clustering_and_embedding (#4721974873)
+    grp_re = r"(grp_[AB])"
+    grp_recs = [
+        BoutRecord(
+            i,
+            "labeled",
+            f"exp_grp_{'A' if i < 6 else 'B'}_{i}.mp4",
+            0,
+            "G",
+            "G",
+            i % 2 == 0,
+            10,
+            35,
+            26,
+        )
+        for i in range(12)
+    ]
+    X_grp = np.vstack(
+        [
+            np.vstack(
+                [np.ones((6, 4), dtype=np.float32) * 3.0, np.ones((6, 4), dtype=np.float32) * -3.0]
+            )
+        ]
+    )
+    fm_grp = BoutFeatureMatrix(
+        records=grp_recs,
+        X_bout=X_grp,
+        stat_names=["f0", "f1", "f2", "f3"],
+        base_feature_names=["f0"],
+        stat_to_base_idx=np.zeros(4, dtype=np.int32),
+    )
+    diag_grp = ConfusionAndOutlierResult(
+        confusion_scores=np.zeros(12, dtype=np.float32),
+        oof_mean_probs=np.linspace(0.1, 0.9, 12, dtype=np.float32),
+        knn_disagreement=np.zeros(12, dtype=np.float32),
+        ood_scores=np.zeros(12, dtype=np.float32),
+        transition_scores=np.zeros(12, dtype=np.float32),
+        suggested_trim_bounds=[None] * 12,
+        suggested_split_frame=[None] * 12,
+        outlier_scores=np.zeros(12, dtype=np.float32),
+        outlier_votes=np.zeros(12, dtype=np.int32),
+        lof_scores=np.zeros(12, dtype=np.float32),
+        isoforest_scores=np.zeros(12, dtype=np.float32),
+        base_feature_weights=np.ones(1, dtype=np.float32),
+        stat_feature_weights=np.ones(4, dtype=np.float32),
+    )
+    emb_grp = compute_clustering_and_embedding(
+        fm_grp,
+        diag_grp,
+        forced_k=2,
+        compute_tsne=False,
+        compute_mds=False,
+        cv_grouping_regex=grp_re,
+    )
+    dom_groups = {g for g, _frac in emb_grp.dominant_cage_by_cluster.values()}
+    assert dom_groups == {"grp_A", "grp_B"}
+
+    scr_proj = MagicMock()
+    scr_proj.project_paths.project_dir = tmp_path / "scr_grp_proj"
+    (tmp_path / "scr_grp_proj" / "jabs" / "annotations").mkdir(parents=True, exist_ok=True)
+    scr_proj.settings_manager.classifier_mode = ClassifierMode.BINARY
+    scr_proj.settings_manager.behavior_names = ["Grooming"]
+    scr_proj.settings_manager.cv_grouping_regex = grp_re
+    scr_proj.settings_manager.is_video_excluded.return_value = False
+    scr_proj.video_manager.videos = ["exp_grp_A_0.mp4", "exp_grp_B_6.mp4"]
+    scr_rep = summarize_project_videos(scr_proj, "Grooming")
+    assert [r.cage for r in scr_rep.records] == ["grp_A", "grp_B"]
+
+    # 6. relabel_guard warning log on prediction load failure (#4721974880)
+    pred_fail_proj, pred_fail_dir = _build_synthetic_explorer_project(tmp_path / "pred_log_proj")
+    (pred_fail_dir / "jabs" / "predictions" / "cage_00.h5").write_bytes(b"stub")
+    pred_fail_proj.prediction_manager.load_predictions.side_effect = OSError("corrupt h5")
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        cand = find_dual_class_pairing_candidate(
+            pred_fail_proj, "cage_00.mp4", 0, "Grooming", needed_positive=False
+        )
+    assert cand is None
+    assert any("Failed to load predictions" in r.message for r in caplog.records)
     clear_bout_extractor_cache()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from pathlib import Path
@@ -14,11 +15,13 @@ from .clustering_and_embedding import compute_clustering_and_embedding
 from .models import BaleReport, FeatureLens, RepresentationSpace, SubtypeScope
 from .outlier_and_confusion import compute_confusion_and_outliers
 from .prediction_extractor import collect_predicted_bout_records
-from .relabel_guard import count_dual_class_cv_groups
+from .relabel_guard import _project_cv_grouping, count_dual_class_cv_groups
 from .spatial_localization import extract_bout_spatial_locations
 
 if TYPE_CHECKING:
     from jabs.project import Project
+
+logger = logging.getLogger(__name__)
 
 
 def run_bale(
@@ -155,6 +158,7 @@ def run_bale(
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError("BALE analysis cancelled")
     t_stage = time.perf_counter()
+    _, cv_grouping_regex = _project_cv_grouping(project)
     embedding = compute_clustering_and_embedding(
         feature_matrix,
         diagnostics,
@@ -165,6 +169,7 @@ def run_bale(
         compute_tsne=compute_tsne,
         compute_mds=compute_mds,
         forced_k=forced_k,
+        cv_grouping_regex=cv_grouping_regex,
     )
     timings_ms["embedding_ms"] = (time.perf_counter() - t_stage) * 1000.0
 
@@ -201,6 +206,7 @@ def run_bale(
         cv_track_counts=cv_track_counts,
         include_all_multiclass=bool(is_multiclass and include_all_multiclass),
         spatial=spatial_res,
+        cv_grouping_regex=cv_grouping_regex,
     )
 
 
@@ -239,6 +245,7 @@ def recompute_embedding_only(
         compute_tsne=compute_tsne,
         compute_mds=compute_mds,
         forced_k=forced_k,
+        cv_grouping_regex=report.cv_grouping_regex,
     )
     n_recs = len(report.feature_matrix.records)
     embedding_context_unchanged = (

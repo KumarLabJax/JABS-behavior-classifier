@@ -58,6 +58,7 @@ from jabs.bale import (
     summarize_cv_track_counts,
     summarize_project_videos,
 )
+from jabs.bale.relabel_guard import _project_cv_grouping, count_dual_class_cv_groups
 from jabs.bale.spatial_localization import clear_spatial_cache
 from jabs.bale.trajectory_and_export import clear_pose_cache
 from jabs.behavior_search import SearchHit
@@ -2930,55 +2931,11 @@ class BaleDialog(QtWidgets.QDialog):
             return 0
         self._examined_store.save()
 
-        # Refresh in-memory CV track counts for the modified video identities
-        if self._report.cv_track_counts is not None:
-            for ident in touched_identities:
-                ident_str = str(ident)
-                # Match existing key video naming in records
-                vid_key = next(
-                    (records[i].video for i in changed_indices if records[i].identity == ident),
-                    loaded_name,
-                )
-                if is_mc:
-                    beh_focus = self._report.behavior
-                    pos_c = 0
-                    other_c = 0
-                    for b_name in mc_behaviors:
-                        try:
-                            arr = np.asarray(
-                                live_labels.get_track_labels(ident_str, b_name).get_labels()
-                            )
-                        except Exception:
-                            continue
-                        n_b = int(np.count_nonzero(arr == pos_val))
-                        if b_name == beh_focus:
-                            pos_c += n_b
-                        else:
-                            other_c += n_b
-                    if pos_c > 0 or other_c > 0:
-                        self._report.cv_track_counts[(vid_key, ident)] = (pos_c, other_c)
-                    else:
-                        self._report.cv_track_counts.pop((vid_key, ident), None)
-                else:
-                    try:
-                        arr = np.asarray(
-                            live_labels.get_track_labels(
-                                ident_str, self._report.behavior
-                            ).get_labels()
-                        )
-                        pos_c = int(np.count_nonzero(arr == pos_val))
-                        neg_c = int(np.count_nonzero(arr == neg_val))
-                    except Exception:
-                        pos_c, neg_c = 0, 0
-                    if pos_c > 0 or neg_c > 0:
-                        self._report.cv_track_counts[(vid_key, ident)] = (pos_c, neg_c)
-                    else:
-                        self._report.cv_track_counts.pop((vid_key, ident), None)
-            cv_cnt, jabs_met, adr_met = summarize_cv_track_counts(self._report.cv_track_counts)
-            self._report.cv_groups_count = cv_cnt
-            self._report.jabs_threshold_met = jabs_met
-            self._report.dual_class_cv_met = adr_met
-            self._update_cv_badge_from_counts(cv_cnt, jabs_met, adr_met)
+        # Refresh CV track counts for touched video using JABS's fragmented counts
+        touched_videos = {records[i].video for i in changed_indices if 0 <= i < len(records)} or {
+            loaded_name
+        }
+        self._refresh_cv_badge_from_project(touched_videos)
 
         self._update_queue_filter_counts()
         self._update_table_rows_in_place(changed_indices)
@@ -4016,9 +3973,78 @@ class BaleDialog(QtWidgets.QDialog):
                 "color: #991B1B; font-weight: 700;"
             )
         self.cv_badge.setToolTip(
-            f"{cv_groups} animal tracks contain both ≥10 Positive and ≥10 Negative frames.\n"
-            "JABS requires ≥2 tracks to Train; ≥15 dual-class tracks recommended (Dual-Class CV)."
+            f"{cv_groups} CV group(s) contain ≥20 labeled frames of each class.\n"
+            "JABS requires ≥20 frames per class in ≥2 groups to Train; ≥15 dual-class groups recommended (Dual-Class CV)."
         )
+
+    def _refresh_cv_badge_from_project(
+        self,
+        touched_videos: set[str] | None = None,
+        *,
+        fallback_track_key: tuple[str, int] | None = None,
+        fallback_counts: tuple[int, int] | None = None,
+    ) -> None:
+        """Refresh `cv_track_counts` and the Train-readiness badge using JABS's CV rules."""
+        if self._report is None:
+            return
+
+        sm = getattr(self._project, "settings_manager", None)
+        if self._report.is_multiclass:
+            cv_cnt, jabs_met, adr_met, mc_counts = count_dual_class_cv_groups(
+                self._project, self._report.behavior
+            )
+            self._report.cv_track_counts = mc_counts
+        else:
+            updated_from_project = False
+            load_counts_fn = getattr(self._project, "load_counts", None)
+            is_excluded_fn = getattr(sm, "is_video_excluded", None)
+            if touched_videos and callable(load_counts_fn):
+                for vid in touched_videos:
+                    if callable(is_excluded_fn) and is_excluded_fn(vid):
+                        for k in [k for k in self._report.cv_track_counts if k[0] == vid]:
+                            self._report.cv_track_counts.pop(k, None)
+                        updated_from_project = True
+                        continue
+                    try:
+                        vid_counts = load_counts_fn(vid, self._report.behavior)
+                    except Exception:
+                        logger.warning(
+                            "Failed to reload fragmented label counts for %s",
+                            vid,
+                            exc_info=True,
+                        )
+                        vid_counts = None
+                    if isinstance(vid_counts, dict):
+                        updated_from_project = True
+                        for k in [k for k in self._report.cv_track_counts if k[0] == vid]:
+                            self._report.cv_track_counts.pop(k, None)
+                        for ident, cdict in vid_counts.items():
+                            if not isinstance(cdict, dict):
+                                continue
+                            pos_f, neg_f = cdict.get("fragmented_frame_counts", (0, 0))
+                            if pos_f > 0 or neg_f > 0:
+                                self._report.cv_track_counts[(vid, int(ident))] = (
+                                    int(pos_f),
+                                    int(neg_f),
+                                )
+            if not updated_from_project and fallback_track_key is not None:
+                if fallback_counts is not None and (
+                    fallback_counts[0] > 0 or fallback_counts[1] > 0
+                ):
+                    self._report.cv_track_counts[fallback_track_key] = fallback_counts
+                else:
+                    self._report.cv_track_counts.pop(fallback_track_key, None)
+            strategy, regex = _project_cv_grouping(self._project)
+            cv_cnt, jabs_met, adr_met = summarize_cv_track_counts(
+                self._report.cv_track_counts,
+                cv_grouping_strategy=strategy,
+                cv_grouping_regex=regex,
+            )
+
+        self._report.cv_groups_count = cv_cnt
+        self._report.jabs_threshold_met = jabs_met
+        self._report.dual_class_cv_met = adr_met
+        self._update_cv_badge_from_counts(cv_cnt, jabs_met, adr_met)
 
     # ------------------------------------------------------------------
     # Plain-English Bout Diagnosis & Queue Scoring
@@ -5166,23 +5192,14 @@ class BaleDialog(QtWidgets.QDialog):
         beh_target = self._bout_display_behavior(rec)
         self._ignoring_self_seek_signal = True
         try:
-            try:
-                self._central_widget.seek_to_bout(
-                    rec.video,
-                    rec.identity,
-                    rec.start_frame,
-                    rec.end_frame if select_span else None,
-                    beh_target,
-                    select_span=select_span,
-                )
-            except TypeError:
-                self._central_widget.seek_to_bout(
-                    rec.video,
-                    rec.identity,
-                    rec.start_frame,
-                    rec.end_frame if select_span else None,
-                    beh_target,
-                )
+            self._central_widget.seek_to_bout(
+                rec.video,
+                rec.identity,
+                rec.start_frame,
+                rec.end_frame if select_span else None,
+                beh_target,
+                select_span=select_span,
+            )
         finally:
             self._ignoring_self_seek_signal = False
         if mark_viewed:
@@ -7612,6 +7629,7 @@ class BaleDialog(QtWidgets.QDialog):
             end_frame=rec.end_frame,
             current_is_positive=rec.is_positive,
             target_is_positive=target_is_positive,
+            target_behavior=target_behavior,
             trim_bounds=trim_bounds,
             source_is_predicted=src_is_pred,
             precomputed_track_counts=precomputed_counts,
@@ -7818,7 +7836,7 @@ class BaleDialog(QtWidgets.QDialog):
         self._pending_recalc_count += 1
         self._update_recalc_button_badge()
 
-        # O(T) incremental CV group health update (< 0.1 ms, zero JSON disk rescan!)
+        # Incremental CV group health update using fragmented counts and project grouping
         pos_b, neg_b = self._report.cv_track_counts.get(track_key, (0, 0))
         pos_a, neg_a = simulate_track_count_delta(
             pos_b,
@@ -7837,15 +7855,11 @@ class BaleDialog(QtWidgets.QDialog):
                 pos_a += pb_dur
             else:
                 neg_a += pb_dur
-        if pos_a > 0 or neg_a > 0:
-            self._report.cv_track_counts[track_key] = (pos_a, neg_a)
-        else:
-            self._report.cv_track_counts.pop(track_key, None)
-        cv_cnt, jabs_met, adr_met = summarize_cv_track_counts(self._report.cv_track_counts)
-        self._report.cv_groups_count = cv_cnt
-        self._report.jabs_threshold_met = jabs_met
-        self._report.dual_class_cv_met = adr_met
-        self._update_cv_badge_from_counts(cv_cnt, jabs_met, adr_met)
+        self._refresh_cv_badge_from_project(
+            {rec.video},
+            fallback_track_key=track_key,
+            fallback_counts=(pos_a, neg_a),
+        )
 
         removed_from_table = action == "delete" and not keep_row_on_delete
         self._finish_fast_inplace_triage_ui(
@@ -8190,16 +8204,12 @@ class BaleDialog(QtWidgets.QDialog):
 
                 t_key = ui_snap.get("track_key")
                 prev_tc = ui_snap.get("prev_track_count")
-                if t_key is not None:
-                    if prev_tc is not None:
-                        self._report.cv_track_counts[t_key] = prev_tc
-                    else:
-                        self._report.cv_track_counts.pop(t_key, None)
-                cv_cnt, jabs_met, adr_met = summarize_cv_track_counts(self._report.cv_track_counts)
-                self._report.cv_groups_count = cv_cnt
-                self._report.jabs_threshold_met = jabs_met
-                self._report.dual_class_cv_met = adr_met
-                self._update_cv_badge_from_counts(cv_cnt, jabs_met, adr_met)
+                touched_vid = {t_key[0]} if t_key is not None else None
+                self._refresh_cv_badge_from_project(
+                    touched_vid,
+                    fallback_track_key=t_key,
+                    fallback_counts=prev_tc,
+                )
 
             self._selected_bout_idx = b_idx
             self._last_card_bout_idx = None
@@ -10022,23 +10032,14 @@ class BaleDialog(QtWidgets.QDialog):
                     context_frames=10,
                 )
             elif hasattr(self._central_widget, "seek_to_bout"):
-                try:
-                    self._central_widget.seek_to_bout(
-                        rec.video,
-                        ident,
-                        start_f,
-                        end_f,
-                        beh_target or None,
-                        select_span=(end_f is not None),
-                    )
-                except TypeError:
-                    self._central_widget.seek_to_bout(
-                        rec.video,
-                        ident,
-                        start_f,
-                        end_f,
-                        beh_target or None,
-                    )
+                self._central_widget.seek_to_bout(
+                    rec.video,
+                    ident,
+                    start_f,
+                    end_f,
+                    beh_target or None,
+                    select_span=(end_f is not None),
+                )
             elif hasattr(self._central_widget, "load_video"):
                 vid_path = Path(self._project.project_paths.project_dir) / rec.video
                 self._central_widget.load_video(vid_path)

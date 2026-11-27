@@ -7,10 +7,8 @@ eta-squared feature ranking, and cage-skew batch auditing.
 from __future__ import annotations
 
 import logging
-import re
 from collections import Counter
 from collections.abc import Sequence
-from pathlib import Path
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, ward
@@ -20,6 +18,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 
+from .bout_extractor import extract_video_group_id
 from .models import (
     BoutFeatureMatrix,
     BoutRecord,
@@ -31,8 +30,6 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-
-_CAGE_RE = re.compile(r"(cage[_-]?\d+)", re.IGNORECASE)
 _META_VALIDITY_TOKENS = (
     "_jabs_frame_valid",
     "point_mask",
@@ -74,18 +71,6 @@ _POSTURE_TOKENS = (
     "area",
     "hull",
 )
-
-
-def _extract_cage_id(video_name: str) -> str:
-    """Extract normalized cage/cohort identifier from a video name or path."""
-    m = _CAGE_RE.search(video_name)
-    if m:
-        return m.group(1).lower().replace("-", "_")
-    stem = Path(video_name).stem
-    parts = [p for p in stem.split(".") if p]
-    if len(parts) >= 2:
-        return ".".join(parts[:2])
-    return stem or "unknown"
 
 
 def select_feature_lens_mask(
@@ -416,9 +401,18 @@ def _compute_cage_skew(
     fit_idx: np.ndarray,
     labels: np.ndarray,
     best_k: int,
+    *,
+    cv_grouping_regex: str | None = None,
 ) -> tuple[float | None, float | None, dict[int, tuple[str, float]]]:
     """Audit whether Ward sub-clusters primarily reflect animal/cage recording batch."""
-    fit_cages = [_extract_cage_id(records[int(i)].video) for i in fit_idx]
+    fit_cages = [
+        extract_video_group_id(
+            records[int(i)].video,
+            cv_grouping_regex,
+            fallback_to_stem=True,
+        )
+        for i in fit_idx
+    ]
     fit_labels = labels[fit_idx]
 
     dominant_by_cluster: dict[int, tuple[str, float]] = {}
@@ -464,6 +458,7 @@ def compute_clustering_and_embedding(
     compute_mds: bool = False,
     k_range: tuple[int, int] | None = None,
     forced_k: int | None = None,
+    cv_grouping_regex: str | None = None,
 ) -> ClusterAndEmbeddingResult:
     """Compute 2D projections (PCA, t-SNE, MDS) and single-tree Ward.D2 sub-clusters.
 
@@ -754,7 +749,11 @@ def compute_clustering_and_embedding(
 
     # 7. Cage-Skew / Batch Effect Audit (< 1 ms)
     cage_skew_p, cage_skew_cramers_v, dominant_cage_by_cluster = _compute_cage_skew(
-        records, fit_idx, best_labels, best_k
+        records,
+        fit_idx,
+        best_labels,
+        best_k,
+        cv_grouping_regex=cv_grouping_regex,
     )
 
     return ClusterAndEmbeddingResult(

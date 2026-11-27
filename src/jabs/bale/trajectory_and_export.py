@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import logging
 import threading
 import warnings
 from collections import OrderedDict
@@ -15,6 +15,8 @@ import numpy.typing as npt
 
 from jabs.bale.models import BaleReport
 from jabs.project import Project
+
+logger = logging.getLogger(__name__)
 
 # Keep bounded LRU caches for unified `PoseLike` objects and lightweight annotation proxies.
 _POSE_LRU_CACHE: OrderedDict[tuple[str, str, int, int], Any] = OrderedDict()
@@ -61,7 +63,11 @@ def _pose_stat_cache_key(project: Project, video: str) -> tuple[str, str, int, i
             st = pose_path.stat()
             mtime_ns, size_bytes = int(st.st_mtime_ns), int(st.st_size)
     except Exception:
-        pass
+        logger.warning(
+            "Could not resolve pose cache stat metadata for %s",
+            video,
+            exc_info=True,
+        )
     proj_dir_raw = getattr(project, "dir", None)
     proj_dir_str = str(Path(proj_dir_raw).resolve()) if isinstance(proj_dir_raw, Path) else ""
     return (proj_dir_str, video, mtime_ns, size_bytes)
@@ -78,8 +84,14 @@ def load_pose_cached(project: Project, video: str) -> Any:
     pose = project.load_pose_est(project.video_manager.video_path(video))
     close_fn = getattr(pose, "close", None)
     if callable(close_fn):
-        with contextlib.suppress(Exception):
+        try:
             close_fn()
+        except Exception:
+            logger.warning(
+                "Could not close pose file handle for %s after eager load",
+                video,
+                exc_info=True,
+            )
     with _POSE_CACHE_LOCK:
         _POSE_LRU_CACHE[cache_key] = pose
         _POSE_LRU_CACHE.move_to_end(cache_key)
@@ -195,6 +207,12 @@ def load_bout_pose_trajectory(
                 warnings.simplefilter("ignore", RuntimeWarning)
                 partner_centroids[int(other_id)] = np.nanmean(o_pts, axis=1)
         except Exception:
+            logger.warning(
+                "Could not load partner pose trajectory for video=%s partner_id=%s",
+                video,
+                other_id,
+                exc_info=True,
+            )
             continue
 
     lixit_xy: npt.NDArray[np.float64] | None = None

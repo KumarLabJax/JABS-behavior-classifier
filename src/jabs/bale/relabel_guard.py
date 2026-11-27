@@ -2,28 +2,35 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 
 from jabs.bale.bout_extractor import (
-    invalidate_track_cache,
     resolve_behavior_settings,
     strip_known_video_suffix,
 )
 from jabs.bale.models import BoutRecord, CVGroupImpact
 from jabs.bale.trajectory_and_export import load_annotation_pose_proxy
-from jabs.classifier import Classifier
+from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierMode
+from jabs.core.enums import (
+    DEFAULT_CV_GROUPING_STRATEGY,
+    ClassifierMode,
+    CrossValidationGroupingStrategy,
+)
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE
 from jabs.project import Project, TrackLabels, VideoLabels
 
+logger = logging.getLogger(__name__)
+
 EditAction = Literal["flip", "trim", "split", "delete", "promote_prediction"]
 
-MIN_DUAL_CLASS_FRAMES_PER_TRACK = 10
+MIN_DUAL_CLASS_FRAMES_PER_TRACK = Classifier.LABEL_THRESHOLD
 MIN_DUAL_CLASS_CV_TRACKS = 15
 
 
@@ -137,6 +144,64 @@ def _apply_label_array_slice(
         i = j + 1
 
 
+def _record_session_label_diff(
+    project: Project,
+    video: str,
+    identity: int,
+    tracked_behaviors: list[str],
+    touched_spans: list[tuple[int, int]],
+    span_slices_before: dict[str, list[np.ndarray]],
+    span_slices_after: dict[str, list[np.ndarray]],
+) -> None:
+    """Log contiguous created/deleted label spans to `project.session_tracker`."""
+    tracker = getattr(project, "session_tracker", None)
+    if tracker is None:
+        return
+    label_created_fn = getattr(tracker, "label_created", None)
+    label_deleted_fn = getattr(tracker, "label_deleted", None)
+    if not callable(label_created_fn) or not callable(label_deleted_fn):
+        return
+
+    video_path = Path(video)
+    ident_int = int(identity)
+    none_val = int(TrackLabels.Label.NONE.value)
+    pos_val = int(TrackLabels.Label.BEHAVIOR.value)
+    neg_val = int(TrackLabels.Label.NOT_BEHAVIOR.value)
+
+    for beh_name in tracked_behaviors:
+        before_list = span_slices_before.get(beh_name, [])
+        after_list = span_slices_after.get(beh_name, [])
+        for (sp_s, _sp_e), before_arr, after_arr in zip(
+            touched_spans, before_list, after_list, strict=False
+        ):
+            n = min(len(before_arr), len(after_arr))
+            i = 0
+            while i < n:
+                b_val = int(before_arr[i])
+                a_val = int(after_arr[i])
+                if a_val == b_val:
+                    i += 1
+                    continue
+                j = i
+                while (
+                    j + 1 < n
+                    and int(after_arr[j + 1]) == a_val
+                    and int(before_arr[j + 1]) != a_val
+                ):
+                    j += 1
+                if a_val == none_val:
+                    label_deleted_fn(video_path, ident_int, beh_name, int(sp_s + i), int(sp_s + j))
+                elif a_val == pos_val:
+                    label_created_fn(
+                        video_path, ident_int, beh_name, True, int(sp_s + i), int(sp_s + j)
+                    )
+                elif a_val == neg_val:
+                    label_created_fn(
+                        video_path, ident_int, beh_name, False, int(sp_s + i), int(sp_s + j)
+                    )
+                i = j + 1
+
+
 def _restore_snapshot_state(
     project: Project,
     video: str,
@@ -155,6 +220,26 @@ def _restore_snapshot_state(
         video_labels = VideoLabels(video, pose.num_frames)
 
     ident_str = str(identity)
+    eff_beh_names = (
+        list(span_slices.keys())
+        if (touched_spans and span_slices)
+        else list(fallback_blocks.keys())
+    )
+    eff_spans = (
+        touched_spans
+        if (touched_spans and span_slices)
+        else [(0, max(0, video_labels.num_frames - 1))]
+    )
+    current_slices_before: dict[str, list[np.ndarray]] = {
+        beh_name: [
+            np.asarray(
+                video_labels.get_track_labels(ident_str, beh_name).get_labels()[sp_s : sp_e + 1]
+            ).copy()
+            for sp_s, sp_e in eff_spans
+        ]
+        for beh_name in eff_beh_names
+    }
+
     if touched_spans and span_slices:
         for beh_name, slices in span_slices.items():
             tl = video_labels.get_track_labels(ident_str, beh_name)
@@ -173,26 +258,79 @@ def _restore_snapshot_state(
                     tl.label_not_behavior(s, e)
 
     project.save_annotations(video_labels, pose)
-    invalidate_track_cache(project, video, identity)
+    restored_slices_after: dict[str, list[np.ndarray]] = {
+        beh_name: [
+            np.asarray(
+                video_labels.get_track_labels(ident_str, beh_name).get_labels()[sp_s : sp_e + 1]
+            ).copy()
+            for sp_s, sp_e in eff_spans
+        ]
+        for beh_name in eff_beh_names
+    }
+    _record_session_label_diff(
+        project,
+        video,
+        identity,
+        eff_beh_names,
+        eff_spans,
+        current_slices_before,
+        restored_slices_after,
+    )
     if on_video_labels_saved is not None:
         on_video_labels_saved(video, video_labels)
 
 
+def _project_cv_grouping(
+    project: Project,
+) -> tuple[CrossValidationGroupingStrategy, str | None]:
+    """Return `(cv_grouping_strategy, cv_grouping_regex)` from `project.settings_manager`."""
+    sm = getattr(project, "settings_manager", None)
+    raw_strategy = getattr(sm, "cv_grouping_strategy", DEFAULT_CV_GROUPING_STRATEGY)
+    if isinstance(raw_strategy, CrossValidationGroupingStrategy):
+        strategy = raw_strategy
+    elif isinstance(raw_strategy, str):
+        try:
+            strategy = CrossValidationGroupingStrategy(raw_strategy)
+        except ValueError:
+            strategy = DEFAULT_CV_GROUPING_STRATEGY
+    else:
+        strategy = DEFAULT_CV_GROUPING_STRATEGY
+    raw_regex = getattr(sm, "cv_grouping_regex", None)
+    regex = raw_regex if isinstance(raw_regex, str) else None
+    return strategy, regex
+
+
+def _track_counts_to_jabs_counts(
+    track_counts: dict[tuple[str, int], tuple[int, int]],
+) -> dict[str, dict[int, dict[str, tuple[int, int]]]]:
+    """Adapt BALE's `(video, identity) -> (pos_f, neg_f)` dict to `Classifier`'s count shape."""
+    all_counts: dict[str, dict[int, dict[str, tuple[int, int]]]] = {}
+    for (video, ident), (pos_f, neg_f) in track_counts.items():
+        all_counts.setdefault(video, {})[int(ident)] = {
+            "fragmented_frame_counts": (int(pos_f), int(neg_f)),
+        }
+    return all_counts
+
+
 def summarize_cv_track_counts(
     track_counts: dict[tuple[str, int], tuple[int, int]],
+    *,
+    cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+    cv_grouping_regex: str | None = None,
+    min_groups: int = 1,
 ) -> tuple[int, bool, bool]:
-    """Compute `(dual_groups, jabs_threshold_met, dual_class_cv_met)` in O(T) (< 0.1 ms)."""
-    dual_groups = sum(
-        1
-        for pos_f, neg_f in track_counts.values()
-        if pos_f >= MIN_DUAL_CLASS_FRAMES_PER_TRACK and neg_f >= MIN_DUAL_CLASS_FRAMES_PER_TRACK
+    """Compute `(dual_groups, jabs_threshold_met, dual_class_cv_met)` matching JABS's CV rule."""
+    all_counts = _track_counts_to_jabs_counts(track_counts)
+    dual_groups = Classifier.count_label_threshold(
+        all_counts,
+        cv_grouping_strategy=cv_grouping_strategy,
+        cv_grouping_regex=cv_grouping_regex,
     )
-    total_pos = sum(pos_f for pos_f, _ in track_counts.values())
-    total_neg = sum(neg_f for _, neg_f in track_counts.values())
-    jabs_met = (
-        total_pos >= Classifier.LABEL_THRESHOLD
-        and total_neg >= Classifier.LABEL_THRESHOLD
-        and dual_groups >= 2
+    jabs_met = Classifier.label_threshold_met(
+        all_counts,
+        min_groups=min_groups,
+        cv_grouping_strategy=cv_grouping_strategy,
+        cv_grouping_regex=cv_grouping_regex,
     )
     dual_class_cv_met = dual_groups >= MIN_DUAL_CLASS_CV_TRACKS
     return dual_groups, jabs_met, dual_class_cv_met
@@ -202,9 +340,10 @@ def count_dual_class_cv_groups(
     project: Project,
     behavior: str,
 ) -> tuple[int, bool, bool, dict[tuple[str, int], tuple[int, int]]]:
-    """Count dual-class `(video, identity)` CV groups for `behavior`."""
+    """Count CV groups for `behavior` using JABS's own `count_label_threshold` / `label_threshold_met`."""
     sm = project.settings_manager
     is_multiclass = sm.classifier_mode == ClassifierMode.MULTICLASS
+    strategy, regex = _project_cv_grouping(project)
     track_counts: dict[tuple[str, int], tuple[int, int]] = {}
 
     if not is_multiclass:
@@ -216,34 +355,56 @@ def count_dual_class_cv_groups(
                 pos_f, neg_f = cdict.get("fragmented_frame_counts", (0, 0))
                 if pos_f > 0 or neg_f > 0:
                     track_counts[(video, int(ident))] = (int(pos_f), int(neg_f))
-    else:
-        all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
-        per_beh_counts = {b: project.counts(b) for b in all_behaviors}
-        for video in project.video_manager.videos:
-            if sm.is_video_excluded(video):
-                continue
-            identities: set[int] = set()
-            for b in all_behaviors:
-                identities.update(per_beh_counts[b].get(video, {}).keys())
-            for ident in sorted(identities):
-                pos_f = (
-                    per_beh_counts.get(behavior, {})
-                    .get(video, {})
-                    .get(ident, {})
-                    .get("fragmented_frame_counts", (0, 0))[0]
-                )
-                other_f = sum(
-                    per_beh_counts[b]
-                    .get(video, {})
-                    .get(ident, {})
-                    .get("fragmented_frame_counts", (0, 0))[0]
-                    for b in all_behaviors
-                    if b != behavior
-                )
-                if pos_f > 0 or other_f > 0:
-                    track_counts[(video, int(ident))] = (int(pos_f), int(other_f))
+        dual_groups, jabs_met, dual_class_cv_met = summarize_cv_track_counts(
+            track_counts,
+            cv_grouping_strategy=strategy,
+            cv_grouping_regex=regex,
+        )
+        return dual_groups, jabs_met, dual_class_cv_met, track_counts
 
-    dual_groups, jabs_met, dual_class_cv_met = summarize_cv_track_counts(track_counts)
+    all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
+    counts_by_behavior = {
+        b: {v: id_map for v, id_map in project.counts(b).items() if not sm.is_video_excluded(v)}
+        for b in all_behaviors
+    }
+    for video in project.video_manager.videos:
+        if sm.is_video_excluded(video):
+            continue
+        identities: set[int] = set()
+        for b in all_behaviors:
+            identities.update(counts_by_behavior[b].get(video, {}).keys())
+        for ident in sorted(identities):
+            pos_f = (
+                counts_by_behavior.get(behavior, {})
+                .get(video, {})
+                .get(ident, {})
+                .get("fragmented_frame_counts", (0, 0))[0]
+            )
+            other_f = sum(
+                counts_by_behavior[b]
+                .get(video, {})
+                .get(ident, {})
+                .get("fragmented_frame_counts", (0, 0))[0]
+                for b in all_behaviors
+                if b != behavior
+            )
+            if pos_f > 0 or other_f > 0:
+                track_counts[(video, int(ident))] = (int(pos_f), int(other_f))
+
+    dual_groups = MultiClassClassifier.count_label_threshold(
+        counts_by_behavior=counts_by_behavior,
+        behavior_names=all_behaviors,
+        cv_grouping_strategy=strategy,
+        cv_grouping_regex=regex,
+    )
+    jabs_met = MultiClassClassifier.label_threshold_met(
+        counts_by_behavior=counts_by_behavior,
+        behavior_names=all_behaviors,
+        min_groups=1,
+        cv_grouping_strategy=strategy,
+        cv_grouping_regex=regex,
+    )
+    dual_class_cv_met = dual_groups >= MIN_DUAL_CLASS_CV_TRACKS
     return dual_groups, jabs_met, dual_class_cv_met, track_counts
 
 
@@ -270,7 +431,7 @@ def find_dual_class_pairing_candidate(
     behavior: str,
     needed_positive: bool,
     exclude_span: tuple[int, int] | None = None,
-    min_duration: int = 18,
+    min_duration: int = Classifier.LABEL_THRESHOLD,
     max_duration: int = 60,
 ) -> BoutRecord | None:
     """Find a high-confidence opposite-class span on the same `(video, identity)` track."""
@@ -319,6 +480,13 @@ def find_dual_class_pairing_candidate(
                 else:
                     probs = raw_p
     except Exception:
+        logger.warning(
+            "Failed to load predictions while searching dual-class pairing candidate for video=%s id=%s behavior=%s",
+            video,
+            identity,
+            behavior,
+            exc_info=True,
+        )
         return None
 
     if probs is None or len(probs) == 0:
@@ -464,36 +632,151 @@ def evaluate_cv_group_impact(
     end_frame: int,
     current_is_positive: bool = True,
     target_is_positive: bool | None = None,
+    target_behavior: str | None = None,
     trim_bounds: tuple[int, int] | None = None,
     source_is_predicted: bool = False,
     precomputed_track_counts: dict[tuple[str, int], tuple[int, int]] | None = None,
     find_pairing_candidate: bool = True,
 ) -> CVGroupImpact:
     """Evaluate how a proposed bout edit affects JABS CV group invariants (`Dual-Class CV rule`)."""
-    if precomputed_track_counts is not None:
-        track_counts = precomputed_track_counts
-        before_groups, jabs_before, adr_before = summarize_cv_track_counts(track_counts)
-    else:
-        before_groups, jabs_before, adr_before, track_counts = count_dual_class_cv_groups(
-            project, behavior
+    sm = project.settings_manager
+    strategy, regex = _project_cv_grouping(project)
+    if sm.classifier_mode == ClassifierMode.MULTICLASS:
+        all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
+        counts_by_behavior = {
+            b: {
+                v: dict(id_map)
+                for v, id_map in project.counts(b).items()
+                if not sm.is_video_excluded(v)
+            }
+            for b in all_behaviors
+        }
+        before_groups = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=all_behaviors,
+            cv_grouping_strategy=strategy,
+            cv_grouping_regex=regex,
         )
-    key = (video, int(identity))
-    pos_before, neg_before = track_counts.get(key, (0, 0))
-    pos_after, neg_after = simulate_track_count_delta(
-        pos_before,
-        neg_before,
-        action=action,
-        start_frame=start_frame,
-        end_frame=end_frame,
-        current_is_positive=current_is_positive,
-        target_is_positive=target_is_positive,
-        trim_bounds=trim_bounds,
-        source_is_predicted=source_is_predicted,
-    )
+        jabs_before = MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=all_behaviors,
+            min_groups=1,
+            cv_grouping_strategy=strategy,
+            cv_grouping_regex=regex,
+        )
+        adr_before = before_groups >= MIN_DUAL_CLASS_CV_TRACKS
 
-    sim_counts = dict(track_counts)
-    sim_counts[key] = (pos_after, neg_after)
-    after_groups, jabs_after, adr_after = summarize_cv_track_counts(sim_counts)
+        sim_counts_by_beh = {
+            b: {
+                v: {ident_k: dict(cdict_v) for ident_k, cdict_v in id_map.items()}
+                for v, id_map in vid_map.items()
+            }
+            for b, vid_map in counts_by_behavior.items()
+        }
+        ident_int = int(identity)
+        dur = max(0, int(end_frame) - int(start_frame) + 1)
+        src_beh = behavior if current_is_positive else MULTICLASS_NONE_BEHAVIOR
+
+        def _delta_mc(beh_name: str, delta: int) -> None:
+            if beh_name not in sim_counts_by_beh or sm.is_video_excluded(video) or delta == 0:
+                return
+            v_map = sim_counts_by_beh[beh_name].setdefault(video, {})
+            entry = dict(v_map.get(ident_int, {"fragmented_frame_counts": (0, 0)}))
+            old_p, old_n = entry.get("fragmented_frame_counts", (0, 0))
+            entry["fragmented_frame_counts"] = (max(0, int(old_p) + delta), int(old_n))
+            v_map[ident_int] = entry
+
+        if action == "delete":
+            _delta_mc(src_beh, -dur)
+        elif action == "flip":
+            eff_new_pos = (
+                (not current_is_positive)
+                if target_is_positive is None
+                else bool(target_is_positive)
+            )
+            dest_beh = (target_behavior or behavior) if eff_new_pos else MULTICLASS_NONE_BEHAVIOR
+            if dest_beh != src_beh:
+                _delta_mc(src_beh, -dur)
+                _delta_mc(dest_beh, dur)
+        elif action == "trim" and trim_bounds is not None:
+            new_dur = max(0, int(trim_bounds[1]) - int(trim_bounds[0]) + 1)
+            _delta_mc(src_beh, -max(0, dur - new_dur))
+        elif action == "split":
+            gap_frames = min(3, max(0, dur - 2))
+            if source_is_predicted:
+                eff_new_pos = True if target_is_positive is None else bool(target_is_positive)
+                dest_beh = (
+                    (target_behavior or behavior) if eff_new_pos else MULTICLASS_NONE_BEHAVIOR
+                )
+                _delta_mc(dest_beh, max(0, dur - gap_frames))
+            else:
+                _delta_mc(src_beh, -gap_frames)
+        elif action == "promote_prediction":
+            eff_new_pos = bool(target_is_positive) if target_is_positive is not None else True
+            dest_beh = (target_behavior or behavior) if eff_new_pos else MULTICLASS_NONE_BEHAVIOR
+            _delta_mc(dest_beh, dur)
+
+        after_groups = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=sim_counts_by_beh,
+            behavior_names=all_behaviors,
+            cv_grouping_strategy=strategy,
+            cv_grouping_regex=regex,
+        )
+        jabs_after = MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=sim_counts_by_beh,
+            behavior_names=all_behaviors,
+            min_groups=1,
+            cv_grouping_strategy=strategy,
+            cv_grouping_regex=regex,
+        )
+        adr_after = after_groups >= MIN_DUAL_CLASS_CV_TRACKS
+        pos_after = (
+            sim_counts_by_beh.get(behavior, {})
+            .get(video, {})
+            .get(ident_int, {})
+            .get("fragmented_frame_counts", (0, 0))[0]
+        )
+        neg_after = sum(
+            sim_counts_by_beh[b]
+            .get(video, {})
+            .get(ident_int, {})
+            .get("fragmented_frame_counts", (0, 0))[0]
+            for b in all_behaviors
+            if b != behavior
+        )
+    else:
+        if precomputed_track_counts is not None:
+            track_counts = precomputed_track_counts
+            before_groups, jabs_before, adr_before = summarize_cv_track_counts(
+                track_counts,
+                cv_grouping_strategy=strategy,
+                cv_grouping_regex=regex,
+            )
+        else:
+            before_groups, jabs_before, adr_before, track_counts = count_dual_class_cv_groups(
+                project, behavior
+            )
+        key = (video, int(identity))
+        pos_before, neg_before = track_counts.get(key, (0, 0))
+        pos_after, neg_after = simulate_track_count_delta(
+            pos_before,
+            neg_before,
+            action=action,
+            start_frame=start_frame,
+            end_frame=end_frame,
+            current_is_positive=current_is_positive,
+            target_is_positive=target_is_positive,
+            trim_bounds=trim_bounds,
+            source_is_predicted=source_is_predicted,
+        )
+
+        sim_counts = dict(track_counts)
+        sim_counts[key] = (pos_after, neg_after)
+        after_groups, jabs_after, adr_after = summarize_cv_track_counts(
+            sim_counts,
+            cv_grouping_strategy=strategy,
+            cv_grouping_regex=regex,
+        )
 
     warning_msg: str | None = None
     suggested_pair: BoutRecord | None = None
@@ -709,7 +992,6 @@ def apply_bout_edit(
         raise ValueError(f"Unsupported bout edit action: {action!r}")
 
     project.save_annotations(video_labels, pose)
-    invalidate_track_cache(project, video, identity)
     if on_video_labels_saved is not None:
         on_video_labels_saved(video, video_labels)
 
@@ -722,6 +1004,15 @@ def apply_bout_edit(
         ]
         for b in tracked_behaviors
     }
+    _record_session_label_diff(
+        project,
+        video,
+        identity,
+        tracked_behaviors,
+        touched_spans,
+        span_slices_before,
+        span_slices_after,
+    )
 
     after_blocks: dict[str, list[dict[str, Any]]] = {
         b: [dict(blk) for blk in video_labels.get_track_labels(ident_str, b).get_blocks()]
