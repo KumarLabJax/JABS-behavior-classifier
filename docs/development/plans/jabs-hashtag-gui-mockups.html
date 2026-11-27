@@ -665,7 +665,7 @@
         <ul style="margin:0; padding-left:18px;">
           <li><strong>No standalone <code>hashtags.parquet</code> or <code>~/.jabs/hashtags_ledger.jsonl</code> in Phase 1:</strong> Avoids stale caches after <code>git pull</code>, <code>jabs-cli merge</code>, <code>prune</code>, or <code>update-pose</code>.</li>
           <li><strong>Vocab lives in <code>project.json["hashtag_vocabulary"]</code>:</strong> Syncs automatically with Hub <code>projects.settings</code>; excluded from <code>jabs/annotations/*.json</code> globs used by <code>update-labels</code>.</li>
-          <li><strong>System QC filtering:</strong> <code>update-pose</code> records (<code>remap-metric-disagreement</code>, <code>remap-split</code>) remain untouched and filtered out of researcher comment feeds.</li>
+          <li><strong>System QC filtering:</strong> <code>update-pose</code> / <code>update-labels</code> records (<code>remap-metric-disagreement</code>, <code>remap-split</code>, <code>remap-ambiguous-split</code>, <code>behavior-remap-failed</code>, <code>not-behavior-remap-failed</code>) are identified via a shared <code>SYSTEM_ANNOTATION_TAGS</code> constant (or <code>system: true</code> marker field) and filtered out of researcher comment feeds.</li>
         </ul>
       </div>
     </div>
