@@ -3241,3 +3241,101 @@ def test_pr608_round3_jabs_threshold_cache_validation_store_session_group_and_lo
     assert cand is None
     assert any("Failed to load predictions" in r.message for r in caplog.records)
     clear_bout_extractor_cache()
+
+
+def test_pr608_round4_stale_and_missing_cache_counts_and_mc_video_refresh(
+    tmp_path: Path,
+) -> None:
+    """PR #608 Round 4 (#4723578504, #4723578509): count stale vs missing cache tracks; O(1)-video multi-class refresh."""
+    from jabs.bale import (
+        collect_multiclass_counts_by_behavior,
+        refresh_multiclass_video_counts,
+        summarize_multiclass_counts_by_behavior,
+    )
+    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+    from jabs.core.enums import CrossValidationGroupingStrategy
+    from jabs.feature_extraction import FEATURE_VERSION
+
+    clear_bout_extractor_cache()
+
+    # 1. Stale vs missing track counts (#4723578509)
+    proj, proj_dir = _build_synthetic_explorer_project(tmp_path / "stale_counts_proj")
+    feat_root = proj_dir / "jabs" / "features"
+    # Make cage_00/0 stale (FEATURE_VERSION - 1), cage_01/0 incomplete (metadata removed), cage_02/0 missing
+    stale_df = pd.DataFrame(
+        {
+            col: np.ones(600, dtype=np.float32)
+            for col in (
+                "nose_speed",
+                "front_paws_dist",
+                "body_area",
+                "spine_curvature",
+                "ear_dist",
+                "tail_base_speed",
+            )
+        }
+        | {"_jabs_frame_valid": np.ones(600, dtype=np.uint8)}
+    )
+    _write_synthetic_parquet_cache(
+        feat_root / "cage_00" / "0",
+        stale_df,
+        identity=0,
+        feature_version=FEATURE_VERSION - 1,
+    )
+    (feat_root / "cage_01" / "0" / "metadata.json").unlink()
+    import shutil
+
+    shutil.rmtree(feat_root / "cage_02" / "0")
+
+    rep = run_bale(proj, "Grooming", include_predictions=False, compute_mds=False)
+    assert rep.feature_matrix.skipped_stale_cache_tracks == 2
+    assert rep.feature_matrix.skipped_missing_cache_tracks == 1
+    assert rep.feature_matrix.skipped_feature_cache_tracks == 3
+    rep_dict = rep.to_dict()
+    assert rep_dict["skipped_stale_cache_tracks"] == 2
+    assert rep_dict["skipped_missing_cache_tracks"] == 1
+
+    # 2. Cached multi-class per-behavior counts + single-video refresh (#4723578504)
+    mc_proj = MagicMock()
+    mc_proj.settings_manager.classifier_mode = ClassifierMode.MULTICLASS
+    mc_proj.settings_manager.behavior_names = ["Turn_Left", "Turn_Right"]
+    mc_proj.settings_manager.cv_grouping_strategy = CrossValidationGroupingStrategy.INDIVIDUAL
+    mc_proj.settings_manager.cv_grouping_regex = ""
+    mc_proj.settings_manager.is_video_excluded.return_value = False
+    mc_proj.video_manager.videos = ["v0.mp4", "v1.mp4", "v2.mp4"]
+
+    counts_map = {
+        MULTICLASS_NONE_BEHAVIOR: {
+            "v0.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "v1.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "v2.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+        },
+        "Turn_Left": {
+            "v0.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "v1.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "v2.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+        },
+        "Turn_Right": {
+            "v0.mp4": {0: {"fragmented_frame_counts": (0, 0)}},
+            "v1.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+            "v2.mp4": {0: {"fragmented_frame_counts": (25, 0)}},
+        },
+    }
+    mc_proj.counts.side_effect = lambda beh: counts_map[beh]
+    mc_proj.load_counts.side_effect = lambda vid, beh: counts_map[beh].get(vid, {})
+
+    cached = collect_multiclass_counts_by_behavior(mc_proj)
+    mc_proj.counts.reset_mock()
+    mc_proj.load_counts.reset_mock()
+
+    # Mutate ONLY v0.mp4 so it drops from 2 classes (None + Turn_Left) to 1 class (None only)
+    counts_map["Turn_Left"]["v0.mp4"] = {0: {"fragmented_frame_counts": (0, 0)}}
+    assert refresh_multiclass_video_counts(mc_proj, cached, {"v0.mp4"}) is True
+    assert mc_proj.counts.call_count == 0
+    assert {call.args[0] for call in mc_proj.load_counts.call_args_list} == {"v0.mp4"}
+
+    g_cnt, j_met, _adr_met, _ = summarize_multiclass_counts_by_behavior(
+        mc_proj, "Turn_Left", cached
+    )
+    assert g_cnt == 2 and j_met is True
+    clear_bout_extractor_cache()

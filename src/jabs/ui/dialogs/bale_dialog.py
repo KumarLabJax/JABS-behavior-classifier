@@ -58,7 +58,12 @@ from jabs.bale import (
     summarize_cv_track_counts,
     summarize_project_videos,
 )
-from jabs.bale.relabel_guard import _project_cv_grouping, count_dual_class_cv_groups
+from jabs.bale.relabel_guard import (
+    _project_cv_grouping,
+    collect_multiclass_counts_by_behavior,
+    refresh_multiclass_video_counts,
+    summarize_multiclass_counts_by_behavior,
+)
 from jabs.bale.spatial_localization import clear_spatial_cache
 from jabs.bale.trajectory_and_export import clear_pose_cache
 from jabs.behavior_search import SearchHit
@@ -3865,9 +3870,15 @@ class BaleDialog(QtWidgets.QDialog):
         self.recalc_btn.setEnabled(True)
         self._update_recalc_button_badge()
 
-        # If Audit Labels opened on a behavior with 0 human labels, switch smoothly to Review Predictions
+        # If Audit Labels opened on a behavior with 0 human labels (and no skipped feature caches),
+        # switch smoothly to Review Predictions
         n_labeled = sum(1 for r in report.feature_matrix.records if r.source == "labeled")
-        if n_labeled == 0 and self._mode == "audit" and not included_preds:
+        if (
+            n_labeled == 0
+            and self._mode == "audit"
+            and not included_preds
+            and report.feature_matrix.skipped_feature_cache_tracks == 0
+        ):
             self.mode_predict_btn.setChecked(True)
             self._on_mode_pill_clicked(1)
             return
@@ -3886,12 +3897,19 @@ class BaleDialog(QtWidgets.QDialog):
         n_tot = len(self._mode_eligible_indices())
         total_ms = report.timings_ms.get("total_ms", 0.0)
         scope_lbl = self._active_scope_label()
-        if scope_lbl:
+        cache_notice = self._skipped_cache_notice(report)
+        if n_tot == 0 and cache_notice:
+            self.status_summary_label.setText(f"⚠ {cache_notice}.")
+        elif scope_lbl:
+            base_msg = f"Loaded {n_tot} {scope_lbl} bouts in {total_ms:.0f} ms"
             self.status_summary_label.setText(
-                f"Loaded {n_tot} {scope_lbl} bouts in {total_ms:.0f} ms"
+                f"{base_msg} — ⚠ {cache_notice}." if cache_notice else base_msg
             )
         else:
-            self.status_summary_label.setText(f"Loaded {n_tot} bouts in {total_ms:.0f} ms")
+            base_msg = f"Loaded {n_tot} bouts in {total_ms:.0f} ms"
+            self.status_summary_label.setText(
+                f"{base_msg} — ⚠ {cache_notice}." if cache_notice else base_msg
+            )
 
     def _on_analysis_error(self, err_msg: str) -> None:
         if self._is_closing:
@@ -3977,6 +3995,31 @@ class BaleDialog(QtWidgets.QDialog):
             "JABS requires ≥20 frames per class in ≥2 groups to Train; ≥15 dual-class groups recommended (Dual-Class CV)."
         )
 
+    def _skipped_cache_notice(self, report: BaleReport | None) -> str | None:
+        """Build a concise notice when tracks were skipped for stale or missing feature caches."""
+        if report is None:
+            return None
+        fm = report.feature_matrix
+        n_stale = int(getattr(fm, "skipped_stale_cache_tracks", 0))
+        n_miss = int(getattr(fm, "skipped_missing_cache_tracks", 0))
+        n_skip = n_stale + n_miss
+        if n_skip <= 0:
+            return None
+        if n_stale > 0 and n_miss == 0:
+            return (
+                f"{n_stale} track{'s have' if n_stale != 1 else ' has'} out-of-date features "
+                "— open Train or Classify in JABS to recompute"
+            )
+        if n_stale == 0 and n_miss > 0:
+            return (
+                f"{n_miss} track{'s have' if n_miss != 1 else ' has'} missing cached features "
+                "— open Train or Classify in JABS to compute"
+            )
+        return (
+            f"{n_skip} tracks skipped ({n_stale} out-of-date, {n_miss} missing features) "
+            "— open Train or Classify in JABS to recompute"
+        )
+
     def _refresh_cv_badge_from_project(
         self,
         touched_videos: set[str] | None = None,
@@ -3990,8 +4033,17 @@ class BaleDialog(QtWidgets.QDialog):
 
         sm = getattr(self._project, "settings_manager", None)
         if self._report.is_multiclass:
-            cv_cnt, jabs_met, adr_met, mc_counts = count_dual_class_cv_groups(
-                self._project, self._report.behavior
+            mc_cache = self._report.mc_counts_by_behavior
+            if mc_cache is None:
+                mc_cache = collect_multiclass_counts_by_behavior(self._project)
+                self._report.mc_counts_by_behavior = mc_cache
+            elif touched_videos:
+                ok = refresh_multiclass_video_counts(self._project, mc_cache, touched_videos)
+                if not ok:
+                    mc_cache = collect_multiclass_counts_by_behavior(self._project)
+                    self._report.mc_counts_by_behavior = mc_cache
+            cv_cnt, jabs_met, adr_met, mc_counts = summarize_multiclass_counts_by_behavior(
+                self._project, self._report.behavior, mc_cache
             )
             self._report.cv_track_counts = mc_counts
         else:
@@ -5433,7 +5485,12 @@ class BaleDialog(QtWidgets.QDialog):
                 elif base_eligible:
                     empty_msg = "No bouts match the active filter."
                 else:
-                    empty_msg = "No bouts to display for this view."
+                    cache_notice = self._skipped_cache_notice(self._report)
+                    if cache_notice:
+                        scope_lbl = self._active_scope_label() or "this view"
+                        empty_msg = f"No bouts loaded for {scope_lbl}.\n{cache_notice}."
+                    else:
+                        empty_msg = "No bouts to display for this view."
             self._sync_zoom_reset_button()
             ax.set_xlabel(xlab, fontsize=11.0, fontweight="bold", color="#1E293B")
             ax.set_ylabel(ylab, fontsize=11.0, fontweight="bold", color="#1E293B")
@@ -7633,6 +7690,7 @@ class BaleDialog(QtWidgets.QDialog):
             trim_bounds=trim_bounds,
             source_is_predicted=src_is_pred,
             precomputed_track_counts=precomputed_counts,
+            precomputed_mc_counts_by_behavior=self._report.mc_counts_by_behavior,
             find_pairing_candidate=(action == "promote_prediction" and pair_opposite),
         )
 
@@ -8623,7 +8681,12 @@ class BaleDialog(QtWidgets.QDialog):
 
         active_beh, include_all_mc = self._active_video_scope_key()
         key = (active_beh, include_all_mc)
-        if not force and self._video_report is not None and self._video_report_key == key:
+        if (
+            not force
+            and not self._queued_video_refresh
+            and self._video_report is not None
+            and self._video_report_key == key
+        ):
             self._video_report.thresholds = classify_video_outliers(
                 self._video_report.records, source=self._video_source
             )
@@ -8675,11 +8738,12 @@ class BaleDialog(QtWidgets.QDialog):
             and getattr(self._video_worker, "req_id", None) == req_id
         ):
             self._video_worker = None
-        queued = self._queued_video_refresh
-        self._queued_video_refresh = False
-        self._update_recalc_button_badge()
-        if queued and self._mode == "videos":
+        if self._queued_video_refresh and self._mode == "videos":
+            self._queued_video_refresh = False
+            self._update_recalc_button_badge()
             self.refresh_video_summary(force=True)
+            return
+        self._update_recalc_button_badge()
 
     def _on_video_summary_finished(
         self,
@@ -8690,18 +8754,23 @@ class BaleDialog(QtWidgets.QDialog):
         if self._is_closing:
             return
         self._video_worker = None
-        queued = self._queued_video_refresh
-        self._queued_video_refresh = False
         current_key = self._active_video_scope_key()
         if (req_id is not None and req_id != self._video_request_id) or key != current_key:
-            self._update_recalc_button_badge()
-            if self._mode == "videos" and (queued or key != current_key):
-                self.refresh_video_summary(force=True)
-            return
-        if queued:
-            self._update_recalc_button_badge()
             if self._mode == "videos":
+                self._queued_video_refresh = False
+                self._update_recalc_button_badge()
                 self.refresh_video_summary(force=True)
+            else:
+                self._queued_video_refresh = True
+                self._update_recalc_button_badge()
+            return
+        if self._queued_video_refresh:
+            if self._mode == "videos":
+                self._queued_video_refresh = False
+                self._update_recalc_button_badge()
+                self.refresh_video_summary(force=True)
+            else:
+                self._update_recalc_button_badge()
             return
 
         self._video_report = report
@@ -8755,10 +8824,12 @@ class BaleDialog(QtWidgets.QDialog):
         if self._is_closing:
             return
         self._video_worker = None
-        queued = self._queued_video_refresh
-        self._queued_video_refresh = False
-        if queued and self._mode == "videos":
-            self.refresh_video_summary(force=True)
+        if self._queued_video_refresh:
+            if self._mode == "videos":
+                self._queued_video_refresh = False
+                self.refresh_video_summary(force=True)
+            else:
+                self._update_recalc_button_badge()
             return
         if req_id is not None and req_id != self._video_request_id:
             self._update_recalc_button_badge()

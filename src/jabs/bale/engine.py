@@ -15,7 +15,11 @@ from .clustering_and_embedding import compute_clustering_and_embedding
 from .models import BaleReport, FeatureLens, RepresentationSpace, SubtypeScope
 from .outlier_and_confusion import compute_confusion_and_outliers
 from .prediction_extractor import collect_predicted_bout_records
-from .relabel_guard import _project_cv_grouping, count_dual_class_cv_groups
+from .relabel_guard import (
+    _project_cv_grouping,
+    collect_multiclass_counts_by_behavior,
+    count_dual_class_cv_groups,
+)
 from .spatial_localization import extract_bout_spatial_locations
 
 if TYPE_CHECKING:
@@ -185,8 +189,13 @@ def run_bale(
 
     # Stage 5: Cross-validation dual-class group audit (`Dual-Class CV rule`)
     t_stage = time.perf_counter()
+    mc_counts_by_behavior = (
+        collect_multiclass_counts_by_behavior(project) if is_multiclass else None
+    )
     cv_groups_count, jabs_met, dual_class_cv_met, cv_track_counts = count_dual_class_cv_groups(
-        project, active_behavior
+        project,
+        active_behavior,
+        precomputed_mc_counts_by_behavior=mc_counts_by_behavior,
     )
     timings_ms["cv_guard_ms"] = (time.perf_counter() - t_stage) * 1000.0
     timings_ms["total_ms"] = (time.perf_counter() - t0) * 1000.0
@@ -207,6 +216,7 @@ def run_bale(
         include_all_multiclass=bool(is_multiclass and include_all_multiclass),
         spatial=spatial_res,
         cv_grouping_regex=cv_grouping_regex,
+        mc_counts_by_behavior=mc_counts_by_behavior,
     )
 
 
@@ -288,4 +298,6 @@ def recompute_embedding_only(
         cv_track_counts=dict(report.cv_track_counts),
         include_all_multiclass=report.include_all_multiclass,
         spatial=report.spatial,
+        cv_grouping_regex=report.cv_grouping_regex,
+        mc_counts_by_behavior=report.mc_counts_by_behavior,
     )

@@ -336,9 +336,139 @@ def summarize_cv_track_counts(
     return dual_groups, jabs_met, dual_class_cv_met
 
 
+def collect_multiclass_counts_by_behavior(
+    project: Project,
+) -> dict[str, dict[str, dict[int, dict[str, tuple[int, int]]]]]:
+    """Collect `{behavior: {video: {identity: counts}}}` across all non-excluded videos once."""
+    sm = project.settings_manager
+    all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
+    return {
+        b: {
+            v: {
+                int(ident): dict(cdict)
+                for ident, cdict in id_map.items()
+                if isinstance(cdict, dict)
+            }
+            for v, id_map in project.counts(b).items()
+            if not sm.is_video_excluded(v) and isinstance(id_map, dict)
+        }
+        for b in all_behaviors
+    }
+
+
+def refresh_multiclass_video_counts(
+    project: Project,
+    counts_by_behavior: dict[str, dict[str, dict[int, dict[str, tuple[int, int]]]]],
+    touched_videos: set[str] | list[str],
+) -> bool:
+    """Reload per-behavior fragmented label counts for ONLY `touched_videos`."""
+    sm = project.settings_manager
+    load_counts_fn = getattr(project, "load_counts", None)
+    if not callable(load_counts_fn):
+        return False
+
+    all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
+    updated_any = False
+    for vid in touched_videos:
+        if sm.is_video_excluded(vid):
+            for b in all_behaviors:
+                counts_by_behavior.setdefault(b, {}).pop(vid, None)
+            updated_any = True
+            continue
+        for b in all_behaviors:
+            beh_map = counts_by_behavior.setdefault(b, {})
+            try:
+                vid_counts = load_counts_fn(vid, b)
+            except Exception:
+                logger.warning(
+                    "Failed to reload multi-class counts for video=%s behavior=%s",
+                    vid,
+                    b,
+                    exc_info=True,
+                )
+                return False
+            if not isinstance(vid_counts, dict):
+                return False
+            updated_any = True
+            cleaned = {
+                int(ident): dict(cdict)
+                for ident, cdict in vid_counts.items()
+                if isinstance(cdict, dict)
+            }
+            if cleaned:
+                beh_map[vid] = cleaned
+            else:
+                beh_map.pop(vid, None)
+    return updated_any
+
+
+def summarize_multiclass_counts_by_behavior(
+    project: Project,
+    behavior: str,
+    counts_by_behavior: dict[str, dict[str, dict[int, dict[str, tuple[int, int]]]]],
+) -> tuple[int, bool, bool, dict[tuple[str, int], tuple[int, int]]]:
+    """Summarize cached multi-class per-behavior counts in memory with zero disk I/O."""
+    sm = project.settings_manager
+    strategy, regex = _project_cv_grouping(project)
+    all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
+    filtered_counts = {
+        b: {
+            v: id_map
+            for v, id_map in counts_by_behavior.get(b, {}).items()
+            if not sm.is_video_excluded(v)
+        }
+        for b in all_behaviors
+    }
+
+    track_counts: dict[tuple[str, int], tuple[int, int]] = {}
+    for video in project.video_manager.videos:
+        if sm.is_video_excluded(video):
+            continue
+        identities: set[int] = set()
+        for b in all_behaviors:
+            identities.update(filtered_counts[b].get(video, {}).keys())
+        for ident in sorted(identities):
+            pos_f = (
+                filtered_counts.get(behavior, {})
+                .get(video, {})
+                .get(ident, {})
+                .get("fragmented_frame_counts", (0, 0))[0]
+            )
+            other_f = sum(
+                filtered_counts[b]
+                .get(video, {})
+                .get(ident, {})
+                .get("fragmented_frame_counts", (0, 0))[0]
+                for b in all_behaviors
+                if b != behavior
+            )
+            if pos_f > 0 or other_f > 0:
+                track_counts[(video, int(ident))] = (int(pos_f), int(other_f))
+
+    dual_groups = MultiClassClassifier.count_label_threshold(
+        counts_by_behavior=filtered_counts,
+        behavior_names=all_behaviors,
+        cv_grouping_strategy=strategy,
+        cv_grouping_regex=regex,
+    )
+    jabs_met = MultiClassClassifier.label_threshold_met(
+        counts_by_behavior=filtered_counts,
+        behavior_names=all_behaviors,
+        min_groups=1,
+        cv_grouping_strategy=strategy,
+        cv_grouping_regex=regex,
+    )
+    dual_class_cv_met = dual_groups >= MIN_DUAL_CLASS_CV_TRACKS
+    return dual_groups, jabs_met, dual_class_cv_met, track_counts
+
+
 def count_dual_class_cv_groups(
     project: Project,
     behavior: str,
+    *,
+    precomputed_mc_counts_by_behavior: (
+        dict[str, dict[str, dict[int, dict[str, tuple[int, int]]]]] | None
+    ) = None,
 ) -> tuple[int, bool, bool, dict[tuple[str, int], tuple[int, int]]]:
     """Count CV groups for `behavior` using JABS's own `count_label_threshold` / `label_threshold_met`."""
     sm = project.settings_manager
@@ -362,50 +492,12 @@ def count_dual_class_cv_groups(
         )
         return dual_groups, jabs_met, dual_class_cv_met, track_counts
 
-    all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
-    counts_by_behavior = {
-        b: {v: id_map for v, id_map in project.counts(b).items() if not sm.is_video_excluded(v)}
-        for b in all_behaviors
-    }
-    for video in project.video_manager.videos:
-        if sm.is_video_excluded(video):
-            continue
-        identities: set[int] = set()
-        for b in all_behaviors:
-            identities.update(counts_by_behavior[b].get(video, {}).keys())
-        for ident in sorted(identities):
-            pos_f = (
-                counts_by_behavior.get(behavior, {})
-                .get(video, {})
-                .get(ident, {})
-                .get("fragmented_frame_counts", (0, 0))[0]
-            )
-            other_f = sum(
-                counts_by_behavior[b]
-                .get(video, {})
-                .get(ident, {})
-                .get("fragmented_frame_counts", (0, 0))[0]
-                for b in all_behaviors
-                if b != behavior
-            )
-            if pos_f > 0 or other_f > 0:
-                track_counts[(video, int(ident))] = (int(pos_f), int(other_f))
-
-    dual_groups = MultiClassClassifier.count_label_threshold(
-        counts_by_behavior=counts_by_behavior,
-        behavior_names=all_behaviors,
-        cv_grouping_strategy=strategy,
-        cv_grouping_regex=regex,
+    mc_counts = (
+        precomputed_mc_counts_by_behavior
+        if precomputed_mc_counts_by_behavior is not None
+        else collect_multiclass_counts_by_behavior(project)
     )
-    jabs_met = MultiClassClassifier.label_threshold_met(
-        counts_by_behavior=counts_by_behavior,
-        behavior_names=all_behaviors,
-        min_groups=1,
-        cv_grouping_strategy=strategy,
-        cv_grouping_regex=regex,
-    )
-    dual_class_cv_met = dual_groups >= MIN_DUAL_CLASS_CV_TRACKS
-    return dual_groups, jabs_met, dual_class_cv_met, track_counts
+    return summarize_multiclass_counts_by_behavior(project, behavior, mc_counts)
 
 
 def _get_window_size(project: Project, behavior: str | None) -> int:
@@ -636,6 +728,9 @@ def evaluate_cv_group_impact(
     trim_bounds: tuple[int, int] | None = None,
     source_is_predicted: bool = False,
     precomputed_track_counts: dict[tuple[str, int], tuple[int, int]] | None = None,
+    precomputed_mc_counts_by_behavior: (
+        dict[str, dict[str, dict[int, dict[str, tuple[int, int]]]]] | None
+    ) = None,
     find_pairing_candidate: bool = True,
 ) -> CVGroupImpact:
     """Evaluate how a proposed bout edit affects JABS CV group invariants (`Dual-Class CV rule`)."""
@@ -643,14 +738,18 @@ def evaluate_cv_group_impact(
     strategy, regex = _project_cv_grouping(project)
     if sm.classifier_mode == ClassifierMode.MULTICLASS:
         all_behaviors = [MULTICLASS_NONE_BEHAVIOR, *list(sm.behavior_names)]
-        counts_by_behavior = {
-            b: {
-                v: dict(id_map)
-                for v, id_map in project.counts(b).items()
-                if not sm.is_video_excluded(v)
+        counts_by_behavior = (
+            {
+                b: {
+                    v: id_map
+                    for v, id_map in precomputed_mc_counts_by_behavior.get(b, {}).items()
+                    if not sm.is_video_excluded(v)
+                }
+                for b in all_behaviors
             }
-            for b in all_behaviors
-        }
+            if precomputed_mc_counts_by_behavior is not None
+            else collect_multiclass_counts_by_behavior(project)
+        )
         before_groups = MultiClassClassifier.count_label_threshold(
             counts_by_behavior=counts_by_behavior,
             behavior_names=all_behaviors,
@@ -666,12 +765,9 @@ def evaluate_cv_group_impact(
         )
         adr_before = before_groups >= MIN_DUAL_CLASS_CV_TRACKS
 
-        sim_counts_by_beh = {
-            b: {
-                v: {ident_k: dict(cdict_v) for ident_k, cdict_v in id_map.items()}
-                for v, id_map in vid_map.items()
-            }
-            for b, vid_map in counts_by_behavior.items()
+        # Shallow-copy outer behavior dicts and only clone `video` entries touched by this edit.
+        sim_counts_by_beh: dict[str, dict[str, dict[int, dict[str, tuple[int, int]]]]] = {
+            b: dict(counts_by_behavior.get(b, {})) for b in all_behaviors
         }
         ident_int = int(identity)
         dur = max(0, int(end_frame) - int(start_frame) + 1)
@@ -680,7 +776,8 @@ def evaluate_cv_group_impact(
         def _delta_mc(beh_name: str, delta: int) -> None:
             if beh_name not in sim_counts_by_beh or sm.is_video_excluded(video) or delta == 0:
                 return
-            v_map = sim_counts_by_beh[beh_name].setdefault(video, {})
+            v_map = dict(sim_counts_by_beh[beh_name].get(video, {}))
+            sim_counts_by_beh[beh_name][video] = v_map
             entry = dict(v_map.get(ident_int, {"fragmented_frame_counts": (0, 0)}))
             old_p, old_n = entry.get("fragmented_frame_counts", (0, 0))
             entry["fragmented_frame_counts"] = (max(0, int(old_p) + delta), int(old_n))

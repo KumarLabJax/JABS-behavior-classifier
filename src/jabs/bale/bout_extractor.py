@@ -14,7 +14,7 @@ import re
 import threading
 from collections import OrderedDict, defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -403,7 +403,7 @@ def expected_cache_params_for_video(
     return raw_hash, exp_scale, exp_rev, True
 
 
-def load_track_per_frame_array(
+def _load_track_per_frame_array_with_status(
     project_dir: Path,
     video_name: str,
     identity: int,
@@ -417,27 +417,29 @@ def load_track_per_frame_array(
     expected_distance_scale_factor: float | None = None,
     expected_converter_revision: int | None = None,
     validate_pose_params: bool = False,
-) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
-    """Load `(X_track, valid_mask, feature_names)` for one `(video, identity)` track.
-
-    Validates cache metadata via `ParquetFeatureCacheReader` / `HDF5FeatureCacheReader`
-    against `expected_feature_version` (`FEATURE_VERSION`) and pose parameters; stale,
-    corrupt, or unvalidated caches are treated as missing (`None`).
-    """
+) -> tuple[tuple[np.ndarray, np.ndarray, list[str]] | None, Literal["ok", "missing", "stale"]]:
+    """Load `(X_track, valid_mask, feature_names)` and status (`'ok'`, `'missing'`, or `'stale'`)."""
     eff_feature_dir = (
         Path(feature_dir) if feature_dir is not None else (project_dir / "jabs" / "features")
     )
     stem = _resolve_cache_stem(video_name)
     identity_dir = eff_feature_dir / stem / str(identity)
     if not identity_dir.is_dir():
-        return None
+        return None, "missing"
 
     fmt = detect_cache_format(identity_dir)
     parquet_path = identity_dir / "per_frame.parquet"
+    meta_path = identity_dir / "metadata.json"
     h5_path = identity_dir / "features.h5"
 
     if fmt is None:
-        return None
+        if parquet_path.is_file() or meta_path.is_file() or h5_path.is_file():
+            logger.warning(
+                "Incomplete or unvalidated feature cache files in %s; treating as stale/out-of-date",
+                identity_dir,
+            )
+            return None, "stale"
+        return None, "missing"
 
     info = inspect_identity_cache(identity_dir)
     if info is None:
@@ -445,7 +447,7 @@ def load_track_per_frame_array(
             "Missing or unreadable feature cache metadata for %s; skipping unvalidated cache",
             identity_dir,
         )
-        return None
+        return None, "stale"
 
     eff_pose_hash = (
         expected_pose_hash
@@ -465,7 +467,7 @@ def load_track_per_frame_array(
 
     if fmt == CacheFormat.PARQUET:
         if not parquet_path.is_file():
-            return None
+            return None, "missing"
         try:
             reader = ParquetFeatureCacheReader(
                 expected_feature_version=int(expected_feature_version),
@@ -486,7 +488,7 @@ def load_track_per_frame_array(
                 identity_dir,
                 exc_info=True,
             )
-            return None
+            return None, "stale"
 
         mtime_ns = parquet_path.stat().st_mtime_ns
         cache_key = (
@@ -503,7 +505,7 @@ def load_track_per_frame_array(
         )
         cached = _cache_get_track_array(cache_key)
         if cached is not None:
-            return cached
+            return cached, "ok"
 
         schema = pq.read_schema(parquet_path)
         all_cols = schema.names
@@ -538,11 +540,11 @@ def load_track_per_frame_array(
 
         result = (X_track, valid_mask, feat_cols)
         _cache_put_track_array(cache_key, result)
-        return result
+        return result, "ok"
 
     if fmt == CacheFormat.HDF5:
         if not h5_path.is_file():
-            return None
+            return None, "missing"
         mtime_ns = h5_path.stat().st_mtime_ns
         cache_key = (
             str(h5_path),
@@ -558,7 +560,7 @@ def load_track_per_frame_array(
         )
         cached = _cache_get_track_array(cache_key)
         if cached is not None:
-            return cached
+            return cached, "ok"
 
         try:
             reader = HDF5FeatureCacheReader(
@@ -582,7 +584,7 @@ def load_track_per_frame_array(
                 identity_dir,
                 exc_info=True,
             )
-            return None
+            return None, "stale"
 
         all_cols = sorted(raw_features.keys())
         feat_cols = _select_active_feature_columns(
@@ -592,7 +594,7 @@ def load_track_per_frame_array(
             disabled_landmark_prefixes=disabled_landmark_prefixes,
         )
         if not feat_cols:
-            return None
+            return None, "missing"
         first_arr = np.asarray(raw_features[feat_cols[0]])
         n_rows = int(first_arr.shape[0])
         X_track = np.empty((n_rows, len(feat_cols)), dtype=np.float32)
@@ -601,9 +603,47 @@ def load_track_per_frame_array(
             X_track[:, j] = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
         result = (X_track, valid_mask, feat_cols)
         _cache_put_track_array(cache_key, result)
-        return result
+        return result, "ok"
 
-    return None
+    return None, "missing"
+
+
+def load_track_per_frame_array(
+    project_dir: Path,
+    video_name: str,
+    identity: int,
+    *,
+    use_social: bool = True,
+    use_segmentation: bool = True,
+    disabled_landmark_prefixes: tuple[str, ...] = (),
+    feature_dir: Path | None = None,
+    expected_feature_version: int = FEATURE_VERSION,
+    expected_pose_hash: str | None = None,
+    expected_distance_scale_factor: float | None = None,
+    expected_converter_revision: int | None = None,
+    validate_pose_params: bool = False,
+) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
+    """Load `(X_track, valid_mask, feature_names)` for one `(video, identity)` track.
+
+    Validates cache metadata via `ParquetFeatureCacheReader` / `HDF5FeatureCacheReader`
+    against `expected_feature_version` (`FEATURE_VERSION`) and pose parameters; stale,
+    corrupt, or unvalidated caches are treated as missing (`None`).
+    """
+    loaded, _ = _load_track_per_frame_array_with_status(
+        project_dir,
+        video_name,
+        identity,
+        use_social=use_social,
+        use_segmentation=use_segmentation,
+        disabled_landmark_prefixes=disabled_landmark_prefixes,
+        feature_dir=feature_dir,
+        expected_feature_version=expected_feature_version,
+        expected_pose_hash=expected_pose_hash,
+        expected_distance_scale_factor=expected_distance_scale_factor,
+        expected_converter_revision=expected_converter_revision,
+        validate_pose_params=validate_pose_params,
+    )
+    return loaded
 
 
 def compute_fast_bout_quantiles(
@@ -819,6 +859,8 @@ def extract_bout_feature_matrix(
     # PyArrow's `pq.read_table(..., use_threads=True)` already parallelizes column decoding in C++
     # without spawning Python threads that collide with PySide6 Shiboken's lazy import hook.
 
+    skipped_stale = 0
+    skipped_missing = 0
     video_cache_params: dict[str, tuple[str | None, float | None, int | None, bool]] = {}
     for (video_name, identity), rec_indices in by_track.items():
         if video_name not in video_cache_params:
@@ -826,7 +868,7 @@ def extract_bout_feature_matrix(
                 project, video_name, beh_settings
             )
         exp_pose_hash, exp_scale, exp_conv_rev, has_pose = video_cache_params[video_name]
-        loaded = load_track_per_frame_array(
+        loaded, load_status = _load_track_per_frame_array_with_status(
             project_dir,
             video_name,
             identity,
@@ -841,6 +883,10 @@ def extract_bout_feature_matrix(
             validate_pose_params=has_pose,
         )
         if loaded is None:
+            if load_status == "stale":
+                skipped_stale += 1
+            else:
+                skipped_missing += 1
             continue
         X_track, valid_mask, feat_cols = loaded
         if base_feature_names is None:
@@ -905,4 +951,6 @@ def extract_bout_feature_matrix(
         base_feature_names=base_feature_names,
         stat_to_base_idx=np.asarray(stat_to_base_idx_list, dtype=np.int32),
         frame_features_by_bout=frame_features_by_bout,
+        skipped_stale_cache_tracks=skipped_stale,
+        skipped_missing_cache_tracks=skipped_missing,
     )

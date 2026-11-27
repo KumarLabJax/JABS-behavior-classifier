@@ -45,11 +45,14 @@ from .relabel_guard import (
     BoutEditSnapshot,
     EditAction,
     apply_bout_edit,
+    collect_multiclass_counts_by_behavior,
     count_dual_class_cv_groups,
     evaluate_cv_group_impact,
     find_dual_class_pairing_candidate,
+    refresh_multiclass_video_counts,
     simulate_track_count_delta,
     summarize_cv_track_counts,
+    summarize_multiclass_counts_by_behavior,
 )
 from .spatial_localization import clear_spatial_cache, extract_bout_spatial_locations
 from .trajectory_and_export import (
@@ -99,6 +102,7 @@ __all__ = [
     "clear_bout_extractor_cache",
     "clear_spatial_cache",
     "collect_labeled_bout_records",
+    "collect_multiclass_counts_by_behavior",
     "collect_predicted_bout_records",
     "compute_clustering_and_embedding",
     "compute_fast_bout_quantiles",
@@ -114,10 +118,12 @@ __all__ = [
     "load_bout_pose_trajectory",
     "load_pose_cached",
     "recompute_embedding_only",
+    "refresh_multiclass_video_counts",
     "resolve_project_video_name",
     "run_bale",
     "select_feature_lens_mask",
     "simulate_track_count_delta",
     "summarize_cv_track_counts",
+    "summarize_multiclass_counts_by_behavior",
     "summarize_project_videos",
 ]

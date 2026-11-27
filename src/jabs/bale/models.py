@@ -63,6 +63,13 @@ class BoutFeatureMatrix:
     frame_probs_by_bout: dict[int, np.ndarray] = field(default_factory=dict)
     raw_preds_by_bout: dict[int, np.ndarray] = field(default_factory=dict)
     frame_features_by_bout: dict[int, np.ndarray] = field(default_factory=dict)
+    skipped_stale_cache_tracks: int = 0
+    skipped_missing_cache_tracks: int = 0
+
+    @property
+    def skipped_feature_cache_tracks(self) -> int:
+        """Total `(video, identity)` tracks skipped due to stale or missing feature caches."""
+        return int(self.skipped_stale_cache_tracks + self.skipped_missing_cache_tracks)
 
 
 @dataclass
@@ -166,6 +173,9 @@ class BaleReport:
     include_all_multiclass: bool = False
     spatial: BoutSpatialResult | None = None
     cv_grouping_regex: str | None = None
+    mc_counts_by_behavior: dict[str, dict[str, dict[int, dict[str, tuple[int, int]]]]] | None = (
+        None
+    )
 
     def to_dataframe(self, exclude_bout_ids: set[int] | None = None) -> pd.DataFrame:
         """Convert all bout records, coordinates, and diagnostic scores to a DataFrame."""
@@ -307,6 +317,8 @@ class BaleReport:
             "total_bouts": len(df),
             "labeled_bouts": len(labeled_df),
             "predicted_bouts": len(pred_df),
+            "skipped_stale_cache_tracks": int(self.feature_matrix.skipped_stale_cache_tracks),
+            "skipped_missing_cache_tracks": int(self.feature_matrix.skipped_missing_cache_tracks),
             "high_confusion_labeled_count": int(
                 (labeled_df["confusion_or_doubt_score"] >= 0.70).sum()
             )

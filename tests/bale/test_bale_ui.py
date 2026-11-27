@@ -3908,3 +3908,206 @@ def test_pr608_round3_search_bar_reset_and_no_seek_typeerror_retry(
         QtCore.QThreadPool.globalInstance().waitForDone(5_000)
         QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
         QtWidgets.QApplication.processEvents()
+
+
+def test_pr608_round4_mc_single_video_edit_undo_stale_notice_and_queued_video_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR #608 Round 4 (#4723578504, #4723578509, #4723578516): O(1)-video MC edit/undo, stale cache UI notice, and queued video scan across mode switch."""
+    from types import SimpleNamespace
+
+    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+    from jabs.core.enums import CrossValidationGroupingStrategy
+    from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+    from jabs.feature_extraction import FEATURE_VERSION
+    from jabs.io.feature_cache.parquet import ParquetFeatureCacheWriter
+    from jabs.project import VideoLabels
+
+    _ensure_qapp()
+
+    # 1. Multi-Class 2-video project: edit & undo must reload ONLY edited video (zero project.counts scans)
+    mc_dir = tmp_path / "r4_mc_proj"
+    for sub in ("annotations", "features", "predictions", "classifiers", "training_logs"):
+        (mc_dir / "jabs" / sub).mkdir(parents=True, exist_ok=True)
+    mc_videos = ["mc_v0.mp4", "mc_v1.mp4"]
+    n_f = 160
+    labels_by_vid: dict[str, VideoLabels] = {}
+    for vid in mc_videos:
+        stem = Path(vid).stem
+        ParquetFeatureCacheWriter().write_per_frame(
+            mc_dir / "jabs" / "features" / stem / "0",
+            FeatureCacheMetadata(
+                feature_version=FEATURE_VERSION,
+                identity=0,
+                num_frames=n_f,
+                pose_hash="mc_r4",
+                distance_scale_factor=None,
+                avg_wall_length=None,
+                cached_window_sizes=frozenset(),
+            ),
+            PerFrameCacheData(
+                frame_valid=np.ones(n_f, dtype=np.uint8),
+                features={f"f{k}": np.ones(n_f, dtype=np.float32) * (k + 1) for k in range(4)},
+            ),
+        )
+        vl = VideoLabels(vid, n_f)
+        vl.get_track_labels("0", MULTICLASS_NONE_BEHAVIOR).label_behavior(0, 24)
+        vl.get_track_labels("0", "Turn_Left").label_behavior(30, 54)
+        vl.get_track_labels("0", "Turn_Right").label_behavior(65, 89)
+        labels_by_vid[vid] = vl
+
+        unfrag = {
+            "0": {
+                MULTICLASS_NONE_BEHAVIOR: [{"start": 0, "end": 24, "present": True}],
+                "Turn_Left": [{"start": 30, "end": 54, "present": True}],
+                "Turn_Right": [{"start": 65, "end": 89, "present": True}],
+            }
+        }
+        (mc_dir / "jabs" / "annotations" / f"{stem}.json").write_text(
+            json.dumps(
+                {"file": vid, "num_frames": n_f, "labels": unfrag, "unfragmented_labels": unfrag}
+            ),
+            encoding="utf-8",
+        )
+
+    def _counts_for(vid: str, beh: str) -> dict[int, dict[str, tuple[int, int]]]:
+        vl = labels_by_vid[vid]
+        pos_c = int(np.sum(vl.get_track_labels("0", beh).get_labels() > 0))
+        return {0: {"fragmented_frame_counts": (pos_c, 0)}}
+
+    mc_proj = MagicMock()
+    mc_proj.dir = mc_dir
+    mc_proj.project_paths.project_dir = mc_dir
+    mc_proj.project_paths.annotations_dir = mc_dir / "jabs" / "annotations"
+    mc_proj.project_paths.feature_dir = mc_dir / "jabs" / "features"
+    mc_proj.project_paths.prediction_dir = mc_dir / "jabs" / "predictions"
+    mc_proj.settings_manager.classifier_mode = ClassifierMode.MULTICLASS
+    mc_proj.settings_manager.behavior_names = ["Turn_Left", "Turn_Right"]
+    mc_proj.settings_manager.cv_grouping_strategy = CrossValidationGroupingStrategy.INDIVIDUAL
+    mc_proj.settings_manager.cv_grouping_regex = ""
+    mc_proj.settings_manager.is_video_excluded.return_value = False
+    mc_proj.settings_manager.get_behavior.return_value = {
+        "social": False,
+        "segmentation": False,
+        "window_size": 10,
+    }
+    mc_proj.video_manager.videos = mc_videos
+    mc_proj.video_manager.load_video_labels.side_effect = lambda v, _pose=None: labels_by_vid[v]
+    mc_proj.counts.side_effect = lambda beh: {vid: _counts_for(vid, beh) for vid in mc_videos}
+    mc_proj.load_counts.side_effect = _counts_for
+    mc_proj.save_annotations.side_effect = lambda vl, _pose=None: labels_by_vid.__setitem__(
+        vl.filename, vl
+    )
+    pose_stub = MagicMock()
+    pose_stub.num_frames = n_f
+    pose_stub.hash = None
+    pose_stub.identities = [0]
+    pose_stub.identity_mask.return_value = np.ones(n_f, dtype=bool)
+    mc_proj.load_pose_est.return_value = pose_stub
+
+    central_mc = MagicMock()
+    central_mc.behavior = "Turn_Left"
+    dlg = BaleDialog(mc_proj, central_widget=central_mc)
+    try:
+        dlg._init_refresh_timer.stop()
+        rep = run_bale(mc_proj, "Turn_Left", include_predictions=False, compute_mds=False)
+        dlg._on_analysis_finished(rep, included_preds=False)
+        QtWidgets.QApplication.processEvents()
+        assert rep.mc_counts_by_behavior is not None
+
+        # Select Turn_Left bout on mc_v0.mp4 and verify edit + undo never call project.counts()
+        tl_row = next(
+            r
+            for r in range(dlg.table.rowCount())
+            if rep.feature_matrix.records[
+                int(dlg.table.item(r, 0).data(Qt.ItemDataRole.UserRole))
+            ].video
+            == "mc_v0.mp4"
+            and rep.feature_matrix.records[
+                int(dlg.table.item(r, 0).data(Qt.ItemDataRole.UserRole))
+            ].is_positive
+        )
+        dlg.table.selectRow(tl_row)
+        QtWidgets.QApplication.processEvents()
+
+        mc_proj.counts.reset_mock()
+        mc_proj.load_counts.reset_mock()
+        dlg._on_secondary_action_2_clicked()
+        assert mc_proj.counts.call_count == 0
+        assert {c.args[0] for c in mc_proj.load_counts.call_args_list} == {"mc_v0.mp4"}
+
+        mc_proj.counts.reset_mock()
+        mc_proj.load_counts.reset_mock()
+        dlg._on_undo_clicked()
+        assert mc_proj.counts.call_count == 0
+        assert {c.args[0] for c in mc_proj.load_counts.call_args_list} == {"mc_v0.mp4"}
+    finally:
+        dlg.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        QtWidgets.QApplication.processEvents()
+
+    # 2. Stale feature cache notice + queued video refresh preservation across mode switches
+    stale_proj, stale_dir = _build_synthetic_explorer_project(tmp_path / "r4_stale_ui_proj")
+    for pq_path in (stale_dir / "jabs" / "features").rglob("metadata.json"):
+        meta = json.loads(pq_path.read_text(encoding="utf-8"))
+        meta["feature_version"] = FEATURE_VERSION - 1
+        pq_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    central_st = MagicMock()
+    central_st.behavior = "Grooming"
+    dlg2 = BaleDialog(stale_proj, central_widget=central_st)
+    try:
+        dlg2._init_refresh_timer.stop()
+        stale_rep = run_bale(stale_proj, "Grooming", include_predictions=False, compute_mds=False)
+        assert stale_rep.feature_matrix.skipped_stale_cache_tracks > 0
+        assert len(stale_rep.feature_matrix.records) == 0
+
+        dlg2._on_analysis_finished(stale_rep, included_preds=False)
+        QtWidgets.QApplication.processEvents()
+        # Must remain in Audit mode (not silently bounce to Predict) and display stale-cache guidance
+        assert dlg2._mode == "audit"
+        assert "out-of-date features" in dlg2.status_summary_label.text()
+        assert "Train or Classify" in dlg2.status_summary_label.text()
+        ax_texts = [t.get_text() for t in dlg2.scatter_ax.texts]
+        assert any("out-of-date features" in txt for txt in ax_texts)
+
+        # Queued video scan preservation across mode switch (#4723578516)
+        started_scans: list[bool] = []
+        orig_refresh = dlg2.refresh_video_summary
+
+        def _spy_refresh(*, force: bool = False) -> None:
+            started_scans.append(bool(force))
+            orig_refresh(force=force)
+
+        monkeypatch.setattr(dlg2, "refresh_video_summary", _spy_refresh)
+        dlg2._mode = "videos"
+        dlg2._video_report_key = dlg2._active_video_scope_key()
+        dlg2._video_report = SimpleNamespace(records=[], thresholds={})  # type: ignore[assignment]
+        dlg2._video_request_id = 10
+        dlg2._video_worker = SimpleNamespace(req_id=10, cancel_event=threading.Event())  # type: ignore[assignment]
+        dlg2.refresh_video_summary(force=True)
+        assert dlg2._queued_video_refresh is True
+
+        # Switch away from Videos while scan cancels -> _queued_video_refresh MUST stay True
+        dlg2._mode = "audit"
+        started_scans.clear()
+        dlg2._on_video_summary_cancelled(10)
+        assert dlg2._queued_video_refresh is True
+        assert started_scans == []
+
+        # Switch back to Videos -> queued rescan executes immediately instead of showing stale report
+        monkeypatch.setattr(
+            dlg2._thread_pool,
+            "start",
+            lambda worker: None,
+        )
+        dlg2._on_mode_pill_clicked(3)
+        assert len(started_scans) == 1
+        assert dlg2._queued_video_refresh is False
+    finally:
+        dlg2.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        QtWidgets.QApplication.processEvents()
