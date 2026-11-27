@@ -77,6 +77,31 @@ class LongtermMismatches:
 
 
 @dataclass(frozen=True, eq=False)
+class TrackletsCleared:
+    """The occupied masked instances whose tracklet id an occupied valid one held, one row each.
+
+    Such an instance keeps its pose in its tail slot, with no tracklet: a
+    tracklet is one animal, and the valid instance is the one the identity
+    step accepted.
+
+    Attributes:
+        frame: The frame of each row.
+        slot: The tail slot the instance went to.
+        legacy_index: The instance's legacy index.
+        tracklet: The tracklet id it lost.
+    """
+
+    frame: npt.NDArray[np.uint32]
+    slot: npt.NDArray[np.int16]
+    legacy_index: npt.NDArray[np.int16]
+    tracklet: npt.NDArray[np.uint32]
+
+    def __len__(self) -> int:
+        """Return the number of rows."""
+        return int(self.frame.size)
+
+
+@dataclass(frozen=True, eq=False)
 class TrackletSplits:
     """The tracklet runs that took a new id, one row each, in the order the ids were given.
 
@@ -102,6 +127,12 @@ _NO_SPLITS = TrackletSplits(
     from_id=np.empty(0, np.uint32),
     first_frame=np.empty(0, np.uint32),
     last_frame=np.empty(0, np.uint32),
+)
+_NO_CLEARED = TrackletsCleared(
+    frame=np.empty(0, np.uint32),
+    slot=np.empty(0, np.int16),
+    legacy_index=np.empty(0, np.int16),
+    tracklet=np.empty(0, np.uint32),
 )
 _NO_TAILS = TailSlots(
     frame=np.empty(0, np.uint32),
@@ -144,6 +175,10 @@ class PlacementPlan:
             no ``instance_track_id``.
         tracklet_splits: Every run that took a new id, in the order the new
             ids were given; empty without tracklets.
+        tracklets_cleared: Every occupied masked instance whose tracklet id
+            an occupied valid instance of its frame held, and which went
+            without it, in frame then legacy index order; empty without
+            tracklets.
     """
 
     slots: int
@@ -157,6 +192,7 @@ class PlacementPlan:
     instance_offsets: npt.NDArray[np.uint64] | None
     tracklet_id: npt.NDArray[np.uint32] | None
     tracklet_splits: TrackletSplits
+    tracklets_cleared: TrackletsCleared = _NO_CLEARED
 
 
 def plan_placement(
@@ -168,8 +204,12 @@ def plan_placement(
     ``1..identity`` goes to slot ``e - 1``. Every other instance with anything
     to place, a valid one with an embed id out of that range or a masked one
     with a confidence above 0 or a contour, goes to a tail slot, in legacy
-    index order. Contours follow the instance, never ``longterm_seg_id``, which
-    is only checked against the embed id.
+    index order. An occupied masked instance whose tracklet id an occupied
+    valid instance of the frame holds goes without it
+    (``tracklets_cleared``). Contours follow the instance, never
+    ``longterm_seg_id``, which is only checked against the embed id.
+    Segmentation rows past the last instance are not read: ``inspect_legacy``
+    has checked they hold nothing, or left them behind.
 
     A file with no instance axis (``pose_est_v2``) is one animal: its one
     instance goes to slot 0 in every frame, and nothing is read.
@@ -225,6 +265,7 @@ def plan_placement(
     # Per block, concatenated at the end.
     tails: list[tuple[npt.NDArray[np.generic], ...]] = []
     mismatches: list[tuple[npt.NDArray[np.generic], ...]] = []
+    cleared: list[tuple[npt.NDArray[np.generic], ...]] = []
     most_tails = 0
 
     for start in range(0, frames, block_frames):
@@ -237,7 +278,9 @@ def plan_placement(
         anything = occupied.copy()
         if seg is not None:
             anything |= _pack_contours(
-                seg[start:stop, :, :, :, 0], legacy_length[start:stop], legacy_source[start:stop]
+                seg[start:stop, :instances, :, :, 0],
+                legacy_length[start:stop],
+                legacy_source[start:stop],
             )
 
         in_range = valid & (embed >= 1) & (embed <= identity)
@@ -254,17 +297,23 @@ def plan_placement(
         f, i = np.nonzero(tail)
         tails.append((start + f, slots[f, i], i, ~valid[f, i]))
         if longterm is not None:
-            seg_id = longterm[start:stop].astype(np.int64)
+            seg_id = longterm[start:stop, :instances].astype(np.int64)
             f, i = np.nonzero(valid & (seg_id != embed))
             mismatches.append((start + f, i, embed[f, i], seg_id[f, i]))
         if track is not None and legacy_track is not None:
-            placed = np.where(slots >= 0, _read_tracklets(layout, track, start, stop), 0)
-            _refuse_shared_tracklets(layout, start, placed, slots)
             # tracklet_id is masked by slot_occupied, so a placed but
             # unoccupied instance gets 0 (no tracklet): a reader never sees a
             # tracklet with a hole in it, and the split below runs over
-            # occupied frames (spec 0029-B §5.3).
-            legacy_track[start:stop] = np.where(occupied, placed, 0)
+            # occupied frames (spec 0029-B §5.3). Masked first, so only ids
+            # that are written can clash.
+            placed = np.where(
+                (slots >= 0) & occupied, _read_tracklets(layout, track, start, stop), 0
+            )
+            f, i = np.nonzero(_masked_duplicates(placed, valid))
+            cleared.append((start + f, slots[f, i], i, placed[f, i]))
+            placed[f, i] = 0
+            _refuse_shared_tracklets(layout, start, placed, slots)
+            legacy_track[start:stop] = placed
 
     slot_count = identity + most_tails
     placed_frame, placed_instance = np.nonzero(slot_of >= 0)
@@ -302,6 +351,9 @@ def plan_placement(
         instance_offsets=instance_offsets,
         tracklet_id=tracklet_id,
         tracklet_splits=splits,
+        tracklets_cleared=TrackletsCleared(
+            *_columns(cleared, (np.uint32, np.int16, np.int16, np.uint32))
+        ),
     )
 
 
@@ -486,6 +538,24 @@ def _refuse_duplicates(
             f"instances {holders} that all hold identity {key % (layout.identity + 1)}; "
             "refusing to choose which one the identity follows"
         )
+
+
+def _masked_duplicates(
+    track: npt.NDArray[np.uint32], valid: npt.NDArray[np.bool_]
+) -> npt.NDArray[np.bool_]:
+    """Return where a masked instance holds a nonzero tracklet id a valid one of the frame holds.
+
+    Args:
+        track: ``(b, N)`` tracklet ids, 0 where none or unplaced.
+        valid: ``(b, N)`` true where ``id_mask`` is not set.
+    """
+    # One key per (frame, tracklet), so the match is linear in N: a pairwise
+    # comparison would be N*N per frame, which the memory cap does not bound.
+    frame = np.arange(track.shape[0], dtype=np.int64)[:, None]
+    keys = (frame << 32) | track.astype(np.int64)
+    tracked = track > 0
+    held_by_valid = np.isin(keys, keys[valid & tracked])
+    return held_by_valid & ~valid & tracked
 
 
 def _refuse_shared_tracklets(

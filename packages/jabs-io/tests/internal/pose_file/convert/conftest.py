@@ -7,10 +7,13 @@ this package, so tests that use them skip when they are absent.
 """
 
 import importlib.util
+from collections.abc import Callable
 from functools import cache
 from pathlib import Path
 from types import ModuleType
 
+import h5py
+import numpy as np
 import pytest
 
 LEGACY = Path(__file__).parents[3] / "data" / "legacy-pose"
@@ -52,3 +55,48 @@ def generator() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def widen_segmentation(
+    extra: int, contour_frame: int | None = None
+) -> Callable[[h5py.File], None]:
+    """Return an edit giving the segmentation datasets ``extra`` more rows than ``points``.
+
+    Real v6 files have this layout: the segmentation model writes its own
+    detection axis, one row wider than the pose's, and the spare rows hold no
+    contours. ``instance_seg_id`` is ``index + 1`` on every row, as those files
+    have it; the spare rows of the other datasets are empty.
+
+    Args:
+        extra: Rows to add past ``points.shape[1]``.
+        contour_frame: When given, the first spare row holds a contour in this
+            frame, which no pose instance can carry.
+
+    Returns:
+        An edit for ``write_legacy``.
+    """
+
+    def edit(h5: h5py.File) -> None:
+        """Replace the four segmentation datasets with wider ones."""
+        pose = h5["poseest"]
+        seg = pose["seg_data"][...]
+        frames, instances = seg.shape[:2]
+        wide = np.full((frames, instances + extra, *seg.shape[2:]), -1, dtype=seg.dtype)
+        wide[:, :instances] = seg
+        if contour_frame is not None:
+            wide[contour_frame, instances, 0, :3] = [[500, 200], [510, 200], [505, 210]]
+        flag = np.zeros(wide.shape[:3], dtype=bool)
+        flag[:, :instances] = pose["seg_external_flag"][...]
+        longterm = np.zeros((frames, instances + extra), dtype=np.uint32)
+        longterm[:, :instances] = pose["longterm_seg_id"][...]
+        seg_id = np.tile(np.arange(1, instances + extra + 1, dtype=np.uint32), (frames, 1))
+        for name, data in (
+            ("seg_data", wide),
+            ("seg_external_flag", flag),
+            ("longterm_seg_id", longterm),
+            ("instance_seg_id", seg_id),
+        ):
+            del pose[name]
+            pose.create_dataset(name, data=data)
+
+    return edit

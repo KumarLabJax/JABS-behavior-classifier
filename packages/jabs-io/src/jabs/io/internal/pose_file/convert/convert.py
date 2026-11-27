@@ -81,6 +81,8 @@ class ConversionReport:
         tracklet_splits: How many tracklet runs took a new id.
         longterm_mismatches: How many valid instances had a
             ``longterm_seg_id`` other than their embed id.
+        tracklets_cleared: How many masked instances went without the
+            tracklet id a valid instance of their frame held.
         dropped: The legacy paths left behind.
         seconds: Wall-clock time the conversion took.
         waived: ``(path, reason)`` for each refusal a lenient conversion
@@ -94,6 +96,7 @@ class ConversionReport:
     tail_slots: int
     tracklet_splits: int
     longterm_mismatches: int
+    tracklets_cleared: int
     dropped: tuple[str, ...]
     seconds: float
     waived: tuple[tuple[str, str], ...] = ()
@@ -273,6 +276,7 @@ def convert_legacy(
         tail_slots=len(plan.tail_slots),
         tracklet_splits=len(plan.tracklet_splits),
         longterm_mismatches=len(plan.longterm_mismatches),
+        tracklets_cleared=len(plan.tracklets_cleared),
         dropped=layout.dropped,
         seconds=time.perf_counter() - started,
         waived=layout.waived,
@@ -286,4 +290,11 @@ def convert_legacy(
         report.tail_slots,
         report.seconds,
     )
+    if report.tracklets_cleared:
+        logger.warning(
+            "%s: cleared the tracklet id of %d masked instance(s) whose id a valid instance "
+            "of the frame held; each is recorded in the history entry",
+            source,
+            report.tracklets_cleared,
+        )
     return report

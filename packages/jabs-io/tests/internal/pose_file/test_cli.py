@@ -35,6 +35,7 @@ def test_convert_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert [f for f in validate(out, deep=True) if f.severity == "error"] == []
     captured = capsys.readouterr()
     assert str(out) in captured.out
+    assert "0 tracklet id(s) cleared" in captured.out
     assert captured.err == ""
 
 

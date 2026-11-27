@@ -472,3 +472,42 @@ def test_the_estimate_counts_the_legacy_chunk_cache(tmp_path: Path) -> None:
         with h5py.File(path, "r") as h5:
             estimates[path] = estimate_memory(h5, identity=5, block_frames=11)
     assert estimates[split] - estimates[aligned] == _WIDE_CHUNK_ROW
+
+
+_SPARE_CONTOURS = 16
+
+
+def _segmentation(width: int) -> Callable[[h5py.Group], None]:
+    """Return an edit declaring unwritten segmentation datasets ``width`` instances wide."""
+
+    def edit(pose: h5py.Group) -> None:
+        """Declare the four segmentation datasets, in tiny chunks."""
+        frames = pose["points"].shape[0]
+        declared = {
+            "seg_data": ((frames, width, _SPARE_CONTOURS, 1, 2), np.int16),
+            "seg_external_flag": ((frames, width, _SPARE_CONTOURS), np.bool_),
+            "longterm_seg_id": ((frames, width), np.uint32),
+            "instance_seg_id": ((frames, width), np.uint32),
+        }
+        for name, (shape, dtype) in declared.items():
+            chunks = (1, 1, *shape[2:])
+            pose.create_dataset(name, shape=shape, dtype=dtype, chunks=chunks)
+
+    return edit
+
+
+def test_the_estimate_counts_the_spare_segmentation_rows(tmp_path: Path) -> None:
+    """Inspection reads the rows past the pose's, so a wide seg_data cannot pass the cap."""
+    narrow, wide = tmp_path / "narrow.h5", tmp_path / "wide.h5"
+    spare = 20_000
+    _declare(narrow, frames=900, edits=_segmentation(5))
+    _declare(wide, frames=900, edits=_segmentation(4 + spare))
+
+    inspecting = 900 * spare * (_SPARE_CONTOURS * (np.dtype(np.int16).itemsize + 1) + 1)
+    assert _estimate(narrow) < inspecting <= _estimate(wide)
+    # The check reads its own blocks, so a smaller conversion block, as
+    # inspect_legacy passes, does not shrink the term.
+    with h5py.File(wide, "r") as h5:
+        assert estimate_memory(h5, identity=4, block_frames=1) >= inspecting
+    with pytest.raises(LegacyConversionError, match="memory"):
+        inspect_legacy(wide, max_memory=inspecting // 2)
