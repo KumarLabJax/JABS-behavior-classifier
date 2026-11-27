@@ -225,6 +225,50 @@ def test_window_compute_after_flat_per_frame_cache_hit(
     assert len({values.shape for values in window_flat.values()}) == 1
 
 
+def test_label_filtered_getters_select_the_same_frames(
+    tmp_path: Path, pose_est_v5_short: PoseLike
+) -> None:
+    """Every labels-filtered getter keeps exactly the same rows.
+
+    ``get_per_frame``, ``get_per_frame_flat`` and ``get_window_features`` all accept
+    a label array and narrow their arrays to the frames that are labeled *and* that
+    the identity exists in. A classifier is trained on rows one of them returned and
+    scored against rows another returned, so if the three ever stopped agreeing the
+    rows would silently pair with the wrong frames' labels instead of failing.
+    """
+    # seed the cache, then reopen so the flat per-frame path is the one exercised
+    _make_identity_features(pose_est_v5_short, tmp_path, force=True)
+    features = _make_identity_features(pose_est_v5_short, tmp_path, force=False)
+    assert features._per_frame_flat is not None
+
+    identity_mask = np.asarray(pose_est_v5_short.identity_mask(_IDENTITY))
+    # the shortened fixture keeps a gap in identity 0, so the mask really does bite
+    assert np.count_nonzero(identity_mask == 0) > 0
+
+    labels = np.full(features._num_frames, TrackLabels.Label.NONE, dtype=np.int8)
+    labels[::3] = TrackLabels.Label.BEHAVIOR
+    labels[1::3] = TrackLabels.Label.NOT_BEHAVIOR
+
+    expected = np.count_nonzero((labels != TrackLabels.Label.NONE) & (identity_mask != 0))
+    assert 0 < expected < features._num_frames
+
+    per_frame_flat = features.get_per_frame_flat(labels)
+    assert per_frame_flat
+    assert {values.shape[0] for values in per_frame_flat.values()} == {expected}
+
+    per_frame = features.get_per_frame(labels)
+    assert per_frame
+    assert {values.shape[0] for module in per_frame.values() for values in module.values()} == {
+        expected
+    }
+
+    window_flat = IdentityFeatures.merge_window_features(
+        features.get_window_features(_WINDOW_SIZE, labels)
+    )
+    assert window_flat
+    assert {values.shape[0] for values in window_flat.values()} == {expected}
+
+
 def test_get_features_arrays_cover_every_frame(
     tmp_path: Path, pose_est_v5_short: PoseLike
 ) -> None:
