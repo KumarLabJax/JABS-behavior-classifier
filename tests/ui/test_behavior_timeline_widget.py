@@ -94,6 +94,16 @@ def test_clicking_ethogram_track_emits_identity_selected_in_all_mode() -> None:
     _send_mouse_press(timeline._label_overview_widgets[0], Qt.MouseButton.RightButton)
     assert emitted == [1, 2]
 
+    # While a label selection is active, clicking another animal's track row is ignored
+    emitted.clear()
+    timeline.start_selection(10)
+    _send_mouse_press(timeline._label_overview_widgets[1], Qt.MouseButton.LeftButton)
+    _send_mouse_press(timeline._prediction_overview_widgets[2][0], Qt.MouseButton.LeftButton)
+    assert emitted == []
+    timeline.clear_selection()
+    _send_mouse_press(timeline._label_overview_widgets[1], Qt.MouseButton.LeftButton)
+    assert emitted == [1]
+
     # Switching to ACTIVE mode ignores track-widget click filtering
     emitted.clear()
     timeline.identity_mode = BehaviorTimelineWidget.IdentityMode.ACTIVE
@@ -135,10 +145,13 @@ def test_clicking_identity_header_and_selector_strip_syncs_active_highlight() ->
     assert emitted == [2, 2]
 
     # Resetting pose clears stale click targets and rebuilds selector buttons cleanly
-    pose2 = mock.Mock(num_identities=2, num_frames=100)
+    pose2 = mock.Mock(num_identities=12, num_frames=100)
     pose2.identity_index_to_display.side_effect = str
     timeline.pose = pose2
     assert timeline._identity_selector_widget is not None
-    assert set(timeline._identity_selector_widget._buttons.keys()) == {0, 1}
+    assert set(timeline._identity_selector_widget._buttons.keys()) == set(range(12))
+    header_11 = timeline._identity_frames[11].findChildren(QPushButton)
+    assert len(header_11) == 1
+    assert header_11[0].text() == "Animal 11:"
 
     timeline.close()

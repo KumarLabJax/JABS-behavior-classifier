@@ -12,6 +12,8 @@ from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
 from jabs.project.unusable_report import UnusableNotice
 
 try:
+    from PySide6.QtCore import Qt
+
     import jabs.ui.main_window.central_widget as central_widget_module
     from jabs.core.enums import ClassifierMode
     from jabs.ui.main_window.central_widget import CentralWidget
@@ -1013,8 +1015,6 @@ def test_set_project_closes_the_previous_projects_pose():
 )
 def test_key_press_digit_selects_identity_within_range(key_name: str, expected_idx: int) -> None:
     """Unmodified digit keys 0..9 select the matching positional animal identity."""
-    from PySide6.QtCore import Qt
-
     controls = MagicMock()
     stub = SimpleNamespace(
         _controls=controls,
@@ -1033,8 +1033,6 @@ def test_key_press_digit_selects_identity_within_range(key_name: str, expected_i
 
 def test_key_press_digit_ignores_out_of_range_modifiers_and_missing_pose() -> None:
     """Out-of-range digits, modifier+digit shortcuts, and missing poses do not switch animal."""
-    from PySide6.QtCore import Qt
-
     controls = MagicMock()
     stub = SimpleNamespace(
         _controls=controls,

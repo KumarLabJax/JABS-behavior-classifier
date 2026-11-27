@@ -526,7 +526,7 @@ class BehaviorTimelineWidget(QWidget):
             header_btn = QPushButton(
                 f"{header_label} [{identity_index}]:"
                 if identity_index < 10
-                else f"{identity_display_name}:"
+                else f"{header_label}:"
             )
             header_btn.setFlat(True)
             header_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -695,12 +695,17 @@ class BehaviorTimelineWidget(QWidget):
         root_widget.installEventFilter(self)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Emit ``identity_selected`` when left-clicking anywhere on an animal row in ALL mode."""
+        """Emit ``identity_selected`` when left-clicking anywhere on an animal row in ALL mode.
+
+        Ignored while a label selection is in progress so a click on another
+        animal's row does not transfer the active selection to that animal.
+        """
         if (
             event.type() == QEvent.Type.MouseButtonPress
             and isinstance(event, QMouseEvent)
             and event.button() == Qt.MouseButton.LeftButton
             and self._identity_mode == self.IdentityMode.ALL
+            and self._selection_starting_frame is None
         ):
             ident_idx = self._widget_to_identity_index.get(watched)
             if ident_idx is not None:

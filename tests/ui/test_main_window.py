@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, call
 import pytest
 
 try:
+    from PySide6.QtCore import Qt
+
     import jabs.ui.main_window.main_window as main_window_module
     from jabs.ui.main_window.main_window import MainWindow
 
@@ -442,8 +444,6 @@ def test_conversion_progress_without_a_dialog_is_ignored():
 @pytest.mark.parametrize("digit", range(10))
 def test_key_press_forwards_unmodified_digit_keys_to_central_widget(digit: int) -> None:
     """Unmodified digit keys 0..9 are forwarded to CentralWidget.keyPressEvent."""
-    from PySide6.QtCore import Qt
-
     central = MagicMock()
     stub = SimpleNamespace(centralWidget=lambda: central)
     event = SimpleNamespace(
@@ -462,7 +462,6 @@ def test_key_press_forwards_unmodified_digit_keys_to_central_widget(digit: int) 
 )
 def test_key_press_does_not_forward_modified_digit_keys(monkeypatch, modifier: str) -> None:
     """Digit keys paired with Ctrl/Alt/Meta pass to QMainWindow rather than switching animal."""
-    from PySide6.QtCore import Qt
 
     class _MainWindowStub(MainWindow):
         def __init__(self, central: MagicMock) -> None:
