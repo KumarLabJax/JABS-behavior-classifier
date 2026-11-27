@@ -712,7 +712,16 @@ def test_two_window_gui_end_to_end_multiclass_sync_triage_and_isolation(
             dlg.scatter_canvas.mousePressEvent(ev_p)
             dlg.scatter_canvas.mouseReleaseEvent(ev_r)
 
+        e2e_raise_calls: list[str] = []
+        e2e_activate_calls: list[str] = []
+        monkeypatch.setattr(window, "raise_", lambda: e2e_raise_calls.append("raise"))
+        monkeypatch.setattr(
+            window, "activateWindow", lambda: e2e_activate_calls.append("activate")
+        )
+
         for target_bi in (b_chim, b_mis):
+            e2e_raise_calls.clear()
+            e2e_activate_calls.clear()
             rec_exp = records[target_bi]
             _click_arena_bout_e2e(target_bi)
             QTest.qWait(80)
@@ -724,6 +733,8 @@ def test_two_window_gui_end_to_end_multiclass_sync_triage_and_isolation(
             assert central._player_widget.current_frame == rec_exp.start_frame
             assert central._selection_start == rec_exp.start_frame
             assert central._selection_end == rec_exp.end_frame
+            assert len(e2e_raise_calls) >= 1
+            assert len(e2e_activate_calls) >= 1
 
         # Toggle Arena back off before remaining E2E flow
         dlg.arena_map_btn.click()

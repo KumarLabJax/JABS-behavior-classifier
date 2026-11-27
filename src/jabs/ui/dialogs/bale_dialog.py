@@ -1351,6 +1351,7 @@ class BaleDialog(QtWidgets.QDialog):
         self._is_closing: bool = False
         self._suppress_auto_seek: bool = False
         self._pending_click_already_sought_row: int | None = None
+        self._pending_bring_main_window_to_front: bool = False
         self._standalone_help_dialog: UserGuideDialog | None = None
         self._initial_splitters_applied: bool = False
 
@@ -2635,6 +2636,10 @@ class BaleDialog(QtWidgets.QDialog):
         self.auto_seek_action.setCheckable(True)
         self.auto_seek_action.setChecked(True)
 
+        self.bring_jabs_to_front_action = menu.addAction("Bring JABS Window to Front on Click")
+        self.bring_jabs_to_front_action.setCheckable(True)
+        self.bring_jabs_to_front_action.setChecked(True)
+
         self.auto_mark_viewed_action = menu.addAction("Auto-Mark Examined [V] When Viewed in JABS")
         self.auto_mark_viewed_action.setCheckable(True)
         self.auto_mark_viewed_action.setChecked(True)
@@ -2717,6 +2722,7 @@ class BaleDialog(QtWidgets.QDialog):
         self._is_closing = True
         self._queued_refresh = False
         self._queued_video_refresh = False
+        self._pending_bring_main_window_to_front = False
         self._init_refresh_timer.stop()
         self._scatter_redraw_timer.stop()
         self._bout_search_timer.stop()
@@ -5019,6 +5025,7 @@ class BaleDialog(QtWidgets.QDialog):
             self._seek_bout_in_main_window(
                 self._report.feature_matrix.records[self._selected_bout_idx],
                 b_idx=self._selected_bout_idx,
+                bring_to_front=True,
             )
 
     def _on_table_selection_changed(self) -> None:
@@ -5045,10 +5052,11 @@ class BaleDialog(QtWidgets.QDialog):
             and not self._suppress_auto_seek
             and not skip_seek_for_click
         ):
+            from_left_click = self._table_mouse_press_btn == Qt.MouseButton.LeftButton
             self._pending_click_already_sought_row = row
             QtCore.QTimer.singleShot(0, self._clear_pending_click_if_released)
             rec = self._report.feature_matrix.records[b_idx]
-            self._seek_bout_in_main_window(rec, b_idx=b_idx)
+            self._seek_bout_in_main_window(rec, b_idx=b_idx, bring_to_front=from_left_click)
         else:
             self._pending_click_already_sought_row = None
 
@@ -5068,6 +5076,8 @@ class BaleDialog(QtWidgets.QDialog):
             return
         if self._pending_click_already_sought_row == row:
             self._pending_click_already_sought_row = None
+            if self.auto_seek_action.isChecked():
+                self._request_bring_main_window_to_front()
             return
         self._pending_click_already_sought_row = None
         self._selected_bout_idx = b_idx
@@ -5076,7 +5086,47 @@ class BaleDialog(QtWidgets.QDialog):
         self._update_inspector_card()
         if self.auto_seek_action.isChecked():
             rec = self._report.feature_matrix.records[b_idx]
-            self._seek_bout_in_main_window(rec, b_idx=b_idx)
+            self._seek_bout_in_main_window(rec, b_idx=b_idx, bring_to_front=True)
+
+    def _bring_main_window_to_front(self) -> None:
+        """Raise and activate the main JABS window so the sought bout is immediately visible."""
+        if (
+            self._is_closing
+            or self._central_widget is None
+            or not self.bring_jabs_to_front_action.isChecked()
+        ):
+            return
+        win_fn = getattr(self._central_widget, "window", None)
+        win = win_fn() if callable(win_fn) else None
+        if not isinstance(win, QtWidgets.QWidget) or win is self:
+            return
+        if win.isMinimized():
+            win.showNormal()
+        elif not win.isVisible():
+            win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _request_bring_main_window_to_front(self) -> None:
+        """Queue raising the main JABS window once the current mouse press finishes releasing."""
+        if (
+            self._is_closing
+            or self._central_widget is None
+            or not self.bring_jabs_to_front_action.isChecked()
+        ):
+            return
+        self._pending_bring_main_window_to_front = True
+        QtCore.QTimer.singleShot(0, self._flush_bring_main_window_to_front)
+
+    def _flush_bring_main_window_to_front(self) -> None:
+        """Raise the main JABS window after any held left-mouse press finishes releasing."""
+        if not self._pending_bring_main_window_to_front or self._is_closing:
+            return
+        if QtWidgets.QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+            QtCore.QTimer.singleShot(25, self._flush_bring_main_window_to_front)
+            return
+        self._pending_bring_main_window_to_front = False
+        self._bring_main_window_to_front()
 
     def _seek_bout_in_main_window(
         self,
@@ -5085,6 +5135,7 @@ class BaleDialog(QtWidgets.QDialog):
         select_span: bool = True,
         mark_viewed: bool = True,
         b_idx: int | None = None,
+        bring_to_front: bool = False,
     ) -> None:
         if self._central_widget is None or self._report is None:
             return
@@ -5115,6 +5166,8 @@ class BaleDialog(QtWidgets.QDialog):
             resolved_idx = b_idx if b_idx is not None else self._resolve_bout_index(rec)
             if resolved_idx is not None:
                 self._mark_bout_auto_examined(resolved_idx)
+        if bring_to_front:
+            self._request_bring_main_window_to_front()
 
     def _on_play_clip_clicked(self) -> None:
         if self._mode == "videos":
@@ -5139,8 +5192,9 @@ class BaleDialog(QtWidgets.QDialog):
             finally:
                 self._ignoring_self_seek_signal = False
             self._mark_bout_auto_examined(b_idx)
+            self._request_bring_main_window_to_front()
         else:
-            self._seek_bout_in_main_window(rec, b_idx=b_idx)
+            self._seek_bout_in_main_window(rec, b_idx=b_idx, bring_to_front=True)
 
     def _on_prob_curve_frame_clicked(self, x_frame: float) -> None:
         if self._mode == "videos":
@@ -5181,6 +5235,7 @@ class BaleDialog(QtWidgets.QDialog):
             if hasattr(self._central_widget, "seek_to_frame_only"):
                 self._central_widget.seek_to_frame_only(target_f)
             self._mark_bout_auto_examined(b_idx)
+            self._request_bring_main_window_to_front()
         self._draw_inspector_plot()
 
     # ------------------------------------------------------------------
@@ -6570,12 +6625,15 @@ class BaleDialog(QtWidgets.QDialog):
                     seek_and_mark
                     and self.auto_seek_action.isChecked()
                     and not self._suppress_auto_seek
-                    and self._bout_seek_epoch == seek_epoch_before
                 ):
-                    self._seek_bout_in_main_window(
-                        self._report.feature_matrix.records[b_idx],
-                        b_idx=b_idx,
-                    )
+                    if self._bout_seek_epoch == seek_epoch_before:
+                        self._seek_bout_in_main_window(
+                            self._report.feature_matrix.records[b_idx],
+                            b_idx=b_idx,
+                            bring_to_front=True,
+                        )
+                    else:
+                        self._request_bring_main_window_to_front()
                 return
         # Clicked an eligible point outside the active queue filter (e.g. clean bout in Audit mode)
         self.table.blockSignals(True)
@@ -6588,6 +6646,7 @@ class BaleDialog(QtWidgets.QDialog):
             self._seek_bout_in_main_window(
                 self._report.feature_matrix.records[b_idx],
                 b_idx=b_idx,
+                bring_to_front=True,
             )
 
     def _on_scatter_box_selected(
@@ -8209,6 +8268,8 @@ class BaleDialog(QtWidgets.QDialog):
                     self._table_mouse_press_btn = event.button()
                 elif event.type() == QtCore.QEvent.Type.MouseButtonRelease:
                     QtCore.QTimer.singleShot(0, self._clear_table_mouse_press_state)
+                    if self._pending_bring_main_window_to_front:
+                        QtCore.QTimer.singleShot(0, self._flush_bring_main_window_to_front)
                 elif event.type() in (
                     QtCore.QEvent.Type.Leave,
                     QtCore.QEvent.Type.FocusOut,
@@ -8230,6 +8291,8 @@ class BaleDialog(QtWidgets.QDialog):
                     self._video_table_mouse_press_btn = event.button()
                 elif event.type() == QtCore.QEvent.Type.MouseButtonRelease:
                     QtCore.QTimer.singleShot(0, self._clear_video_table_mouse_press_state)
+                    if self._pending_bring_main_window_to_front:
+                        QtCore.QTimer.singleShot(0, self._flush_bring_main_window_to_front)
                 elif event.type() in (
                     QtCore.QEvent.Type.Leave,
                     QtCore.QEvent.Type.FocusOut,
@@ -9203,8 +9266,11 @@ class BaleDialog(QtWidgets.QDialog):
         ):
             rec = self._get_video_record(vname)
             if rec is not None:
+                from_left_click = self._video_table_mouse_press_btn == Qt.MouseButton.LeftButton
                 self._pending_video_click_already_sought_row = row
-                self._seek_video_in_main_window(rec, frame_zero=False)
+                self._seek_video_in_main_window(
+                    rec, frame_zero=False, bring_to_front=from_left_click
+                )
         else:
             self._pending_video_click_already_sought_row = None
 
@@ -9216,6 +9282,8 @@ class BaleDialog(QtWidgets.QDialog):
             return
         if self._pending_video_click_already_sought_row == row:
             self._pending_video_click_already_sought_row = None
+            if self.auto_seek_action.isChecked():
+                self._request_bring_main_window_to_front()
             return
         self._pending_video_click_already_sought_row = None
         it = self.video_table.item(row, 0)
@@ -9231,7 +9299,7 @@ class BaleDialog(QtWidgets.QDialog):
         if self.auto_seek_action.isChecked():
             rec = self._get_video_record(vname)
             if rec is not None:
-                self._seek_video_in_main_window(rec, frame_zero=False)
+                self._seek_video_in_main_window(rec, frame_zero=False, bring_to_front=True)
 
     def _select_video_by_name(self, video_name: str, *, seek_in_jabs: bool = True) -> None:
         self._clear_video_table_mouse_press_state()
@@ -9259,22 +9327,20 @@ class BaleDialog(QtWidgets.QDialog):
                     self.video_table.selectRow(row)
             finally:
                 self._suppress_auto_seek = prev_sup
-            if (
-                seek_in_jabs
-                and self.auto_seek_action.isChecked()
-                and not self._suppress_auto_seek
-                and self._video_seek_epoch == seek_epoch_before
-            ):
-                rec = self._get_video_record(video_name)
-                if rec is not None:
-                    self._seek_video_in_main_window(rec, frame_zero=False)
+            if seek_in_jabs and self.auto_seek_action.isChecked() and not self._suppress_auto_seek:
+                if self._video_seek_epoch == seek_epoch_before:
+                    rec = self._get_video_record(video_name)
+                    if rec is not None:
+                        self._seek_video_in_main_window(rec, frame_zero=False, bring_to_front=True)
+                else:
+                    self._request_bring_main_window_to_front()
             return
         self._update_video_scatter_selection_ring()
         self._update_video_inspector_card()
         if seek_in_jabs and self.auto_seek_action.isChecked():
             rec = self._get_video_record(video_name)
             if rec is not None:
-                self._seek_video_in_main_window(rec, frame_zero=False)
+                self._seek_video_in_main_window(rec, frame_zero=False, bring_to_front=True)
 
     def _relax_video_preset_if_disjoint(self, picked: set[str]) -> bool:
         """If user boxes dimmed points outside the active preset, relax preset to `all` so rows appear."""
@@ -9887,6 +9953,7 @@ class BaleDialog(QtWidgets.QDialog):
                 self._seek_video_in_main_window(rec, frame_zero=True)
             if hasattr(self._central_widget, "seek_to_frame_only"):
                 self._central_widget.seek_to_frame_only(target_f)
+            self._request_bring_main_window_to_front()
         self._draw_video_timeline_plot(rec)
         self.status_summary_label.setText(
             f"Scrubbed {_short_video_name(rec.video)} to frame {target_f} ({target_f / 30.0:.1f}s)"
@@ -9898,6 +9965,7 @@ class BaleDialog(QtWidgets.QDialog):
         *,
         frame_zero: bool = False,
         play_focal: bool = False,
+        bring_to_front: bool = False,
     ) -> None:
         if self._central_widget is None:
             return
@@ -9951,12 +10019,14 @@ class BaleDialog(QtWidgets.QDialog):
                 self._central_widget.load_video(vid_path)
         finally:
             self._ignoring_self_seek_signal = False
+        if bring_to_front:
+            self._request_bring_main_window_to_front()
 
     def _on_video_open_clicked(self) -> None:
         rec = self._get_video_record(self._selected_video_name)
         if rec is None:
             return
-        self._seek_video_in_main_window(rec, frame_zero=False)
+        self._seek_video_in_main_window(rec, frame_zero=False, bring_to_front=True)
         focal = rec.focal_event_for(self._video_preset, self._video_source)
         self.status_summary_label.setText(
             f"Opened {_short_video_name(rec.video)} @ frame {focal.start_frame} ({focal.reason})"
@@ -9967,7 +10037,7 @@ class BaleDialog(QtWidgets.QDialog):
         if rec is None:
             return
         self._video_scrubbed_frame = 0
-        self._seek_video_in_main_window(rec, frame_zero=True)
+        self._seek_video_in_main_window(rec, frame_zero=True, bring_to_front=True)
         self._draw_video_timeline_plot(rec)
         self.status_summary_label.setText(f"Opened {_short_video_name(rec.video)} at frame 0")
 

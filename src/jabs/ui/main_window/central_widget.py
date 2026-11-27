@@ -2753,9 +2753,36 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.stop()
 
         video_basename = Path(video_name).name
+        if not self._project.is_usable(video_basename):
+            MessageDialog.warning(
+                self,
+                title="Unusable Pose File",
+                message=f"{video_basename} cannot be opened because its pose file is unusable.",
+                details=self._project.unusable_videos.get(video_basename, ""),
+            )
+            return
+
         video_to_load = self._project.video_manager.video_path(video_basename)
         if video_to_load != self._loaded_video:
-            self.load_video(video_to_load)
+            try:
+                self.load_video(video_to_load)
+            except PoseOpenError as e:
+                logger.error("Unable to open the pose file for %s", video_basename, exc_info=True)
+                MessageDialog.error(
+                    self,
+                    title="Unable to Open Pose File",
+                    message=f"Unable to open the pose file for {video_basename}.",
+                    details=e.reason,
+                )
+                return
+            except OSError as e:
+                logger.error("Unable to load video %s: %s", video_basename, e, exc_info=True)
+                MessageDialog.error(
+                    self,
+                    title="Unable to Load Video",
+                    message=f"Unable to load {video_basename}: {e}",
+                )
+                return
 
         if (
             behavior is not None

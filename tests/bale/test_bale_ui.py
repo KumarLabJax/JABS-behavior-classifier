@@ -3414,3 +3414,332 @@ def test_pr608_round2_ui_video_queue_cancel_spatial_race_all_mc_none_and_close_c
             dlg.close()
         QtCore.QThreadPool.globalInstance().waitForDone(5_000)
         QtWidgets.QApplication.processEvents()
+
+
+def test_click_bout_brings_jabs_main_window_to_front_without_stealing_keyboard_focus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Clicking a bout or video raises JABS main window via Options toggle, while arrow/V/right-click do not."""
+    from jabs.bale.models import BoutSpatialResult
+
+    _ensure_qapp()
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+    report = run_bale(project, "Grooming", include_predictions=False, space="classifier")
+    n_bouts = len(report.feature_matrix.records)
+    report.spatial = BoutSpatialResult(
+        coords_xy=np.column_stack(
+            [
+                np.linspace(120.0, 680.0, n_bouts, dtype=np.float32),
+                np.linspace(140.0, 640.0, n_bouts, dtype=np.float32),
+            ]
+        ),
+        nose_xy=np.column_stack(
+            [
+                np.linspace(130.0, 690.0, n_bouts, dtype=np.float32),
+                np.linspace(140.0, 640.0, n_bouts, dtype=np.float32),
+            ]
+        ),
+        valid_mask=np.ones(n_bouts, dtype=bool),
+        frame_width=800.0,
+        frame_height=800.0,
+        normalized=False,
+    )
+
+    main_win = QtWidgets.QMainWindow()
+    seek_calls: list[tuple[str, int, int]] = []
+    play_calls: list[tuple[str, int, int, int]] = []
+    scrub_calls: list[int] = []
+
+    class _CentralWidgetStub(QtWidgets.QWidget):
+        def __init__(self, parent: QtWidgets.QWidget) -> None:
+            super().__init__(parent)
+            self.loaded_video = Path("cage_00.mp4")
+            self.behavior = "Grooming"
+            self._controls = SimpleNamespace(current_identity_index=0)
+
+        def seek_to_bout(
+            self,
+            video_name: str,
+            identity: int,
+            start_frame: int,
+            end_frame: int | None = None,
+            behavior: str | None = None,
+            *,
+            select_span: bool = True,
+        ) -> None:
+            del end_frame, behavior, select_span
+            self.loaded_video = Path(video_name)
+            self._controls.current_identity_index = int(identity)
+            seek_calls.append((Path(video_name).name, int(identity), int(start_frame)))
+
+        def play_bout_clip(
+            self,
+            video_name: str,
+            identity: int,
+            start_frame: int,
+            end_frame: int,
+            behavior: str | None = None,
+            context_frames: int = 10,
+        ) -> None:
+            del behavior, context_frames
+            play_calls.append(
+                (Path(video_name).name, int(identity), int(start_frame), int(end_frame))
+            )
+
+        def seek_to_frame_only(self, frame_idx: int) -> None:
+            scrub_calls.append(int(frame_idx))
+
+        def load_custom_search_queue(self, *_a: object, **_kw: object) -> None:
+            pass
+
+        def sync_external_video_labels(self, *_a: object, **_kw: object) -> None:
+            pass
+
+    cw_stub = _CentralWidgetStub(main_win)
+    main_win.setCentralWidget(cw_stub)
+    main_win.show()
+
+    raise_calls: list[str] = []
+    activate_calls: list[str] = []
+    show_normal_calls: list[str] = []
+    monkeypatch.setattr(main_win, "raise_", lambda: raise_calls.append("raise"))
+    monkeypatch.setattr(main_win, "activateWindow", lambda: activate_calls.append("activate"))
+    monkeypatch.setattr(main_win, "showNormal", lambda: show_normal_calls.append("showNormal"))
+
+    dlg = BaleDialog(project, central_widget=cw_stub)
+    dlg._init_refresh_timer.stop()
+    try:
+        dlg._on_analysis_finished(report, included_preds=False)
+        dlg.show()
+        QtWidgets.QApplication.processEvents()
+        assert dlg.bring_jabs_to_front_action.isChecked() is True
+        assert raise_calls == []
+        assert activate_calls == []
+
+        def _flush_raise_timers() -> None:
+            for _ in range(5):
+                QtWidgets.QApplication.processEvents()
+                time.sleep(0.01)
+
+        def _click_canvas_at_data(
+            canvas: QtWidgets.QWidget,
+            data_xy: tuple[float, float] | np.ndarray,
+        ) -> None:
+            px, py = canvas.ax.transData.transform(data_xy)  # type: ignore[attr-defined]
+            dpr = max(1.0, float(canvas.devicePixelRatioF()))
+            pos = QtCore.QPointF(float(px) / dpr, float(canvas.height()) - float(py) / dpr)
+            QtWidgets.QApplication.sendEvent(
+                canvas,
+                QtGui.QMouseEvent(
+                    QtCore.QEvent.Type.MouseButtonPress,
+                    pos,
+                    pos,
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+            QtWidgets.QApplication.sendEvent(
+                canvas,
+                QtGui.QMouseEvent(
+                    QtCore.QEvent.Type.MouseButtonRelease,
+                    pos,
+                    pos,
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.NoButton,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+
+        def _click_table_cell(tbl: QtWidgets.QTableWidget, row: int, col: int = 0) -> None:
+            it = tbl.item(row, col)
+            assert it is not None
+            rect = tbl.visualItemRect(it)
+            pos = QtCore.QPointF(rect.center())
+            press = QtGui.QMouseEvent(
+                QtCore.QEvent.Type.MouseButtonPress,
+                pos,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            release = QtGui.QMouseEvent(
+                QtCore.QEvent.Type.MouseButtonRelease,
+                pos,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            QtWidgets.QApplication.sendEvent(tbl.viewport(), press)
+            QtWidgets.QApplication.sendEvent(tbl.viewport(), release)
+
+        # 1. Left-clicking a new row in bout table seeks AND brings JABS main window to front
+        raise_calls.clear()
+        activate_calls.clear()
+        seek_calls.clear()
+        target_row = 1 if dlg.table.rowCount() > 1 else 0
+        _click_table_cell(dlg.table, target_row, col=0)
+        _flush_raise_timers()
+        assert len(seek_calls) == 1
+        assert len(raise_calls) == 1
+        assert len(activate_calls) == 1
+
+        # 2. Re-clicking the already-selected row seeks AND brings JABS main window to front
+        raise_calls.clear()
+        activate_calls.clear()
+        seek_calls.clear()
+        _click_table_cell(dlg.table, target_row, col=0)
+        _flush_raise_timers()
+        assert len(seek_calls) == 1
+        assert len(raise_calls) == 1
+        assert len(activate_calls) == 1
+
+        # 3. Clicking a bout dot on PCA scatter AND Arena scatter brings JABS main window to front
+        assert dlg.scatter_canvas._pick_global_indices is not None
+        assert len(dlg.scatter_canvas._pick_global_indices) >= 2
+        dot_row_indices = dlg.scatter_canvas._pick_global_indices
+        cur_b = dlg._selected_bout_idx
+        alt_local = 1 if int(dot_row_indices[0]) == cur_b else 0
+        raise_calls.clear()
+        activate_calls.clear()
+        dlg.scatter_canvas._render_now()
+        _click_canvas_at_data(dlg.scatter_canvas, dlg.scatter_canvas._pick_coords[alt_local])
+        _flush_raise_timers()
+        assert len(raise_calls) >= 1
+        assert len(activate_calls) >= 1
+
+        dlg.arena_map_btn.click()
+        dlg.scatter_canvas._render_now()
+        raise_calls.clear()
+        activate_calls.clear()
+        alt_arena = 0 if alt_local != 0 else 1
+        _click_canvas_at_data(dlg.scatter_canvas, dlg.scatter_canvas._pick_coords[alt_arena])
+        _flush_raise_timers()
+        assert len(raise_calls) >= 1
+        assert len(activate_calls) >= 1
+        dlg.arena_map_btn.click()
+
+        # 4. Play Clip & Probability trace scrub bring JABS main window to front
+        raise_calls.clear()
+        activate_calls.clear()
+        dlg.play_clip_btn.click()
+        _flush_raise_timers()
+        assert len(play_calls) == 1
+        assert len(raise_calls) == 1
+        assert len(activate_calls) == 1
+
+        raise_calls.clear()
+        activate_calls.clear()
+        rec_cur = report.feature_matrix.records[dlg._selected_bout_idx]
+        dlg._set_inspector_view("prob")
+        dlg.insp_canvas._render_now()
+        _click_canvas_at_data(
+            dlg.insp_canvas, (0.5 * (rec_cur.start_frame + rec_cur.end_frame), 0.5)
+        )
+        _flush_raise_timers()
+        assert len(scrub_calls) == 1
+        assert len(raise_calls) == 1
+        assert len(activate_calls) == 1
+
+        # 5. Minimized JABS main window restores with showNormal() before raise/activate
+        monkeypatch.setattr(main_win, "isMinimized", lambda: True)
+        raise_calls.clear()
+        activate_calls.clear()
+        show_normal_calls.clear()
+        _click_table_cell(dlg.table, 0, col=0)
+        _flush_raise_timers()
+        assert show_normal_calls == ["showNormal"]
+        assert len(raise_calls) == 1
+        assert len(activate_calls) == 1
+        monkeypatch.setattr(main_win, "isMinimized", lambda: False)
+
+        # 6. Keyboard arrow step, Col 6 Examined toggle, and Right-Click do NOT steal focus
+        raise_calls.clear()
+        activate_calls.clear()
+        dlg._step_table_row(1)
+        _flush_raise_timers()
+        assert raise_calls == []
+        assert activate_calls == []
+
+        _click_table_cell(dlg.table, 0, col=6)
+        _flush_raise_timers()
+        assert raise_calls == []
+        assert activate_calls == []
+
+        it_r = dlg.table.item(1, 0)
+        assert it_r is not None
+        rpos = QtCore.QPointF(dlg.table.visualItemRect(it_r).center())
+        QtWidgets.QApplication.sendEvent(
+            dlg.table.viewport(),
+            QtGui.QMouseEvent(
+                QtCore.QEvent.Type.MouseButtonPress,
+                rpos,
+                rpos,
+                Qt.MouseButton.RightButton,
+                Qt.MouseButton.RightButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+        QtWidgets.QApplication.sendEvent(
+            dlg.table.viewport(),
+            QtGui.QMouseEvent(
+                QtCore.QEvent.Type.MouseButtonRelease,
+                rpos,
+                rpos,
+                Qt.MouseButton.RightButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+        _flush_raise_timers()
+        assert raise_calls == []
+        assert activate_calls == []
+
+        # 7. Mode 4 (Videos): clicking a video row or dot brings JABS main window to front
+        dlg.mode_videos_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(3)
+        for _ in range(80):
+            QtWidgets.QApplication.processEvents()
+            if dlg._video_report is not None and dlg._video_worker is None:
+                break
+            time.sleep(0.02)
+        assert dlg.video_table.rowCount() >= 2
+        dlg.scatter_canvas._render_now()
+
+        raise_calls.clear()
+        activate_calls.clear()
+        _click_table_cell(dlg.video_table, 1, col=0)
+        _flush_raise_timers()
+        assert len(raise_calls) >= 1
+        assert len(activate_calls) >= 1
+
+        raise_calls.clear()
+        activate_calls.clear()
+        assert dlg.scatter_canvas._pick_coords is not None
+        _click_canvas_at_data(dlg.scatter_canvas, dlg.scatter_canvas._pick_coords[0])
+        _flush_raise_timers()
+        assert len(raise_calls) >= 1
+        assert len(activate_calls) >= 1
+
+        # 8. Unchecking "Bring JABS Window to Front on Click" suppresses raise/activate
+        dlg.mode_audit_btn.setChecked(True)
+        dlg._on_mode_pill_clicked(0)
+        dlg.bring_jabs_to_front_action.setChecked(False)
+        raise_calls.clear()
+        activate_calls.clear()
+        seek_calls.clear()
+        target_end_row = 1 if dlg.table.rowCount() > 1 else 0
+        _click_table_cell(dlg.table, target_end_row, col=0)
+        _flush_raise_timers()
+        assert len(seek_calls) == 1
+        assert raise_calls == []
+        assert activate_calls == []
+    finally:
+        if not dlg._is_closing:
+            dlg.close()
+        main_win.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.processEvents()

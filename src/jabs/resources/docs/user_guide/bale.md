@@ -2,7 +2,7 @@
 
 **BALE (Bout & Label Explorer)** is an interactive companion window built into JABS that helps you audit manual labels, review classifier predictions, discover kinematic sub-types, and screen whole videos across an entire project without leaving the GUI.
 
-BALE opens as a non-modal side-by-side window alongside the main JABS player. Clicking any bout or video in BALE immediately jumps the main JABS video player, active animal identity, and timeline selection to that exact frame span. Manual navigation in the main JABS window never overwrites your current triage queue in BALE.
+BALE opens as a non-modal side-by-side window alongside the main JABS player. Clicking any bout or video in BALE immediately jumps the main JABS video player, active animal identity, and timeline selection to that exact frame span and brings the main JABS window to the front (toggleable under **Options → Bring JABS Window to Front on Click** for side-by-side / multi-monitor workflows). Manual navigation in the main JABS window never overwrites your current triage queue in BALE.
 
 ## Quick Start
 
