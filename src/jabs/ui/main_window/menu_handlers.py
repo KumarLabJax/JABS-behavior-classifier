@@ -702,18 +702,22 @@ class MenuHandlers:
         if existing is not None:
             try:
                 same_proj = existing._project is self.window._project
+                is_closing = bool(getattr(existing, "_is_closing", False))
             except RuntimeError:
                 existing = None
                 self.window._bale_dialog = None
                 same_proj = False
-            if existing is not None and same_proj:
+                is_closing = False
+            if existing is not None and same_proj and not is_closing:
                 existing.show()
                 if existing.isMinimized():
                     existing.showNormal()
                 existing.raise_()
                 existing.activateWindow()
                 return
-            if existing is not None:
+            if existing is not None and is_closing:
+                self.window._bale_dialog = None
+            elif existing is not None:
                 existing.close()
                 existing.deleteLater()
                 self.window._bale_dialog = None
@@ -938,12 +942,17 @@ class MenuHandlers:
 
         # Add BALE (Bout & Label Explorer) window if open
         bale_win = getattr(self.window, "_bale_dialog", None)
-        if bale_win is not None and bale_win.isVisible():
-            bale_action = QAction(bale_win.windowTitle(), self.window)
-            bale_action.setCheckable(True)
-            bale_action.setChecked(bale_win.isActiveWindow())
-            bale_action.triggered.connect(lambda checked, w=bale_win: self.activate_window(w))
-            self.window._menu_refs.window_menu.addAction(bale_action)
+        if bale_win is not None and not getattr(bale_win, "_is_closing", False):
+            try:
+                bale_visible = bale_win.isVisible()
+            except RuntimeError:
+                bale_visible = False
+            if bale_visible:
+                bale_action = QAction(bale_win.windowTitle(), self.window)
+                bale_action.setCheckable(True)
+                bale_action.setChecked(bale_win.isActiveWindow())
+                bale_action.triggered.connect(lambda checked, w=bale_win: self.activate_window(w))
+                self.window._menu_refs.window_menu.addAction(bale_action)
 
         # Add any open dialogs from the central widget
         for title, dialog in self.window._central_widget.get_open_dialogs():

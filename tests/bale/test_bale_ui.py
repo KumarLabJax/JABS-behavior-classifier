@@ -7,6 +7,7 @@ import json
 import sys
 import threading
 import time
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -3743,3 +3744,87 @@ def test_click_bout_brings_jabs_main_window_to_front_without_stealing_keyboard_f
         main_win.close()
         QtCore.QThreadPool.globalInstance().waitForDone(5_000)
         QtWidgets.QApplication.processEvents()
+
+
+def test_bale_close_and_reopen_same_project_creates_fresh_dialog_without_warnings(
+    tmp_path: Path,
+) -> None:
+    """PR #608 review: closing BALE and reopening for the same project creates a fresh live dialog with zero disconnect warnings."""
+    from types import SimpleNamespace
+
+    from jabs.ui.main_window.menu_handlers import MenuHandlers
+
+    class _CentralStub(QtCore.QObject):
+        labels_modified = QtCore.Signal()
+        search_hit_loaded = QtCore.Signal()
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.behavior = "Grooming"
+
+    _ensure_qapp()
+    project, _ = _build_synthetic_explorer_project(tmp_path)
+    central_stub = _CentralStub()
+    win = SimpleNamespace(
+        _project=project,
+        _central_widget=central_stub,
+        _bale_dialog=None,
+    )
+    mh = MenuHandlers(win)
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always", RuntimeWarning)
+
+        # 1. Open first dialog and verify WA_DeleteOnClose is active
+        mh.open_bale_dialog()
+        dlg1 = win._bale_dialog
+        assert dlg1 is not None
+        assert dlg1.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose) is True
+        assert dlg1._is_closing is False
+
+        # 2. Close first dialog and flush DeferredDelete; MainWindow._bale_dialog must clear
+        dlg1.close()
+        assert dlg1._is_closing is True
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        QtWidgets.QApplication.processEvents()
+        assert win._bale_dialog is None
+
+        # 3. Reopen BALE for the SAME project -> must construct a fresh, non-closing dialog
+        mh.open_bale_dialog()
+        dlg2 = win._bale_dialog
+        assert dlg2 is not None and dlg2 is not dlg1
+        assert dlg2._is_closing is False
+
+        # 4. Reopened dialog must accept analysis results and external central-widget signals
+        rep = run_bale(project, "Grooming", include_predictions=False, space="classifier")
+        dlg2._on_analysis_finished(rep, included_preds=False)
+        assert dlg2._report is rep
+        assert dlg2.table.rowCount() > 0
+        central_stub.labels_modified.emit()
+        assert "Updated" in dlg2.recalc_btn.text()
+
+        # 5. Reopen BEFORE DeferredDelete runs (closing dlg2 -> immediate open_bale_dialog)
+        dlg2.close()
+        assert dlg2._is_closing is True
+        mh.open_bale_dialog()
+        dlg3 = win._bale_dialog
+        assert dlg3 is not None and dlg3 is not dlg2
+        assert dlg3._is_closing is False
+
+        # 6. Close final dialog and flush cleanup
+        dlg3.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5_000)
+        QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        QtWidgets.QApplication.processEvents()
+        assert win._bale_dialog is None
+
+    disconnect_warnings = [
+        w
+        for w in caught_warnings
+        if issubclass(w.category, RuntimeWarning)
+        and ("disconnect" in str(w.message) or "_on_external_" in str(w.message))
+    ]
+    assert disconnect_warnings == [], (
+        f"Unexpected signal disconnect warnings: {disconnect_warnings}"
+    )

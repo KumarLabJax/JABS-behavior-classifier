@@ -708,6 +708,11 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
         self._rendered_xlim: tuple[float, float] | None = None
         self._rendered_ylim: tuple[float, float] | None = None
         self._rendered_ax_rect: QtCore.QRectF | None = None
+        self._is_disposed = False
+        self._idle_render_timer = QtCore.QTimer(self)
+        self._idle_render_timer.setSingleShot(True)
+        self._idle_render_timer.setInterval(0)
+        self._idle_render_timer.timeout.connect(self._render_now)
         self._resize_timer = QtCore.QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.setInterval(50)
@@ -757,16 +762,28 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
         self._hover_idx = None
         self._hover_pos = None
 
+    def dispose(self) -> None:
+        """Stop all queued and coalesced render timers before widget deletion."""
+        self._is_disposed = True
+        self._render_pending = False
+        self._idle_render_timer.stop()
+        self._resize_timer.stop()
+        self._viewport_timer.stop()
+
     def draw_idle(self) -> None:
         """Schedule a coalesced offscreen Agg render on the Qt event loop."""
+        if self._is_disposed:
+            return
         self._resize_timer.stop()
         self._viewport_timer.stop()
         if not self._render_pending:
             self._render_pending = True
-            QtCore.QTimer.singleShot(0, self._render_now)
+            self._idle_render_timer.start()
 
     def draw_viewport_preview(self) -> None:
         """Blit cached plot pixels immediately during pan/wheel zoom (`60+ FPS`), settling cleanly after 60 ms."""
+        if self._is_disposed:
+            return
         if (
             self._pixmap is None
             or self._pixmap.isNull()
@@ -782,6 +799,8 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
 
     def _render_now(self) -> None:
         self._render_pending = False
+        if self._is_disposed:
+            return
         self._resize_timer.stop()
         self._viewport_timer.stop()
         w_log = max(80, self.width())
@@ -825,6 +844,8 @@ class _InteractiveAggCanvas(QtWidgets.QWidget):
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
+        if self._is_disposed:
+            return
         if self._pixmap is None or self._pixmap.isNull() or not self.isVisible():
             self.draw_idle()
         else:
@@ -1268,6 +1289,7 @@ class BaleDialog(QtWidgets.QDialog):
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowFlags(
             Qt.WindowType.Window
             | Qt.WindowType.WindowTitleHint
@@ -1326,6 +1348,7 @@ class BaleDialog(QtWidgets.QDialog):
         self._external_labels_dirty: bool = False
         self._ignoring_self_label_signal: bool = False
         self._ignoring_self_seek_signal: bool = False
+        self._central_widget_connections: list[tuple[Any, Any]] = []
         self._table_mouse_press_col: int | None = None
         self._table_mouse_press_btn: Qt.MouseButton | None = None
         self._bout_seek_epoch: int = 0
@@ -2691,9 +2714,13 @@ class BaleDialog(QtWidgets.QDialog):
         if self._central_widget is None:
             return
         if hasattr(self._central_widget, "labels_modified"):
-            self._central_widget.labels_modified.connect(self._on_external_jabs_labels_modified)
+            sig = self._central_widget.labels_modified
+            sig.connect(self._on_external_jabs_labels_modified)
+            self._central_widget_connections.append((sig, self._on_external_jabs_labels_modified))
         if hasattr(self._central_widget, "search_hit_loaded"):
-            self._central_widget.search_hit_loaded.connect(self._on_external_search_hit_loaded)
+            sig = self._central_widget.search_hit_loaded
+            sig.connect(self._on_external_search_hit_loaded)
+            self._central_widget_connections.append((sig, self._on_external_search_hit_loaded))
 
     def _on_initial_refresh_timeout(self) -> None:
         if not self._is_closing and self._report is None and self._active_worker is None:
@@ -2727,10 +2754,8 @@ class BaleDialog(QtWidgets.QDialog):
         self._scatter_redraw_timer.stop()
         self._bout_search_timer.stop()
         self._video_search_timer.stop()
-        self.scatter_canvas._resize_timer.stop()
-        self.scatter_canvas._viewport_timer.stop()
-        self.insp_canvas._resize_timer.stop()
-        self.insp_canvas._viewport_timer.stop()
+        self.scatter_canvas.dispose()
+        self.insp_canvas.dispose()
         for worker in (self._active_worker, self._spatial_worker, self._video_worker):
             if worker is not None:
                 if hasattr(worker, "cancel_event"):
@@ -2738,22 +2763,18 @@ class BaleDialog(QtWidgets.QDialog):
                 if hasattr(worker, "signals"):
                     with contextlib.suppress(RuntimeError, TypeError):
                         worker.signals.disconnect(self)
+        self._active_worker = None
+        self._spatial_worker = None
+        self._video_worker = None
         self._identity_label_cache.clear()
         self._video_ext_id_cache.clear()
         self._repr_matrix_cache = None
         clear_pose_cache()
         clear_spatial_cache()
-        if self._central_widget is not None:
+        while self._central_widget_connections:
+            sig, slot = self._central_widget_connections.pop()
             with contextlib.suppress(TypeError, RuntimeError):
-                if hasattr(self._central_widget, "labels_modified"):
-                    self._central_widget.labels_modified.disconnect(
-                        self._on_external_jabs_labels_modified
-                    )
-            with contextlib.suppress(TypeError, RuntimeError):
-                if hasattr(self._central_widget, "search_hit_loaded"):
-                    self._central_widget.search_hit_loaded.disconnect(
-                        self._on_external_search_hit_loaded
-                    )
+                sig.disconnect(slot)
         super().closeEvent(event)
 
     @staticmethod
@@ -4921,9 +4942,11 @@ class BaleDialog(QtWidgets.QDialog):
         if not (QtWidgets.QApplication.mouseButtons() & Qt.MouseButton.LeftButton):
             self._pending_click_already_sought_row = None
         else:
-            QtCore.QTimer.singleShot(50, self._clear_pending_click_if_released)
+            QtCore.QTimer.singleShot(50, self, self._clear_pending_click_if_released)
 
     def _clear_table_mouse_press_state(self) -> None:
+        if self._is_closing:
+            return
         self._table_mouse_press_col = None
         self._table_mouse_press_btn = None
 
@@ -5054,7 +5077,7 @@ class BaleDialog(QtWidgets.QDialog):
         ):
             from_left_click = self._table_mouse_press_btn == Qt.MouseButton.LeftButton
             self._pending_click_already_sought_row = row
-            QtCore.QTimer.singleShot(0, self._clear_pending_click_if_released)
+            QtCore.QTimer.singleShot(0, self, self._clear_pending_click_if_released)
             rec = self._report.feature_matrix.records[b_idx]
             self._seek_bout_in_main_window(rec, b_idx=b_idx, bring_to_front=from_left_click)
         else:
@@ -5116,14 +5139,14 @@ class BaleDialog(QtWidgets.QDialog):
         ):
             return
         self._pending_bring_main_window_to_front = True
-        QtCore.QTimer.singleShot(0, self._flush_bring_main_window_to_front)
+        QtCore.QTimer.singleShot(0, self, self._flush_bring_main_window_to_front)
 
     def _flush_bring_main_window_to_front(self) -> None:
         """Raise the main JABS window after any held left-mouse press finishes releasing."""
         if not self._pending_bring_main_window_to_front or self._is_closing:
             return
         if QtWidgets.QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
-            QtCore.QTimer.singleShot(25, self._flush_bring_main_window_to_front)
+            QtCore.QTimer.singleShot(25, self, self._flush_bring_main_window_to_front)
             return
         self._pending_bring_main_window_to_front = False
         self._bring_main_window_to_front()
@@ -8249,6 +8272,8 @@ class BaleDialog(QtWidgets.QDialog):
         self._pending_click_already_sought_row = None
 
     def _clear_video_table_mouse_press_state(self) -> None:
+        if self._is_closing:
+            return
         self._video_table_mouse_press_btn = None
 
     def eventFilter(self, source: QtCore.QObject, event: QtCore.QEvent) -> bool:
@@ -8267,9 +8292,9 @@ class BaleDialog(QtWidgets.QDialog):
                     self._table_mouse_press_col = tbl.columnAt(int(event.position().x()))
                     self._table_mouse_press_btn = event.button()
                 elif event.type() == QtCore.QEvent.Type.MouseButtonRelease:
-                    QtCore.QTimer.singleShot(0, self._clear_table_mouse_press_state)
+                    QtCore.QTimer.singleShot(0, self, self._clear_table_mouse_press_state)
                     if self._pending_bring_main_window_to_front:
-                        QtCore.QTimer.singleShot(0, self._flush_bring_main_window_to_front)
+                        QtCore.QTimer.singleShot(0, self, self._flush_bring_main_window_to_front)
                 elif event.type() in (
                     QtCore.QEvent.Type.Leave,
                     QtCore.QEvent.Type.FocusOut,
@@ -8290,9 +8315,9 @@ class BaleDialog(QtWidgets.QDialog):
                 ):
                     self._video_table_mouse_press_btn = event.button()
                 elif event.type() == QtCore.QEvent.Type.MouseButtonRelease:
-                    QtCore.QTimer.singleShot(0, self._clear_video_table_mouse_press_state)
+                    QtCore.QTimer.singleShot(0, self, self._clear_video_table_mouse_press_state)
                     if self._pending_bring_main_window_to_front:
-                        QtCore.QTimer.singleShot(0, self._flush_bring_main_window_to_front)
+                        QtCore.QTimer.singleShot(0, self, self._flush_bring_main_window_to_front)
                 elif event.type() in (
                     QtCore.QEvent.Type.Leave,
                     QtCore.QEvent.Type.FocusOut,
