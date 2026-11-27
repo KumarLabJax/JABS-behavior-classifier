@@ -130,8 +130,10 @@ def _scan_unified(path: Path) -> PoseMetadata:
 
 def _scan_legacy(path: Path) -> PoseMetadata:
     """Scan a legacy pose file from its layout and ``poseest`` attributes."""
-    # in the mode its conversion uses, so the scan and the converted file agree
-    layout = inspect_legacy(path, strict=strict_conversion())
+    # in the mode its conversion uses, so the scan and the converted file agree;
+    # the spare segmentation rows are left to the conversion, since checking
+    # them decompresses all of seg_data
+    layout = inspect_legacy(path, strict=strict_conversion(), check_spare_rows=False)
     if layout.placed_by_track:
         # pose_est_v3: one identity per track slot, as its conversion has
         num_identities = layout.track_slots

@@ -124,7 +124,8 @@ def _describe(report: ConversionReport) -> str:
         f"in {report.seconds:.1f} s, dimensions {dimensions}. "
         f"{report.tail_slots} instance(s) placed in tail slots, "
         f"{report.tracklet_splits} tracklet split(s), "
-        f"{report.longterm_mismatches} longterm_seg_id mismatch(es). "
+        f"{report.longterm_mismatches} longterm_seg_id mismatch(es), "
+        f"{report.tracklets_cleared} tracklet id(s) cleared from masked instances. "
         f"Left behind: {dropped}."
     )
 

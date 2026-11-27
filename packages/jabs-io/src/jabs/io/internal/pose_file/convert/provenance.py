@@ -221,8 +221,11 @@ def convert_entry(
     threshold, ``legacy_attributes``, ``tracklet_id_none`` when the file has
     tracklets, ``tracklet_id_offset`` for a ``pose_est_v3`` file, whose track
     ids are stored plus it, ``model_metadata_json`` when the file has one,
-    and ``waived`` (columns ``path`` and ``reason``) when a lenient
-    inspection left items behind rather than refuse the file.
+    ``waived`` (columns ``path`` and ``reason``) when a lenient
+    inspection left items behind rather than refuse the file, and
+    ``tracklets_cleared`` (columns ``frame``, ``slot``, ``legacy_index`` and
+    ``tracklet``) when a masked instance went without the tracklet id a valid
+    instance of its frame held.
 
     Args:
         h5: The open legacy file, for its attributes.
@@ -290,6 +293,15 @@ def convert_entry(
     if layout.placed_by_track:
         # v3 track 0 is a track, so every v3 track id is stored plus this.
         extra["tracklet_id_offset"] = TRACKLET_ID_OFFSET
+    cleared = plan.tracklets_cleared
+    if len(cleared):
+        # Absent otherwise, so other files' entries are unchanged.
+        extra["tracklets_cleared"] = {
+            "frame": cleared.frame.tolist(),
+            "slot": cleared.slot.tolist(),
+            "legacy_index": cleared.legacy_index.tolist(),
+            "tracklet": cleared.tracklet.tolist(),
+        }
     if layout.waived:
         # Absent otherwise, so a strict conversion's entry is unchanged.
         extra["waived"] = {

@@ -71,6 +71,10 @@ FRAME_DATASETS = (
 # measured, 4 allowed.
 _DEEP_CHECK_COPIES = 4
 
+# The frames ``inspect_legacy`` reads at a time when it checks the
+# ``seg_data`` rows past the pose's instances.
+SPARE_ROW_BLOCK_FRAMES = 900
+
 # The poseest datasets read whole.
 _WHOLE_DATASETS = ("instance_id_center", "external_identity_mapping")
 
@@ -199,7 +203,7 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     its own copy of both offsets, ``GS * (8C + 8)``. The per-frame term is
     the larger of the two phases, times ``F``.
 
-    To that it adds the larger of two block terms. Writing: the largest
+    To that it adds the largest of three block terms. Writing: the largest
     frame block's working set across the frame datasets, which for one with
     ``v`` values per instance and item size ``s`` is
     ``N * v * (2s + 12) + 9 * S * v`` bytes a frame (the block as read and
@@ -208,9 +212,16 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
     times ``min(block_frames, F)``. Checking: four of the deep check's blocks
     of dense contours (``validate.deep_check_block_frames``: 64 MiB, widened
     to whole chunk rows of the contours as the writer chunks them), or the
-    whole baseline if smaller. And it adds, at their item size plus a 4-byte
-    cast, the datasets read whole: the static and dynamic objects,
-    ``instance_id_center`` and ``external_identity_mapping``.
+    whole baseline if smaller. Inspecting: the spare segmentation rows,
+    ``W - N`` of them when ``seg_data``'s instance axis ``W`` is wider than
+    ``points``', whose contours' first point ``inspect_legacy`` reads,
+    ``(W - N) * (C * (s + 1) + 1)`` bytes a frame (the block as read, the
+    comparison and its reduction), times ``min(SPARE_ROW_BLOCK_FRAMES, F)``
+    whatever ``block_frames`` is, since that check sizes its own blocks. The
+    other terms count ``N`` instances only, so without this a wide, mostly
+    unwritten ``seg_data`` would pass the cap. And it adds, at their item
+    size plus a 4-byte cast, the datasets read whole: the static and dynamic
+    objects, ``instance_id_center`` and ``external_identity_mapping``.
 
     A file whose ``points`` has no instance axis (``pose_est_v2``) has
     ``N = 1``, and every axis after the frame counts toward ``v``.
@@ -298,7 +309,14 @@ def estimate_memory(h5: h5py.File, *, identity: int, block_frames: int) -> int:
         if isinstance(dataset, h5py.Dataset)
     )
 
-    return frames * per_frame + max(writing, checking_block) + whole + chunk + cache
+    inspecting = 0
+    if seg is not None and seg.ndim == 5 and seg.shape[1] > instances:
+        spare = int(seg.shape[1]) - instances
+        per_block_frame = spare * (contours * (seg.dtype.itemsize + 1) + 1)
+        inspecting = min(SPARE_ROW_BLOCK_FRAMES, frames) * per_block_frame
+
+    writing_or_checking = max(writing, checking_block, inspecting)
+    return frames * per_frame + writing_or_checking + whole + chunk + cache
 
 
 def require_memory(path: Path, estimate: int, max_memory: int) -> None:

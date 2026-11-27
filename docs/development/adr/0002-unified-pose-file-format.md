@@ -1327,12 +1327,20 @@ plausible converter goes wrong:
 - **Duplicates are refused.** If two valid instances in one frame share an *e* in `1..identity`, the
   converter stops with an error naming the frame and identity, rather than choose which one the
   identity follows.
+- **A masked duplicate loses its tracklet.** A masked instance whose tracklet id a valid instance of
+  the same frame holds keeps its pose in its tail slot, with no tracklet; the `convert` entry lists
+  each one under `tracklets_cleared`. Any other tracklet id in two slots of a frame is refused.
 - **Coordinates.** `poseest/points` is `(y, x)` and is flipped to `(x, y)`. `poseest/seg_data` and
   `poseest/bbox` are already `(x, y)` and are **not** flipped: applying the keypoint flip to them
   transposes every outline and box.
 - **Contours follow the instance.** A slot's contours come from `seg_data` at the same legacy
   instance index as the pose instance placed there. `longterm_seg_id` is not used to find them; it
   is ambiguous when ids repeat, and is only checked against `instance_embed_id`.
+- **The segmentation axis can be wider.** `seg_data`, `seg_external_flag`, `instance_seg_id` and
+  `longterm_seg_id` share their own instance axis, which real v6 files make one row wider than
+  `points`'. Rows past the last pose instance are not converted. They must hold no contour: one that
+  does has no instance to follow, and is refused, or left behind and recorded by a lenient
+  conversion. An axis narrower than `points`' is refused.
 - **`slot_occupied`** is true where any of the slot's confidences is above 0 — stated directly,
   never read from `instance_count`. A valid instance with every confidence 0 keeps its contours, with
   `slot_occupied` false.
