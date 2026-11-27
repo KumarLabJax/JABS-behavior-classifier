@@ -466,16 +466,20 @@ class IdentityFeatures:
             assert len(first) == self._num_frames
         return self._unflatten_window(flat)
 
-    def _labeled_frame_mask(self, labels: np.ndarray) -> npt.NDArray[np.bool_]:
+    def _labeled_frame_mask(self, labels: npt.NDArray[np.integer]) -> npt.NDArray[np.bool_]:
         """Return the mask selecting the frames a feature request should keep.
 
         A frame counts only when the user labeled it *and* this identity exists in
         it. Every ``get_*`` method on this class that takes ``labels`` narrows its
         arrays with this one mask, so the rows they return line up with each other
-        and with the labels the caller passed in. Defining it once is what keeps
-        them from drifting apart: a classifier trained on per-frame rows is scored
-        on window rows selected the same way, and a mismatch there would silently
-        pair each row with the wrong frame's label rather than fail.
+        and with the labels the caller passed in, provided those labels are already
+        identity-masked (NONE wherever the identity is missing, as
+        ``TrackLabels.labels_masked_to_identity()`` returns). A caller that drops only
+        NONE labels from raw labels would keep frames this mask drops, misaligning
+        every later row. Defining it once is what keeps them from drifting apart: a
+        classifier trained on per-frame rows is scored on window rows selected the
+        same way, and a mismatch there would silently pair each row with the wrong
+        frame's label rather than fail.
 
         Args:
             labels: Per-frame label array of
