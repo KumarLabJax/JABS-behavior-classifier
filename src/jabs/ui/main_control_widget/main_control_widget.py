@@ -747,6 +747,7 @@ class MainControlWidget(QtWidgets.QWidget):
             self._update_label_buttons()
 
     def _behavior_changed(self):
+        """Update the label buttons and emit behavior_changed."""
         self._update_label_buttons()
         self.behavior_changed.emit(self.current_behavior)
 

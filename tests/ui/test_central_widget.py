@@ -963,7 +963,6 @@ def test_set_project_emits_behavior_changed_once() -> None:
     CentralWidget.set_project(stub, project)
 
     assert emitted == ["Walk"]
-    controls.deleteLater()
 
 
 def test_set_project_applies_multiclass_mode_to_label_buttons() -> None:
@@ -987,7 +986,19 @@ def test_set_project_applies_multiclass_mode_to_label_buttons() -> None:
     CentralWidget.set_project(stub, project)
 
     assert controls._label_not_behavior_button.text() == "None"
-    controls.deleteLater()
+
+
+def test_set_classifier_mode_without_emit_updates_label_buttons() -> None:
+    """emit=False still shows the mode on the label buttons, but sends no behavior_changed."""
+    _app = QApplication.instance() or QApplication([])
+    controls = MainControlWidget()
+    emitted: list[str] = []
+    controls.behavior_changed.connect(emitted.append)
+
+    controls.set_classifier_mode(ClassifierMode.MULTICLASS, emit=False)
+
+    assert controls._label_not_behavior_button.text() == "None"
+    assert emitted == []
 
 
 def _load_video_stub(previous_pose: MagicMock, events: list[str]) -> MagicMock:
