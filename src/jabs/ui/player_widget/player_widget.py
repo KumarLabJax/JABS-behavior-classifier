@@ -687,17 +687,19 @@ class PlayerWidget(QtWidgets.QWidget):
         """Seek when the slider value changes by dragging, scrolling, or stepping.
 
         While playing, the player thread moves the slider itself, so only a drag (which
-        pauses playback until release) seeks. While a range is about to start, other
-        changes don't seek; the slider goes back to the range start, which is the frame
-        shown, so it still matches the display if the range is cancelled.
+        pauses playback until release) seeks. Before a pending range starts, only the
+        user can move the slider (play_range sets it with signals blocked), so any change
+        cancels the range and seeks where the user moved it, like a slider click does.
+        Some mouse buttons change the value before the press is reported, so this must
+        not depend on isSliderDown().
         """
         if self._player_thread is None:
             return
-        if not self.is_playing_or_pending or self._position_slider.isSliderDown():
-            self._request_seek(value)
-        elif not self._playing and self._playback_range is not None:
-            with QtCore.QSignalBlocker(self._position_slider):
-                self._position_slider.setValue(self._playback_range.start_frame)
+        if self._playing and not self._position_slider.isSliderDown():
+            return
+        if not self._playing and self._playback_range is not None:
+            self.stop()
+        self._request_seek(value)
 
     def toggle_play(self) -> None:
         """handle clicking on the play/pause button

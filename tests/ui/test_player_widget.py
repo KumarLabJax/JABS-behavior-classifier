@@ -319,17 +319,31 @@ def test_toggle_play_during_range_delay_cancels_the_range(qapp: "QApplication") 
     assert widget._next_frame_button.isEnabled()
 
 
-def test_seeks_during_range_delay_are_ignored_like_during_playback(qapp: "QApplication") -> None:
-    """Frame steps and wheel/keyboard slider changes don't move a pending range."""
+def test_frame_steps_during_range_delay_are_ignored(qapp: "QApplication") -> None:
+    """Frame steps (seek_to_frame) don't move a pending range, as during playback."""
     widget, thread = _widget_with_mock_thread()
     widget.play_range(10, 20)
 
     widget.seek_to_frame(500)
+    qapp.processEvents()
+
+    assert widget.is_playing_or_pending
+    assert _seek_targets(thread) == [10]
+    assert widget.current_frame == 10
+
+
+def test_slider_change_during_range_delay_cancels_and_seeks(qapp: "QApplication") -> None:
+    """A wheel/keyboard slider change cancels the pending range and goes where it was moved."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+
     widget._position_slider.setValue(600)
     qapp.processEvents()
 
-    assert _seek_targets(thread) == [10]
-    assert widget.current_frame == 10
+    assert not widget.is_playing_or_pending
+    thread.start.assert_not_called()
+    assert widget.current_frame == 600
+    assert _seek_targets(thread)[-1] == 600
 
 
 def test_slider_click_during_range_delay_cancels_the_range(qapp: "QApplication") -> None:
@@ -378,10 +392,9 @@ def test_range_delay_emits_playing_changed_and_cancel_emits_stop(qapp: "QApplica
 
 
 def test_reload_frame_during_range_delay_redraws_the_range_start(qapp: "QApplication") -> None:
-    """A reload while a range is pending redraws its start, not the (unpinned) slider value."""
+    """A reload while a range is pending redraws the range start."""
     widget, thread = _widget_with_mock_thread()
     widget.play_range(10, 20)
-    widget._position_slider.setValue(600)
 
     widget.reload_frame()
 
@@ -439,15 +452,21 @@ def test_play_range_during_range_delay_replaces_the_pending_range(qapp: "QApplic
     assert _seek_targets(thread)[-1] == 100
 
 
-def test_cancelled_range_leaves_slider_on_the_frame_shown(qapp: "QApplication") -> None:
-    """A scroll during the delay doesn't leave the slider off the displayed frame."""
+def test_absolute_slider_click_during_range_delay_seeks_to_click(qapp: "QApplication") -> None:
+    """An absolute-set click (value changes before sliderPressed) lands where clicked."""
     widget, thread = _widget_with_mock_thread()
+    emitted: list[bool] = []
+    widget.playing_changed.connect(emitted.append)
     widget.play_range(10, 20)
-    widget._position_slider.setValue(600)
 
-    widget.toggle_play()
-    widget.reload_frame()
+    # QSlider's order for SH_Slider_AbsoluteSetButtons: valueChanged, then sliderPressed
+    widget._position_slider.setValue(500)
+    widget._position_slider_clicked()
+    widget._position_slider_release()
     qapp.processEvents()
 
-    assert widget.current_frame == 10
-    assert _seek_targets(thread) == [10, 10]
+    assert not widget.is_playing_or_pending
+    thread.start.assert_not_called()
+    assert widget.current_frame == 500
+    assert _seek_targets(thread)[-1] == 500
+    assert emitted == [True, False]
