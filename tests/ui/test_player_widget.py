@@ -349,11 +349,16 @@ def test_slider_click_during_range_delay_cancels_the_range(qapp) -> None:
 def test_failed_playback_start_resets_the_player(qapp) -> None:
     """If the range can't start, the player goes back to idle and forgets the range."""
     widget, _ = _widget_with_mock_thread()
+    emitted: list[bool] = []
+    widget.playing_changed.connect(emitted.append)
     widget.play_range(10, 20)
     widget._video_stream = None
 
+    # a fired single-shot timer is no longer active when its slot runs
+    widget._play_range_timer.stop()
     widget._start_player_thread()
 
+    assert emitted == [True, False]
     assert not widget.is_playing_or_pending
     assert widget._playback_range is None
     assert not widget._play_button.isChecked()
@@ -371,15 +376,15 @@ def test_range_delay_emits_playing_changed_and_cancel_emits_stop(qapp) -> None:
     assert emitted == [True, False]
 
 
-def test_reload_frame_during_range_delay_does_not_seek(qapp) -> None:
-    """A reload while a range is pending must not seek to the (unpinned) slider value."""
+def test_reload_frame_during_range_delay_redraws_the_range_start(qapp) -> None:
+    """A reload while a range is pending redraws its start, not the (unpinned) slider value."""
     widget, thread = _widget_with_mock_thread()
     widget.play_range(10, 20)
     widget._position_slider.setValue(600)
 
     widget.reload_frame()
 
-    assert _seek_targets(thread) == [10]
+    assert _seek_targets(thread) == [10, 10]
 
 
 def test_play_range_is_ignored_while_slider_is_dragged(qapp) -> None:
@@ -401,3 +406,30 @@ def test_play_range_without_player_thread_does_nothing(qapp) -> None:
     widget.play_range(10, 20)
 
     assert not widget.is_playing_or_pending
+
+
+def test_range_playback_announces_playing_once(qapp) -> None:
+    """The delayed thread start doesn't repeat the playing_changed(True) sent by play_range."""
+    widget, thread = _widget_with_mock_thread()
+    emitted: list[bool] = []
+    widget.playing_changed.connect(emitted.append)
+    widget.play_range(10, 20)
+
+    widget._play_range_timer.stop()
+    widget._start_player_thread()
+
+    thread.start.assert_called_once()
+    assert emitted == [True]
+
+
+def test_play_range_during_range_delay_replaces_the_pending_range(qapp) -> None:
+    """A second range requested before the first starts plays instead of the first."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+
+    widget.play_range(100, 200)
+
+    assert widget._playback_range is not None
+    assert widget._playback_range.start_frame == 100
+    assert widget._play_range_timer.isActive()
+    assert _seek_targets(thread)[-1] == 100

@@ -407,7 +407,7 @@ class PlayerWidget(QtWidgets.QWidget):
         if (
             self._video_stream is None
             or self._player_thread is None
-            or self.is_playing_or_pending
+            or self._playing
             or self._position_slider.isSliderDown()
         ):
             return
@@ -415,6 +415,10 @@ class PlayerWidget(QtWidgets.QWidget):
         # ensure the range is valid
         if start < 0 or end >= self.num_frames or start >= end:
             return
+
+        # a new range requested before a pending one starts replaces it
+        if self.is_playing_or_pending:
+            self.stop()
 
         self._playback_range = PlaybackRange(start_frame=start, end_frame=end)
 
@@ -444,9 +448,10 @@ class PlayerWidget(QtWidgets.QWidget):
         `play_range` seeks first and starts the player thread after a short delay, so
         `_playing` alone misses the window between the call and the actual start. The
         player treats that window exactly like playback: the controls show it as
-        playing, and Play/Pause cancels it.
+        playing, and Play/Pause cancels it. The range is set until `stop()` clears it,
+        so this stays True after the delay timer fires, even if playback fails to start.
         """
-        return self._playing or self._play_range_timer.isActive()
+        return self._playing or self._playback_range is not None
 
     @property
     def current_frame(self) -> int:
@@ -623,7 +628,12 @@ class PlayerWidget(QtWidgets.QWidget):
         This is useful when video overlays have changed but the video
         is paused and we want to update the current frame display.
         """
-        if not self.is_playing_or_pending and self._player_thread is not None:
+        if self._playing or self._player_thread is None:
+            return
+        # a pending range doesn't pin the slider, so redraw its start frame instead
+        if self._playback_range is not None:
+            self._player_thread.seek(self._playback_range.start_frame)
+        else:
             self._player_thread.seek(self._position_slider.value())
 
     def _seek(self, position: int) -> None:
@@ -869,9 +879,12 @@ class PlayerWidget(QtWidgets.QWidget):
             # player doesn't look busy or cut off later playback at a stale range end
             self.stop()
             return
+        # a range already announced playback when it was requested
+        announced = self.is_playing_or_pending
         self._player_thread.start()
         self._playing = True
-        self.playing_changed.emit(True)
+        if not announced:
+            self.playing_changed.emit(True)
 
     def _on_playback_speed_changed(self, speed: float) -> None:
         """Handle playback speed changes."""
