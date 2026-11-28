@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 try:
-    from PySide6 import QtGui
+    from PySide6 import QtCore, QtGui
     from PySide6.QtWidgets import QApplication
 
     from jabs.ui.player_widget import PlayerWidget
@@ -272,3 +272,88 @@ def test_is_playing_or_pending_is_true_while_playing(qapp) -> None:
 
     thread.start.assert_called_once()
     assert widget.is_playing_or_pending
+
+
+def _seek_targets(thread: mock.Mock) -> list[int]:
+    """Frames the mock player thread was asked to seek to, in order."""
+    return [c.args[0] for c in thread.seek.call_args_list]
+
+
+def test_play_range_shows_the_range_as_playing_before_it_starts(qapp) -> None:
+    """During the start delay the controls already show playback, at the range start."""
+    widget, _ = _widget_with_mock_thread()
+
+    widget.play_range(10, 20)
+
+    assert widget._play_button.isChecked()
+    assert not widget._next_frame_button.isEnabled()
+    assert not widget._previous_frame_button.isEnabled()
+    assert widget.current_frame == 10
+
+
+def test_play_range_drops_a_queued_slider_seek(qapp) -> None:
+    """A seek queued just before play_range must not move playback off the range start.
+
+    This is how play_bout_clip lost its lead-in frames: it seeks to the bout start,
+    then plays a range starting a few frames earlier.
+    """
+    widget, thread = _widget_with_mock_thread()
+    widget.seek_to_frame(100)
+
+    widget.play_range(90, 150)
+    qapp.processEvents()
+
+    assert _seek_targets(thread)[-1] == 90
+
+
+def test_toggle_play_during_range_delay_cancels_the_range(qapp) -> None:
+    """Play/Pause shows Pause during the delay, so pressing it stops instead of playing."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+
+    widget.toggle_play()
+
+    thread.start.assert_not_called()
+    assert not widget.is_playing_or_pending
+    assert not widget._play_button.isChecked()
+    assert widget._next_frame_button.isEnabled()
+
+
+def test_seeks_during_range_delay_are_ignored_like_during_playback(qapp) -> None:
+    """Frame steps and wheel/keyboard slider changes don't move a pending range."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+
+    widget.seek_to_frame(500)
+    widget._position_slider.setValue(600)
+    qapp.processEvents()
+
+    assert _seek_targets(thread) == [10]
+
+
+def test_slider_click_during_range_delay_cancels_the_range(qapp) -> None:
+    """Clicking the slider is a deliberate seek: it cancels the pending range and seeks there."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+    with QtCore.QSignalBlocker(widget._position_slider):
+        widget._position_slider.setValue(300)
+
+    widget._position_slider_clicked()
+    widget._position_slider_release()
+
+    assert not widget.is_playing_or_pending
+    thread.start.assert_not_called()
+    assert _seek_targets(thread)[-1] == 300
+
+
+def test_failed_playback_start_resets_the_player(qapp) -> None:
+    """If the range can't start, the player goes back to idle and forgets the range."""
+    widget, _ = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+    widget._video_stream = None
+
+    widget._start_player_thread()
+
+    assert not widget.is_playing_or_pending
+    assert widget._playback_range is None
+    assert not widget._play_button.isChecked()

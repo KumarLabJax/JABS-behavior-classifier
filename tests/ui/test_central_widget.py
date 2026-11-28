@@ -858,6 +858,23 @@ def test_search_hit_whose_pose_fails_to_open_is_reported(monkeypatch):
     stub._player_widget.seek_to_frame.assert_not_called()
 
 
+def test_search_hit_stops_playback_before_seeking(monkeypatch):
+    """The player ignores seeks while playing, so a search hit must stop playback first."""
+    monkeypatch.setattr(central_widget_module, "MessageDialog", MagicMock())
+    project = MagicMock()
+    project.is_usable.return_value = True
+    stub = _search_stub(project, "a.avi")
+    stub._loaded_video = project.video_manager.video_path.return_value
+    stub._player_widget.is_playing_or_pending = True
+    stub._pose_est = SimpleNamespace(num_identities=1)
+
+    CentralWidget._on_search_hit_changed(stub)
+
+    calls = [c[0] for c in stub._player_widget.method_calls]
+    assert calls.index("stop") < calls.index("seek_to_frame")
+    stub._player_widget.seek_to_frame.assert_called_once_with(5)
+
+
 def _stale_classifier_stub() -> SimpleNamespace:
     """Stand-in for _load_cached_classifier whose saved classifier must be retrained."""
     error = central_widget_module.ClassifierFeatureVersionError(

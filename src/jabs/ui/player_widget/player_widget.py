@@ -404,18 +404,28 @@ class PlayerWidget(QtWidgets.QWidget):
             start: starting frame number
             end: ending frame number
         """
-        if self._video_stream is None or self._playing:
+        if self._video_stream is None or self.is_playing_or_pending:
             return
 
         # ensure the range is valid
         if start < 0 or end >= self.num_frames or start >= end:
             return
 
-        self.stop()
         self._playback_range = PlaybackRange(start_frame=start, end_frame=end)
 
-        # set the position slider to the start frame
-        self._seek(self._playback_range.start_frame)
+        # drop any slider seek still queued (e.g. from a seek just before this call), or
+        # it would run after the seek below and move playback off the range start
+        self._seek_timer.stop()
+        self._pending_seek = None
+
+        # move the slider to the start frame without triggering its own seek
+        with QtCore.QSignalBlocker(self._position_slider):
+            self._position_slider.setValue(start)
+        self._seek(start)
+
+        # the range counts as playing from here on, so show it that way now rather than
+        # when the player thread starts
+        self._show_playing_controls()
 
         # start playback, pause for 250 ms first to let things settle after moving
         # the position to the start of the range.
@@ -426,7 +436,9 @@ class PlayerWidget(QtWidgets.QWidget):
         """Return True if playback is running or a range playback is about to start.
 
         `play_range` seeks first and starts the player thread after a short delay, so
-        `_playing` alone misses the window between the call and the actual start.
+        `_playing` alone misses the window between the call and the actual start. The
+        player treats that window exactly like playback: the controls show it as
+        playing, and Play/Pause cancels it.
         """
         return self._playing or self._play_range_timer.isActive()
 
@@ -619,6 +631,10 @@ class PlayerWidget(QtWidgets.QWidget):
         Seek to the new position of the slider. If the video is playing we will temporarily stop playback and
         playback will resume when slider is released. New frame is displayed with the updated position.
         """
+        # clicking the slider before a pending range starts cancels the range
+        if self._play_range_timer.isActive():
+            self.stop()
+
         # should we resume playing after the slider is released?
         self._resume_playing = self._playing
         if self._playing:
@@ -657,7 +673,7 @@ class PlayerWidget(QtWidgets.QWidget):
         pauses playback until release) seeks.
         """
         if self._player_thread is not None and (
-            not self._playing or self._position_slider.isSliderDown()
+            not self.is_playing_or_pending or self._position_slider.isSliderDown()
         ):
             self._request_seek(value)
 
@@ -670,16 +686,13 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread is None or self._position_slider.isSliderDown():
             return
 
-        if self._playing:
-            # if we are playing, stop
+        if self.is_playing_or_pending:
+            # if we are playing (or a range is about to start), stop
             self.stop()
 
         else:
             # we weren't already playing so start
-            self._play_button.setIcon(
-                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPause)
-            )
-            self._disable_frame_buttons()
+            self._show_playing_controls()
             self._start_player_thread()
 
     def next_frame(self, frames: int = 1) -> None:
@@ -705,7 +718,7 @@ class PlayerWidget(QtWidgets.QWidget):
             frame_number: frame number to seek to
         """
         # don't do anything if a video isn't loaded or if the video is playing
-        if self._video_stream is None or self._playing:
+        if self._video_stream is None or self.is_playing_or_pending:
             return
 
         # the frame number should be bounded by the number of frames in the video
@@ -765,6 +778,14 @@ class PlayerWidget(QtWidgets.QWidget):
     def pixmap_clicked(self) -> QtCore.SignalInstance:
         """return the pixmap_clicked signal from the frame widget"""
         return self._frame_widget.pixmap_clicked
+
+    def _show_playing_controls(self) -> None:
+        """Show the play button as Pause and disable the previous/next frame buttons."""
+        self._play_button.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPause)
+        )
+        self._play_button.setChecked(True)
+        self._disable_frame_buttons()
 
     def _enable_frame_buttons(self) -> None:
         """enable the previous/next frame buttons"""
@@ -837,6 +858,9 @@ class PlayerWidget(QtWidgets.QWidget):
     def _start_player_thread(self) -> None:
         """start video playback in player thread"""
         if self._player_thread is None or self._video_stream is None:
+            # nothing to play; reset the controls and drop any pending range so the
+            # player doesn't look busy or cut off later playback at a stale range end
+            self.stop()
             return
         self._player_thread.start()
         self._playing = True
