@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JABS #Hashtag Video Comments — Updated Interactive GUI & Schema Prototype (PR #610)</title>
+<style>
+  :root {
+    --bg: #F8FAFC;
+    --surface: #FFFFFF;
+    --surface-muted: #F1F5F9;
+    --border: #CBD5E1;
+    --ink: #0F172A;
+    --ink-muted: #475569;
+    --navy: #1E40AF;
+    --navy-soft: #DBEAFE;
+    --teal: #0F766E;
+    --teal-soft: #CCFBF1;
+    --crimson: #B91C1C;
+    --crimson-soft: #FEE2E2;
+    --amber: #B45309;
+    --amber-soft: #FEF3C7;
+    --green: #4DAF4A;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 20px 24px 40px;
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  header {
+    max-width: 1240px;
+    margin: 0 auto 16px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 12px;
+  }
+  h1 { margin: 0; font-size: 21px; }
+  .subtitle { margin: 4px 0 0; color: var(--ink-muted); font-size: 13.5px; }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .tab-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 8px 13px;
+    border-radius: var(--radius);
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .tab-btn.active {
+    background: var(--navy);
+    color: #FFFFFF;
+    border-color: var(--navy);
+  }
+  .badge-rec {
+    background: var(--teal-soft);
+    color: var(--teal);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-left: 5px;
+    font-weight: 700;
+  }
+  .badge-defer {
+    background: var(--surface-muted);
+    color: var(--ink-muted);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-left: 5px;
+    font-weight: 700;
+  }
+  main {
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .banner {
+    background: var(--surface-muted);
+    border-left: 4px solid var(--navy);
+    padding: 10px 14px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin-bottom: 14px;
+    font-size: 13.5px;
+  }
+  .jabs-shell {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--surface-muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 6px 11px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--navy);
+    color: #FFFFFF;
+    border-color: var(--navy);
+  }
+  .btn-teal {
+    background: var(--teal-soft);
+    color: var(--teal);
+    border-color: #99F6E4;
+  }
+  .btn-active {
+    background: var(--amber-soft);
+    color: var(--amber);
+    border-color: #FCD34D;
+  }
+  .pill-hint {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 0;
+  }
+  .body-grid.no-drawer { grid-template-columns: 1fr; }
+  .viewport-col {
+    padding: 14px;
+    border-right: 1px solid var(--border);
+  }
+  .body-grid.no-drawer .viewport-col { border-right: none; }
+  .arena-wrap {
+    position: relative;
+    background: #1E293B;
+    border-radius: 6px;
+    height: 295px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .arena-grid {
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .mouse-box {
+    position: absolute;
+    border: 2px solid #94A3B8;
+    border-radius: 8px;
+    padding: 6px 8px;
+    color: #E2E8F0;
+    font-size: 12px;
+    font-weight: 700;
+    background: rgba(15, 23, 42, 0.55);
+  }
+  .mouse-box.focal {
+    border-color: #60A5FA;
+    background: rgba(30, 64, 175, 0.35);
+    color: #FFFFFF;
+  }
+  .video-tag-overlay {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    z-index: 4;
+  }
+  .tag-link-pill {
+    display: inline-block;
+    background: #FFFFFF;
+    color: var(--navy);
+    border: 1px solid #93C5FD;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .tag-link-pill.sick { color: var(--crimson); border-color: #FCA5A5; }
+  .tag-link-pill.teal { color: var(--teal); border-color: #99F6E4; }
+  .tag-link-pill.neutral { color: var(--ink-muted); border-color: var(--border); text-decoration: none; cursor: default; }
+
+  .hud-pill {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(15, 23, 42, 0.85);
+    color: #F8FAFC;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  /* Quick Comment Bar */
+  .quick-bar {
+    margin-top: 12px;
+    background: var(--surface-muted);
+    border: 1px solid var(--navy);
+    border-radius: 6px;
+    padding: 10px 12px;
+    position: relative;
+  }
+  .quick-bar-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .quick-input {
+    flex: 1;
+    min-width: 240px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .vocab-popup {
+    position: absolute;
+    left: 12px;
+    top: 74px;
+    width: 440px;
+    max-width: calc(100% - 24px);
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+    z-index: 20;
+    display: none;
+  }
+  .vocab-item {
+    padding: 7px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    border-bottom: 1px solid #F1F5F9;
+    font-size: 13px;
+  }
+  .vocab-item:hover, .vocab-item.selected { background: var(--navy-soft); }
+  .vocab-desc { color: var(--ink-muted); font-size: 12px; margin-left: 8px; }
+
+  /* Timeline Section */
+  .timeline-box {
+    margin-top: 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #FFFFFF;
+  }
+  .timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ruler-row {
+    display: grid;
+    grid-template-columns: 82px 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .track-row {
+    display: grid;
+    grid-template-columns: 82px 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .track-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-muted);
+    text-align: right;
+  }
+  .video-pin-strip {
+    position: relative;
+    height: 10px;
+    background: #F1F5F9;
+    border-radius: 3px;
+    border: 1px solid #CBD5E1;
+  }
+  .video-pin-dot {
+    position: absolute;
+    top: -1px;
+    width: 8px;
+    height: 8px;
+    background: var(--teal);
+    border: 1px solid #FFFFFF;
+    transform: rotate(45deg);
+    cursor: pointer;
+  }
+  .manual-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    position: relative;
+  }
+  .overview-bar {
+    position: relative;
+    height: 7px;
+    background: #E2E8F0;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .overview-beh {
+    position: absolute;
+    top: 0; bottom: 0;
+    background: var(--green);
+    opacity: 0.75;
+  }
+  .manual-bar {
+    position: relative;
+    height: 28px;
+    background: #F1F5F9;
+    border: 1px solid #94A3B8;
+    border-radius: 3px;
+    cursor: pointer;
+    overflow: visible;
+  }
+  .manual-bar.compact { height: 18px; }
+  .beh-block {
+    position: absolute;
+    top: 3px;
+    bottom: 5px;
+    background: var(--green);
+    border-radius: 2px;
+  }
+  /* Bottom second ticks (relocated from y=0..4 to y=bar_height-4) */
+  .second-tick {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 4px;
+    background: #94A3B8;
+    pointer-events: none;
+  }
+  .selection-span {
+    position: absolute;
+    top: 0; bottom: 0;
+    background: rgba(30, 64, 175, 0.14);
+    border-left: 2px dashed var(--navy);
+    border-right: 2px dashed var(--navy);
+    pointer-events: none;
+  }
+  /* Top-edge 3 px comment stripe + minimum 3 px width */
+  .note-stripe {
+    position: absolute;
+    top: 0;
+    height: 3px;
+    min-width: 3px;
+    border-radius: 1px;
+    cursor: pointer;
+    z-index: 4;
+  }
+  .note-stripe.multi {
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(255,255,255,0.45) 0 3px,
+      transparent 3px 6px
+    );
+  }
+  .note-pin {
+    position: absolute;
+    top: -13px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .playhead {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    background: var(--crimson);
+    z-index: 6;
+    pointer-events: none;
+  }
+
+  /* Custom QFrame Hover/Click Card (replaces QToolTip) */
+  .note-qframe {
+    margin-top: 8px;
+    background: #FFFFFF;
+    border: 1px solid #94A3B8;
+    border-left: 4px solid var(--navy);
+    border-radius: 6px;
+    padding: 8px 12px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .search-strip {
+    margin-top: 8px;
+    background: #EFF6FF;
+    border: 1px solid #93C5FD;
+    border-radius: 6px;
+    padding: 7px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    flex-wrap: wrap;
+  }
+
+  /* Drawer */
+  .drawer-col {
+    background: var(--surface-muted);
+    padding: 12px;
+  }
+  .drawer-col h3 { margin: 0 0 8px; font-size: 15px; }
+  .note-card {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--navy);
+    border-radius: 6px;
+    padding: 9px 10px;
+    margin-bottom: 9px;
+    cursor: pointer;
+  }
+  .note-card.crimson { border-left-color: var(--crimson); }
+  .note-card.teal { border-left-color: var(--teal); }
+  .note-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--ink-muted);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #FFFFFF;
+    margin-top: 8px;
+  }
+  th {
+    text-align: left;
+    border-top: 2px solid #475569;
+    border-bottom: 2px solid #475569;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #E2E8F0;
+    font-size: 13px;
+  }
+  tr:nth-child(even) td { background: #F8FAFC; }
+  pre {
+    background: #0F172A;
+    color: #E2E8F0;
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 900px) {
+    .body-grid, .two-col { grid-template-columns: 1fr; }
+    .viewport-col { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>JABS #Hashtag Video Comments — Interactive Prototype (PR #610 Audited)</h1>
+    <p class="subtitle">Zero extra timeline tracks • Manual-track bottom <code>1s</code> ticks + top-edge comment stripes • Cross-layout <code>#</code> key • Controlled vocab &amp; live <code>#tag</code> Search links</p>
+  </div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="optA">Option A: Manual-Track + # Key <span class="badge-rec">Phase 1</span></button>
+    <button class="tab-btn" data-tab="optB">Option B: + Live-Link Drawer <span class="badge-rec">Optional</span></button>
+    <button class="tab-btn" data-tab="optC">Option C: BALE Project Vocab <span class="badge-defer">Phase 2</span></button>
+    <button class="tab-btn" data-tab="schema">Schema &amp; Ecosystem Roles</button>
+  </div>
+</header>
+
+<main>
+  <!-- Shared Interactive JABS Workspace for Option A / B -->
+  <section id="workspaceSection" class="panel active">
+    <div id="modeBanner" class="banner">
+      <strong>Option A (Phase 1 Core):</strong> Notes live directly on each animal's existing <strong>Manual</strong> bar (zero new timeline rows). Second ticks sit along the <strong>bottom</strong> edge (<code>y = h - 4 px</code>) so the top edge cleanly carries <code>3 px</code> comment stripes (clamped <code>&gt;= 3 px</code> width). Click a mark to open a clickable frameless card, or press <strong>#</strong> on any frame or span.
+    </div>
+
+    <div class="jabs-shell">
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <button class="btn btn-primary" id="openQuickBtn" title="Shortcut: # key (single frame or span)">💬 Add #Comment [#]</button>
+          <button class="btn" id="toggleSelectBtn">Mode: Selected Span f740–768</button>
+          <button class="btn" id="togglePredictionsBtn">View: Manual + Predictions</button>
+          <button class="btn" id="toggleCompactBtn">Track: 30 px Normal</button>
+        </div>
+        <div class="toolbar-group">
+          <span class="pill-hint">Playhead: <strong id="playheadReadout">f752 (25.1 s)</strong> • Animal <strong>0</strong></span>
+        </div>
+      </div>
+
+      <div id="bodyGrid" class="body-grid no-drawer">
+        <div class="viewport-col">
+          <!-- Simulated 4K Video + Video Frame Overlay Pills (capped at <= 2 pills + +N) -->
+          <div class="arena-wrap">
+            <div class="arena-grid"></div>
+            <div id="videoTagOverlay" class="video-tag-overlay"></div>
+            <div class="mouse-box focal" style="left: 26%; top: 34%; width: 155px; height: 92px;">
+              Mouse 0 (Focal)<br/>
+              <span id="focalOverlaySub" style="font-weight:400; color:#DBEAFE;">f740–768 • 2 #tags</span>
+            </div>
+            <div class="mouse-box" style="left: 58%; top: 52%; width: 130px; height: 78px;">Mouse 1<br/><span style="font-weight:400; color:#CBD5E1;">Stationary</span></div>
+            <div class="mouse-box" style="left: 65%; top: 20%; width: 120px; height: 70px;">Mouse 2<br/><span style="font-weight:400; color:#CBD5E1;">Corner</span></div>
+            <div class="hud-pill" id="hudStatus">Active Mode: Selected Span f740–768</div>
+          </div>
+
+          <!-- Inline # Quick-Comment Bar -->
+          <div class="quick-bar" id="quickBar">
+            <div class="quick-bar-row">
+              <strong style="color:var(--navy);" id="quickTargetLabel">Animal 0 • f740–768</strong>
+              <input id="quickInput" class="quick-input" type="text"
+                value="#shake head trembles and looks #sick"
+                placeholder="Type # for controlled vocab (#sha -> #shake), free text, or prose-only note..." />
+              <button class="btn btn-teal" id="saveQuickBtn">Save Note</button>
+              <button class="btn" id="clearQuickBtn">Clear</button>
+            </div>
+            <div id="vocabPopup" class="vocab-popup"></div>
+            <div style="margin-top:5px; font-size:12px; color:var(--ink-muted);">
+              <strong>Vocab &amp; Keys:</strong> Type <code>#sha</code> or alias <code>#wds</code> → <code>Tab</code> or <code>Enter</code> completes first; when no dropdown is open, <code>Enter</code> saves and returns keyboard focus to video playback. Free prose without <code>#tag</code> saves safely with fallback <code>tag: "note"</code>.
+            </div>
+          </div>
+
+          <!-- Timeline Stack (Whole-Video Strip + Animal 0 Manual Bar + Search Hit Strip) -->
+          <div class="timeline-box">
+            <div class="timeline-header">
+              <span>Timeline (0 – 1,800 frames) — Zero New Behavior Rows</span>
+              <span style="color:var(--ink-muted); font-weight:400;">Click diamond/stripe/chevron to inspect • Edit &amp; Delete inside card</span>
+            </div>
+
+            <!-- Dedicated 6-10 px Whole-Video Strip for identity: null -->
+            <div class="ruler-row">
+              <div class="track-label" style="font-size:11px;">Video Pins</div>
+              <div class="video-pin-strip" id="videoPinStrip" title="Whole-video comments (identity: null)"></div>
+            </div>
+
+            <!-- Animal 0 Track -->
+            <div class="track-row" id="animalTrackRow">
+              <div class="track-label" id="animalTrackLabel">Animal 0<br/><span style="font-weight:400;">Manual</span></div>
+              <div class="manual-wrap">
+                <div class="overview-bar" id="overviewBar">
+                  <div class="overview-beh" style="left: 11%; width: 12%;"></div>
+                  <div class="overview-beh" style="left: 55%; width: 14%;"></div>
+                </div>
+                <div class="manual-bar" id="manualBar">
+                  <div class="beh-block" style="left: 11%; width: 12%;" title="Behavior bout f200–415"></div>
+                  <div class="beh-block" style="left: 55%; width: 14%;" title="Behavior bout f990–1240"></div>
+                  <div id="selectionSpanEl" class="selection-span" style="left: 41.1%; width: 1.8%;"></div>
+                  <div id="playheadEl" class="playhead" style="left: 41.8%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Prediction-View Indicator Note -->
+            <div id="predHiddenNotice" style="display:none; background:var(--amber-soft); border:1px solid #FCD34D; border-radius:5px; padding:6px 10px; font-size:12.5px; margin-bottom:6px;">
+              <strong>Predictions View Active:</strong> Per-animal manual behavior bars are collapsed, while top-edge <code>#comment</code> stripes &amp; Video Pins stay visible above Predictions so notes are never stranded.
+            </div>
+
+            <!-- Custom Frameless QFrame Inspector Card (clickable #tag live links + Edit/Delete) -->
+            <div id="qframeCard" class="note-qframe"></div>
+
+            <!-- Linked JABS SearchBarWidget Strip -->
+            <div id="searchStrip" class="search-strip"></div>
+          </div>
+        </div>
+
+        <!-- Option B Collapsible Drawer -->
+        <aside id="drawerCol" class="drawer-col" style="display:none;">
+          <h3>Live-Link #Comment Drawer</h3>
+          <p style="margin:0 0 10px; font-size:12.5px; color:var(--ink-muted);">
+            Click any comment to seek, or click any underlined <strong>#tag</strong> to run a multi-tag JABS Search across <code>hashtags[]</code> + <code>tag</code>.
+          </p>
+          <div id="drawerCards"></div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- Option C Tab (Phase 2 Deferred BALE) -->
+  <section id="optC" class="panel">
+    <div class="banner" style="border-left-color:var(--ink-muted);">
+      <strong>Phase 2+ (BALE Companion App — Deferred from Phase 1):</strong> Exploratory cross-study dashboards and kinematic embedding maps stay out of JABS Main GUI (<code>YAGNI</code>). Once real comments accumulate, BALE queries <code>Project.annotation_store</code> in memory (<code>~15–40 ms</code>, zero stale Parquet sidecars) and clusters tagged bouts by kinematics.
+    </div>
+    <div class="two-col">
+      <div class="jabs-shell" style="padding:14px;">
+        <h3 style="margin-top:0;">Project Controlled Vocabulary Summary (In-Memory Scan)</h3>
+        <table>
+          <thead>
+            <tr><th>Canonical #Tag</th><th>Aliases</th><th>Notes</th><th>Tracks</th><th>BALE Action</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>#shake</strong></td><td><code>#wds, #head_shake</code></td><td>31</td><td>9</td><td><button class="btn" onclick="jumpFromOptionC('shake')">Filter Search</button></td></tr>
+            <tr><td><strong>#exemplar</strong></td><td><code>#gold</code></td><td>22</td><td>11</td><td><button class="btn" onclick="jumpFromOptionC('exemplar')">Open Gallery</button></td></tr>
+            <tr><td><strong>#sick</strong></td><td><code>#ill, #hunched</code></td><td>18</td><td>4</td><td><button class="btn" onclick="jumpFromOptionC('sick')">Health Audit</button></td></tr>
+            <tr><td><strong>#id_swap</strong></td><td><code>#track_swap</code></td><td>14</td><td>7</td><td><button class="btn" onclick="jumpFromOptionC('id_swap')">Pose QC List</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="jabs-shell" style="padding:14px;">
+        <h3 style="margin-top:0;">Governance &amp; Phase-1 Scope Cut</h3>
+        <ul style="margin:0; padding-left:18px;">
+          <li><strong>No standalone <code>hashtags.parquet</code> or <code>~/.jabs/hashtags_ledger.jsonl</code> in Phase 1:</strong> Avoids stale caches after <code>git pull</code>, <code>jabs-cli merge</code>, <code>prune</code>, or <code>update-pose</code>.</li>
+          <li><strong>Vocab lives in <code>project.json["hashtag_vocabulary"]</code>:</strong> Syncs automatically with Hub <code>projects.settings</code>; excluded from <code>jabs/annotations/*.json</code> globs used by <code>update-labels</code>.</li>
+          <li><strong>System QC filtering:</strong> <code>update-pose</code> / <code>update-labels</code> records (<code>remap-metric-disagreement</code>, <code>remap-split</code>, <code>remap-ambiguous-split</code>, <code>behavior-remap-failed</code>, <code>not-behavior-remap-failed</code>) are identified via a shared <code>SYSTEM_ANNOTATION_TAGS</code> constant (or <code>system: true</code> marker field) and filtered out of researcher comment feeds.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Schema & Ecosystem Roles Tab -->
+  <section id="schema" class="panel">
+    <div class="banner" style="border-left-color:var(--teal);">
+      <strong>Minimal Backward-Compatible Schema &amp; Hardened Persistence:</strong> Uses existing <code>description</code> (no redundant <code>text</code>/<code>kind</code>, no per-comment <code>anchor_xy_px</code>/<code>pose_sha256_prefix</code>/<code>origin_project</code>), adds <code>extras</code> passthrough + UUID merge in <code>VideoLabels.merge()</code>, obeys Hub <code>D13</code>/<code>D21</code>/<code>§2.5</code>, and archives cleanly via MLflow <code>annotations.zip</code>.
+    </div>
+    <div class="two-col">
+      <div>
+        <h3 style="margin:0 0 6px;">Live <code>jabs/annotations/*.json</code> + <code>project.json</code> Vocab</h3>
+        <pre id="schemaJsonPre"></pre>
+      </div>
+      <div>
+        <h3 style="margin:0 0 6px;">Ecosystem Layer Boundaries</h3>
+        <table>
+          <thead>
+            <tr><th>Layer</th><th>Key / Scope</th><th>Cross-Project?</th><th>Contract</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Per-Video JSON</strong></td><td><code>project_video + UUID</code></td><td>In-memory scan (<code>&lt; 40 ms</code>)</td><td><code>extras</code> passthrough survives <code>update-pose</code> &amp; <code>VideoLabels.merge()</code>.</td></tr>
+            <tr><td><strong>Controlled Vocab</strong></td><td><code>project.json["hashtag_vocabulary"]</code></td><td>Inherits Hub project settings</td><td>Lab read-only defaults + project overrides &amp; alias map (<code>#wds -&gt; #shake</code>).</td></tr>
+            <tr><td><strong>JABS Hub (Future)</strong></td><td><code>project_video_id</code> (D13)</td><td>Opt-in Phase 3 + ACLs (<code>§2.5</code>)</td><td>Translates 0-based clip frames via <code>[clip_start, clip_end]</code> (<code>D21</code>).</td></tr>
+            <tr><td><strong>MLflow</strong></td><td>Training Run ID</td><td>Snapshot only</td><td>Existing <code>annotations.zip</code> preserves exact annotations &amp; notes; no extra CSV.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const VOCAB = [
+  { tag: "shake", aliases: ["wds", "head_shake"], desc: "Wet-dog or rapid head shake", color: "#1E40AF" },
+  { tag: "sick", aliases: ["ill", "hunched"], desc: "Piloerection / lethargy / hunched posture", color: "#B91C1C" },
+  { tag: "exemplar", aliases: ["gold"], desc: "Clean positive clip for gallery or slides", color: "#0F766E" },
+  { tag: "id_swap", aliases: ["track_swap"], desc: "Pose identity swapped between mice", color: "#B45309" },
+  { tag: "groom_face", aliases: ["face_wash"], desc: "Asymmetric forepaw elliptical face wash", color: "#475569" }
+];
+
+const ALIAS_MAP = {};
+VOCAB.forEach(v => {
+  ALIAS_MAP[v.tag] = v.tag;
+  v.aliases.forEach(a => { ALIAS_MAP[a] = v.tag; });
+});
+
+function canonicalizeTag(raw) {
+  const clean = raw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 32);
+  if (!clean) return "";
+  return ALIAS_MAP[clean] || clean;
+}
+
+function colorForTag(tag) {
+  const found = VOCAB.find(v => v.tag === tag);
+  return found ? found.color : "#1E40AF";
+}
+
+function extractTags(description) {
+  const seen = new Set();
+  const out = [];
+  const re = /(?:^|\s)#([A-Za-z0-9_-]{1,32})/g;
+  let m;
+  while ((m = re.exec(description)) !== null) {
+    const canon = canonicalizeTag(m[1]);
+    if (canon && !seen.has(canon)) {
+      seen.add(canon);
+      out.push(canon);
+    }
+  }
+  return out;
+}
+
+let notes = [
+  {
+    id: "n1",
+    start: 280,
+    end: 280,
+    identity: 0,
+    description: "#exemplar clean bout right before turning",
+    hashtags: ["exemplar"],
+    tag: "exemplar",
+    color: "#0F766E",
+    author: "vivek",
+    created_at: "2026-11-24T19:10:00Z"
+  },
+  {
+    id: "n2",
+    start: 740,
+    end: 768,
+    identity: 0,
+    description: "#shake the head shakes slightly and looks like the mouse is #sick",
+    hashtags: ["shake", "sick"],
+    tag: "shake",
+    color: "#1E40AF",
+    author: "vivek",
+    created_at: "2026-11-24T19:14:20Z"
+  },
+  {
+    id: "n3",
+    start: 752,
+    end: 752,
+    identity: 0,
+    description: "Check #sick hunched posture again 12 frames later",
+    hashtags: ["sick"],
+    tag: "sick",
+    color: "#B91C1C",
+    author: "alex",
+    created_at: "2026-11-24T19:18:05Z"
+  },
+  {
+    id: "n4",
+    start: 1120,
+    end: 1160,
+    identity: null,
+    description: "#id_swap camera glare near hopper corner across all mice",
+    hashtags: ["id_swap"],
+    tag: "id_swap",
+    color: "#B45309",
+    author: "glen",
+    created_at: "2026-11-24T19:22:00Z"
+  }
+];
+
+let selectedNoteId = "n2";
+let activeSearchTag = "sick";
+let searchHitIdx = 0;
+let selectionMode = true; // true = span f740-768, false = single frame f752
+let viewPredictions = false;
+let compactTrack = false;
+let popupMatches = [];
+let popupIdx = 0;
+
+function formatDescriptionWithLinks(desc) {
+  return desc.replace(/(^|\s)(#[A-Za-z0-9_-]{1,32})/g, (_, sp, rawTag) => {
+    const canon = canonicalizeTag(rawTag.slice(1));
+    const cls = canon === "sick" ? "sick" : (canon === "exemplar" ? "teal" : "");
+    return `${sp}<span class="tag-link-pill ${cls}" onclick="event.stopPropagation(); searchTag('${canon}')">#${canon}</span>`;
+  });
+}
+
+function getSearchHits(tag) {
+  if (!tag) return [];
+  const q = tag.toLowerCase();
+  return notes.filter(n =>
+    (n.hashtags || []).some(t => t.toLowerCase() === q) ||
+    (n.tag || "").toLowerCase() === q
+  );
+}
+
+function searchTag(tag) {
+  activeSearchTag = canonicalizeTag(tag);
+  searchHitIdx = 0;
+  const hits = getSearchHits(activeSearchTag);
+  if (hits.length) {
+    selectNote(hits[0].id, false);
+  }
+  renderAll();
+}
+
+function stepSearch(delta) {
+  const hits = getSearchHits(activeSearchTag);
+  if (!hits.length) return;
+  searchHitIdx = (searchHitIdx + delta + hits.length) % hits.length;
+  selectNote(hits[searchHitIdx].id, false);
+  renderAll();
+}
+
+function selectNote(id, clearSearch = false) {
+  selectedNoteId = id;
+  if (clearSearch) activeSearchTag = "";
+  renderAll();
+}
+
+function deleteNote(id) {
+  notes = notes.filter(n => n.id !== id);
+  if (selectedNoteId === id) {
+    selectedNoteId = notes.length ? notes[0].id : null;
+  }
+  renderAll();
+}
+
+function editNote(id) {
+  const n = notes.find(x => x.id === id);
+  if (!n) return;
+  const inp = document.getElementById("quickInput");
+  inp.value = n.description;
+  inp.dataset.editingId = n.id;
+  inp.focus();
+  updateVocabPopup();
+}
+
+function renderTimelineAndOverlays() {
+  const manualBar = document.getElementById("manualBar");
+  const videoStrip = document.getElementById("videoPinStrip");
+  const selSpan = document.getElementById("selectionSpanEl");
+  const playhead = document.getElementById("playheadEl");
+
+  // Clear dynamic children
+  Array.from(manualBar.querySelectorAll(".note-stripe, .note-pin, .second-tick")).forEach(el => el.remove());
+  videoStrip.innerHTML = "";
+
+  // Draw bottom-edge 1s ticks (30f = every 1.67%) so top edge y=0..4 is collision-free
+  for (let f = 60; f < 1800; f += 60) {
+    const t = document.createElement("div");
+    t.className = "second-tick";
+    t.style.left = `${(f / 1800) * 100}%`;
+    manualBar.appendChild(t);
+  }
+
+  // Toggle selection span vs single frame
+  const startF = selectionMode ? 740 : 752;
+  const endF = selectionMode ? 768 : 752;
+  selSpan.style.display = selectionMode ? "block" : "none";
+  selSpan.style.left = `${(startF / 1800) * 100}%`;
+  selSpan.style.width = `${((endF - startF + 1) / 1800) * 100}%`;
+  playhead.style.left = `${(752 / 1800) * 100}%`;
+  document.getElementById("playheadReadout").textContent = "f752 (25.1 s)";
+  document.getElementById("quickTargetLabel").textContent = selectionMode
+    ? "Animal 0 • f740–768"
+    : "Animal 0 • Point f752";
+  document.getElementById("hudStatus").textContent = selectionMode
+    ? "Mode: Selected Span f740–768 (Add #Comment enabled)"
+    : "Mode: Single Frame f752 (Add #Comment ALWAYS enabled)";
+
+  // Compact & ViewMode states
+  manualBar.classList.toggle("compact", compactTrack);
+  document.getElementById("animalTrackRow").style.display = viewPredictions ? "none" : "grid";
+  document.getElementById("predHiddenNotice").style.display = viewPredictions ? "block" : "none";
+
+  // Count overlapping animal notes for hatch badge
+  const animalNotes = notes.filter(n => n.identity === 0);
+  animalNotes.forEach(n => {
+    const overlapCount = animalNotes.filter(o => o.id !== n.id && !(o.end < n.start || o.start > n.end)).length;
+    const stripe = document.createElement("div");
+    stripe.className = "note-stripe" + (overlapCount > 0 ? " multi" : "");
+    stripe.style.left = `${(n.start / 1800) * 100}%`;
+    stripe.style.width = `max(3px, ${((n.end - n.start + 1) / 1800) * 100}%)`;
+    stripe.style.backgroundColor = n.color || "#1E40AF";
+    stripe.title = `${n.description} (click to open card)`;
+    stripe.onclick = (e) => { e.stopPropagation(); selectNote(n.id); };
+    manualBar.appendChild(stripe);
+
+    const pin = document.createElement("div");
+    pin.className = "note-pin";
+    pin.style.left = `${(n.start / 1800) * 100}%`;
+    pin.style.color = n.color || "#1E40AF";
+    pin.textContent = overlapCount > 0 && n.id === "n2" ? `▾ +${overlapCount}` : "▾";
+    pin.onclick = (e) => { e.stopPropagation(); selectNote(n.id); };
+    manualBar.appendChild(pin);
+  });
+
+  // Whole-video pins (identity: null) on dedicated Video Pin Strip
+  notes.filter(n => n.identity === null).forEach(n => {
+    const dot = document.createElement("div");
+    dot.className = "video-pin-dot";
+    dot.style.left = `${(n.start / 1800) * 100}%`;
+    dot.style.backgroundColor = n.color || "#B45309";
+    dot.title = `[Whole Video] ${n.description}`;
+    dot.onclick = (e) => { e.stopPropagation(); selectNote(n.id); };
+    videoStrip.appendChild(dot);
+  });
+
+  // Cap Video Frame Overlay pills at <= 2 tags + +N
+  const active = notes.find(n => n.id === selectedNoteId) || notes[0];
+  const ov = document.getElementById("videoTagOverlay");
+  ov.innerHTML = "";
+  if (active) {
+    const tags = active.hashtags.length ? active.hashtags : ["note"];
+    tags.slice(0, 2).forEach(t => {
+      const sp = document.createElement("span");
+      sp.className = "tag-link-pill " + (t === "sick" ? "sick" : (t === "exemplar" ? "teal" : ""));
+      sp.textContent = `#${t}`;
+      sp.onclick = () => searchTag(t);
+      ov.appendChild(sp);
+    });
+    if (tags.length > 2) {
+      const more = document.createElement("span");
+      more.className = "tag-link-pill neutral";
+      more.textContent = `+${tags.length - 2}`;
+      ov.appendChild(more);
+    }
+    document.getElementById("focalOverlaySub").textContent =
+      `${active.start === active.end ? `Point f${active.start}` : `Span f${active.start}–${active.end}`} • ${active.hashtags.length} #tags`;
+  }
+}
+
+function renderQFrameCard() {
+  const card = document.getElementById("qframeCard");
+  const n = notes.find(x => x.id === selectedNoteId);
+  if (!n) {
+    card.innerHTML = `<span style="color:var(--ink-muted);">No comment selected. Click a stripe or Video Pin above.</span>`;
+    return;
+  }
+  const scope = n.identity === null ? "Whole Video (ruler pin)" : `Animal ${n.identity}`;
+  const spanLabel = n.start === n.end ? `Point f${n.start}` : `Span f${n.start}–${n.end}`;
+  card.style.borderLeftColor = n.color || "#1E40AF";
+  card.innerHTML = `
+    <div>
+      <div style="font-size:12px; color:var(--ink-muted); font-weight:700; margin-bottom:3px;">
+        Custom QFrame Popup • ${scope} • ${spanLabel} • @${n.author}
+      </div>
+      <div>${formatDescriptionWithLinks(n.description)}</div>
+    </div>
+    <div style="display:flex; gap:6px;">
+      <button class="btn" onclick="editNote('${n.id}')">Edit</button>
+      <button class="btn" style="color:var(--crimson);" onclick="deleteNote('${n.id}')">Delete</button>
+    </div>
+  `;
+}
+
+function renderSearchStrip() {
+  const strip = document.getElementById("searchStrip");
+  if (!activeSearchTag) {
+    strip.innerHTML = `<span><strong>JABS SearchBarWidget:</strong> Click any underlined <code>#tag</code> above (for example <strong>#sick</strong>) to filter across both primary <code>tag</code> and secondary <code>hashtags[]</code>.</span>`;
+    return;
+  }
+  const hits = getSearchHits(activeSearchTag);
+  const pos = hits.length ? `${searchHitIdx + 1} / ${hits.length}` : "0 / 0";
+  strip.innerHTML = `
+    <div>
+      <strong>SearchBarWidget:</strong> Matching normalized <code>hashtags[] + tag</code> for <span class="tag-link-pill">${"#"+activeSearchTag}</span> — <strong>${pos} hits</strong> (including whole-video <code>identity: null</code> safety)
+    </div>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button class="btn" onclick="stepSearch(-1)">◀ Prev</button>
+      <button class="btn" onclick="stepSearch(1)">Next ▶</button>
+      <button class="btn" onclick="activeSearchTag=''; renderAll();">Clear</button>
+    </div>
+  `;
+}
+
+function renderDrawer() {
+  const container = document.getElementById("drawerCards");
+  container.innerHTML = "";
+  notes.forEach(n => {
+    const div = document.createElement("div");
+    const cls = n.color === "#B91C1C" ? "crimson" : (n.color === "#0F766E" ? "teal" : "");
+    div.className = `note-card ${cls}`;
+    if (n.id === selectedNoteId) div.style.outline = "2px solid #1E40AF";
+    const spanTxt = n.start === n.end ? `f${n.start}` : `f${n.start}–${n.end}`;
+    const scopeTxt = n.identity === null ? "Video" : `Mouse ${n.identity}`;
+    div.innerHTML = `
+      <div class="note-meta"><span>${scopeTxt} • ${spanTxt}</span><span>@${n.author}</span></div>
+      <div>${formatDescriptionWithLinks(n.description)}</div>
+    `;
+    div.onclick = () => selectNote(n.id);
+    container.appendChild(div);
+  });
+}
+
+function renderSchemaJson() {
+  const active = notes.find(x => x.id === selectedNoteId) || notes[0];
+  const sample = active ? {
+    id: active.id,
+    start: active.start,
+    end: active.end,
+    identity: active.identity,
+    description: active.description,
+    hashtags: active.hashtags,
+    tag: active.tag,
+    color: active.color,
+    author: active.author,
+    created_at: active.created_at
+  } : {};
+  const vocabObj = {};
+  VOCAB.slice(0, 3).forEach(v => {
+    vocabObj[v.tag] = { aliases: v.aliases, color: v.color, description: v.desc };
+  });
+  document.getElementById("schemaJsonPre").textContent = JSON.stringify({
+    "jabs/annotations/<video>.json -> annotations[]": sample,
+    "project.json -> hashtag_vocabulary (defaults + overrides)": vocabObj
+  }, null, 2);
+}
+
+function renderAll() {
+  renderTimelineAndOverlays();
+  renderQFrameCard();
+  renderSearchStrip();
+  renderDrawer();
+  renderSchemaJson();
+}
+
+/* Autocomplete helpers with cursor preservation */
+function getActiveHashToken() {
+  const inp = document.getElementById("quickInput");
+  const pos = inp.selectionStart ?? inp.value.length;
+  const before = inp.value.slice(0, pos);
+  const m = before.match(/(?:^|\s)#([A-Za-z0-9_-]*)$/);
+  if (!m) return null;
+  const startIdx = before.length - m[1].length - 1;
+  return { prefix: m[1].toLowerCase(), startIdx, endIdx: pos };
+}
+
+function updateVocabPopup() {
+  const tok = getActiveHashToken();
+  const popup = document.getElementById("vocabPopup");
+  if (!tok) {
+    popup.style.display = "none";
+    popupMatches = [];
+    return;
+  }
+  popupMatches = [];
+  VOCAB.forEach(v => {
+    const aliasHit = v.aliases.find(a => a.startsWith(tok.prefix));
+    if (v.tag.startsWith(tok.prefix) || aliasHit || tok.prefix === "") {
+      popupMatches.push({ tag: v.tag, desc: aliasHit ? `alias #${aliasHit} → ${v.desc}` : v.desc, isNew: false });
+    }
+  });
+  const exactKnown = VOCAB.some(v => v.tag === tok.prefix || v.aliases.includes(tok.prefix));
+  if (tok.prefix.length >= 2 && !exactKnown) {
+    popupMatches.push({ tag: tok.prefix, desc: "Session project override (project.json)", isNew: true });
+  }
+  if (!popupMatches.length) {
+    popup.style.display = "none";
+    return;
+  }
+  popupIdx = Math.min(popupIdx, popupMatches.length - 1);
+  popup.innerHTML = "";
+  popupMatches.forEach((m, idx) => {
+    const row = document.createElement("div");
+    row.className = "vocab-item" + (idx === popupIdx ? " selected" : "");
+    row.innerHTML = `<strong>${m.isNew ? `+ Add #${m.tag}` : `#${m.tag}`}</strong><span class="vocab-desc">${m.desc}</span>`;
+    row.onmousedown = (e) => { e.preventDefault(); applyVocabCompletion(m.tag); };
+    popup.appendChild(row);
+  });
+  popup.style.display = "block";
+}
+
+function applyVocabCompletion(tag) {
+  const inp = document.getElementById("quickInput");
+  const tok = getActiveHashToken();
+  if (!tok) return;
+  const canon = canonicalizeTag(tag);
+  const before = inp.value.slice(0, tok.startIdx);
+  const after = inp.value.slice(tok.endIdx);
+  const needsSpace = after.length === 0 || !after.startsWith(" ");
+  const inserted = `#${canon}${needsSpace ? " " : ""}`;
+  inp.value = before + inserted + after.replace(/^\s+/, after.startsWith(" ") ? " " : "");
+  const nextPos = before.length + inserted.length;
+  inp.focus();
+  inp.setSelectionRange(nextPos, nextPos);
+  document.getElementById("vocabPopup").style.display = "none";
+  popupMatches = [];
+}
+
+function saveQuickNote() {
+  const inp = document.getElementById("quickInput");
+  const raw = inp.value.trim();
+  if (!raw) return;
+  const tags = extractTags(raw);
+  const primary = tags.length ? tags[0] : "note"; // Safe canonical fallback for tagless prose
+  const editingId = inp.dataset.editingId;
+  if (editingId) {
+    const existing = notes.find(n => n.id === editingId);
+    if (existing) {
+      existing.description = raw;
+      existing.hashtags = tags;
+      existing.tag = primary;
+      existing.color = tags.length ? colorForTag(primary) : "#475569";
+      selectedNoteId = existing.id;
+    }
+    delete inp.dataset.editingId;
+  } else {
+    const startF = selectionMode ? 740 : 752;
+    const endF = selectionMode ? 768 : 752;
+    const newId = "n" + Date.now().toString().slice(-4);
+    notes.push({
+      id: newId,
+      start: startF,
+      end: endF,
+      identity: 0,
+      description: raw,
+      hashtags: tags,
+      tag: primary,
+      color: tags.length ? colorForTag(primary) : "#475569",
+      author: "vivek",
+      created_at: new Date().toISOString()
+    });
+    selectedNoteId = newId;
+  }
+  document.getElementById("vocabPopup").style.display = "none";
+  popupMatches = [];
+  inp.blur(); // Return focus cleanly to MainWindow
+  renderAll();
+}
+
+/* Tab & toolbar wiring */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const target = btn.dataset.tab;
+    const isWorkspace = target === "optA" || target === "optB";
+    document.getElementById("workspaceSection").classList.toggle("active", isWorkspace);
+    document.getElementById("optC").classList.toggle("active", target === "optC");
+    document.getElementById("schema").classList.toggle("active", target === "schema");
+    if (isWorkspace) {
+      const showDrawer = target === "optB";
+      document.getElementById("drawerCol").style.display = showDrawer ? "block" : "none";
+      document.getElementById("bodyGrid").classList.toggle("no-drawer", !showDrawer);
+      document.getElementById("modeBanner").innerHTML = showDrawer
+        ? "<strong>Option B (+ Live-Link Drawer):</strong> Keeps zero extra timeline tracks and adds an optional collapsible comment feed with clickable <code>#tag</code> Search filters."
+        : "<strong>Option A (Phase 1 Core):</strong> Notes live directly on each animal's existing <strong>Manual</strong> bar (zero new timeline rows). Second ticks sit along the <strong>bottom</strong> edge (<code>y = h - 4 px</code>) so the top edge cleanly carries <code>3 px</code> comment stripes (clamped <code>&gt;= 3 px</code> width). Click a mark to open a clickable frameless card, or press <strong>#</strong> on any frame or span.";
+    }
+  };
+});
+
+function jumpFromOptionC(tag) {
+  document.querySelector('[data-tab="optB"]').click();
+  searchTag(tag);
+}
+
+document.getElementById("toggleSelectBtn").onclick = (e) => {
+  selectionMode = !selectionMode;
+  e.target.textContent = selectionMode ? "Mode: Selected Span f740–768" : "Mode: Single Point f752";
+  e.target.classList.toggle("btn-active", !selectionMode);
+  renderAll();
+};
+
+document.getElementById("togglePredictionsBtn").onclick = (e) => {
+  viewPredictions = !viewPredictions;
+  e.target.textContent = viewPredictions ? "View: Predictions Mode" : "View: Manual + Predictions";
+  e.target.classList.toggle("btn-active", viewPredictions);
+  renderAll();
+};
+
+document.getElementById("toggleCompactBtn").onclick = (e) => {
+  compactTrack = !compactTrack;
+  e.target.textContent = compactTrack ? "Track: 18 px Compact" : "Track: 30 px Normal";
+  e.target.classList.toggle("btn-active", compactTrack);
+  renderAll();
+};
+
+document.getElementById("openQuickBtn").onclick = () => {
+  const inp = document.getElementById("quickInput");
+  inp.focus();
+  inp.setSelectionRange(inp.value.length, inp.value.length);
+  updateVocabPopup();
+};
+document.getElementById("saveQuickBtn").onclick = saveQuickNote;
+document.getElementById("clearQuickBtn").onclick = () => {
+  const inp = document.getElementById("quickInput");
+  delete inp.dataset.editingId;
+  inp.value = "";
+  inp.focus();
+  updateVocabPopup();
+};
+
+const quickInput = document.getElementById("quickInput");
+quickInput.addEventListener("input", updateVocabPopup);
+quickInput.addEventListener("keydown", (e) => {
+  const popupVisible = document.getElementById("vocabPopup").style.display === "block" && popupMatches.length > 0;
+  if (e.key === "ArrowDown" && popupVisible) {
+    e.preventDefault();
+    popupIdx = (popupIdx + 1) % popupMatches.length;
+    updateVocabPopup();
+  } else if (e.key === "ArrowUp" && popupVisible) {
+    e.preventDefault();
+    popupIdx = (popupIdx - 1 + popupMatches.length) % popupMatches.length;
+    updateVocabPopup();
+  } else if (e.key === "Tab" && popupVisible) {
+    e.preventDefault();
+    applyVocabCompletion(popupMatches[popupIdx].tag);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (popupVisible) {
+      applyVocabCompletion(popupMatches[popupIdx].tag); // Enter completes active #prefix first
+    } else {
+      saveQuickNote();
+    }
+  } else if (e.key === "Escape") {
+    document.getElementById("vocabPopup").style.display = "none";
+    quickInput.blur();
+  }
+});
+
+// Layout-independent '#' global shortcut; never fires while typing in INPUT/SELECT/TEXTAREA
+window.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.key === "#") {
+    e.preventDefault();
+    quickInput.focus();
+    updateVocabPopup();
+  }
+});
+
+renderAll();
+</script>
+</body>
+</html>
