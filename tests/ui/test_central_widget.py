@@ -13,9 +13,11 @@ from jabs.project.unusable_report import UnusableNotice
 
 try:
     from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
 
     import jabs.ui.main_window.central_widget as central_widget_module
     from jabs.core.enums import ClassifierMode
+    from jabs.ui.main_control_widget.main_control_widget import MainControlWidget
     from jabs.ui.main_window.central_widget import CentralWidget
 
     SKIP_UI_TESTS = False
@@ -931,6 +933,35 @@ def test_set_project_drops_the_previous_projects_video():
     stub._player_widget.reset.assert_called_once()
     stub._controls.set_identities.assert_called_with([])
     assert stub._controls.select_button_enabled is False
+
+
+def test_set_project_emits_behavior_changed_once():
+    """Opening a project loads the saved classifier (and warns about it) only once.
+
+    Setting the classifier mode and the project settings each emitted behavior_changed,
+    so a stale classifier was loaded, logged and warned about twice.
+    """
+    _app = QApplication.instance() or QApplication([])
+    controls = MainControlWidget()
+    emitted: list[str] = []
+    controls.behavior_changed.connect(emitted.append)
+    stub = SimpleNamespace(
+        _project=None,
+        _pose_est=None,
+        _controls=controls,
+        _player_widget=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+        _set_identities=MagicMock(),
+        _update_select_button_state=MagicMock(),
+    )
+    project = MagicMock()
+    project.settings = {"window_sizes": [5], "behavior": {"Walk": {}}}
+    project.settings_manager.classifier_mode = ClassifierMode.BINARY
+
+    CentralWidget.set_project(stub, project)
+
+    assert emitted == ["Walk"]
 
 
 def _load_video_stub(previous_pose: MagicMock, events: list[str]) -> MagicMock:
