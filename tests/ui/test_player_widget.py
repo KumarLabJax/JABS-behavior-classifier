@@ -279,7 +279,7 @@ def _seek_targets(thread: mock.Mock) -> list[int]:
     return [c.args[0] for c in thread.seek.call_args_list]
 
 
-def test_play_range_shows_the_range_as_playing_before_it_starts(qapp) -> None:
+def test_play_range_shows_the_range_as_playing_before_it_starts(qapp: "QApplication") -> None:
     """During the start delay the controls already show playback, at the range start."""
     widget, _ = _widget_with_mock_thread()
 
@@ -291,7 +291,7 @@ def test_play_range_shows_the_range_as_playing_before_it_starts(qapp) -> None:
     assert widget.current_frame == 10
 
 
-def test_play_range_drops_a_queued_slider_seek(qapp) -> None:
+def test_play_range_drops_a_queued_slider_seek(qapp: "QApplication") -> None:
     """A seek queued just before play_range must not move playback off the range start.
 
     This is how play_bout_clip lost its lead-in frames: it seeks to the bout start,
@@ -306,7 +306,7 @@ def test_play_range_drops_a_queued_slider_seek(qapp) -> None:
     assert _seek_targets(thread)[-1] == 90
 
 
-def test_toggle_play_during_range_delay_cancels_the_range(qapp) -> None:
+def test_toggle_play_during_range_delay_cancels_the_range(qapp: "QApplication") -> None:
     """Play/Pause shows Pause during the delay, so pressing it stops instead of playing."""
     widget, thread = _widget_with_mock_thread()
     widget.play_range(10, 20)
@@ -319,7 +319,7 @@ def test_toggle_play_during_range_delay_cancels_the_range(qapp) -> None:
     assert widget._next_frame_button.isEnabled()
 
 
-def test_seeks_during_range_delay_are_ignored_like_during_playback(qapp) -> None:
+def test_seeks_during_range_delay_are_ignored_like_during_playback(qapp: "QApplication") -> None:
     """Frame steps and wheel/keyboard slider changes don't move a pending range."""
     widget, thread = _widget_with_mock_thread()
     widget.play_range(10, 20)
@@ -329,9 +329,10 @@ def test_seeks_during_range_delay_are_ignored_like_during_playback(qapp) -> None
     qapp.processEvents()
 
     assert _seek_targets(thread) == [10]
+    assert widget.current_frame == 10
 
 
-def test_slider_click_during_range_delay_cancels_the_range(qapp) -> None:
+def test_slider_click_during_range_delay_cancels_the_range(qapp: "QApplication") -> None:
     """Clicking the slider is a deliberate seek: it cancels the pending range and seeks there."""
     widget, thread = _widget_with_mock_thread()
     widget.play_range(10, 20)
@@ -346,7 +347,7 @@ def test_slider_click_during_range_delay_cancels_the_range(qapp) -> None:
     assert _seek_targets(thread)[-1] == 300
 
 
-def test_failed_playback_start_resets_the_player(qapp) -> None:
+def test_failed_playback_start_resets_the_player(qapp: "QApplication") -> None:
     """If the range can't start, the player goes back to idle and forgets the range."""
     widget, _ = _widget_with_mock_thread()
     emitted: list[bool] = []
@@ -364,7 +365,7 @@ def test_failed_playback_start_resets_the_player(qapp) -> None:
     assert not widget._play_button.isChecked()
 
 
-def test_range_delay_emits_playing_changed_and_cancel_emits_stop(qapp) -> None:
+def test_range_delay_emits_playing_changed_and_cancel_emits_stop(qapp: "QApplication") -> None:
     """Listeners (e.g. export actions) see the pending range as playing, and its cancel."""
     widget, _ = _widget_with_mock_thread()
     emitted: list[bool] = []
@@ -376,7 +377,7 @@ def test_range_delay_emits_playing_changed_and_cancel_emits_stop(qapp) -> None:
     assert emitted == [True, False]
 
 
-def test_reload_frame_during_range_delay_redraws_the_range_start(qapp) -> None:
+def test_reload_frame_during_range_delay_redraws_the_range_start(qapp: "QApplication") -> None:
     """A reload while a range is pending redraws its start, not the (unpinned) slider value."""
     widget, thread = _widget_with_mock_thread()
     widget.play_range(10, 20)
@@ -387,7 +388,7 @@ def test_reload_frame_during_range_delay_redraws_the_range_start(qapp) -> None:
     assert _seek_targets(thread) == [10, 10]
 
 
-def test_play_range_is_ignored_while_slider_is_dragged(qapp) -> None:
+def test_play_range_is_ignored_while_slider_is_dragged(qapp: "QApplication") -> None:
     """A range requested mid-drag would be pulled off its start by the release seek."""
     widget, thread = _widget_with_mock_thread()
     widget._position_slider.setSliderDown(True)
@@ -398,7 +399,7 @@ def test_play_range_is_ignored_while_slider_is_dragged(qapp) -> None:
     assert 10 not in _seek_targets(thread)
 
 
-def test_play_range_without_player_thread_does_nothing(qapp) -> None:
+def test_play_range_without_player_thread_does_nothing(qapp: "QApplication") -> None:
     """A loaded stream without a player thread can't seek, so the range is ignored."""
     widget, _ = _widget_with_mock_thread()
     widget._player_thread = None
@@ -408,7 +409,7 @@ def test_play_range_without_player_thread_does_nothing(qapp) -> None:
     assert not widget.is_playing_or_pending
 
 
-def test_range_playback_announces_playing_once(qapp) -> None:
+def test_range_playback_announces_playing_once(qapp: "QApplication") -> None:
     """The delayed thread start doesn't repeat the playing_changed(True) sent by play_range."""
     widget, thread = _widget_with_mock_thread()
     emitted: list[bool] = []
@@ -422,14 +423,31 @@ def test_range_playback_announces_playing_once(qapp) -> None:
     assert emitted == [True]
 
 
-def test_play_range_during_range_delay_replaces_the_pending_range(qapp) -> None:
+def test_play_range_during_range_delay_replaces_the_pending_range(qapp: "QApplication") -> None:
     """A second range requested before the first starts plays instead of the first."""
     widget, thread = _widget_with_mock_thread()
+    emitted: list[bool] = []
+    widget.playing_changed.connect(emitted.append)
     widget.play_range(10, 20)
 
     widget.play_range(100, 200)
 
+    assert emitted == [True]
     assert widget._playback_range is not None
     assert widget._playback_range.start_frame == 100
     assert widget._play_range_timer.isActive()
     assert _seek_targets(thread)[-1] == 100
+
+
+def test_cancelled_range_leaves_slider_on_the_frame_shown(qapp: "QApplication") -> None:
+    """A scroll during the delay doesn't leave the slider off the displayed frame."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+    widget._position_slider.setValue(600)
+
+    widget.toggle_play()
+    widget.reload_frame()
+    qapp.processEvents()
+
+    assert widget.current_frame == 10
+    assert _seek_targets(thread) == [10, 10]

@@ -858,7 +858,7 @@ def test_search_hit_whose_pose_fails_to_open_is_reported(monkeypatch):
     stub._player_widget.seek_to_frame.assert_not_called()
 
 
-def test_search_hit_stops_playback_before_seeking(monkeypatch):
+def test_search_hit_stops_playback_before_seeking(monkeypatch: pytest.MonkeyPatch) -> None:
     """The player ignores seeks while playing, so a search hit must stop playback first."""
     monkeypatch.setattr(central_widget_module, "MessageDialog", MagicMock())
     project = MagicMock()

@@ -416,9 +416,9 @@ class PlayerWidget(QtWidgets.QWidget):
         if start < 0 or end >= self.num_frames or start >= end:
             return
 
-        # a new range requested before a pending one starts replaces it
-        if self.is_playing_or_pending:
-            self.stop()
+        # a new range requested before a pending one starts replaces it; playback was
+        # already announced, so listeners see no stop/start between the two
+        replacing = self.is_playing_or_pending
 
         self._playback_range = PlaybackRange(start_frame=start, end_frame=end)
 
@@ -435,10 +435,11 @@ class PlayerWidget(QtWidgets.QWidget):
         # the range counts as playing from here on, so show it that way now rather than
         # when the player thread starts
         self._show_playing_controls()
-        self.playing_changed.emit(True)
+        if not replacing:
+            self.playing_changed.emit(True)
 
         # start playback, pause for 250 ms first to let things settle after moving
-        # the position to the start of the range.
+        # the position to the start of the range (start() restarts a pending timer).
         self._play_range_timer.start()
 
     @property
@@ -687,12 +688,16 @@ class PlayerWidget(QtWidgets.QWidget):
 
         While playing, the player thread moves the slider itself, so only a drag (which
         pauses playback until release) seeks. While a range is about to start, other
-        changes are ignored too; the range starts from its own start frame.
+        changes don't seek; the slider goes back to the range start, which is the frame
+        shown, so it still matches the display if the range is cancelled.
         """
-        if self._player_thread is not None and (
-            not self.is_playing_or_pending or self._position_slider.isSliderDown()
-        ):
+        if self._player_thread is None:
+            return
+        if not self.is_playing_or_pending or self._position_slider.isSliderDown():
             self._request_seek(value)
+        elif not self._playing and self._playback_range is not None:
+            with QtCore.QSignalBlocker(self._position_slider):
+                self._position_slider.setValue(self._playback_range.start_frame)
 
     def toggle_play(self) -> None:
         """handle clicking on the play/pause button
