@@ -606,6 +606,19 @@ class MainControlWidget(QtWidgets.QWidget):
     def remove_behavior(self, behavior: str):
         """remove a behavior from the behavior selection box"""
         idx = self.behavior_selection.findText(behavior, QtCore.Qt.MatchFlag.MatchExactly)
+        if idx != -1 and len(self._behaviors) == 1:
+            # Removing the last behavior opens the first-behavior prompt. Keep the
+            # selection change handler off meanwhile, as update_project_settings does,
+            # so behavior_changed fires once, after new_behavior_label, rather than
+            # also for the emptied list and for the new item.
+            self.behavior_selection.currentIndexChanged.disconnect()
+            self.behavior_selection.removeItem(idx)
+            self._behaviors.remove(behavior)
+            self._get_first_label(emit=False)
+            self.behavior_selection.currentIndexChanged.connect(self._behavior_changed)
+            self._behavior_changed()
+            return
+
         if idx != -1:
             self.behavior_selection.removeItem(idx)
             self._behaviors.remove(behavior)
