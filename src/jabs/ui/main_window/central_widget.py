@@ -462,8 +462,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._none_counts = None
         self._unsupported_classifier_warned = set()
 
+        # Don't emit here: update_project_settings emits behavior_changed once; a second
+        # emit would load (and warn about) the saved classifier twice.
+        self._controls.set_classifier_mode(project.settings_manager.classifier_mode, emit=False)
         self._controls.update_project_settings(project.settings)
-        self._controls.set_classifier_mode(project.settings_manager.classifier_mode)
         self._search_bar_widget.update_project(project)
         self._update_timeline_search_results()
 
@@ -2354,7 +2356,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._reset_classifier()
             self._warn_unsupported_classifier(e)
         except ClassifierFeatureVersionError as e:
-            logger.warning("saved classifier must be retrained: %s", e)
+            # Project.load_classifier already logged it
             self._reset_classifier()
             self._warn_stale_classifier(e)
         except Exception as e:

@@ -13,9 +13,11 @@ from jabs.project.unusable_report import UnusableNotice
 
 try:
     from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
 
     import jabs.ui.main_window.central_widget as central_widget_module
     from jabs.core.enums import ClassifierMode
+    from jabs.ui.main_control_widget.main_control_widget import MainControlWidget
     from jabs.ui.main_window.central_widget import CentralWidget
 
     SKIP_UI_TESTS = False
@@ -948,6 +950,72 @@ def test_set_project_drops_the_previous_projects_video():
     stub._player_widget.reset.assert_called_once()
     stub._controls.set_identities.assert_called_with([])
     assert stub._controls.select_button_enabled is False
+
+
+def test_set_project_emits_behavior_changed_once() -> None:
+    """Opening a project emits behavior_changed once.
+
+    Each emit loads (and warns about) the saved classifier; setting the classifier mode
+    and the project settings each used to emit, so a stale classifier was warned about
+    twice. This checks the signal count, not the classifier load itself.
+    """
+    _app = QApplication.instance() or QApplication([])
+    controls = MainControlWidget()
+    emitted: list[str] = []
+    controls.behavior_changed.connect(emitted.append)
+    stub = SimpleNamespace(
+        _project=None,
+        _pose_est=None,
+        _controls=controls,
+        _player_widget=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+        _set_identities=MagicMock(),
+        _update_select_button_state=MagicMock(),
+    )
+    project = MagicMock()
+    project.settings = {"window_sizes": [5], "behavior": {"Walk": {}}}
+    project.settings_manager.classifier_mode = ClassifierMode.BINARY
+
+    CentralWidget.set_project(stub, project)
+
+    assert emitted == ["Walk"]
+
+
+def test_set_project_applies_multiclass_mode_to_label_buttons() -> None:
+    """Opening a multi-class project shows the mode on the label buttons."""
+    _app = QApplication.instance() or QApplication([])
+    controls = MainControlWidget()
+    stub = SimpleNamespace(
+        _project=None,
+        _pose_est=None,
+        _controls=controls,
+        _player_widget=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+        _set_identities=MagicMock(),
+        _update_select_button_state=MagicMock(),
+    )
+    project = MagicMock()
+    project.settings = {"window_sizes": [5], "behavior": {"Walk": {}}}
+    project.settings_manager.classifier_mode = ClassifierMode.MULTICLASS
+
+    CentralWidget.set_project(stub, project)
+
+    assert controls._label_not_behavior_button.text() == "None"
+
+
+def test_set_classifier_mode_without_emit_updates_label_buttons() -> None:
+    """emit=False still shows the mode on the label buttons, but sends no behavior_changed."""
+    _app = QApplication.instance() or QApplication([])
+    controls = MainControlWidget()
+    emitted: list[str] = []
+    controls.behavior_changed.connect(emitted.append)
+
+    controls.set_classifier_mode(ClassifierMode.MULTICLASS, emit=False)
+
+    assert controls._label_not_behavior_button.text() == "None"
+    assert emitted == []
 
 
 def _load_video_stub(previous_pose: MagicMock, events: list[str]) -> MagicMock:
