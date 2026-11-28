@@ -170,3 +170,13 @@ def test_all_kfold_checkbox_reports_the_cross_validation_change() -> None:
     assert widget._kslider.isEnabled()
 
     assert emitted == [True, False]
+
+
+def test_controls_do_not_expand_horizontally() -> None:
+    """The control panel keeps its width so a wider window goes to the player and timeline.
+
+    A stretch factor on any nested layout item makes the whole panel expand horizontally.
+    """
+    widget = MainControlWidget()
+
+    assert not widget.layout().expandingDirections() & Qt.Orientation.Horizontal

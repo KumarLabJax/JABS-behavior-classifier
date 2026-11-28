@@ -114,7 +114,14 @@ class MainControlWidget(QtWidgets.QWidget):
         behavior_layout.addWidget(self._add_label_button)
 
         # identity selection form layout
-        identity_layout = QtWidgets.QVBoxLayout()
+        identity_layout = QtWidgets.QHBoxLayout()
+        # the label must not grow, so the drop-down takes the row's spare width; a
+        # stretch factor instead would make the whole panel expand horizontally
+        subject_label = QtWidgets.QLabel("Subject:")
+        subject_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum, QtWidgets.QSizePolicy.Policy.Preferred
+        )
+        identity_layout.addWidget(subject_label)
         identity_layout.addWidget(self.identity_selection)
 
         # combine behavior and identity layouts into a single layout
