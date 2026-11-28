@@ -462,11 +462,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._none_counts = None
         self._unsupported_classifier_warned = set()
 
-        # Set the mode silently: update_project_settings emits behavior_changed itself,
-        # and a second emit would load (and warn about) the saved classifier twice.
-        self._controls.blockSignals(True)
-        self._controls.set_classifier_mode(project.settings_manager.classifier_mode)
-        self._controls.blockSignals(False)
+        # Only store the mode: update_project_settings applies it to the label buttons
+        # and emits behavior_changed once; a second emit would load (and warn about)
+        # the saved classifier twice.
+        self._controls.set_classifier_mode(project.settings_manager.classifier_mode, emit=False)
         self._controls.update_project_settings(project.settings)
         self._search_bar_widget.update_project(project)
         self._update_timeline_search_results()

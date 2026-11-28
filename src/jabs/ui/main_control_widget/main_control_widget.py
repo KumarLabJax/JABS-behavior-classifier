@@ -729,7 +729,7 @@ class MainControlWidget(QtWidgets.QWidget):
         # send a signal that we have an updated list of window sizes
         self.new_window_sizes.emit(sizes)
 
-    def set_classifier_mode(self, mode: ClassifierMode) -> None:
+    def set_classifier_mode(self, mode: ClassifierMode, emit: bool = True) -> None:
         """Update the labeling UI to reflect the current classifier mode.
 
         In multi-class mode the not-behavior button is repurposed as a "None"
@@ -737,9 +737,13 @@ class MainControlWidget(QtWidgets.QWidget):
 
         Args:
             mode: The classifier mode to apply.
+            emit: If False, only store the mode; the label buttons and
+                behavior_changed are left for the caller's next behavior update
+                (e.g. update_project_settings).
         """
         self._classifier_mode = mode
-        self._behavior_changed()
+        if emit:
+            self._behavior_changed()
 
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)

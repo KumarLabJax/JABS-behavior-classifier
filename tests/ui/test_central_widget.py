@@ -935,7 +935,7 @@ def test_set_project_drops_the_previous_projects_video():
     assert stub._controls.select_button_enabled is False
 
 
-def test_set_project_emits_behavior_changed_once():
+def test_set_project_emits_behavior_changed_once() -> None:
     """Opening a project loads the saved classifier (and warns about it) only once.
 
     Setting the classifier mode and the project settings each emitted behavior_changed,
@@ -962,6 +962,29 @@ def test_set_project_emits_behavior_changed_once():
     CentralWidget.set_project(stub, project)
 
     assert emitted == ["Walk"]
+
+
+def test_set_project_applies_multiclass_mode_to_label_buttons() -> None:
+    """The mode is stored silently, but the label buttons still show it once the project opens."""
+    _app = QApplication.instance() or QApplication([])
+    controls = MainControlWidget()
+    stub = SimpleNamespace(
+        _project=None,
+        _pose_est=None,
+        _controls=controls,
+        _player_widget=MagicMock(),
+        _search_bar_widget=MagicMock(),
+        _update_timeline_search_results=MagicMock(),
+        _set_identities=MagicMock(),
+        _update_select_button_state=MagicMock(),
+    )
+    project = MagicMock()
+    project.settings = {"window_sizes": [5], "behavior": {"Walk": {}}}
+    project.settings_manager.classifier_mode = ClassifierMode.MULTICLASS
+
+    CentralWidget.set_project(stub, project)
+
+    assert controls._label_not_behavior_button.text() == "None"
 
 
 def _load_video_stub(previous_pose: MagicMock, events: list[str]) -> MagicMock:
