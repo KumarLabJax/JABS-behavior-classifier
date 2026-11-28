@@ -936,10 +936,11 @@ def test_set_project_drops_the_previous_projects_video():
 
 
 def test_set_project_emits_behavior_changed_once() -> None:
-    """Opening a project loads the saved classifier (and warns about it) only once.
+    """Opening a project emits behavior_changed once.
 
-    Setting the classifier mode and the project settings each emitted behavior_changed,
-    so a stale classifier was loaded, logged and warned about twice.
+    Each emit loads (and warns about) the saved classifier; setting the classifier mode
+    and the project settings each used to emit, so a stale classifier was warned about
+    twice. This checks the signal count, not the classifier load itself.
     """
     _app = QApplication.instance() or QApplication([])
     controls = MainControlWidget()
@@ -962,10 +963,11 @@ def test_set_project_emits_behavior_changed_once() -> None:
     CentralWidget.set_project(stub, project)
 
     assert emitted == ["Walk"]
+    controls.deleteLater()
 
 
 def test_set_project_applies_multiclass_mode_to_label_buttons() -> None:
-    """The mode is stored silently, but the label buttons still show it once the project opens."""
+    """Opening a multi-class project shows the mode on the label buttons."""
     _app = QApplication.instance() or QApplication([])
     controls = MainControlWidget()
     stub = SimpleNamespace(
@@ -985,6 +987,7 @@ def test_set_project_applies_multiclass_mode_to_label_buttons() -> None:
     CentralWidget.set_project(stub, project)
 
     assert controls._label_not_behavior_button.text() == "None"
+    controls.deleteLater()
 
 
 def _load_video_stub(previous_pose: MagicMock, events: list[str]) -> MagicMock:

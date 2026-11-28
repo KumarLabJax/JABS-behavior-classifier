@@ -737,15 +737,21 @@ class MainControlWidget(QtWidgets.QWidget):
 
         Args:
             mode: The classifier mode to apply.
-            emit: If False, only store the mode; the label buttons and
-                behavior_changed are left for the caller's next behavior update
-                (e.g. update_project_settings).
+            emit: If False, update the label buttons without emitting
+                behavior_changed (e.g. when the caller emits it next).
         """
         self._classifier_mode = mode
         if emit:
             self._behavior_changed()
+        else:
+            self._update_label_buttons()
 
     def _behavior_changed(self):
+        self._update_label_buttons()
+        self.behavior_changed.emit(self.current_behavior)
+
+    def _update_label_buttons(self) -> None:
+        """Show the current behavior and classifier mode on the label buttons."""
         self._label_behavior_button.setText(self.current_behavior)
         self._label_behavior_button.setToolTip(f"Label frames {self.current_behavior} [z]")
         if self._classifier_mode == ClassifierMode.MULTICLASS:
@@ -756,7 +762,6 @@ class MainControlWidget(QtWidgets.QWidget):
             self._label_not_behavior_button.setToolTip(
                 f"Label frames Not {self.current_behavior} [c]"
             )
-        self.behavior_changed.emit(self.current_behavior)
 
     def _window_size_changed(self):
         self.window_size_changed.emit(self._window_size.currentData())
