@@ -153,6 +153,67 @@ def test_first_label_quit_does_not_exit_when_the_close_is_declined(monkeypatch) 
     assert stub.closed == [True]
 
 
+class _AcceptedDialog(_RejectedDialog):
+    """Stands in for the QInputDialog the user answers with a first behavior name."""
+
+    def exec(self) -> int:
+        return 1  # accepted
+
+    def textValue(self) -> str:
+        return "Walk"
+
+    def result(self) -> int:
+        return 1
+
+
+def test_opening_a_project_without_behaviors_emits_behavior_changed_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first behavior entered on project open triggers one behavior change, not two."""
+    controls = MainControlWidget()
+    monkeypatch.setattr(main_control_widget_module.QtWidgets, "QInputDialog", _AcceptedDialog)
+    emitted: list[str] = []
+    new_labels: list[list[str]] = []
+    controls.behavior_changed.connect(emitted.append)
+    controls.new_behavior_label.connect(new_labels.append)
+
+    controls.update_project_settings({"window_sizes": [5]})
+
+    assert new_labels == [["Walk"]]
+    assert emitted == ["Walk"]
+    assert controls._label_behavior_button.text() == "Walk"
+
+
+def test_archiving_the_last_behavior_emits_behavior_changed_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replacing the last behavior emits behavior_changed once, after new_behavior_label."""
+    controls = MainControlWidget()
+    controls.update_project_settings({"window_sizes": [5], "behavior": {"Groom": {}}})
+    monkeypatch.setattr(main_control_widget_module.QtWidgets, "QInputDialog", _AcceptedDialog)
+    events: list[tuple[str, object]] = []
+    controls.behavior_changed.connect(lambda b: events.append(("behavior_changed", b)))
+    controls.new_behavior_label.connect(lambda b: events.append(("new_behavior_label", b)))
+
+    controls.remove_behavior("Groom")
+
+    assert events == [("new_behavior_label", ["Walk"]), ("behavior_changed", "Walk")]
+    assert controls.behaviors == ["Walk"]
+
+
+def test_removing_one_of_several_behaviors_selects_the_next(qapp: "QApplication") -> None:
+    """Removing a behavior that isn't the last still switches to the remaining one."""
+    controls = MainControlWidget()
+    controls.update_project_settings({"window_sizes": [5], "behavior": {"Groom": {}, "Walk": {}}})
+    emitted: list[str] = []
+    controls.behavior_changed.connect(emitted.append)
+
+    controls.remove_behavior("Groom")
+
+    assert emitted == ["Walk"]
+    assert controls.behaviors == ["Walk"]
+
+
 def test_all_kfold_checkbox_reports_the_cross_validation_change() -> None:
     """Toggling "All k-fold" emits kfold_changed so the train button is re-evaluated.
 

@@ -550,7 +550,9 @@ class MainControlWidget(QtWidgets.QWidget):
             behavior_index = self._behaviors.index(project_settings["selected_behavior"])
 
         if len(self._behaviors) == 0:
-            self._get_first_label()
+            # the behavior_changed emit below covers the new behavior; emitting here
+            # too would run the behavior change (classifier load, save) twice
+            self._get_first_label(emit=False)
 
         # set the index to either the first behavior, or if available, the one
         # that was saved in the project metadata
@@ -604,6 +606,19 @@ class MainControlWidget(QtWidgets.QWidget):
     def remove_behavior(self, behavior: str):
         """remove a behavior from the behavior selection box"""
         idx = self.behavior_selection.findText(behavior, QtCore.Qt.MatchFlag.MatchExactly)
+        if idx != -1 and len(self._behaviors) == 1:
+            # Removing the last behavior opens the first-behavior prompt. Keep the
+            # selection change handler off meanwhile, as update_project_settings does,
+            # so behavior_changed fires once, after new_behavior_label, rather than
+            # also for the emptied list and for the new item.
+            self.behavior_selection.currentIndexChanged.disconnect()
+            self.behavior_selection.removeItem(idx)
+            self._behaviors.remove(behavior)
+            self._get_first_label(emit=False)
+            self.behavior_selection.currentIndexChanged.connect(self._behavior_changed)
+            self._behavior_changed()
+            return
+
         if idx != -1:
             self.behavior_selection.removeItem(idx)
             self._behaviors.remove(behavior)
@@ -643,13 +658,17 @@ class MainControlWidget(QtWidgets.QWidget):
             self.behavior_selection.addItem(text)
             self.behavior_selection.setCurrentText(text)
 
-    def _get_first_label(self):
+    def _get_first_label(self, emit: bool = True) -> None:
         """Show the new label dialog.
 
         Used when opening a new project for the fist time or if a user archives all behaviors in a project.
 
         dialog is customized to hide the window close button. The only way to close the dialog is to create a new
         label or to quit jabs (the Cancel button of the dialog has been renamed "Quit JABS").
+
+        Args:
+            emit: If False, don't emit behavior_changed for the new behavior (the caller
+                emits it next).
         """
         dialog = QtWidgets.QInputDialog()
         dialog.setWindowTitle("New Behavior")
@@ -668,7 +687,8 @@ class MainControlWidget(QtWidgets.QWidget):
                 self.behavior_selection.addItem(text)
                 self.behavior_selection.setCurrentText(text)
                 self.new_behavior_label.emit(self._behaviors)
-                self._behavior_changed()
+                if emit:
+                    self._behavior_changed()
         else:
             # Close the window holding this widget (the main window) first, so its
             # closeEvent runs -- stopping background threads and shutting down the
