@@ -369,12 +369,12 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def stop(self) -> None:
         """stop playing and reset the play button to its initial state"""
-        # capture before wait() so we emit only on a true play→stop transition;
-        # this prevents spurious signals when stop() is called while already paused
-        # (e.g. during load_video).  The thread is fully joined via wait() before
-        # _playing is set to False, so _video_stream is safe to read from the main
-        # thread as soon as playing_changed(False) is received.
-        was_playing = self._playing
+        # capture before wait() so we emit only on a true play→stop transition (a
+        # pending range counts as playing); this prevents spurious signals when stop()
+        # is called while already paused (e.g. during load_video).  The thread is fully
+        # joined via wait() before _playing is set to False, so _video_stream is safe to
+        # read from the main thread as soon as playing_changed(False) is received.
+        was_playing = self.is_playing_or_pending
         self._play_range_timer.stop()
 
         # if we have an active player thread, terminate
@@ -404,21 +404,42 @@ class PlayerWidget(QtWidgets.QWidget):
             start: starting frame number
             end: ending frame number
         """
-        if self._video_stream is None or self._playing:
+        if (
+            self._video_stream is None
+            or self._player_thread is None
+            or self._playing
+            or self._position_slider.isSliderDown()
+        ):
             return
 
         # ensure the range is valid
         if start < 0 or end >= self.num_frames or start >= end:
             return
 
-        self.stop()
+        # a new range requested before a pending one starts replaces it; playback was
+        # already announced, so listeners see no stop/start between the two
+        replacing = self.is_playing_or_pending
+
         self._playback_range = PlaybackRange(start_frame=start, end_frame=end)
 
-        # set the position slider to the start frame
-        self._seek(self._playback_range.start_frame)
+        # drop any slider seek still queued (e.g. from a seek just before this call), or
+        # it would run after the seek below and move playback off the range start
+        self._seek_timer.stop()
+        self._pending_seek = None
+
+        # move the slider to the start frame without triggering its own seek
+        with QtCore.QSignalBlocker(self._position_slider):
+            self._position_slider.setValue(start)
+        self._seek(start)
+
+        # the range counts as playing from here on, so show it that way now rather than
+        # when the player thread starts
+        self._show_playing_controls()
+        if not replacing:
+            self.playing_changed.emit(True)
 
         # start playback, pause for 250 ms first to let things settle after moving
-        # the position to the start of the range.
+        # the position to the start of the range (start() restarts a pending timer).
         self._play_range_timer.start()
 
     @property
@@ -426,9 +447,12 @@ class PlayerWidget(QtWidgets.QWidget):
         """Return True if playback is running or a range playback is about to start.
 
         `play_range` seeks first and starts the player thread after a short delay, so
-        `_playing` alone misses the window between the call and the actual start.
+        `_playing` alone misses the window between the call and the actual start. The
+        player treats that window exactly like playback: the controls show it as
+        playing, and Play/Pause cancels it. The range is set until `stop()` clears it,
+        so this stays True after the delay timer fires, even if playback fails to start.
         """
-        return self._playing or self._play_range_timer.isActive()
+        return self._playing or self._playback_range is not None
 
     @property
     def current_frame(self) -> int:
@@ -605,7 +629,12 @@ class PlayerWidget(QtWidgets.QWidget):
         This is useful when video overlays have changed but the video
         is paused and we want to update the current frame display.
         """
-        if not self._playing and self._player_thread is not None:
+        if self._playing or self._player_thread is None:
+            return
+        # a pending range doesn't pin the slider, so redraw its start frame instead
+        if self._playback_range is not None:
+            self._player_thread.seek(self._playback_range.start_frame)
+        else:
             self._player_thread.seek(self._position_slider.value())
 
     def _seek(self, position: int) -> None:
@@ -619,6 +648,10 @@ class PlayerWidget(QtWidgets.QWidget):
         Seek to the new position of the slider. If the video is playing we will temporarily stop playback and
         playback will resume when slider is released. New frame is displayed with the updated position.
         """
+        # clicking the slider before a pending range starts cancels the range
+        if self._play_range_timer.isActive():
+            self.stop()
+
         # should we resume playing after the slider is released?
         self._resume_playing = self._playing
         if self._playing:
@@ -654,12 +687,19 @@ class PlayerWidget(QtWidgets.QWidget):
         """Seek when the slider value changes by dragging, scrolling, or stepping.
 
         While playing, the player thread moves the slider itself, so only a drag (which
-        pauses playback until release) seeks.
+        pauses playback until release) seeks. Before a pending range starts, only the
+        user can move the slider (play_range sets it with signals blocked), so any change
+        cancels the range and seeks where the user moved it, like a slider click does.
+        Some mouse buttons change the value before the press is reported, so this must
+        not depend on isSliderDown().
         """
-        if self._player_thread is not None and (
-            not self._playing or self._position_slider.isSliderDown()
-        ):
-            self._request_seek(value)
+        if self._player_thread is None:
+            return
+        if self._playing and not self._position_slider.isSliderDown():
+            return
+        if not self._playing and self._playback_range is not None:
+            self.stop()
+        self._request_seek(value)
 
     def toggle_play(self) -> None:
         """handle clicking on the play/pause button
@@ -670,16 +710,13 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread is None or self._position_slider.isSliderDown():
             return
 
-        if self._playing:
-            # if we are playing, stop
+        if self.is_playing_or_pending:
+            # if we are playing (or a range is about to start), stop
             self.stop()
 
         else:
             # we weren't already playing so start
-            self._play_button.setIcon(
-                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPause)
-            )
-            self._disable_frame_buttons()
+            self._show_playing_controls()
             self._start_player_thread()
 
     def next_frame(self, frames: int = 1) -> None:
@@ -705,7 +742,7 @@ class PlayerWidget(QtWidgets.QWidget):
             frame_number: frame number to seek to
         """
         # don't do anything if a video isn't loaded or if the video is playing
-        if self._video_stream is None or self._playing:
+        if self._video_stream is None or self.is_playing_or_pending:
             return
 
         # the frame number should be bounded by the number of frames in the video
@@ -765,6 +802,14 @@ class PlayerWidget(QtWidgets.QWidget):
     def pixmap_clicked(self) -> QtCore.SignalInstance:
         """return the pixmap_clicked signal from the frame widget"""
         return self._frame_widget.pixmap_clicked
+
+    def _show_playing_controls(self) -> None:
+        """Show the play button as Pause and disable the previous/next frame buttons."""
+        self._play_button.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPause)
+        )
+        self._play_button.setChecked(True)
+        self._disable_frame_buttons()
 
     def _enable_frame_buttons(self) -> None:
         """enable the previous/next frame buttons"""
@@ -837,10 +882,16 @@ class PlayerWidget(QtWidgets.QWidget):
     def _start_player_thread(self) -> None:
         """start video playback in player thread"""
         if self._player_thread is None or self._video_stream is None:
+            # nothing to play; reset the controls and drop any pending range so the
+            # player doesn't look busy or cut off later playback at a stale range end
+            self.stop()
             return
+        # a range already announced playback when it was requested
+        announced = self.is_playing_or_pending
         self._player_thread.start()
         self._playing = True
-        self.playing_changed.emit(True)
+        if not announced:
+            self.playing_changed.emit(True)
 
     def _on_playback_speed_changed(self, speed: float) -> None:
         """Handle playback speed changes."""

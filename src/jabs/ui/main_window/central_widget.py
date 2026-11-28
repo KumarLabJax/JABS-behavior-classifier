@@ -2491,6 +2491,10 @@ class CentralWidget(QtWidgets.QWidget):
                         details=e.reason,
                     )
                     return
+            # the player ignores seeks while playing, so stop first or the jump to the
+            # hit is lost
+            if self._player_widget.is_playing_or_pending:
+                self._player_widget.stop()
             self._player_widget.seek_to_frame(search_hit.start_frame)
 
             # set the current identity based on the search hit
