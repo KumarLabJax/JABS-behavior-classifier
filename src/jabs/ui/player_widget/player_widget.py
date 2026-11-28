@@ -404,7 +404,7 @@ class PlayerWidget(QtWidgets.QWidget):
             start: starting frame number
             end: ending frame number
         """
-        if self._video_stream is None or self.is_playing_or_pending:
+        if self._video_stream is None or self._playing:
             return
 
         # ensure the range is valid
@@ -670,8 +670,8 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread is None or self._position_slider.isSliderDown():
             return
 
-        if self.is_playing_or_pending:
-            # if we are playing (or about to start a range), stop
+        if self._playing:
+            # if we are playing, stop
             self.stop()
 
         else:
@@ -705,7 +705,7 @@ class PlayerWidget(QtWidgets.QWidget):
             frame_number: frame number to seek to
         """
         # don't do anything if a video isn't loaded or if the video is playing
-        if self._video_stream is None or self.is_playing_or_pending:
+        if self._video_stream is None or self._playing:
             return
 
         # the frame number should be bounded by the number of frames in the video
