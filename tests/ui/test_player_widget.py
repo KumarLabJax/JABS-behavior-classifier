@@ -357,3 +357,47 @@ def test_failed_playback_start_resets_the_player(qapp) -> None:
     assert not widget.is_playing_or_pending
     assert widget._playback_range is None
     assert not widget._play_button.isChecked()
+
+
+def test_range_delay_emits_playing_changed_and_cancel_emits_stop(qapp) -> None:
+    """Listeners (e.g. export actions) see the pending range as playing, and its cancel."""
+    widget, _ = _widget_with_mock_thread()
+    emitted: list[bool] = []
+    widget.playing_changed.connect(emitted.append)
+
+    widget.play_range(10, 20)
+    widget.toggle_play()
+
+    assert emitted == [True, False]
+
+
+def test_reload_frame_during_range_delay_does_not_seek(qapp) -> None:
+    """A reload while a range is pending must not seek to the (unpinned) slider value."""
+    widget, thread = _widget_with_mock_thread()
+    widget.play_range(10, 20)
+    widget._position_slider.setValue(600)
+
+    widget.reload_frame()
+
+    assert _seek_targets(thread) == [10]
+
+
+def test_play_range_is_ignored_while_slider_is_dragged(qapp) -> None:
+    """A range requested mid-drag would be pulled off its start by the release seek."""
+    widget, thread = _widget_with_mock_thread()
+    widget._position_slider.setSliderDown(True)
+
+    widget.play_range(10, 20)
+
+    assert not widget.is_playing_or_pending
+    assert 10 not in _seek_targets(thread)
+
+
+def test_play_range_without_player_thread_does_nothing(qapp) -> None:
+    """A loaded stream without a player thread can't seek, so the range is ignored."""
+    widget, _ = _widget_with_mock_thread()
+    widget._player_thread = None
+
+    widget.play_range(10, 20)
+
+    assert not widget.is_playing_or_pending
